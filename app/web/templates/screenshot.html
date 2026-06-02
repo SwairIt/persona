@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 
 {% block content %}
+<link rel="stylesheet" href="/static/image_viewer.css">
+<script src="/static/image_viewer.js" defer></script>
+
 <div class="mb-4 flex items-center justify-between text-sm">
   <div class="flex items-center gap-2">
     {% if prev_id %}
@@ -33,11 +36,13 @@
   <div class="lg:col-span-2 space-y-4">
     {% if shot.thumbnail_path %}
       {% set thumb_src = shot.thumbnail_path | thumbnail_url %}
-      <div class="rounded-lg overflow-hidden border border-ink-700 bg-ink-900 cursor-zoom-in"
+      <div class="zoom-wrapper rounded-lg border border-ink-700 bg-ink-900"
            data-lightbox-src="{{ thumb_src }}">
         <img src="{{ thumb_src }}"
              alt="Screenshot #{{ shot.id }}"
-             class="w-full object-contain">
+             data-zoomable
+             draggable="false"
+             class="w-full object-contain block">
       </div>
     {% else %}
       <div class="aspect-video flex items-center justify-center text-zinc-500 bg-ink-900 rounded-lg border border-ink-700">

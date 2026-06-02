@@ -1,6 +1,6 @@
 # 🌅 Morning report — Persona
 
-Forty-five autonomous sessions: …v0.42 → v0.43 → v0.44 → **v0.45** without stopping. Self-pacing /loop continues until you cancel. **Live on GitHub:** https://github.com/SwairIt/persona
+Forty-six autonomous sessions: …v0.43 → v0.44 → v0.45 → **v0.46** without stopping (now chained back-to-back with zero wakeup gap). **Live on GitHub:** https://github.com/SwairIt/persona
 
 ## By the numbers (current)
 
@@ -11,6 +11,14 @@ Forty-five autonomous sessions: …v0.42 → v0.43 → v0.44 → **v0.45** witho
 - **20+ test files**
 - **0 git commits** — entirely up to you
 - **0 network calls at runtime** (only optional outgoing call: BYO-LLM keys to your chosen provider)
+
+## What landed in v0.46 (tag colours + image zoom + day kanban)
+
+Built via 3 parallel Workflow agents → sequential wire-up. First tick with **zero gap** to the previous one.
+
+- 🎨 **Per-tag colour** — `/tags` page now has an `<input type="color">` next to every tag. Pick a hex, the chip background updates everywhere instantly via HTMX. Server validates `^#[0-9a-f]{6}$` so no surprises in CSS.
+- 🔍 **Image viewer zoom & pan** — the screenshot detail page now supports wheel-zoom around the cursor (1× → 8×), click-drag panning, double-click reset, and two-finger pinch on touch devices. Pure CSS transform + vanilla JS, no library.
+- 📋 **Day kanban view** — `/kanban/{day}` groups a day's shots into horizontal columns by `app_name`. Each card shows the app, shot count, and a vertical strip of thumbnails. Useful for "what apps did I bounce between?" at a glance.
 
 ## What landed in v0.45 (app icon cache + encrypted notes + retention preview)
 

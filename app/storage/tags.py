@@ -181,6 +181,40 @@ async def set_tag_color(
     await conn.commit()
 
 
+async def set_tag_color_by_name(
+    conn: aiosqlite.Connection,
+    name: str,
+    *,
+    color: str | None,
+) -> int | None:
+    """Set ``color`` for the tag identified by ``name``.
+
+    Returns the matched tag id, or ``None`` when no tag with the given
+    name exists. Validates the hex value (same rules as
+    :func:`set_tag_color`) and writes ``NULL`` when the caller passes
+    an empty / falsy colour to mean "clear".
+    """
+    cleaned_name = name.strip().lower()
+    if not cleaned_name:
+        msg = "Empty tag name"
+        raise ValueError(msg)
+    cleaned_color = (color or "").strip()
+    if cleaned_color and not _is_valid_hex(cleaned_color):
+        msg = "Color must be a hex like #a78bfa"
+        raise ValueError(msg)
+    cursor = await conn.execute("SELECT id FROM tags WHERE name = ?", (cleaned_name,))
+    row = await cursor.fetchone()
+    if row is None:
+        return None
+    tag_id = int(row["id"])
+    await conn.execute(
+        "UPDATE tags SET color = ? WHERE id = ?",
+        (cleaned_color or None, tag_id),
+    )
+    await conn.commit()
+    return tag_id
+
+
 def _is_valid_hex(value: str) -> bool:
     if not value.startswith("#"):
         return False

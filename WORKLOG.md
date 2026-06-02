@@ -562,6 +562,17 @@ Three feature agents in parallel via Workflow (279k tokens, 30 min — slowest t
 - 01:45Z — wired app_icons + encrypted_notes + retention_preview routers
 - 01:50Z — tests/test_v045.py — icon route returns PNG + caches + deterministic + encrypt 404 + retention page + API + empty-DB zeros
 
+## 2026-06-03 — v0.46 continuation (autonomous, Ultracode workflow tick #29)
+
+Three feature agents in parallel via Workflow (215k tokens, 9.3 min). First tick with zero ScheduleWakeup gap — dispatched right after v0.45 wire-up.
+
+- 01:55Z — version bump 0.45→0.46
+- 02:00Z — **Per-tag colour customisation** (agent A): migration 046 adds `color TEXT` to tag. /api/tags/{name}/color POST validates `^#[0-9a-f]{6}$`. tags.html gets <input type="color"> per row HTMX-posting on change. Tag chips render with inline style background from tag.color falling back to default class.
+- 02:05Z — **Image viewer zoom/pan** (agent B): `app/web/static/image_viewer.js` + css. Attaches to data-zoomable: wheel zoom around cursor 1×-8×, pointerdown-drag pan, double-click reset, touch 2-finger pinch. CSS transform translate+scale, overflow:hidden on parent. screenshot.html wraps img in .zoom-wrapper.
+- 02:10Z — **Day kanban view** (agent C): `app/web/routes/day_kanban.py` GET /kanban/{day} renders horizontal scroll of 280px cards (one per app_name) with thumbnail strip + count header. JSON API /api/kanban/{day}.json. Visual only — no drag-to-reorder.
+- 02:14Z — wired tag_colour + day_kanban routers
+- 02:16Z — tests/test_v046.py — colour valid/invalid/short-hex + kanban page + API + image_viewer static files contain data-zoomable + transform
+
 ## How to run
 
 ```powershell

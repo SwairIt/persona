@@ -5,9 +5,9 @@ from __future__ import annotations
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
+from app.search import search as run_fts_search
 from app.storage.db import get_connection
 from app.storage.repository import get_screenshot
-from app.search import search as run_fts_search
 from app.storage.tags import (
     co_tag_counts,
     create_tag,
@@ -27,9 +27,14 @@ from app.storage.tags import (
     tag_screenshot,
     untag_screenshot,
 )
+from app.web.routes.tag_colour import router as tag_colour_router
 from app.web.templates_engine import templates
 
 router = APIRouter(tags=["tags"])
+# v0.46 — name-addressable colour endpoint lives in its own module so the
+# chip-rendering templates can POST to ``/api/tags/{name}/color`` without
+# first resolving the numeric id. Wired here to keep ``main.py`` untouched.
+router.include_router(tag_colour_router)
 
 
 @router.get("/tags", response_class=HTMLResponse)

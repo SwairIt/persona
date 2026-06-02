@@ -20,20 +20,44 @@
     {% if tags %}
       <div class="space-y-2">
         {% for tag in tags %}
-          <div class="flex items-center justify-between px-3 py-2 rounded bg-ink-900 hover:bg-ink-700/40 transition cursor-grab active:cursor-grabbing"
+          {% set _tag_colour = tag.color or '#8b5cf6' %}
+          <div class="flex items-center justify-between px-3 py-2 rounded hover:bg-ink-700/40 transition cursor-grab active:cursor-grabbing"
                draggable="true"
                data-draggable-tag="{{ tag.name }}"
+               style="background: {{ _tag_colour }}22; border-left: 3px solid {{ _tag_colour }};"
                title="Drag onto a screenshot thumbnail to apply this tag">
             <a href="/tags/{{ tag.id }}" class="flex items-center gap-2 flex-1 min-w-0">
-              <span class="w-2 h-2 rounded-full flex-shrink-0" style="background: {{ tag.color or '#8b5cf6' }};"></span>
+              <span class="w-2 h-2 rounded-full flex-shrink-0" style="background: {{ _tag_colour }};"></span>
               <span class="text-zinc-200 truncate">{{ tag.name }}</span>
             </a>
             <div class="flex items-center gap-2">
-              <input type="color" value="{{ tag.color or '#8b5cf6' }}"
-                     @change="
-                       const fd = new FormData(); fd.append('color', $event.target.value);
-                       fetch('/api/tags/{{ tag.id }}/color', { method: 'POST', body: fd });
-                     "
+              <span class="inline-block w-4 h-4 rounded-full border border-ink-700 pointer-events-none"
+                    style="background: {{ _tag_colour }};"
+                    aria-hidden="true"></span>
+              <input type="color" value="{{ _tag_colour }}"
+                     title="Pick a colour for the #{{ tag.name }} chip"
+                     data-tag-colour-input
+                     data-tag-name="{{ tag.name }}"
+                     onchange="(async (el) => {
+                       const fd = new FormData();
+                       fd.append('color', el.value);
+                       const url = '/api/tags/' + encodeURIComponent(el.dataset.tagName) + '/color';
+                       const r = await fetch(url, { method: 'POST', body: fd });
+                       if (r.ok) {
+                         const swatch = el.previousElementSibling;
+                         if (swatch) swatch.style.background = el.value;
+                         const dot = el.closest('div.flex')?.parentElement
+                           ?.querySelector('a > span:first-child');
+                         if (dot) dot.style.background = el.value;
+                         const row = el.closest('[data-draggable-tag]');
+                         if (row) {
+                           row.style.background = el.value + '22';
+                           row.style.borderLeftColor = el.value;
+                         }
+                       } else {
+                         alert('Failed to save tag colour');
+                       }
+                     })(this)"
                      class="w-6 h-6 rounded cursor-pointer border-0 bg-transparent">
               <span class="text-xs text-zinc-500 font-mono w-10 text-right">{{ tag.count }}</span>
             </div>

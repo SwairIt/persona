@@ -1,0 +1,42 @@
+/*
+ * image_viewer.css — Persona v0.46
+ *
+ * Minimal styling for the vanilla-JS zoom + pan viewer. The wrapper
+ * clips overflow so the panned/zoomed image cannot leak out of its
+ * card; the image itself gets grab cursors and disables native gestures
+ * (browser pinch-zoom, image dragging) that would fight the JS handler.
+ */
+
+.zoom-wrapper {
+  overflow: hidden;
+  position: relative;
+  /* Keep the wrapper from collapsing if the image is taller than the
+     viewport during a zoom — the inner image is already responsive. */
+  touch-action: none;
+}
+
+[data-zoomable] {
+  cursor: grab;
+  /* Transform-origin top-left makes the JS math (translate + scale)
+     correspond directly to client-pixel anchors. */
+  transform-origin: 0 0;
+  /* Stop the browser from interpreting drags as image-saves or text
+     selection; both would hijack the pointer stream. */
+  user-select: none;
+  -webkit-user-drag: none;
+  -webkit-user-select: none;
+  /* Disable native pinch/scroll on the element itself — we synthesize
+     them in JS so behaviour stays consistent across browsers. */
+  touch-action: none;
+  will-change: transform;
+}
+
+[data-zoomable].is-dragging {
+  cursor: grabbing;
+}
+
+[data-zoomable] img,
+[data-zoomable] {
+  /* Crisp pixels when zoomed in — screenshots are pixel art at >2x. */
+  image-rendering: -webkit-optimize-contrast;
+}

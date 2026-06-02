@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-end justify-between flex-wrap gap-3">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Day kanban</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      {{ day }}{% if day == today %} · today{% endif %} ·
+      {{ column_count }} app{% if column_count != 1 %}s{% endif %} ·
+      {{ total_shots }} shot{% if total_shots != 1 %}s{% endif %}
+    </p>
+  </div>
+
+  <nav class="flex flex-wrap items-center gap-2 text-sm">
+    <a href="/kanban/{{ prev_day }}"
+       class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700 border border-ink-700 text-zinc-300"
+       title="Previous day">&larr; {{ prev_day }}</a>
+    {% if day != today %}
+      <a href="/kanban/{{ today }}"
+         class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700 border border-ink-700 text-zinc-300"
+         title="Jump to today">Today</a>
+    {% endif %}
+    <a href="/kanban/{{ next_day }}"
+       class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700 border border-ink-700 text-zinc-300"
+       title="Next day">{{ next_day }} &rarr;</a>
+    <form method="get" action=""
+          onsubmit="event.preventDefault(); var d=this.querySelector('input[name=d]').value; if(d){window.location.href='/kanban/'+d;}"
+          class="flex items-center gap-2">
+      <input type="date" name="d" value="{{ day }}"
+             class="bg-ink-800 border border-ink-700 rounded px-2 py-1 text-sm text-zinc-100
+                    focus:outline-none focus:border-accent-500">
+      <button type="submit"
+              class="px-3 py-1 rounded bg-accent-600 hover:bg-accent-500 text-white text-sm font-medium">
+        Go
+      </button>
+    </form>
+  </nav>
+</div>
+
+{% if column_count == 0 %}
+  <div class="rounded-lg border border-ink-700 bg-ink-900 p-12 text-center">
+    <p class="text-zinc-400">No captures on {{ day }}.</p>
+    <p class="text-zinc-600 text-sm mt-2">
+      Try another day, or check that capture wasn't paused all day.
+    </p>
+  </div>
+{% else %}
+  {#
+    Horizontal scroll container — one card per app, fixed width per card
+    (280px) so visual rhythm holds across screens. ``overflow-x-auto``
+    keeps the wide board reachable on a narrow viewport; the negative
+    margin trick lets the scrollbar live flush with the page gutter
+    rather than inside the content max-width.
+  #}
+  <div class="kanban-scroll -mx-2 px-2 pb-3 overflow-x-auto">
+    <div class="flex gap-4 items-start min-w-min">
+      {% for col in columns %}
+        <section class="kanban-col flex flex-col rounded-lg border border-ink-700 bg-ink-900 shadow-sm"
+                 style="width: 280px; min-width: 280px; max-height: 78vh;">
+          <header class="px-3 py-2 border-b border-ink-700 bg-ink-900/80 backdrop-blur sticky top-0 z-[1] rounded-t-lg">
+            <div class="flex items-center justify-between gap-2">
+              <h2 class="text-sm font-semibold text-zinc-200 truncate" title="{{ col.app_name }}">
+                {{ col.app_name }}
+              </h2>
+              <span class="shrink-0 text-xs font-mono px-2 py-0.5 rounded-full
+                           bg-accent-600/20 text-accent-400 border border-accent-600/40"
+                    title="{{ col.count }} shot{% if col.count != 1 %}s{% endif %} today">
+                {{ col.count }}
+              </span>
+            </div>
+            {% if col.shots|length < col.count %}
+              <p class="text-[10px] uppercase tracking-widest text-zinc-500 mt-1">
+                showing {{ col.shots|length }} / {{ col.count }}
+              </p>
+            {% endif %}
+          </header>
+
+          <div class="kanban-strip flex-1 overflow-y-auto p-2 space-y-2">
+            {% for shot in col.shots %}
+              <a href="/screenshot/{{ shot.id }}"
+                 class="kanban-card group block rounded-md border border-ink-700 bg-ink-800
+                        hover:border-accent-500 hover:bg-ink-700 transition overflow-hidden"
+                 title="{{ shot.app_name if shot.app_name else col.app_name }} · {{ shot.captured_at }}">
+                {% if shot.thumbnail_url %}
+                  <img src="{{ shot.thumbnail_url }}"
+                       alt="Shot {{ shot.id }}"
+                       loading="lazy"
+                       draggable="false"
+                       width="160" height="90"
+                       class="block w-full h-[90px] object-cover bg-black select-none">
+                {% else %}
+                  <div class="w-full h-[90px] flex items-center justify-center bg-ink-950 text-[10px] text-zinc-600">
+                    no thumb
+                  </div>
+                {% endif %}
+                <div class="px-2 py-1 flex items-center justify-between text-[11px] text-zinc-400 group-hover:text-zinc-200">
+                  <span class="font-mono">{{ shot.captured_at_dt | clock }}</span>
+                  <span class="font-mono text-zinc-600 group-hover:text-zinc-400">#{{ shot.id }}</span>
+                </div>
+              </a>
+            {% else %}
+              <p class="text-xs text-zinc-600 italic text-center py-4">
+                No thumbnails available.
+              </p>
+            {% endfor %}
+          </div>
+        </section>
+      {% endfor %}
+    </div>
+  </div>
+
+  <style>
+    /*
+     * Custom scrollbar polish — the horizontal board scroller is the
+     * dominant control on this page so it gets a slightly chunkier rail
+     * than the browser default, otherwise users miss that the board
+     * scrolls at all on a wide-display capture day.
+     */
+    .kanban-scroll {
+      scrollbar-color: #3f3f46 transparent;
+      scrollbar-width: thin;
+    }
+    .kanban-scroll::-webkit-scrollbar {
+      height: 10px;
+    }
+    .kanban-scroll::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .kanban-scroll::-webkit-scrollbar-thumb {
+      background: #3f3f46;
+      border-radius: 6px;
+    }
+    .kanban-scroll::-webkit-scrollbar-thumb:hover {
+      background: #52525b;
+    }
+
+    /* Per-column vertical scroller — thinner, blends into the card. */
+    .kanban-strip {
+      scrollbar-color: #27272a transparent;
+      scrollbar-width: thin;
+    }
+    .kanban-strip::-webkit-scrollbar {
+      width: 6px;
+    }
+    .kanban-strip::-webkit-scrollbar-thumb {
+      background: #3f3f46;
+      border-radius: 3px;
+    }
+  </style>
+{% endif %}
+{% endblock %}
