@@ -496,6 +496,17 @@ Three feature agents in parallel via Workflow (183k tokens, 7.2 min), then seque
 - 11:06Z — wired ocr_language_stats + archive_bundle routers (keyboard shortcuts is JS-only)
 - 11:08Z — tests/test_v039.py — lang-stats page + API + module shape + zero-state + archive endpoint + build_archive module to tmp_path + JS static file exists
 
+## 2026-06-02 — v0.40 MILESTONE (autonomous, Ultracode workflow tick #23)
+
+Three feature agents in parallel via Workflow (238k tokens, 7.9 min), then sequential wire-up. v0.40 is the 19th version produced in this autonomous loop (v0.22 → v0.40, ~5 hours of agent ticks).
+
+- 11:35Z — version bump 0.39→0.40
+- 11:38Z — **Live SSE status pill** (agent A): `app/web/routes/live_sse.py` GET `/events` text/event-stream with X-Accel-Buffering: no. Yields {type: status, ...} every 2s + heartbeat events. Try-imports sse_starlette, falls back to hand-rolled "data: <json>\\n\\n". `app/web/static/live_status.js` is a vanilla EventSource client with auto-reconnect. base.html switched from setInterval polling to SSE.
+- 11:44Z — **Per-day OCR .txt export** (agent B): `app/ocr_txt_export.py` builds plain-text dump per day with === delimiters between shots. Block format: "timestamp\\tapp_name" line + OCR body + blank. Route `/export/ocr.txt?day=YYYY-MM-DD`. CLI `persona-cli export-ocr-txt`.
+- 11:50Z — **Undo bin (soft-delete)** (agent C): migration 041 + `app/recycle.py`. soft_delete_screenshot/note (atomic insert-then-delete in a tx), restore, list_bin, purge_expired(retention_days). bulk_delete now routes through soft_delete. Setting `recycle_retention_days` (default 7, range 1-90). retention_worker calls purge_expired once per loop. Route `/recycle` lists bin with restore/purge buttons.
+- 11:55Z — wired live_sse + ocr_txt_export + recycle routers (alphabetical j/o/r placement)
+- 11:58Z — tests/test_v040.py — OCR txt route + empty export + recycle page + list_bin empty + purge_expired safe + settings + SSE module importable + live_status.js exists with EventSource
+
 ## How to run
 
 ```powershell

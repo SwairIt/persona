@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight flex items-center gap-3">
+    <span class="text-amber-500">↺</span> Recycle bin
+  </h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Soft-deleted screenshots and notes. Restore one with a click, or
+    purge it right now to wipe the row and any thumbnail file from disk.
+  </p>
+</div>
+
+<div class="rounded-lg border border-amber-700/60 bg-amber-900/20 p-4 mb-8">
+  <p class="text-amber-200 text-sm">
+    <strong class="font-semibold">Retention.</strong>
+    Items stay in the bin for <span class="font-mono">{{ retention_days }}</span>
+    day{{ "" if retention_days == 1 else "s" }} before the retention
+    worker hard-deletes them automatically. Anything past that window is
+    gone for good &mdash; thumbnail file included.
+  </p>
+</div>
+
+{% if entries %}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="bg-ink-900 text-zinc-500 text-xs uppercase tracking-wider">
+        <tr>
+          <th class="text-left py-2 px-3">Kind</th>
+          <th class="text-left py-2 px-3">Original ID</th>
+          <th class="text-left py-2 px-3">Deleted at</th>
+          <th class="text-right py-2 px-3 w-48">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for entry in entries %}
+          <tr class="border-t border-ink-700">
+            <td class="py-2 px-3">
+              {% if entry.kind == 'screenshot' %}
+                <span class="px-2 py-0.5 rounded bg-accent-600/20 text-accent-400 text-xs font-mono">
+                  screenshot
+                </span>
+              {% else %}
+                <span class="px-2 py-0.5 rounded bg-emerald-600/20 text-emerald-400 text-xs font-mono">
+                  note
+                </span>
+              {% endif %}
+            </td>
+            <td class="py-2 px-3 font-mono text-xs text-zinc-300">
+              #{{ entry.original_id }}
+            </td>
+            <td class="py-2 px-3 text-xs text-zinc-500 font-mono whitespace-nowrap">
+              {{ entry.deleted_at }}
+            </td>
+            <td class="py-2 px-3 text-right">
+              <form method="post" action="/recycle/{{ entry.id }}/restore"
+                    class="inline-block mr-2">
+                <button type="submit"
+                        class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 rounded text-xs font-medium transition">
+                  Restore
+                </button>
+              </form>
+              <form method="post" action="/recycle/{{ entry.id }}/purge"
+                    class="inline-block"
+                    onsubmit="return confirm('Purge this {{ entry.kind }} right now? This cannot be undone.');">
+                <button type="submit"
+                        class="px-3 py-1.5 bg-rose-700 hover:bg-rose-600 rounded text-xs font-medium transition">
+                  Purge
+                </button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  <p class="text-zinc-500 text-sm">
+    The recycle bin is empty.
+  </p>
+{% endif %}
+{% endblock %}

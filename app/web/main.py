@@ -61,6 +61,7 @@ from app.web.routes import (
     journal as journal_routes,
     journal_export as journal_export_routes,
     keywords as keywords_routes,
+    live_sse as live_sse_routes,
     mobile as mobile_routes,
     note_assist as note_assist_routes,
     note_templates as note_templates_routes,
@@ -76,6 +77,7 @@ from app.web.routes import (
     regex_rules as regex_rules_routes,
     range_timeline as range_timeline_routes,
     reading as reading_routes,
+    recycle as recycle_routes,
     redaction as redaction_routes,
     reminders as reminders_routes,
     ocr_admin as ocr_admin_routes,
@@ -85,6 +87,7 @@ from app.web.routes import (
     ocr_overlay as ocr_overlay_routes,
     ocr_phrase_tags as ocr_phrase_tags_routes,
     ocr_skip as ocr_skip_routes,
+    ocr_txt_export as ocr_txt_export_routes,
     rss as rss_routes,
     saved_searches as saved_searches_routes,
     screenshot,
@@ -154,7 +157,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.39.0",
+        version="0.40.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -260,6 +263,9 @@ def create_app() -> FastAPI:
     app.include_router(stats_csv_routes.router)
     app.include_router(ocr_language_stats_routes.router)
     app.include_router(archive_bundle_routes.router)
+    app.include_router(live_sse_routes.router)
+    app.include_router(ocr_txt_export_routes.router)
+    app.include_router(recycle_routes.router)
 
     return app
 

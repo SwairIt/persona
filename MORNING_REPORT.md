@@ -1,6 +1,6 @@
 # 🌅 Morning report — Persona
 
-Thirty-nine autonomous sessions: …v0.36 → v0.37 → v0.38 → **v0.39** without stopping. Self-pacing /loop continues until you cancel. **Live on GitHub:** https://github.com/SwairIt/persona
+Forty autonomous sessions: …v0.37 → v0.38 → v0.39 → **v0.40 milestone** without stopping. Self-pacing /loop continues until you cancel. **Live on GitHub:** https://github.com/SwairIt/persona
 
 ## By the numbers (current)
 
@@ -11,6 +11,14 @@ Thirty-nine autonomous sessions: …v0.36 → v0.37 → v0.38 → **v0.39** with
 - **20+ test files**
 - **0 git commits** — entirely up to you
 - **0 network calls at runtime** (only optional outgoing call: BYO-LLM keys to your chosen provider)
+
+## What landed in v0.40 milestone (SSE live status + OCR .txt + undo bin)
+
+Built via 3 parallel Workflow agents → sequential wire-up. v0.40 is the 19th version shipped in this autonomous loop.
+
+- 📡 **Live SSE status pill** — `/events` is now a Server-Sent Events stream. The status pill in `base.html` updates the moment something changes (no more polling lag). Pushes status snapshots every 2s plus worker heartbeats whenever a worker beats. Auto-reconnect on disconnect; gracefully no-ops if the browser lacks `EventSource`.
+- 📝 **Per-day OCR .txt export** — `/export/ocr.txt?day=YYYY-MM-DD` produces a plain-text dump of all that day's OCR (one block per shot, `===` delimiters, app+timestamp header). Perfect for `grep`, `fzf`, or `rg` workflows. CLI: `persona-cli export-ocr-txt --day YYYY-MM-DD --out FILE`.
+- ♻️ **Undo bin (soft-delete)** — bulk-delete + screenshot delete now move items to `/recycle` for 7 days (configurable via `PERSONA_RECYCLE_RETENTION_DAYS`, range 1–90) before hard deletion. Restore any item with one click. retention worker auto-purges expired entries. Atomic insert-then-delete inside a transaction so nothing slips through the cracks.
 
 ## What landed in v0.39 (keyboard cheatsheet + OCR language stats + archive ZIP)
 

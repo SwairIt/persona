@@ -35,6 +35,7 @@
   <script defer src="/static/js/palette.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/markdown-it@14.1.0/dist/markdown-it.min.js"></script>
   <script defer src="/static/js/notes.js"></script>
+  <script src="/static/live_status.js" defer></script>
   <script>
     tailwind.config = {
       darkMode: 'class',
@@ -85,7 +86,11 @@
         {% endfor %}
       </nav>
 
-      <div x-data="captureStatus()" x-init="poll()" class="flex items-center gap-3 text-xs">
+      <div x-data="captureStatus()" x-init="bootstrap()" id="status-pill" data-state="paused"
+           class="flex items-center gap-3 text-xs">
+        <span id="status-pill-heartbeat-dot"
+              class="w-1.5 h-1.5 rounded-full bg-zinc-600 transition-colors"
+              title="Worker heartbeat"></span>
         <span x-show="paused" class="flex items-center gap-1.5 text-amber-400">
           <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
           <span>Paused</span>
@@ -94,7 +99,10 @@
           <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
           <span>Capturing</span>
         </span>
-        <span class="text-zinc-500" x-text="`${captures} frames`"></span>
+        <span class="text-zinc-500">
+          <span id="status-pill-shots" x-text="captures">0</span>
+          <span>frames</span>
+        </span>
         <span x-show="ocrPending > 0" class="text-amber-400" :title="`${ocrPending} OCR pending`">
           OCR <span x-text="ocrPending"></span>
         </span>
@@ -149,6 +157,15 @@
   </footer>
 
   <script>
+    /*
+     * captureStatus — v0.40
+     *
+     * Live updates of paused/captures/OCR pending now flow over SSE
+     * (see /static/live_status.js + /events). This Alpine component
+     * keeps the *action* handlers (toggle, captureNow, theme) and
+     * mirrors the SSE-driven DOM into Alpine state so x-show keeps
+     * working without a second source of truth.
+     */
     function captureStatus() {
       return {
         paused: true,
@@ -165,46 +182,46 @@
           localStorage.setItem('persona-theme', this.theme);
           document.documentElement.classList.toggle('dark', this.theme === 'dark');
         },
-        async poll() {
-          await this.refresh();
-          setInterval(() => this.refresh(), 5000);
+        bootstrap() {
+          const pill = document.getElementById('status-pill');
+          if (!pill) return;
+          const sync = () => {
+            this.paused = pill.getAttribute('data-state') !== 'capturing';
+            const ocr = pill.getAttribute('data-ocr-pending');
+            if (ocr !== null) this.ocrPending = Number(ocr) || 0;
+            const shots = document.getElementById('status-pill-shots');
+            if (shots) this.captures = Number(shots.textContent) || 0;
+          };
+          sync();
+          new MutationObserver(sync).observe(pill, {
+            attributes: true,
+            attributeFilter: ['data-state', 'data-ocr-pending'],
+            childList: true,
+            subtree: true,
+          });
+          // Pull the budget snapshot once on load — it isn't on the SSE
+          // channel yet but the pill is still expected to show MB used.
+          this.refreshBudget();
         },
-        async refresh() {
+        async refreshBudget() {
           try {
-            const [r, ro, re, rb] = await Promise.all([
-              fetch('/api/capture/status'),
-              fetch('/api/ocr/status'),
-              fetch('/api/embeddings/status'),
-              fetch('/api/budget/status')
-            ]);
-            const j = await r.json();
-            this.paused = j.paused;
-            this.captures = j.captures_total;
-            if (ro.ok) {
-              const jo = await ro.json();
-              this.ocrPending = jo.pending || 0;
-            }
-            if (re.ok) {
-              const je = await re.json();
-              this.embPending = je.pending || 0;
-            }
-            if (rb.ok) {
-              const jb = await rb.json();
-              this.budgetMb = jb.today_mb || 0;
-              this.budgetCap = jb.budget_mb || 0;
-              this.budgetPct = jb.used_percent || 0;
-              this.overBudget = jb.over_budget || false;
-            }
+            const rb = await fetch('/api/budget/status');
+            if (!rb.ok) return;
+            const jb = await rb.json();
+            this.budgetMb = jb.today_mb || 0;
+            this.budgetCap = jb.budget_mb || 0;
+            this.budgetPct = jb.used_percent || 0;
+            this.overBudget = jb.over_budget || false;
           } catch (e) { /* ignore */ }
         },
         async toggle() {
           const url = this.paused ? '/api/capture/start' : '/api/capture/pause';
           await fetch(url, { method: 'POST' });
-          await this.refresh();
+          // SSE will push the new state within ~2s — no manual refresh.
         },
         async captureNow() {
           await fetch('/api/capture/now', { method: 'POST' });
-          await this.refresh();
+          // SSE will push the new today_shots count on the next tick.
         }
       }
     }

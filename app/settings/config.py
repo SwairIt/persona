@@ -95,6 +95,12 @@ class Settings(BaseSettings):
     # *require* a valid token on every ``/api/*`` call.
     api_auth_required: bool = Field(default=False)
 
+    # v0.40 — soft-delete recycle bin. Screenshots and notes deleted
+    # via the UI go into ``recycle_bin`` first; the retention worker
+    # hard-deletes anything older than this many days (and unlinks any
+    # thumbnail file) once per loop iteration.
+    recycle_retention_days: int = Field(default=7, ge=1, le=90)
+
     @model_validator(mode="after")
     def _validate_adaptive_bounds(self) -> Settings:
         if self.adaptive_max_seconds < self.adaptive_min_seconds:

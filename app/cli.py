@@ -17,6 +17,7 @@ Subcommands:
     export-settings    Dump every preference table to a JSON file (--out FILE).
     import-settings    Insert rows from a settings JSON file (--in FILE [--replace]).
     export-stats-csv   Per-day-per-app rollup CSV (--days N, --out FILE).
+    export-ocr-txt     Per-day OCR text dump for grep/fzf (--day YYYY-MM-DD, --out FILE).
     archive            Build a ZIP bundle of recent state (--days N --out FILE [--no-thumbnails]).
 """
 
@@ -46,6 +47,7 @@ from app.capture import capture_primary_monitor, get_active_window
 from app.dedup import compute_phash, find_or_create_dedup_group
 from app.diagnostics import run_doctor
 from app.logging_setup import configure_logging
+from app.ocr_txt_export import export_day_ocr_txt
 from app.pdf_export import export_day_pdf
 from app.search import search as fts_search
 from app.settings import get_settings
@@ -769,6 +771,34 @@ async def _cmd_export_stats_csv(days: int, out: Path) -> int:
     return 0
 
 
+async def _cmd_export_ocr_txt(day: str | None, out: Path) -> int:
+    """Write the per-day OCR text dump via :func:`export_day_ocr_txt`."""
+    target = _parse_day(day)
+    try:
+        body = await export_day_ocr_txt(target.isoformat())
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    # ``newline=""`` keeps the ``\n`` separators emitted by the export
+    # function intact instead of letting the Windows text layer rewrite
+    # them to ``\r\n`` — grep / fzf / awk all expect lone ``\n``.
+    with out.open("w", encoding="utf-8", newline="") as fh:
+        fh.write(body)
+
+    size_bytes = len(body.encode("utf-8"))
+    # ``BLOCK_DELIMITER`` lines count blocks-minus-one; +1 only when the
+    # body is non-empty (an empty day produces a zero-byte file).
+    blocks = body.count("\n===\n") + 1 if body else 0
+
+    print(f"Path:    {out}")
+    print(f"Day:     {target.isoformat()}")
+    print(f"Blocks:  {blocks}")
+    print(f"Bytes:   {size_bytes}")
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:  # noqa: PLR0915 — flat subparser table
     parser = argparse.ArgumentParser(
         prog="persona",
@@ -1052,6 +1082,27 @@ def _build_parser() -> argparse.ArgumentParser:  # noqa: PLR0915 — flat subpar
         help="Destination CSV path (parent dirs are created).",
     )
 
+    ocr_txt_parser = sub.add_parser(
+        "export-ocr-txt",
+        help=(
+            "Per-day OCR text dump as a flat .txt — one block per screenshot, "
+            "separated by ``===`` (designed for grep/fzf/awk pipelines)."
+        ),
+    )
+    ocr_txt_parser.add_argument(
+        "--day",
+        dest="day",
+        default=None,
+        help="Date in YYYY-MM-DD format (default: today).",
+    )
+    ocr_txt_parser.add_argument(
+        "--out",
+        dest="out",
+        type=Path,
+        required=True,
+        help="Destination text path (parent dirs are created).",
+    )
+
     archive_parser = sub.add_parser(
         "archive",
         help=(
@@ -1123,6 +1174,8 @@ async def _run(args: argparse.Namespace) -> int:  # noqa: PLR0911, PLR0912 — d
         return await _cmd_import_settings(args.src, args.replace)
     if args.command == "export-stats-csv":
         return await _cmd_export_stats_csv(args.days, args.out)
+    if args.command == "export-ocr-txt":
+        return await _cmd_export_ocr_txt(args.day, args.out)
     if args.command == "archive":
         return await _cmd_archive(args.days, args.out, args.include_thumbnails)
 

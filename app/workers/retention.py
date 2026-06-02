@@ -21,6 +21,7 @@ from pathlib import Path
 
 from PIL import Image
 
+from app import recycle
 from app.logging_setup import get_logger
 from app.settings import get_settings
 from app.storage.db import get_connection
@@ -50,6 +51,26 @@ async def run_retention_worker(controller: CaptureController | None = None) -> N
             raise
         except Exception as exc:
             log.exception("retention.sweep_failed", error=str(exc))
+
+        # v0.40 — purge soft-deleted rows that have outlived the bin
+        # window. Runs once per loop iteration, after the tier sweep, so
+        # a failing tier scan never blocks the recycle clean-up.
+        try:
+            settings = get_settings()
+            purged = await recycle.purge_expired(
+                retention_days=settings.recycle_retention_days,
+            )
+            if purged:
+                async with get_connection() as conn:
+                    await log_capture_event(
+                        conn,
+                        "cleanup",
+                        {"recycle_purged": purged},
+                    )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            log.exception("retention.recycle_purge_failed", error=str(exc))
 
         try:
             await asyncio.wait_for(ctrl.stop_event.wait(), timeout=CHECK_INTERVAL_SECONDS)
