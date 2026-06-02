@@ -1,0 +1,289 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-end justify-between flex-wrap gap-3">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Day scrubber</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      {{ day }}{% if day == today %} · today{% endif %} ·
+      {{ frame_count }} frame{% if frame_count != 1 %}s{% endif %}
+    </p>
+  </div>
+
+  <nav class="flex flex-wrap items-center gap-2 text-sm">
+    <a href="/scrubber/{{ prev_day }}"
+       class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700 border border-ink-700 text-zinc-300"
+       title="Previous day">&larr; {{ prev_day }}</a>
+    {% if day != today %}
+      <a href="/scrubber/{{ today }}"
+         class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700 border border-ink-700 text-zinc-300"
+         title="Jump to today">Today</a>
+    {% endif %}
+    <a href="/scrubber/{{ next_day }}"
+       class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700 border border-ink-700 text-zinc-300"
+       title="Next day">{{ next_day }} &rarr;</a>
+    <form method="get" action="" onsubmit="event.preventDefault(); var d=this.querySelector('input[name=d]').value; if(d){window.location.href='/scrubber/'+d;}"
+          class="flex items-center gap-2">
+      <input type="date" name="d" value="{{ day }}"
+             class="bg-ink-800 border border-ink-700 rounded px-2 py-1 text-sm text-zinc-100
+                    focus:outline-none focus:border-accent-500">
+      <button type="submit"
+              class="px-3 py-1 rounded bg-accent-600 hover:bg-accent-500 text-white text-sm font-medium">
+        Go
+      </button>
+    </form>
+  </nav>
+</div>
+
+{% if frame_count == 0 %}
+  <div class="rounded-lg border border-ink-700 bg-ink-900 p-12 text-center">
+    <p class="text-zinc-400">No captures with thumbnails on {{ day }}.</p>
+    <p class="text-zinc-600 text-sm mt-2">
+      Try another day, or check that capture wasn't paused all day.
+    </p>
+  </div>
+{% else %}
+  <div id="scrubber-root"
+       class="rounded-lg border border-ink-700 bg-ink-900 overflow-hidden">
+
+    <div class="relative bg-black flex items-center justify-center" style="min-height: 320px;">
+      <a id="scrubber-link" href="#"
+         class="block w-full"
+         title="Open this frame's detail view">
+        <img id="scrubber-image"
+             src=""
+             alt="Scrubber frame"
+             draggable="false"
+             class="w-full max-h-[70vh] object-contain select-none">
+      </a>
+      <div id="scrubber-empty"
+           class="absolute inset-0 flex items-center justify-center text-zinc-500 text-sm pointer-events-none"
+           style="display: none;">
+        Loading frame&hellip;
+      </div>
+    </div>
+
+    <div class="px-4 py-3 border-t border-ink-700 bg-ink-900/70">
+      <div class="flex items-center justify-between text-xs text-zinc-400 mb-2">
+        <span>
+          <span id="scrubber-position">1</span>
+          <span class="text-zinc-600"> / </span>
+          <span id="scrubber-total">{{ frame_count }}</span>
+        </span>
+        <span id="scrubber-meta" class="font-mono text-zinc-500">&mdash;</span>
+      </div>
+
+      <input id="scrubber-range" type="range"
+             min="1" max="{{ frame_count }}" value="1" step="1"
+             aria-label="Frame position"
+             class="w-full accent-accent-500 cursor-pointer">
+    </div>
+
+    <div class="px-4 py-3 border-t border-ink-700 flex flex-wrap items-center gap-3 text-sm">
+      <button id="scrubber-prev" type="button"
+              class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700 border border-ink-700 text-zinc-200"
+              title="Previous frame (Left arrow)">&larr;</button>
+      <button id="scrubber-play" type="button"
+              class="px-4 py-1.5 rounded bg-accent-600 hover:bg-accent-500 text-white font-medium"
+              title="Play / pause (Space)">Play</button>
+      <button id="scrubber-next" type="button"
+              class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700 border border-ink-700 text-zinc-200"
+              title="Next frame (Right arrow)">&rarr;</button>
+
+      <div class="flex items-center gap-1 ml-2 text-xs">
+        <span class="uppercase tracking-widest text-zinc-500 mr-1">Speed</span>
+        <button type="button" data-speed="0.5"
+                class="scrubber-speed px-2 py-1 rounded bg-ink-800 hover:bg-ink-700 border border-ink-700 text-zinc-300">0.5&times;</button>
+        <button type="button" data-speed="1"
+                class="scrubber-speed px-2 py-1 rounded bg-ink-800 hover:bg-ink-700 border border-ink-700 text-zinc-300">1&times;</button>
+        <button type="button" data-speed="2"
+                class="scrubber-speed px-2 py-1 rounded bg-ink-800 hover:bg-ink-700 border border-ink-700 text-zinc-300">2&times;</button>
+        <button type="button" data-speed="5"
+                class="scrubber-speed px-2 py-1 rounded bg-ink-800 hover:bg-ink-700 border border-ink-700 text-zinc-300">5&times;</button>
+      </div>
+
+      <span class="ml-auto text-xs text-zinc-500 hidden sm:inline">
+        Space &middot; Play/pause &nbsp;&nbsp; &larr; / &rarr; &middot; Step
+      </span>
+    </div>
+  </div>
+
+  {# Embed the frame list as JSON so the JS never re-fetches on first paint. #}
+  {# {{ frames | tojson }} is escaped safely by Jinja by default. #}
+  <script id="scrubber-data" type="application/json">{{ frames | tojson }}</script>
+
+  <script>
+    /*
+     * day_scrubber — vanilla JS, no framework.
+     *
+     * Drives a range slider, playback toggle, prev/next buttons, and a speed
+     * selector over a fixed list of frames embedded server-side. Autoplay
+     * loops back to frame 1 once it hits the end so the user can leave the
+     * tab playing as ambient eye candy.
+     *
+     * Keyboard: ArrowLeft / ArrowRight step, Space toggles play. Listeners
+     * are scoped to ignore keypresses while the user is typing in a form
+     * field (so the Go-to-day <input type=date> isn't sabotaged).
+     */
+    (function () {
+      var dataNode = document.getElementById('scrubber-data');
+      if (!dataNode) return;
+      var frames;
+      try {
+        frames = JSON.parse(dataNode.textContent || '[]');
+      } catch (e) {
+        frames = [];
+      }
+      if (!Array.isArray(frames) || frames.length === 0) return;
+
+      var imgEl = document.getElementById('scrubber-image');
+      var linkEl = document.getElementById('scrubber-link');
+      var rangeEl = document.getElementById('scrubber-range');
+      var posEl = document.getElementById('scrubber-position');
+      var metaEl = document.getElementById('scrubber-meta');
+      var playBtn = document.getElementById('scrubber-play');
+      var prevBtn = document.getElementById('scrubber-prev');
+      var nextBtn = document.getElementById('scrubber-next');
+      var speedBtns = document.querySelectorAll('.scrubber-speed');
+
+      var idx = 0;
+      var playing = false;
+      var speed = 1;            // base multiplier
+      var baseIntervalMs = 600; // 1x = ~1.6 fps; comfy default for sparse days
+      var timer = null;
+
+      function clampSpeed(s) {
+        var allowed = [0.5, 1, 2, 5];
+        return allowed.indexOf(s) === -1 ? 1 : s;
+      }
+
+      function intervalMs() {
+        // Higher speed = shorter delay. Floor at 60ms so we never lock the UI.
+        var ms = baseIntervalMs / speed;
+        return ms < 60 ? 60 : ms;
+      }
+
+      function formatTime(iso) {
+        if (!iso) return '';
+        try {
+          var d = new Date(iso);
+          if (isNaN(d.getTime())) return iso;
+          var hh = String(d.getHours()).padStart(2, '0');
+          var mm = String(d.getMinutes()).padStart(2, '0');
+          var ss = String(d.getSeconds()).padStart(2, '0');
+          return hh + ':' + mm + ':' + ss;
+        } catch (e) {
+          return iso;
+        }
+      }
+
+      function render() {
+        var frame = frames[idx];
+        if (!frame) return;
+        imgEl.src = frame.thumbnail_url;
+        imgEl.alt = 'Frame ' + (idx + 1) + ' · ' + (frame.app_name || 'unknown');
+        linkEl.href = '/screenshot/' + frame.id;
+        posEl.textContent = String(idx + 1);
+        var bits = [formatTime(frame.captured_at)];
+        if (frame.app_name) bits.push(frame.app_name);
+        metaEl.textContent = bits.join(' · ');
+        // Sync slider only when render is driven from elsewhere (autoplay,
+        // arrow keys). When the user is dragging, the input event already
+        // sets idx from rangeEl.value so this write is a no-op.
+        if (Number(rangeEl.value) !== idx + 1) {
+          rangeEl.value = String(idx + 1);
+        }
+      }
+
+      function step(delta) {
+        idx = (idx + delta + frames.length) % frames.length;
+        render();
+      }
+
+      function start() {
+        stop();
+        playing = true;
+        playBtn.textContent = 'Pause';
+        playBtn.classList.remove('bg-accent-600', 'hover:bg-accent-500');
+        playBtn.classList.add('bg-amber-600', 'hover:bg-amber-500');
+        timer = setInterval(function () { step(1); }, intervalMs());
+      }
+
+      function stop() {
+        playing = false;
+        playBtn.textContent = 'Play';
+        playBtn.classList.remove('bg-amber-600', 'hover:bg-amber-500');
+        playBtn.classList.add('bg-accent-600', 'hover:bg-accent-500');
+        if (timer !== null) {
+          clearInterval(timer);
+          timer = null;
+        }
+      }
+
+      function toggle() {
+        if (playing) stop(); else start();
+      }
+
+      function setSpeed(newSpeed) {
+        speed = clampSpeed(newSpeed);
+        speedBtns.forEach(function (b) {
+          var isActive = Number(b.getAttribute('data-speed')) === speed;
+          b.classList.toggle('bg-accent-600', isActive);
+          b.classList.toggle('text-white', isActive);
+          b.classList.toggle('border-accent-500', isActive);
+          b.classList.toggle('bg-ink-800', !isActive);
+          b.classList.toggle('text-zinc-300', !isActive);
+          b.classList.toggle('border-ink-700', !isActive);
+        });
+        if (playing) start(); // restart with new interval
+      }
+
+      // ---- wiring ----------------------------------------------------------
+      rangeEl.addEventListener('input', function () {
+        var v = Number(rangeEl.value);
+        if (!Number.isFinite(v)) return;
+        idx = Math.max(0, Math.min(frames.length - 1, Math.floor(v) - 1));
+        render();
+      });
+
+      prevBtn.addEventListener('click', function () { step(-1); });
+      nextBtn.addEventListener('click', function () { step(1); });
+      playBtn.addEventListener('click', toggle);
+
+      speedBtns.forEach(function (b) {
+        b.addEventListener('click', function () {
+          var s = Number(b.getAttribute('data-speed'));
+          setSpeed(s);
+        });
+      });
+
+      function isTypingTarget(target) {
+        if (!target) return false;
+        var tag = (target.tagName || '').toLowerCase();
+        if (tag === 'input' || tag === 'textarea' || tag === 'select') return true;
+        if (target.isContentEditable) return true;
+        return false;
+      }
+
+      document.addEventListener('keydown', function (ev) {
+        if (isTypingTarget(ev.target)) return;
+        if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
+        if (ev.key === 'ArrowLeft') {
+          ev.preventDefault();
+          step(-1);
+        } else if (ev.key === 'ArrowRight') {
+          ev.preventDefault();
+          step(1);
+        } else if (ev.key === ' ' || ev.code === 'Space') {
+          ev.preventDefault();
+          toggle();
+        }
+      });
+
+      // Initial paint.
+      setSpeed(1);
+      render();
+    })();
+  </script>
+{% endif %}
+{% endblock %}

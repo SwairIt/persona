@@ -19,6 +19,7 @@ Subcommands:
     export-stats-csv   Per-day-per-app rollup CSV (--days N, --out FILE).
     export-ocr-txt     Per-day OCR text dump for grep/fzf (--day YYYY-MM-DD, --out FILE).
     archive            Build a ZIP bundle of recent state (--days N --out FILE [--no-thumbnails]).
+    export-collage     Render a 4xN per-day collage PNG (--day YYYY-MM-DD --out FILE).
 """
 
 from __future__ import annotations
@@ -44,6 +45,7 @@ from app.backup.snapshot import (
 from app.bulk_delete import bulk_delete
 from app.bulk_tag import bulk_tag, bulk_untag
 from app.capture import capture_primary_monitor, get_active_window
+from app.day_collage import build_day_collage
 from app.dedup import compute_phash, find_or_create_dedup_group
 from app.diagnostics import run_doctor
 from app.logging_setup import configure_logging
@@ -614,6 +616,60 @@ async def _cmd_archive(days: int, out: Path, include_thumbnails: bool) -> int:
     return 0
 
 
+async def _cmd_export_collage(
+    day: str | None,
+    out: Path,
+    cols: int,
+    max_shots: int,
+) -> int:
+    """Render a per-day collage PNG via :func:`app.day_collage.build_day_collage`."""
+    # Coalesce both arg checks into a single return so this helper stays
+    # under ruff's PLR0911 ceiling (six returns) — the status dispatch
+    # below already eats five of the six allowed.
+    bad_arg = None
+    if cols < 1:
+        bad_arg = f"--cols must be >= 1, got {cols}"
+    elif max_shots < 1:
+        bad_arg = f"--max-shots must be >= 1, got {max_shots}"
+    if bad_arg is not None:
+        print(f"error: {bad_arg}", file=sys.stderr)
+        return 2
+
+    target = _parse_day(day)
+    result = await build_day_collage(
+        target.isoformat(),
+        out,
+        cols=cols,
+        max_shots=max_shots,
+    )
+
+    status = result["status"]
+    if status == "bad_date":
+        print(f"error: invalid day {target.isoformat()!r}", file=sys.stderr)
+        return 2
+    if status == "bad_args":
+        print("error: invalid collage parameters", file=sys.stderr)
+        return 2
+    if status == "empty":
+        print(
+            f"(nothing to export for {target.isoformat()}; no thumbnailed screenshots)",
+            file=sys.stderr,
+        )
+        return 1
+    if status != "ok" or result["path"] is None:
+        print(f"error: unexpected status {status!r}", file=sys.stderr)
+        return 1
+
+    print(f"Day:         {target.isoformat()}")
+    print(f"Path:        {result['path']}")
+    print(f"Cols:        {result['cols']}")
+    print(f"Rows:        {result['rows']}")
+    print(f"Tile size:   {result['tile_size']}")
+    print(f"Shots used:  {result['shots_used']}")
+    print(f"Size bytes:  {result['size_bytes']}")
+    return 0
+
+
 def _use_colour(no_color: bool) -> bool:
     """Return True only when stdout is a TTY and ``--no-color`` was not passed."""
     if no_color:
@@ -1131,6 +1187,38 @@ def _build_parser() -> argparse.ArgumentParser:  # noqa: PLR0915 — flat subpar
         help="Skip the thumbnails/ folder (settings + JSON only).",
     )
 
+    collage_parser = sub.add_parser(
+        "export-collage",
+        help="Render a 4xN per-day collage PNG of the day's top thumbnails.",
+    )
+    collage_parser.add_argument(
+        "--day",
+        dest="day",
+        default=None,
+        help="Date in YYYY-MM-DD format (default: today).",
+    )
+    collage_parser.add_argument(
+        "--out",
+        dest="out",
+        type=Path,
+        required=True,
+        help="Destination PNG path (parent dirs are created).",
+    )
+    collage_parser.add_argument(
+        "--cols",
+        dest="cols",
+        type=int,
+        default=4,
+        help="Grid width in tiles (default: 4).",
+    )
+    collage_parser.add_argument(
+        "--max-shots",
+        dest="max_shots",
+        type=int,
+        default=24,
+        help="Maximum number of thumbnails to include (default: 24).",
+    )
+
     return parser
 
 
@@ -1178,6 +1266,10 @@ async def _run(args: argparse.Namespace) -> int:  # noqa: PLR0911, PLR0912 — d
         return await _cmd_export_ocr_txt(args.day, args.out)
     if args.command == "archive":
         return await _cmd_archive(args.days, args.out, args.include_thumbnails)
+    if args.command == "export-collage":
+        return await _cmd_export_collage(
+            args.day, args.out, args.cols, args.max_shots
+        )
 
     print(f"error: unknown command {args.command!r}", file=sys.stderr)
     return 2

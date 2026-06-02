@@ -1,6 +1,6 @@
 # 🌅 Morning report — Persona
 
-Forty-one autonomous sessions: …v0.38 → v0.39 → v0.40 → **v0.41** without stopping. Self-pacing /loop continues until you cancel. **Live on GitHub:** https://github.com/SwairIt/persona
+Forty-two autonomous sessions: …v0.39 → v0.40 → v0.41 → **v0.42** without stopping. Self-pacing /loop continues until you cancel. **Live on GitHub:** https://github.com/SwairIt/persona
 
 ## By the numbers (current)
 
@@ -11,6 +11,14 @@ Forty-one autonomous sessions: …v0.38 → v0.39 → v0.40 → **v0.41** withou
 - **20+ test files**
 - **0 git commits** — entirely up to you
 - **0 network calls at runtime** (only optional outgoing call: BYO-LLM keys to your chosen provider)
+
+## What landed in v0.42 (day scrubber + OCR retry queue + day collage PNG)
+
+Built via 3 parallel Workflow agents → sequential wire-up.
+
+- ▶️ **Day scrubber video player** — `/scrubber/{day}` lets you scrub through a whole day's screenshots like a video: big image at top, slider at the bottom, play/pause/prev/next + 0.5×/1×/2×/5× speed. Arrow keys step, Space toggles play. Great for the "what was I doing at 14:32?" question.
+- 🔁 **OCR retry queue** — `/admin/ocr-retry` lists shots with empty or low-confidence OCR. Filter pills (empty / low-conf / both), checkbox selection, "Requeue selected" or "Requeue all (max 1000)". Sets `ocr_done=0` so the existing OCR worker picks them up on the next tick.
+- 🖼️ **Per-day collage PNG** — `/export/collage.png?day=YYYY-MM-DD` produces a single PNG with a 4×N grid of that day's top thumbnails (default 24 tiles, 320 px each, configurable). Shareable image artefact. CLI: `persona-cli export-collage --day YYYY-MM-DD --out FILE`.
 
 ## What landed in v0.41 (search facets + drag-to-tag + browser bookmarklet)
 

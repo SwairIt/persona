@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">OCR retry queue</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Screenshots where OCR ran but the result is empty or low-confidence
+    (average per-word <code class="font-mono text-xs">conf</code> below the threshold).
+    Tick the rows you want re-processed and hit
+    <em>Re-queue selected</em>, or push the whole filtered set with
+    <em>Re-queue all</em> (capped at <strong>{{ max_limit }}</strong> per click so a
+    single button press never floods the worker).
+    Re-queued rows go back to <code class="font-mono text-xs">ocr_status = 'pending'</code>
+    and the OCR worker picks them up on its next sweep.
+  </p>
+</div>
+
+<form method="get" action="/admin/ocr-retry"
+      class="mb-6 flex flex-wrap items-end gap-3 rounded-lg border border-ink-700 bg-ink-800 p-4">
+  <div class="flex items-center gap-2">
+    <span class="text-xs uppercase tracking-wider text-zinc-500">Filter</span>
+    {% set modes = [('both', 'Empty + Low-conf'), ('empty', 'Empty only'), ('low', 'Low-conf only')] %}
+    {% for slug, label in modes %}
+      <a href="/admin/ocr-retry?mode={{ slug }}&min_conf={{ min_conf }}"
+         class="px-3 py-1.5 rounded-full text-xs font-medium transition
+                {% if mode == slug %}bg-accent-600 text-white
+                {% else %}bg-ink-900 text-zinc-400 hover:text-zinc-100 hover:bg-ink-700{% endif %}">
+        {{ label }}
+      </a>
+    {% endfor %}
+  </div>
+  <label class="flex items-center gap-2">
+    <span class="text-xs uppercase tracking-wider text-zinc-500">Min conf</span>
+    <input type="number" name="min_conf" value="{{ min_conf }}" min="0" max="100"
+           class="w-20 px-2 py-1 bg-ink-900 border border-ink-700 rounded text-sm
+                  focus:outline-none focus:border-accent-500">
+  </label>
+  <input type="hidden" name="mode" value="{{ mode }}">
+  <button type="submit"
+          class="px-3 py-1.5 rounded bg-ink-700 hover:bg-ink-600 text-sm">
+    Apply
+  </button>
+  <div class="ml-auto text-sm text-zinc-400">
+    <strong class="text-zinc-200">{{ total }}</strong> matching ·
+    showing <strong class="text-zinc-200">{{ shown }}</strong>
+    {% if shown < total %}<span class="text-zinc-500">(first {{ page_limit }})</span>{% endif %}
+  </div>
+</form>
+
+{% if rows %}
+  <form method="post" action="/admin/ocr-retry/requeue"
+        x-data="{ selected: 0, allChecked: false }"
+        class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden mb-6">
+    <input type="hidden" name="mode" value="{{ mode }}">
+    <input type="hidden" name="min_conf" value="{{ min_conf }}">
+    <div class="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-ink-700 bg-ink-900">
+      <button type="submit"
+              :disabled="selected === 0"
+              :class="selected === 0
+                       ? 'bg-ink-700 text-zinc-500 cursor-not-allowed'
+                       : 'bg-accent-600 hover:bg-accent-500 text-white'"
+              class="px-4 py-1.5 rounded text-sm font-medium transition">
+        Re-queue selected (<span x-text="selected">0</span>)
+      </button>
+      <label class="flex items-center gap-2 text-xs text-zinc-400">
+        <input type="checkbox"
+               @change="
+                 allChecked = $event.target.checked;
+                 const boxes = $root.querySelectorAll('input[name=&quot;ids&quot;]');
+                 boxes.forEach(b => b.checked = allChecked);
+                 selected = allChecked ? boxes.length : 0;
+               "
+               class="rounded border-ink-600 bg-ink-900">
+        Select all on this page
+      </label>
+      <span class="text-xs text-zinc-500 ml-auto">
+        Page cap {{ page_limit }} rows · global cap {{ max_limit }} re-queued per click
+      </span>
+    </div>
+    <table class="w-full text-sm">
+      <thead class="bg-ink-900 text-zinc-500 text-xs uppercase tracking-wider">
+        <tr>
+          <th class="text-left py-2 px-4 w-10"></th>
+          <th class="text-left py-2 px-4 w-24">Shot</th>
+          <th class="text-left py-2 px-4">App / window</th>
+          <th class="text-left py-2 px-4 w-44">Captured</th>
+          <th class="text-left py-2 px-4 w-32">Reason</th>
+          <th class="text-left py-2 px-4 w-24">Avg conf</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          <tr class="border-t border-ink-700 hover:bg-ink-900/50">
+            <td class="py-2 px-4 align-top">
+              <input type="checkbox" name="ids" value="{{ row.id }}"
+                     @change="selected += $event.target.checked ? 1 : -1"
+                     class="rounded border-ink-600 bg-ink-900">
+            </td>
+            <td class="py-2 px-4 align-top">
+              {% if row.thumbnail_path %}
+                <a href="/screenshot/{{ row.id }}" class="block">
+                  <img src="{{ row.thumbnail_path | thumbnail_url }}"
+                       alt="shot {{ row.id }}"
+                       loading="lazy"
+                       class="w-20 h-12 object-cover rounded border border-ink-700">
+                </a>
+              {% else %}
+                <span class="text-zinc-600 text-xs">no thumb</span>
+              {% endif %}
+            </td>
+            <td class="py-2 px-4 align-top">
+              <div class="font-medium text-zinc-200">
+                {{ row.app_name or '—' }}
+              </div>
+              {% if row.window_title %}
+                <div class="text-zinc-500 text-xs truncate max-w-md">
+                  {{ row.window_title }}
+                </div>
+              {% endif %}
+            </td>
+            <td class="py-2 px-4 align-top text-zinc-400 text-xs font-mono">
+              {{ row.captured_at }}
+            </td>
+            <td class="py-2 px-4 align-top">
+              {% if row.reason == 'empty' %}
+                <span class="inline-block px-2 py-0.5 rounded bg-rose-900/40 text-rose-300 text-xs">
+                  empty
+                </span>
+              {% else %}
+                <span class="inline-block px-2 py-0.5 rounded bg-amber-900/40 text-amber-300 text-xs">
+                  low conf
+                </span>
+              {% endif %}
+            </td>
+            <td class="py-2 px-4 align-top text-zinc-300 text-xs font-mono">
+              {% if row.avg_conf is not none %}
+                {{ '%.1f' | format(row.avg_conf) }}
+                <span class="text-zinc-600">({{ row.word_count }} w)</span>
+              {% else %}
+                <span class="text-zinc-600">— (0 w)</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </form>
+
+  <form method="post" action="/admin/ocr-retry/requeue-all-shown"
+        onsubmit="return confirm('Re-queue up to {{ max_limit }} screenshots matching the current filter?');"
+        class="rounded-lg border border-ink-700 bg-ink-800 p-4 flex flex-wrap items-center gap-3">
+    <input type="hidden" name="mode" value="{{ mode }}">
+    <input type="hidden" name="min_conf" value="{{ min_conf }}">
+    <div class="text-sm text-zinc-400">
+      <strong class="text-zinc-200">{{ total }}</strong> rows match this filter.
+      One click re-queues up to <strong class="text-zinc-200">{{ max_limit }}</strong>
+      of them at once.
+    </div>
+    <button type="submit"
+            class="ml-auto px-4 py-2 rounded text-sm font-medium bg-rose-700 hover:bg-rose-600 text-white">
+      Re-queue all (max {{ max_limit }})
+    </button>
+  </form>
+{% else %}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-8 text-center text-zinc-500">
+    <div class="text-4xl mb-2">✓</div>
+    <p>Nothing matches this filter — OCR results look healthy.</p>
+  </div>
+{% endif %}
+{% endblock %}

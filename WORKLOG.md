@@ -518,6 +518,17 @@ Three feature agents in parallel via Workflow (189k tokens, 7 min), then sequent
 - 12:37Z — wired bookmarklet + drag_to_tag + search_facets routers (alphabetical bookmarklet between bug/bulk, drag_to_tag after diff_slider, search_facets after search)
 - 12:39Z — tests/test_v041.py — facets API + drag-to-tag 404/400 + bookmarklet page + capture roundtrip + long-selection handling + JS files exist
 
+## 2026-06-02 — v0.42 continuation (autonomous, Ultracode workflow tick #25)
+
+Three feature agents in parallel via Workflow (227k tokens, 5.8 min), then sequential wire-up.
+
+- 13:05Z — version bump 0.41→0.42
+- 13:08Z — **Day scrubber video player** (agent A): `app/web/routes/day_scrubber.py` + template. GET /scrubber/{day} renders big image + horizontal slider + play/pause/prev/next + speed selector (0.5x/1x/2x/5x). Vanilla JS: ArrowLeft/Right step, Space toggle play, autoplay loops at chosen speed. JSON API /api/scrubber/{day}.json.
+- 13:13Z — **OCR retry queue** (agent B): `app/ocr_retry.py` with list_problem_shots(limit, min_conf, only_empty) — finds shots with NULL/empty ocr_text or avg word-conf below threshold. Route `/admin/ocr-retry` with filter pills + checkbox table; POST /admin/ocr-retry/requeue (selected ids) and /requeue-all-shown (capped at 1000). Sets ocr_done=0 so the existing worker picks them up.
+- 13:17Z — **Per-day collage PNG** (agent C): `app/day_collage.py` with build_day_collage(day, out, cols=4, max_shots=24, tile_size=320). PIL fit-letterbox each thumbnail into the grid, paste, save PNG. Route /export/collage.png streams via tempfile. CLI export-collage.
+- 13:20Z — wired day_scrubber + ocr_retry + day_collage routers
+- 13:22Z — tests/test_v042.py — scrubber page + API + ocr-retry page + list/requeue empty-DB + collage route empty + build_day_collage empty-day
+
 ## How to run
 
 ```powershell
