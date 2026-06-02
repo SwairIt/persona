@@ -24,6 +24,7 @@ from app.web.routes import (
     api_tokens as api_tokens_routes,
     app_icons as app_icons_routes,
     app_overrides as app_overrides_routes,
+    app_retention as app_retention_routes,
     app_stats as app_stats_routes,
     archive as archive_routes,
     archive_bundle as archive_bundle_routes,
@@ -135,6 +136,7 @@ from app.web.routes import (
     timeline_api as timeline_api_routes,
     timesheet as timesheet_routes,
     vault as vault_routes,
+    visual_diff as visual_diff_routes,
     webhooks_routes,
     weekly_digests as weekly_digests_routes,
     weekly_pdf as weekly_pdf_routes,
@@ -178,7 +180,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.48.0",
+        version="0.49.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -308,6 +310,8 @@ def create_app() -> FastAPI:
     app.include_router(permalinks_routes.router)
     app.include_router(reading_time_routes.router)
     app.include_router(tag_merge_routes.router)
+    app.include_router(visual_diff_routes.router)
+    app.include_router(app_retention_routes.router)
 
     return app
 

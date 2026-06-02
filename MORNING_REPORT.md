@@ -1,6 +1,6 @@
 # 🌅 Morning report — Persona
 
-Forty-eight autonomous sessions: …v0.45 → v0.46 → v0.47 → **v0.48** without stopping (chained back-to-back). **Live on GitHub:** https://github.com/SwairIt/persona
+Forty-nine autonomous sessions: …v0.46 → v0.47 → v0.48 → **v0.49** without stopping (chained back-to-back). **Live on GitHub:** https://github.com/SwairIt/persona
 
 ## By the numbers (current)
 
@@ -11,6 +11,14 @@ Forty-eight autonomous sessions: …v0.45 → v0.46 → v0.47 → **v0.48** with
 - **20+ test files**
 - **0 git commits** — entirely up to you
 - **0 network calls at runtime** (only optional outgoing call: BYO-LLM keys to your chosen provider)
+
+## What landed in v0.49 (per-tag RSS + visual diff thumbs + per-app retention)
+
+Built via 3 parallel Workflow agents → sequential wire-up. Last tick before the v0.50 milestone.
+
+- 📡 **Per-tag RSS** — `/tags/{name}.rss` is a feed of the 50 most-recent shots tagged with that name. Plays nicely with `/search.rss` (per-query) and `/collection/{slug}.rss` (per-auto-collection) from earlier ticks. OCR snippets in descriptions pass through your v0.24 redaction rules.
+- 🎨 **Visual diff thumbnails** — `/api/diff/{a}/{b}/thumb.png` returns a 320×180 PNG showing `PIL.ImageChops.difference(a, b)` with 2× contrast. v0.33's diff slider page now embeds it below the slider so you instantly see *where* the pixels changed.
+- 🗂️ **Per-app retention overrides** — `/settings/app-retention` lets you set different warm/cold/delete cutoffs per `app_name`, plus a "Never delete" flag for apps you want to keep forever (VS Code, Linear, etc.). The retention worker checks the per-app row first and falls back to the global settings when columns are NULL.
 
 ## What landed in v0.48 (permalinks + reading-time per day + tag merge)
 

@@ -12,6 +12,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
 
 from app.logging_setup import get_logger
+from app.redaction import apply_redaction
 from app.settings import get_settings
 from app.storage.db import get_connection
 from app.storage.repository import get_screenshot
@@ -25,6 +26,7 @@ _MAX_RSS_ITEMS = 50
 _OCR_SNIPPET_LEN = 240
 
 _collection_log = get_logger("persona.rss.collection")
+_tag_log = get_logger("persona.rss.tag")
 
 
 @router.get("/journal.rss")
@@ -223,6 +225,84 @@ async def collection_rss(request: Request, slug: str) -> Response:
   <channel>
     <title>{xml_escape(feed_title)}</title>
     <link>{xml_escape(f"{base}/collection/{rule_slug}")}</link>
+    <atom:link href="{self_link}" rel="self" type="application/rss+xml" />
+    <description>{xml_escape(feed_desc)}</description>
+    <lastBuildDate>{last_build}</lastBuildDate>
+{joined_items}
+  </channel>
+</rss>
+"""
+    return Response(content=body, media_type="application/rss+xml; charset=utf-8")
+
+
+@router.get("/tags/{tag_name}.rss")
+async def tag_rss(tag_name: str) -> Response:
+    """RSS feed of the most-recent shots carrying ``#tag_name``.
+
+    Mirrors :func:`collection_rss` but resolves the tag by name (rather
+    than going through an ``auto_collection`` rule). Returns 404 when
+    the tag has zero tagged shots so feed readers stop polling dead
+    tags instead of silently subscribing to an empty channel.
+
+    OCR snippets are passed through :func:`apply_redaction` so any
+    user-configured mask (emails, tokens, …) is honoured before the
+    text ever leaves the host.
+    """
+    settings = get_settings()
+    base = f"http://{settings.host}:{settings.port}"
+
+    async with get_connection() as conn:
+        # Pull the canonical tag name (preserves the case the user
+        # actually used) and the ids of the latest ``_MAX_RSS_ITEMS``
+        # shots in one parametrised query. ``screenshot_tags`` (plural)
+        # is the canonical join-table name in migrations/001_tags.sql.
+        cursor = await conn.execute(
+            "SELECT t.name AS tag_name, st.screenshot_id AS sid "
+            "FROM screenshot_tags st "
+            "JOIN tags t ON t.id = st.tag_id "
+            "JOIN screenshots s ON s.id = st.screenshot_id "
+            "WHERE LOWER(t.name) = LOWER(?) "
+            "ORDER BY s.captured_at DESC "
+            "LIMIT ?",
+            (tag_name, _MAX_RSS_ITEMS),
+        )
+        id_rows = list(await cursor.fetchall())
+
+        if not id_rows:
+            _tag_log.info("tag_rss_not_found", tag=tag_name)
+            raise HTTPException(status_code=404, detail=f"Tag has no shots: {tag_name}")
+
+        canonical_name = str(id_rows[0]["tag_name"])
+
+        items_xml: list[str] = []
+        for id_row in id_rows:
+            shot = await get_screenshot(conn, int(id_row["sid"]))
+            if shot is None:
+                continue
+            captured_str = shot.captured_at.isoformat(sep=" ", timespec="seconds")
+            title = f"{shot.app_name or 'Untitled'} — {captured_str}"
+            link = f"{base}/screenshot/{shot.id}"
+            raw_text = (shot.ocr_text or "").strip()
+            redacted_text, _ = await apply_redaction(raw_text)
+            snippet = redacted_text[:_OCR_SNIPPET_LEN]
+            items_xml.append(_rss_item(title, snippet, link, shot.captured_at, shot.id))
+
+    _tag_log.info(
+        "tag_rss_served",
+        tag=canonical_name,
+        items=len(items_xml),
+    )
+
+    last_build = format_datetime(datetime.now(UTC))
+    joined_items = "\n".join(items_xml)
+    feed_title = f"Persona — #{canonical_name}"
+    feed_desc = f"Latest shots tagged #{canonical_name}"
+    self_link = xml_escape(f"{base}/feeds/tags/{canonical_name}.rss")
+    body = f"""<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>{xml_escape(feed_title)}</title>
+    <link>{xml_escape(f"{base}/search?q=tag:{canonical_name}")}</link>
     <atom:link href="{self_link}" rel="self" type="application/rss+xml" />
     <description>{xml_escape(feed_desc)}</description>
     <lastBuildDate>{last_build}</lastBuildDate>

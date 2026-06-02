@@ -595,6 +595,17 @@ Three feature agents in parallel via Workflow (201k tokens, 5.6 min). Chained.
 - 03:04Z — wired permalinks + reading_time + tag_merge routers
 - 03:06Z — tests/test_v048.py — permalink page + create+redirect + open-redirect blocked + reading-time page + API + empty-day zero + tag-merge page + dry-run safe
 
+## 2026-06-03 — v0.49 continuation (autonomous, Ultracode workflow tick #32)
+
+Three feature agents in parallel via Workflow (171k tokens, 7.4 min). Chained.
+
+- 03:15Z — version bump 0.48→0.49
+- 03:18Z — **Per-tag RSS** (agent A): added GET /tags/{tag_name}.rss to existing rss.py. Reuses XML helper from /search.rss + /collection/{slug}.rss. Up to 50 most-recent tagged shots; description = first 240 chars of ocr_text passed through redaction; XML-escaped.
+- 03:23Z — **Visual diff thumbnails** (agent B): `app/visual_diff.py` with generate_diff_thumbnail(a, b, output). PIL.ImageChops.difference on two thumbnails resized to 320×180, contrast 2× enhanced. Route /api/diff/{a}/{b}/thumb.png returns image/png with Cache-Control immutable max-age=86400. v0.33 diff_slider.html embeds it below the slider.
+- 03:28Z — **Per-app retention overrides** (agent C): migration 048 + `app/app_retention.py` (set/get/list/remove + never_delete flag). /settings/app-retention page with table + form. retention_worker checks per-app override before global setting; never_delete=1 skips the row entirely.
+- 03:31Z — wired visual_diff + app_retention routers; tag RSS lives in existing rss.py
+- 03:33Z — tests/test_v049.py — tag RSS unknown-tag + visual diff 404 + app-retention page + save + module roundtrip + never_delete flag
+
 ## How to run
 
 ```powershell

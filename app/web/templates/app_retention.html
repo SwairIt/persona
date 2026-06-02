@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Per-app retention</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Override the warm / cold / delete cutoffs for individual apps. Leave a field blank to inherit
+    the global setting. Tick <em>Never delete</em> to keep an app's screenshots at hot tier forever —
+    the retention worker will skip the row entirely.
+  </p>
+  <p class="text-zinc-500 text-xs mt-2">
+    Global defaults: warm after <code>{{ global_warm }}</code> d, cold after <code>{{ global_cold }}</code> d,
+    delete after <code>{{ global_delete }}</code> d. App names are case-sensitive — match what shows on the timeline.
+  </p>
+</div>
+
+<form action="/settings/app-retention" method="post"
+      class="grid grid-cols-1 md:grid-cols-6 gap-2 items-end mb-6 p-4 rounded-lg border border-ink-700 bg-ink-800">
+  <label class="md:col-span-2 flex flex-col text-xs text-zinc-400">
+    App name
+    <input name="app_name" placeholder="Code.exe" required
+           class="mt-1 px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
+  </label>
+  <label class="flex flex-col text-xs text-zinc-400">
+    Warm after (d)
+    <input name="warm_after_days" type="number" min="1" max="3650" placeholder="{{ global_warm }}"
+           class="mt-1 px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
+  </label>
+  <label class="flex flex-col text-xs text-zinc-400">
+    Cold after (d)
+    <input name="cold_after_days" type="number" min="1" max="3650" placeholder="{{ global_cold }}"
+           class="mt-1 px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
+  </label>
+  <label class="flex flex-col text-xs text-zinc-400">
+    Delete after (d)
+    <input name="delete_after_days" type="number" min="1" max="3650" placeholder="{{ global_delete }}"
+           class="mt-1 px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
+  </label>
+  <label class="flex items-center gap-2 text-xs text-zinc-300 px-1">
+    <input name="never_delete" type="checkbox" value="1"
+           class="h-4 w-4 rounded border-ink-700 bg-ink-900">
+    Never delete
+  </label>
+  <div class="md:col-span-6 flex justify-end">
+    <button type="submit" class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium">
+      Save override
+    </button>
+  </div>
+</form>
+
+{% if items %}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden mb-8">
+    <table class="w-full text-sm">
+      <thead class="bg-ink-900 text-zinc-500 text-xs uppercase tracking-wider">
+        <tr>
+          <th class="text-left py-2 px-4">App</th>
+          <th class="text-right py-2 px-4">Warm (d)</th>
+          <th class="text-right py-2 px-4">Cold (d)</th>
+          <th class="text-right py-2 px-4">Delete (d)</th>
+          <th class="text-center py-2 px-4">Never delete</th>
+          <th class="py-2 px-4"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in items %}
+          <tr class="border-t border-ink-700">
+            <td class="py-2 px-4 text-zinc-200">{{ item.app_name }}</td>
+            <td class="py-2 px-4 text-right font-mono text-xs text-zinc-300">
+              {% if item.warm_after_days is none %}
+                <span class="text-zinc-600">inherit</span>
+              {% else %}
+                {{ item.warm_after_days }}
+              {% endif %}
+            </td>
+            <td class="py-2 px-4 text-right font-mono text-xs text-zinc-300">
+              {% if item.cold_after_days is none %}
+                <span class="text-zinc-600">inherit</span>
+              {% else %}
+                {{ item.cold_after_days }}
+              {% endif %}
+            </td>
+            <td class="py-2 px-4 text-right font-mono text-xs text-zinc-300">
+              {% if item.delete_after_days is none %}
+                <span class="text-zinc-600">inherit</span>
+              {% else %}
+                {{ item.delete_after_days }}
+              {% endif %}
+            </td>
+            <td class="py-2 px-4 text-center">
+              {% if item.never_delete %}
+                <span class="px-2 py-0.5 rounded bg-emerald-900/40 text-emerald-300 text-xs">yes</span>
+              {% else %}
+                <span class="text-zinc-600 text-xs">no</span>
+              {% endif %}
+            </td>
+            <td class="py-2 px-4 text-right">
+              <form action="/settings/app-retention/{{ item.app_name }}/delete" method="post" class="inline">
+                <button class="text-xs px-2 py-1 rounded bg-rose-900/40 hover:bg-rose-900 text-rose-300">remove</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-6 text-zinc-500 text-sm mb-8">
+    No per-app retention overrides yet. Every app currently follows the global policy above.
+  </div>
+{% endif %}
+
+{% if suggested %}
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">Suggested (your most-captured apps without an override)</h2>
+    <div class="space-y-2">
+      {% for s in suggested %}
+        <form action="/settings/app-retention" method="post"
+              class="grid grid-cols-1 md:grid-cols-6 gap-2 items-center">
+          <input type="hidden" name="app_name" value="{{ s.app_name }}">
+          <span class="md:col-span-2 text-zinc-300 text-sm truncate">{{ s.app_name }}
+            <span class="text-zinc-500 text-xs">({{ s.count }})</span>
+          </span>
+          <input name="warm_after_days" type="number" min="1" max="3650" placeholder="warm"
+                 class="px-3 py-1.5 bg-ink-900 border border-ink-700 rounded text-sm font-mono">
+          <input name="cold_after_days" type="number" min="1" max="3650" placeholder="cold"
+                 class="px-3 py-1.5 bg-ink-900 border border-ink-700 rounded text-sm font-mono">
+          <input name="delete_after_days" type="number" min="1" max="3650" placeholder="delete"
+                 class="px-3 py-1.5 bg-ink-900 border border-ink-700 rounded text-sm font-mono">
+          <label class="flex items-center gap-2 text-xs text-zinc-300">
+            <input name="never_delete" type="checkbox" value="1"
+                   class="h-4 w-4 rounded border-ink-700 bg-ink-900">
+            never
+          </label>
+          <div class="md:col-span-6 flex justify-end">
+            <button class="px-3 py-1.5 bg-ink-700 hover:bg-ink-600 rounded text-xs">Add override</button>
+          </div>
+        </form>
+      {% endfor %}
+    </div>
+  </section>
+{% endif %}
+{% endblock %}

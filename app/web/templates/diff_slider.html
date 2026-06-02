@@ -54,6 +54,18 @@
          class="block w-full mt-3 px-4 pb-4 accent-accent-500 cursor-ew-resize">
 </figure>
 
+{# Pixel-diff thumbnail (320x180) — pre-rendered server-side. Deterministic
+   in (a, b), so the route serves it with a long immutable Cache-Control. #}
+<figure class="mt-6 max-w-5xl mx-auto flex flex-col items-center">
+  <img src="/api/diff/{{ shot_a.id }}/{{ shot_b.id }}/thumb.png"
+       alt="Pixel diff between #{{ shot_a.id }} and #{{ shot_b.id }}"
+       width="320" height="180" loading="lazy" decoding="async"
+       class="rounded-md border border-ink-700 bg-ink-950">
+  <figcaption class="text-zinc-500 text-xs mt-2">
+    Diff thumbnail — bright pixels mark where the two captures differ.
+  </figcaption>
+</figure>
+
 <div class="grid sm:grid-cols-2 gap-4 mt-6 max-w-5xl mx-auto">
   <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
     <div class="text-xs uppercase tracking-widest text-zinc-500">Before (bottom layer)</div>
