@@ -584,6 +584,17 @@ Three feature agents in parallel via Workflow (195k tokens, 7.7 min). 30th tick 
 - 02:42Z — wired notes_timeline + dup_suggest + audit_rss routers
 - 02:44Z — tests/test_v047.py — notes timeline page + API + dup suggest missing-shot + module empty + audit RSS XML
 
+## 2026-06-03 — v0.48 continuation (autonomous, Ultracode workflow tick #31)
+
+Three feature agents in parallel via Workflow (201k tokens, 5.6 min). Chained.
+
+- 02:50Z — version bump 0.47→0.48
+- 02:53Z — **Permalinks** (agent A): migration 047 + `app/permalinks.py` (8-char base36 slug from secrets). POST /api/permalink (form target_url + optional label) → {slug, url}. GET /go/{slug} 302 → target_url + bump hits. Validates target_url starts with `/` so no open-redirect. /permalinks admin page.
+- 02:57Z — **Reading-time per day** (agent B): `app/reading_time.py` returns {total_words_ocr, total_words_notes, minutes_at_250wpm, by_app}. Excludes encrypted notes. Page /stats/reading-time?day=Y-M-D with big "N minutes" + per-app CSS bar chart. /api/reading-time.json.
+- 03:01Z — **Tag merge admin** (agent C): `app/tag_merge.py` with merge_tags(source, dest, dry_run) — wraps UPDATE screenshot_tag + DELETE FROM tag in a transaction with INSERT OR IGNORE for shots already having both. Audit-logged. /admin/tag-merge HTMX preview → confirm.
+- 03:04Z — wired permalinks + reading_time + tag_merge routers
+- 03:06Z — tests/test_v048.py — permalink page + create+redirect + open-redirect blocked + reading-time page + API + empty-day zero + tag-merge page + dry-run safe
+
 ## How to run
 
 ```powershell

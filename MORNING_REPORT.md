@@ -1,6 +1,6 @@
 # 🌅 Morning report — Persona
 
-Forty-seven autonomous sessions: …v0.44 → v0.45 → v0.46 → **v0.47** without stopping (chained back-to-back, zero wakeup gap). **Live on GitHub:** https://github.com/SwairIt/persona
+Forty-eight autonomous sessions: …v0.45 → v0.46 → v0.47 → **v0.48** without stopping (chained back-to-back). **Live on GitHub:** https://github.com/SwairIt/persona
 
 ## By the numbers (current)
 
@@ -11,6 +11,14 @@ Forty-seven autonomous sessions: …v0.44 → v0.45 → v0.46 → **v0.47** with
 - **20+ test files**
 - **0 git commits** — entirely up to you
 - **0 network calls at runtime** (only optional outgoing call: BYO-LLM keys to your chosen provider)
+
+## What landed in v0.48 (permalinks + reading-time per day + tag merge)
+
+Built via 3 parallel Workflow agents → sequential wire-up.
+
+- 🔗 **Permalinks** — POST `/api/permalink` with any internal URL gets you back a short `/go/{slug}` redirect (8-char base36) you can share or stash in notes. Open-redirect-safe: only relative `/`-prefixed URLs accepted. `/permalinks` admin page shows all slugs + hits.
+- 📖 **Reading-time per day** — `/stats/reading-time?day=YYYY-MM-DD` totals OCR words + note words across a day and reports "N minutes at 250 wpm" plus a per-app CSS bar chart. Encrypted notes excluded. JSON API at `/api/reading-time.json`.
+- 🔀 **Tag merge** — `/admin/tag-merge` lets you merge tag `B` into tag `A`. Preview shows how many shots will move; confirm runs the atomic UPDATE + DELETE inside a transaction (INSERT OR IGNORE for shots that already had both). Action is recorded in the v0.36 audit log.
 
 ## What landed in v0.47 (notes day-timeline + dup suggestions + audit RSS)
 

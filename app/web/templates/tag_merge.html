@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+
+{# Single-template admin page for /admin/tag-merge.
+
+   Context contract:
+   * Always: `tag_names` (list[str]) — populates the datalist.
+   * Optional after POST: `submitted_source`, `submitted_dest` — sticky
+     form values so the user doesn't retype.
+   * Optional preview / confirm output:
+       - `result_moved`           — int
+       - `result_source_existed`  — bool
+       - `result_dest_existed`    — bool
+       - `result_dry_run`         — bool
+       - `result_committed`       — bool (real merge ran AND both tags found)
+   * Optional `error` — string shown above the form.
+
+   The whole page is the HTMX swap target; the POST handler returns this
+   same template so the form, datalist and result panel all stay in sync.
+#}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight flex items-center gap-3">
+    <span class="text-accent-400">⇆</span> Merge tags
+  </h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Fold one tag into another — every screenshot tagged with the
+    <em>source</em> is re-tagged with the <em>destination</em>, then the
+    source tag is deleted. Useful for fixing typos (<code class="font-mono text-xs">passwrod</code>
+    → <code class="font-mono text-xs">password</code>) or consolidating duplicates.
+  </p>
+</div>
+
+<div class="rounded-lg border border-amber-700/60 bg-amber-900/20 p-4 mb-8">
+  <p class="text-amber-200 text-sm">
+    <strong class="font-semibold">Heads up.</strong>
+    Preview shows how many assignments will move. The source tag is
+    permanently deleted on confirm; screenshots are never touched.
+  </p>
+</div>
+
+{% if error %}
+  <div class="rounded-lg border border-rose-700 bg-rose-900/30 p-4 mb-6">
+    <p class="text-rose-100 text-sm">{{ error }}</p>
+  </div>
+{% endif %}
+
+<datalist id="tag-merge-names">
+  {% for name in tag_names %}
+    <option value="{{ name }}"></option>
+  {% endfor %}
+</datalist>
+
+<form id="tag-merge-form"
+      hx-post="/admin/tag-merge"
+      hx-target="#tag-merge-page"
+      hx-swap="outerHTML"
+      class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6 space-y-4">
+  <div id="tag-merge-page" class="space-y-4">
+    <div class="grid sm:grid-cols-2 gap-4">
+      <label class="block">
+        <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">Source (will be deleted)</span>
+        <input name="source" required maxlength="200" autocomplete="off"
+               list="tag-merge-names"
+               value="{{ submitted_source or '' }}"
+               placeholder="passwrod"
+               class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm focus:outline-none focus:border-accent-500">
+      </label>
+      <label class="block">
+        <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">Destination (kept)</span>
+        <input name="dest" required maxlength="200" autocomplete="off"
+               list="tag-merge-names"
+               value="{{ submitted_dest or '' }}"
+               placeholder="password"
+               class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm focus:outline-none focus:border-accent-500">
+      </label>
+    </div>
+    <div class="flex items-center gap-3">
+      <button type="submit"
+              class="px-4 py-2 bg-zinc-700 hover:bg-zinc-600 rounded text-sm font-medium">
+        Preview merge
+      </button>
+      <span class="text-xs text-zinc-500">Preview is dry-run — nothing changes until you confirm.</span>
+    </div>
+
+    {% if result_dry_run is defined and result_dry_run %}
+      {% if not result_source_existed or not result_dest_existed %}
+        <div class="rounded-lg border border-rose-700 bg-rose-900/30 p-5 mt-4">
+          <h2 class="text-base font-semibold text-rose-100 mb-2">Tag not found</h2>
+          <ul class="text-rose-100/80 text-sm list-disc list-inside space-y-1">
+            {% if not result_source_existed %}
+              <li>Source
+                <code class="font-mono text-xs bg-ink-900 px-1.5 py-0.5 rounded">{{ submitted_source }}</code>
+                does not exist.</li>
+            {% endif %}
+            {% if not result_dest_existed %}
+              <li>Destination
+                <code class="font-mono text-xs bg-ink-900 px-1.5 py-0.5 rounded">{{ submitted_dest }}</code>
+                does not exist.</li>
+            {% endif %}
+          </ul>
+        </div>
+      {% else %}
+        <div class="rounded-lg border border-amber-700 bg-amber-900/20 p-5 mt-4 space-y-4">
+          <h2 class="text-base font-semibold text-amber-100">
+            Will move {{ result_moved }} assignment{{ "s" if result_moved != 1 else "" }}
+          </h2>
+          <p class="text-amber-100/80 text-sm">
+            All screenshots tagged
+            <code class="font-mono text-xs bg-ink-900 px-1.5 py-0.5 rounded">{{ submitted_source }}</code>
+            will be re-tagged
+            <code class="font-mono text-xs bg-ink-900 px-1.5 py-0.5 rounded">{{ submitted_dest }}</code>,
+            then the
+            <code class="font-mono text-xs bg-ink-900 px-1.5 py-0.5 rounded">{{ submitted_source }}</code>
+            tag will be deleted.
+          </p>
+          <button type="submit"
+                  name="confirm"
+                  value="1"
+                  hx-confirm="Really merge '{{ submitted_source }}' into '{{ submitted_dest }}'? This deletes the source tag."
+                  class="px-4 py-2 bg-accent-600 hover:bg-accent-500 text-white rounded text-sm font-bold tracking-wide">
+            Confirm merge ({{ result_moved }})
+          </button>
+        </div>
+      {% endif %}
+    {% elif result_committed is defined and result_committed %}
+      <div class="rounded-lg border border-emerald-700/60 bg-emerald-900/20 p-5 mt-4">
+        <h2 class="text-lg font-semibold text-emerald-200 mb-2">Done.</h2>
+        <p class="text-emerald-100 text-sm">
+          Merged
+          <code class="font-mono text-xs bg-ink-900 px-1.5 py-0.5 rounded">{{ submitted_source }}</code>
+          into
+          <code class="font-mono text-xs bg-ink-900 px-1.5 py-0.5 rounded">{{ submitted_dest }}</code>
+          — {{ result_moved }} assignment{{ "s" if result_moved != 1 else "" }} moved, source tag deleted.
+        </p>
+        <p class="text-emerald-200/70 text-xs mt-3">
+          <a href="/admin/tag-merge" class="underline hover:text-emerald-100">Merge another pair</a>
+          · <a href="/tags" class="underline hover:text-emerald-100">Back to tags</a>
+        </p>
+      </div>
+    {% elif result_dry_run is defined and not result_dry_run %}
+      {# Confirm submitted but at least one tag had vanished between
+         preview and confirm (rare race or somebody renamed in another
+         tab). Surface honestly. #}
+      <div class="rounded-lg border border-rose-700 bg-rose-900/30 p-5 mt-4">
+        <h2 class="text-base font-semibold text-rose-100 mb-2">Merge skipped</h2>
+        <p class="text-rose-100/80 text-sm">
+          One of the tags no longer exists. Re-run the preview to see
+          the current state.
+        </p>
+      </div>
+    {% endif %}
+  </div>
+</form>
+{% endblock %}

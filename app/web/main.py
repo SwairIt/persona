@@ -80,6 +80,7 @@ from app.web.routes import (
     ocr_status,
     palette as palette_routes,
     pdf_export as pdf_export_routes,
+    permalinks as permalinks_routes,
     pin as pin_routes,
     process_remap as process_remap_routes,
     public_day as public_day_routes,
@@ -88,6 +89,7 @@ from app.web.routes import (
     regex_rules as regex_rules_routes,
     range_timeline as range_timeline_routes,
     reading as reading_routes,
+    reading_time as reading_time_routes,
     recycle as recycle_routes,
     redaction as redaction_routes,
     reminders as reminders_routes,
@@ -122,6 +124,7 @@ from app.web.routes import (
     streak as streak_routes,
     summary as summary_routes,
     tag_colour as tag_colour_routes,
+    tag_merge as tag_merge_routes,
     tag_trends as tag_trends_routes,
     tags as tags_routes,
     theme as theme_routes,
@@ -175,7 +178,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.47.0",
+        version="0.48.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -302,6 +305,9 @@ def create_app() -> FastAPI:
     app.include_router(notes_timeline_routes.router)
     app.include_router(dup_suggest_routes.router)
     app.include_router(audit_rss_routes.router)
+    app.include_router(permalinks_routes.router)
+    app.include_router(reading_time_routes.router)
+    app.include_router(tag_merge_routes.router)
 
     return app
 
