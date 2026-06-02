@@ -551,6 +551,17 @@ Three feature agents in parallel via Workflow (243k tokens, 10.3 min), then sequ
 - 00:23Z — wired ocr_near_dup + public_day routers; webhook filter is a behaviour change in existing routes
 - 00:25Z — tests/test_v044.py — webhook filter all-glob / exact / prefix-glob / csv-list + near-dup page + empty list + public-day admin + 404 + publish+view roundtrip + bad-slug rejection
 
+## 2026-06-03 — v0.45 continuation (autonomous, Ultracode workflow tick #28)
+
+Three feature agents in parallel via Workflow (279k tokens, 30 min — slowest tick yet), then sequential wire-up. User asked to drop 20-min ScheduleWakeup gaps and chain workflows tightly — adopted.
+
+- 00:25Z — version bump 0.44→0.45
+- 00:55Z — **Per-app icon cache** (agent A): migration 044 + `app/app_icons.py` with get_icon_png(app_name). Generates deterministic 64×64 PNG initials with HSL background hashed from app_name; PIL via anyio.to_thread; cached in app_icon table. Route /app-icon/{name}.png returns image/png with Cache-Control max-age=86400.
+- 01:15Z — **Encrypted note bodies** (agent B): migration 045 adds encrypted + ciphertext columns to notes. `app/encrypted_notes.py` Fernet+PBKDF2(100k iters, per-note salt). Routes /api/notes/{id}/encrypt, /api/notes/{id}/decrypt, /api/notes/{id}/unlock-and-edit (short-lived signed token). notes_search excludes encrypted rows. Every decrypt audit-logged.
+- 01:35Z — **Retention rule preview** (agent C): `app/retention_preview.py` with preview(now_iso) returning {to_demote_warm, to_demote_cold, to_hard_delete, sample_ids, total_bytes_freed_estimate}. /admin/retention-preview renders 3 number cards + sample thumbs + freed-bytes estimate. /api/retention-preview.json. Reuses retention_worker SQL conditions.
+- 01:45Z — wired app_icons + encrypted_notes + retention_preview routers
+- 01:50Z — tests/test_v045.py — icon route returns PNG + caches + deterministic + encrypt 404 + retention page + API + empty-DB zeros
+
 ## How to run
 
 ```powershell

@@ -1,6 +1,6 @@
 # 🌅 Morning report — Persona
 
-Forty-four autonomous sessions: …v0.41 → v0.42 → v0.43 → **v0.44** without stopping. Self-pacing /loop continues until you cancel. **Live on GitHub:** https://github.com/SwairIt/persona
+Forty-five autonomous sessions: …v0.42 → v0.43 → v0.44 → **v0.45** without stopping. Self-pacing /loop continues until you cancel. **Live on GitHub:** https://github.com/SwairIt/persona
 
 ## By the numbers (current)
 
@@ -11,6 +11,14 @@ Forty-four autonomous sessions: …v0.41 → v0.42 → v0.43 → **v0.44** witho
 - **20+ test files**
 - **0 git commits** — entirely up to you
 - **0 network calls at runtime** (only optional outgoing call: BYO-LLM keys to your chosen provider)
+
+## What landed in v0.45 (app icon cache + encrypted notes + retention preview)
+
+Built via 3 parallel Workflow agents → sequential wire-up.
+
+- 🅰️ **Per-app icon cache** — `/app-icon/{name}.png` returns a deterministic 64×64 PNG: two-letter initials on a colour derived from `sha256(app_name)`. Cached in DB, served with `Cache-Control: max-age=86400`. Drop-in for timelines / tag pages / time-on-app — each app instantly recognisable.
+- 🔐 **Encrypted note bodies** — opt-in per note. POST `/api/notes/{id}/encrypt` with master password → body wiped, ciphertext stored (Fernet + PBKDF2-HMAC-SHA256 100k iters, per-note salt). POST `/api/notes/{id}/decrypt` returns the plaintext for one-time display. Encrypted notes are filtered out of FTS search. Every decrypt is recorded in the v0.36 audit log.
+- 🧮 **Retention preview** — `/admin/retention-preview` is a dry-run of the next retention worker tick: how many shots would demote warm/cold, how many hard-delete, sample thumbnails per bucket, MB freed estimate. Banner clearly says "no changes made". Catches "oh no I set the wrong cutoff" mistakes before they happen.
 
 ## What landed in v0.44 (webhook event filters + OCR near-dup admin + public day)
 

@@ -6,6 +6,27 @@ Exposes:
 
 Both routes are read-only, return HTTP 200 even on empty / invalid input, and
 cap results at 50 ranked by bm25(notes_fts).
+
+Encryption-leak audit (v0.45)
+-----------------------------
+The opt-in note encryption added in v0.45 lives in the standalone
+``notes`` table — the FTS5 virtual table (``notes_fts``, defined in
+``023_notes_fts.sql``) and its triggers operate exclusively on the
+``screenshot_notes`` table, which has **no** ``encrypted`` / ``ciphertext``
+columns. Encrypted standalone notes therefore cannot leak through this
+endpoint:
+
+  * The standalone-notes encryption flow stores ciphertext in
+    ``notes.ciphertext`` (BLOB) and only ever wrote ``body = ''`` to
+    ``notes.body``; ``notes_fts`` does not index this column.
+  * The screenshot-notes path was not extended in v0.45 and remains
+    plaintext-only, so its FTS index is unaffected.
+
+Even so, the SELECT below intentionally JOINs through
+``screenshot_notes`` (not the ``notes`` table) so an accidental future
+refactor that points ``notes_fts`` at the standalone table would still
+need to add an explicit ``encrypted = 0`` filter here. Reviewers: keep
+that filter in mind if the JOIN target ever changes.
 """
 
 from __future__ import annotations

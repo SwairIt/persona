@@ -30,8 +30,10 @@
     {% endif %}
     {% for app_name, count in apps_for_day %}
       <a href="/?date={{ target_day.strftime('%Y-%m-%d') }}&app={{ app_name }}"
-         class="px-3 py-1 rounded-full text-xs border transition
+         class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs border transition
                 {% if app_filter == app_name %}bg-accent-600/30 border-accent-500 text-accent-200{% else %}bg-ink-800 border-ink-700 hover:border-zinc-500 text-zinc-400{% endif %}">
+        <img src="/app-icon/{{ app_name | urlencode }}.png" alt="" loading="lazy"
+             class="w-3.5 h-3.5 rounded-sm flex-shrink-0">
         {{ app_name }} <span class="text-zinc-500">· {{ count }}</span>
       </a>
     {% endfor %}

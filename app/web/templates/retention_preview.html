@@ -1,0 +1,217 @@
+{% extends "base.html" %}
+
+{% block content %}
+{# ---- helpers (binary units, 1 decimal) ---- #}
+{% macro humanize_bytes(n) -%}
+  {%- if n is none -%}—
+  {%- elif n < 1024 -%}{{ n }} B
+  {%- elif n < 1024 * 1024 -%}{{ (n / 1024) | round(1) }} KB
+  {%- elif n < 1024 * 1024 * 1024 -%}{{ (n / 1024 / 1024) | round(1) }} MB
+  {%- else -%}{{ (n / 1024 / 1024 / 1024) | round(1) }} GB
+  {%- endif -%}
+{%- endmacro %}
+
+<div class="mb-6 flex items-end justify-between flex-wrap gap-3">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight flex items-center gap-3">
+      <span class="text-accent-400">⟲</span> Retention preview
+    </h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Exactly what the retention worker would touch on its next run, no
+      writes performed. Useful for sanity-checking thresholds before
+      lowering them.
+    </p>
+  </div>
+  <a href="/settings"
+     class="text-xs text-zinc-500 hover:text-accent-400 underline">
+    ← settings
+  </a>
+</div>
+
+{# ---- dry-run banner ---- #}
+<div class="rounded-lg border border-amber-700/60 bg-amber-900/20 p-4 mb-8">
+  <p class="text-amber-200 text-sm">
+    <strong class="font-semibold">Dry-run.</strong>
+    This is a preview &mdash; no rows are demoted, no thumbnails are
+    deleted, no recycle-bin entries are purged. The numbers below match
+    what the retention worker would do on its next sweep with the
+    currently-configured thresholds
+    (warm after <span class="font-mono">{{ warm_after_days }}</span>
+    day{{ "" if warm_after_days == 1 else "s" }},
+    cold after <span class="font-mono">{{ cold_after_days }}</span>
+    day{{ "" if cold_after_days == 1 else "s" }},
+    bin purge after <span class="font-mono">{{ recycle_retention_days }}</span>
+    day{{ "" if recycle_retention_days == 1 else "s" }}).
+    {% if not tiered_retention %}
+      <br><strong class="font-semibold">Note:</strong> tiered retention
+      is currently <span class="font-mono">disabled</span> in settings
+      &mdash; warm/cold demotions would be skipped even though candidates
+      exist.
+    {% endif %}
+  </p>
+</div>
+
+{# ---- the three big number cards ---- #}
+<section class="mb-8 grid grid-cols-1 md:grid-cols-3 gap-4">
+  {# warm bucket #}
+  <div class="rounded-lg border border-amber-700/40 bg-amber-900/10 p-5">
+    <div class="flex items-baseline justify-between">
+      <div class="text-xs uppercase tracking-wider text-amber-300/80">
+        Demote to warm
+      </div>
+      <div class="text-[10px] text-zinc-500 font-mono">
+        hot → warm
+      </div>
+    </div>
+    <div class="text-4xl font-bold mt-2 text-amber-200">
+      {{ "{:,}".format(preview.to_demote_warm) }}
+    </div>
+    <div class="text-xs text-zinc-500 mt-1">
+      screenshot{{ "" if preview.to_demote_warm == 1 else "s" }} would be downscaled
+    </div>
+
+    {# sample thumbs #}
+    {% if warm_samples %}
+      <div class="mt-4 grid grid-cols-3 gap-2">
+        {% for s in warm_samples %}
+          {% if s.thumbnail_url %}
+            <a href="/screenshot/{{ s.id }}"
+               class="block aspect-video bg-ink-900 rounded overflow-hidden border border-amber-700/20 hover:border-amber-500/60 transition"
+               title="Screenshot #{{ s.id }}">
+              <img src="{{ s.thumbnail_url }}" alt="Screenshot #{{ s.id }}"
+                   loading="lazy"
+                   class="w-full h-full object-cover">
+            </a>
+          {% else %}
+            <div class="aspect-video bg-ink-900 rounded border border-ink-700 flex items-center justify-center text-[10px] text-zinc-600 font-mono"
+                 title="No thumbnail">
+              #{{ s.id }}
+            </div>
+          {% endif %}
+        {% endfor %}
+      </div>
+    {% elif preview.to_demote_warm == 0 %}
+      <p class="text-xs text-zinc-500 mt-4 italic">Nothing to demote.</p>
+    {% else %}
+      <p class="text-xs text-zinc-500 mt-4 italic">No sample thumbnails available.</p>
+    {% endif %}
+  </div>
+
+  {# cold bucket #}
+  <div class="rounded-lg border border-sky-700/40 bg-sky-900/10 p-5">
+    <div class="flex items-baseline justify-between">
+      <div class="text-xs uppercase tracking-wider text-sky-300/80">
+        Demote to cold
+      </div>
+      <div class="text-[10px] text-zinc-500 font-mono">
+        warm → cold
+      </div>
+    </div>
+    <div class="text-4xl font-bold mt-2 text-sky-200">
+      {{ "{:,}".format(preview.to_demote_cold) }}
+    </div>
+    <div class="text-xs text-zinc-500 mt-1">
+      thumbnail{{ "" if preview.to_demote_cold == 1 else "s" }} would be deleted; row + OCR kept
+    </div>
+
+    {% if cold_samples %}
+      <div class="mt-4 grid grid-cols-3 gap-2">
+        {% for s in cold_samples %}
+          {% if s.thumbnail_url %}
+            <a href="/screenshot/{{ s.id }}"
+               class="block aspect-video bg-ink-900 rounded overflow-hidden border border-sky-700/20 hover:border-sky-500/60 transition"
+               title="Screenshot #{{ s.id }}">
+              <img src="{{ s.thumbnail_url }}" alt="Screenshot #{{ s.id }}"
+                   loading="lazy"
+                   class="w-full h-full object-cover">
+            </a>
+          {% else %}
+            <div class="aspect-video bg-ink-900 rounded border border-ink-700 flex items-center justify-center text-[10px] text-zinc-600 font-mono"
+                 title="No thumbnail">
+              #{{ s.id }}
+            </div>
+          {% endif %}
+        {% endfor %}
+      </div>
+    {% elif preview.to_demote_cold == 0 %}
+      <p class="text-xs text-zinc-500 mt-4 italic">Nothing to demote.</p>
+    {% else %}
+      <p class="text-xs text-zinc-500 mt-4 italic">No sample thumbnails available.</p>
+    {% endif %}
+  </div>
+
+  {# hard-delete bucket #}
+  <div class="rounded-lg border border-rose-700/40 bg-rose-900/10 p-5">
+    <div class="flex items-baseline justify-between">
+      <div class="text-xs uppercase tracking-wider text-rose-300/80">
+        Hard delete
+      </div>
+      <div class="text-[10px] text-zinc-500 font-mono">
+        recycle bin
+      </div>
+    </div>
+    <div class="text-4xl font-bold mt-2 text-rose-200">
+      {{ "{:,}".format(preview.to_hard_delete) }}
+    </div>
+    <div class="text-xs text-zinc-500 mt-1">
+      bin row{{ "" if preview.to_hard_delete == 1 else "s" }} would be purged forever
+    </div>
+
+    {% if delete_samples %}
+      <div class="mt-4 grid grid-cols-3 gap-2">
+        {% for s in delete_samples %}
+          {% if s.thumbnail_url %}
+            <div class="block aspect-video bg-ink-900 rounded overflow-hidden border border-rose-700/20"
+                 title="Recycle-bin entry #{{ s.id }}">
+              <img src="{{ s.thumbnail_url }}" alt="Recycle bin #{{ s.id }}"
+                   loading="lazy"
+                   class="w-full h-full object-cover opacity-60">
+            </div>
+          {% else %}
+            <div class="aspect-video bg-ink-900 rounded border border-ink-700 flex items-center justify-center text-[10px] text-zinc-600 font-mono"
+                 title="No thumbnail">
+              #{{ s.id }}
+            </div>
+          {% endif %}
+        {% endfor %}
+      </div>
+    {% elif preview.to_hard_delete == 0 %}
+      <p class="text-xs text-zinc-500 mt-4 italic">Nothing to purge.</p>
+    {% else %}
+      <p class="text-xs text-zinc-500 mt-4 italic">No sample thumbnails available.</p>
+    {% endif %}
+  </div>
+</section>
+
+{# ---- estimated bytes freed ---- #}
+<section class="rounded-lg border border-emerald-700/40 bg-emerald-900/10 p-5">
+  <div class="flex items-baseline justify-between flex-wrap gap-2">
+    <div>
+      <div class="text-xs uppercase tracking-wider text-emerald-300/80">
+        Estimated disk freed
+      </div>
+      <div class="text-3xl font-bold mt-2 text-emerald-200">
+        {{ "%.1f" | format(mb_freed) }} MB
+      </div>
+      <div class="text-xs text-zinc-500 mt-1 font-mono">
+        ({{ humanize_bytes(bytes_freed) }})
+      </div>
+    </div>
+    <div class="text-xs text-zinc-500 max-w-md">
+      Sum of <code class="text-zinc-400">stat().st_size</code> for every
+      thumbnail the next sweep would unlink &mdash; cold demotions plus
+      recycle-bin purges. Warm demotions only re-encode, so they save
+      bytes but the figure here is conservative and excludes them.
+    </div>
+  </div>
+</section>
+
+{# ---- JSON link, for scripts ---- #}
+<p class="text-xs text-zinc-500 mt-6">
+  Need the raw numbers? &nbsp;
+  <a href="/api/retention-preview.json"
+     class="text-accent-400 hover:underline font-mono">
+    GET /api/retention-preview.json
+  </a>
+</p>
+{% endblock %}

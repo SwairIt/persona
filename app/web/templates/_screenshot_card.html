@@ -18,8 +18,12 @@
     </div>
   {% endif %}
   <div class="px-2.5 py-2">
-    <div class="text-xs text-zinc-300 font-mono truncate" title="{{ shot.window_title or '' }}">
-      {{ shot.app_name or '—' }}
+    <div class="text-xs text-zinc-300 font-mono truncate flex items-center gap-1.5" title="{{ shot.window_title or '' }}">
+      {% if shot.app_name %}
+        <img src="/app-icon/{{ shot.app_name | urlencode }}.png" alt="" loading="lazy"
+             class="w-3.5 h-3.5 rounded-sm flex-shrink-0">
+      {% endif %}
+      <span class="truncate">{{ shot.app_name or '—' }}</span>
     </div>
     {% set _tags = (tags_by_id or {}).get(shot.id, []) %}
     {% if _tags %}

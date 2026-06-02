@@ -67,7 +67,14 @@
                class="text-zinc-200 hover:text-accent-400 flex-1 min-w-0">
               <span class="font-mono text-xs">{{ s.name }}</span>
               <span class="text-zinc-500 text-xs ml-2">{{ s.query }}</span>
-              {% if s.app_name %}<span class="text-zinc-600 text-xs ml-1">in {{ s.app_name }}</span>{% endif %}
+              {% if s.app_name %}
+                <span class="inline-flex items-center gap-1 text-zinc-600 text-xs ml-1">
+                  in
+                  <img src="/app-icon/{{ s.app_name | urlencode }}.png" alt="" loading="lazy"
+                       class="w-3 h-3 rounded-sm inline-block flex-shrink-0">
+                  {{ s.app_name }}
+                </span>
+              {% endif %}
             </a>
             <div class="flex items-center gap-2 flex-shrink-0">
               {% if s.new_count %}

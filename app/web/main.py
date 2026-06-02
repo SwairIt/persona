@@ -22,6 +22,7 @@ from app.web.routes import (
     analysis as analysis_routes,
     annotations as annotations_routes,
     api_tokens as api_tokens_routes,
+    app_icons as app_icons_routes,
     app_overrides as app_overrides_routes,
     app_stats as app_stats_routes,
     archive as archive_routes,
@@ -49,6 +50,7 @@ from app.web.routes import (
     digest as digest_routes,
     doctor as doctor_routes,
     embeddings_status,
+    encrypted_notes as encrypted_notes_routes,
     export,
     favourites as favourites_routes,
     focus as focus_routes,
@@ -85,6 +87,7 @@ from app.web.routes import (
     recycle as recycle_routes,
     redaction as redaction_routes,
     reminders as reminders_routes,
+    retention_preview as retention_preview_routes,
     ocr_admin as ocr_admin_routes,
     ocr_language_stats as ocr_language_stats_routes,
     ocr_languages as ocr_languages_routes,
@@ -167,7 +170,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.44.0",
+        version="0.45.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -286,6 +289,9 @@ def create_app() -> FastAPI:
     app.include_router(shot_share_ui_routes.router)
     app.include_router(ocr_near_dup_routes.router)
     app.include_router(public_day_routes.router)
+    app.include_router(app_icons_routes.router)
+    app.include_router(encrypted_notes_routes.router)
+    app.include_router(retention_preview_routes.router)
 
     return app
 
