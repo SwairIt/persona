@@ -13,10 +13,11 @@ async def create_webhook(
     url: str,
     event_type: str,
     secret: str | None = None,
+    event_types: str | None = None,
 ) -> int:
     cursor = await conn.execute(
-        "INSERT INTO webhooks (url, event_type, secret) VALUES (?, ?, ?)",
-        (url, event_type, secret),
+        "INSERT INTO webhooks (url, event_type, secret, event_types) VALUES (?, ?, ?, ?)",
+        (url, event_type, secret, event_types if event_types is not None else "*"),
     )
     await conn.commit()
     if cursor.lastrowid is None:
@@ -76,10 +77,18 @@ async def record_delivery(
 
 
 def _row_to_dict(row: aiosqlite.Row) -> dict[str, Any]:
+    # ``event_types`` was added in migration 042. Use a safe ``try`` so
+    # callers reading rows from an older schema (e.g. inside a test
+    # fixture that snapshots an early migration) don't crash.
+    try:
+        event_types = row["event_types"]
+    except (IndexError, KeyError):
+        event_types = None
     return {
         "id": int(row["id"]),
         "url": str(row["url"]),
         "event_type": str(row["event_type"]),
+        "event_types": None if event_types is None else str(event_types),
         "secret": row["secret"],
         "enabled": bool(row["enabled"]),
         "created_at": str(row["created_at"]),

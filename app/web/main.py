@@ -76,6 +76,7 @@ from app.web.routes import (
     pdf_export as pdf_export_routes,
     pin as pin_routes,
     process_remap as process_remap_routes,
+    public_day as public_day_routes,
     qa as qa_routes,
     quiet_hours as quiet_hours_routes,
     regex_rules as regex_rules_routes,
@@ -88,6 +89,7 @@ from app.web.routes import (
     ocr_language_stats as ocr_language_stats_routes,
     ocr_languages as ocr_languages_routes,
     ocr_diff as ocr_diff_routes,
+    ocr_near_dup as ocr_near_dup_routes,
     ocr_overlay as ocr_overlay_routes,
     ocr_phrase_tags as ocr_phrase_tags_routes,
     ocr_retry as ocr_retry_routes,
@@ -165,7 +167,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.43.0",
+        version="0.44.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -282,6 +284,8 @@ def create_app() -> FastAPI:
     app.include_router(day_collage_routes.router)
     app.include_router(shot_share_routes.router)
     app.include_router(shot_share_ui_routes.router)
+    app.include_router(ocr_near_dup_routes.router)
+    app.include_router(public_day_routes.router)
 
     return app
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
+from app.logging_setup import get_logger
 from app.storage.db import get_connection
 from app.storage.webhooks import (
     create_webhook,
@@ -16,6 +17,31 @@ from app.web.templates_engine import templates
 from app.webhooks.dispatcher import VALID_EVENTS, dispatch_test
 
 router = APIRouter(tags=["webhooks"])
+
+log = get_logger("persona.webhook.filters")
+
+
+def _normalise_event_types(raw: str) -> str:
+    """Clean a user-supplied ``event_types`` form value.
+
+    Trims whitespace, drops empty tokens, deduplicates while preserving
+    order. The literal ``*`` short-circuits to itself. An empty input
+    means "fire on every event" and is stored as ``*`` so the column
+    always carries a non-empty marker — easier to reason about than
+    juggling NULL/""/"*" in three places.
+    """
+    stripped = raw.strip()
+    if stripped in {"", "*"}:
+        return "*"
+    seen: dict[str, None] = {}
+    for chunk in stripped.split(","):
+        cleaned = chunk.strip()
+        if not cleaned:
+            continue
+        if cleaned == "*":
+            return "*"
+        seen[cleaned] = None
+    return ", ".join(seen) if seen else "*"
 
 
 @router.get("/webhooks", response_class=HTMLResponse)
@@ -40,13 +66,41 @@ async def webhooks_create(
     url: str = Form(...),
     event_type: str = Form(...),
     secret: str = Form(default=""),
+    event_types: str = Form(default="*"),
 ) -> RedirectResponse:
     if event_type not in VALID_EVENTS:
         raise HTTPException(status_code=400, detail=f"Unknown event: {event_type}")
     if not url.startswith(("http://", "https://")):
         raise HTTPException(status_code=400, detail="URL must be http:// or https://")
+    normalised = _normalise_event_types(event_types)
+    if normalised != "*":
+        # Validate every non-wildcard entry against the known catalogue
+        # so we don't silently accept typos like "scrennshot.captured".
+        # A bare wildcard or a "screenshot.*" glob is allowed too.
+        for entry in (e.strip() for e in normalised.split(",")):
+            if not entry or entry == "*":
+                continue
+            if entry.endswith(".*"):
+                continue
+            if entry not in VALID_EVENTS:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Unknown event in filter: {entry}",
+                )
     async with get_connection() as conn:
-        await create_webhook(conn, url=url, event_type=event_type, secret=secret or None)
+        await create_webhook(
+            conn,
+            url=url,
+            event_type=event_type,
+            secret=secret or None,
+            event_types=normalised,
+        )
+    log.info(
+        "webhook.filters.created",
+        url=url,
+        event_type=event_type,
+        event_types=normalised,
+    )
     return RedirectResponse(url="/webhooks", status_code=303)
 
 

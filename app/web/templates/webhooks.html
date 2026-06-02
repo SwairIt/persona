@@ -26,6 +26,18 @@
              class="flex-1 px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono">
       <button type="submit" class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium">Add</button>
     </div>
+    <div>
+      <label class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">
+        Event filter
+      </label>
+      <input name="event_types" value="*"
+             placeholder="screenshot.captured, screenshot.tagged or * for all"
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
+      <p class="text-[11px] text-zinc-500 mt-1">
+        Comma-separated event types to subscribe to. Use <code>*</code> for every event,
+        or globs like <code>capture.*</code> to match a whole family.
+      </p>
+    </div>
   </form>
 </section>
 
@@ -35,6 +47,7 @@
       <thead class="bg-ink-900 text-zinc-500 text-xs uppercase tracking-wider">
         <tr>
           <th class="text-left py-2 px-3">Event</th>
+          <th class="text-left py-2 px-3">Filter</th>
           <th class="text-left py-2 px-3">URL</th>
           <th class="text-left py-2 px-3">Last status</th>
           <th class="text-left py-2 px-3">Last delivery</th>
@@ -45,6 +58,9 @@
         {% for s in subs %}
           <tr class="border-t border-ink-700">
             <td class="py-2 px-3 font-mono text-xs">{{ s.event_type }}</td>
+            <td class="py-2 px-3 font-mono text-xs text-zinc-400" title="event_types filter">
+              {{ s.event_types or '*' }}
+            </td>
             <td class="py-2 px-3 text-xs truncate max-w-[20rem]" title="{{ s.url }}">{{ s.url }}</td>
             <td class="py-2 px-3 text-xs">
               {% if s.last_status_code %}

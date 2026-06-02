@@ -36,9 +36,11 @@ import httpx
 from app.logging_setup import get_logger
 from app.storage.db import get_connection
 from app.storage.webhooks import list_webhooks, record_delivery
+from app.webhook_filters import should_fire
 from app.webhook_signing import ensure_secret, sign_payload
 
 log = get_logger("persona.webhook.sign")
+filter_log = get_logger("persona.webhook.filters")
 
 _BACKGROUND_TASKS: set[asyncio.Task[None]] = set()
 
@@ -70,9 +72,24 @@ async def dispatch_event(event_type: str, payload: dict[str, Any]) -> None:
 
 
 async def _do_dispatch(event_type: str, payload: dict[str, Any]) -> None:
+    # v0.44: webhooks now carry an ``event_types`` filter (comma list or
+    # ``*``). We fetch *all* enabled subscribers and then apply
+    # :func:`app.webhook_filters.should_fire` per-row so a single webhook
+    # can subscribe to many event types in one go (or all via ``*``).
     async with get_connection() as conn:
-        subs = await list_webhooks(conn, event_type=event_type, only_enabled=True)
+        all_subs = await list_webhooks(conn, only_enabled=True)
+    subs = [
+        sub
+        for sub in all_subs
+        if should_fire(_event_filter(sub), event_type)
+    ]
     if not subs:
+        if all_subs:
+            filter_log.debug(
+                "webhook.filters.all_skipped",
+                event_type=event_type,
+                considered=len(all_subs),
+            )
         return
 
     ts = datetime.now(UTC).isoformat()
@@ -86,6 +103,20 @@ async def _do_dispatch(event_type: str, payload: dict[str, Any]) -> None:
     async with httpx.AsyncClient(timeout=10.0) as client:
         tasks = [_post_one(client, sub, body_bytes, ts) for sub in subs]
         await asyncio.gather(*tasks, return_exceptions=True)
+
+
+def _event_filter(sub: dict[str, Any]) -> str | None:
+    """Extract the v0.44 ``event_types`` filter from a webhook row.
+
+    Falls back to the legacy single ``event_type`` column when the new
+    column is absent (older databases that haven't run migration 042
+    yet) so the dispatcher behaves identically to v0.43 in that case.
+    """
+    raw = sub.get("event_types")
+    if raw is None:
+        legacy = sub.get("event_type")
+        return None if legacy is None else str(legacy)
+    return str(raw)
 
 
 async def _post_one(

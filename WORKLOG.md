@@ -540,6 +540,17 @@ Three feature agents in parallel via Workflow (173k tokens, 5.5 min), then seque
 - 14:06Z — wired shot_share + shot_share_ui routers (query_help, context_menu are JS-only)
 - 14:08Z — tests/test_v043.py — JS files exist with expected keywords + shot_share 404/400 + invalid-token 410 + share-UI page
 
+## 2026-06-03 — v0.44 continuation (autonomous, Ultracode workflow tick #27)
+
+Three feature agents in parallel via Workflow (243k tokens, 10.3 min), then sequential wire-up.
+
+- 00:00Z — version bump 0.43→0.44
+- 00:03Z — **Webhook event filters** (agent A): migration 042 adds `event_types TEXT DEFAULT *` to webhook. `app/webhook_filters.py` with `should_fire(types, event)`: * or empty/NULL matches everything; comma-separated list with exact or glob-prefix (`screenshot.*`). Webhook dispatcher checks before POSTing. Form updated with event_types field.
+- 00:10Z — **OCR near-duplicate admin** (agent B): `app/ocr_near_dup.py` with `find_near_duplicates(days, min_jaccard, max_pairs)`. Tokenises ocr_text (lowercase, drop <3 chars), Jaccard set similarity, naive pairwise (capped). Route /admin/ocr-near-duplicates lists pairs with thumbnails + score + Keep A / Keep B / Keep both buttons → soft-deletes via recycle bin.
+- 00:17Z — **Public day opt-in** (agent C): migration 043 + `app/public_day.py` (publish/unpublish/get_by_slug/list_published). /admin/public-days lists + form to publish. /public/day/{slug} renders standalone (no base.html chrome) with thumbnails + notes; filters out private-tagged shots; OCR text passes through redaction. Slug validation ^[a-z0-9-]{1,60}$.
+- 00:23Z — wired ocr_near_dup + public_day routers; webhook filter is a behaviour change in existing routes
+- 00:25Z — tests/test_v044.py — webhook filter all-glob / exact / prefix-glob / csv-list + near-dup page + empty list + public-day admin + 404 + publish+view roundtrip + bad-slug rejection
+
 ## How to run
 
 ```powershell

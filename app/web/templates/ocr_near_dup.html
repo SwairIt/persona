@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight flex items-center gap-3">
+    <span class="text-accent-400">≈</span> OCR near-duplicates
+  </h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Screenshots whose OCR text overlaps heavily (Jaccard similarity on
+    word tokens, case-insensitive, drops tokens shorter than 3 chars).
+    Useful for cleaning up repeated chat captures, dialogs that
+    re-screenshotted themselves, slides re-shot on focus changes, etc.
+    Deletes go through the
+    <a href="/recycle" class="text-accent-400 hover:underline">recycle bin</a>
+    &mdash; nothing is lost permanently until retention purges it.
+  </p>
+</div>
+
+<form method="get" action="/admin/ocr-near-duplicates"
+      class="mb-6 flex flex-wrap items-end gap-3 rounded-lg border border-ink-700 bg-ink-800 p-4">
+  <label class="flex items-center gap-2">
+    <span class="text-xs uppercase tracking-wider text-zinc-500">Days</span>
+    <input type="number" name="days" value="{{ days }}" min="1" max="3650"
+           class="w-24 px-2 py-1 bg-ink-900 border border-ink-700 rounded text-sm
+                  focus:outline-none focus:border-accent-500">
+  </label>
+  <label class="flex items-center gap-2">
+    <span class="text-xs uppercase tracking-wider text-zinc-500">Min Jaccard</span>
+    <input type="number" name="min_jaccard" value="{{ '%.2f' % min_jaccard }}"
+           min="0.05" max="1.0" step="0.05"
+           class="w-24 px-2 py-1 bg-ink-900 border border-ink-700 rounded text-sm
+                  focus:outline-none focus:border-accent-500">
+  </label>
+  <button type="submit"
+          class="px-3 py-1.5 rounded bg-accent-600 hover:bg-accent-500 text-white text-sm font-medium">
+    Apply
+  </button>
+  <div class="ml-auto text-sm text-zinc-400">
+    <strong class="text-zinc-200">{{ pairs|length }}</strong>
+    pair{{ "" if pairs|length == 1 else "s" }}
+    {% if pairs|length >= max_pairs %}
+      <span class="text-amber-400">(capped at {{ max_pairs }})</span>
+    {% endif %}
+  </div>
+</form>
+
+{% if pairs %}
+  <div class="space-y-4">
+    {% for pair in pairs %}
+      <div class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden">
+        <div class="flex items-center justify-between px-4 py-2 bg-ink-900 border-b border-ink-700">
+          <div class="flex items-center gap-3">
+            <span class="text-xs uppercase tracking-widest text-zinc-500">Jaccard</span>
+            <span class="font-mono text-lg
+                         {% if pair.jaccard >= 0.95 %}text-rose-300
+                         {% elif pair.jaccard >= 0.90 %}text-amber-300
+                         {% else %}text-emerald-300{% endif %}">
+              {{ '%.3f' % pair.jaccard }}
+            </span>
+          </div>
+          <a href="/diff/ocr/{{ pair.a_id }}/{{ pair.b_id }}"
+             class="text-xs text-accent-400 hover:underline">
+            View OCR diff &rarr;
+          </a>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 p-4">
+          {% for side, sid, sapp, sat, sthumb, other in [
+                ('A', pair.a_id, pair.a_app, pair.a_captured_at, pair.a_thumbnail, pair.b_id),
+                ('B', pair.b_id, pair.b_app, pair.b_captured_at, pair.b_thumbnail, pair.a_id)
+             ] %}
+            <div class="rounded border border-ink-700 bg-ink-900 overflow-hidden flex flex-col">
+              <div class="flex items-center justify-between px-3 py-2 border-b border-ink-700">
+                <div class="flex items-center gap-2">
+                  <span class="px-2 py-0.5 rounded bg-accent-600/20 text-accent-300 text-xs font-mono">
+                    {{ side }}
+                  </span>
+                  <a href="/screenshot/{{ sid }}"
+                     class="font-mono text-xs text-zinc-300 hover:text-accent-400">
+                    #{{ sid }}
+                  </a>
+                </div>
+                <span class="text-xs text-zinc-500 font-mono">
+                  {{ sat or '—' }}
+                </span>
+              </div>
+              <a href="/screenshot/{{ sid }}" class="block bg-ink-950">
+                {% if sthumb %}
+                  <img src="{{ sthumb | thumbnail_url }}"
+                       alt="screenshot #{{ sid }}"
+                       loading="lazy"
+                       class="w-full h-48 object-contain bg-black">
+                {% else %}
+                  <div class="w-full h-48 flex items-center justify-center text-zinc-600 text-xs">
+                    no thumbnail
+                  </div>
+                {% endif %}
+              </a>
+              <div class="px-3 py-2 text-xs text-zinc-400 truncate">
+                {{ sapp or 'unknown app' }}
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2 px-4 py-3 border-t border-ink-700 bg-ink-900">
+          <form method="post" action="/admin/ocr-near-duplicates/delete"
+                onsubmit="return confirm('Move shot #{{ pair.b_id }} to the recycle bin?');"
+                class="inline-block">
+            <input type="hidden" name="shot_id" value="{{ pair.b_id }}">
+            <input type="hidden" name="days" value="{{ days }}">
+            <input type="hidden" name="min_jaccard" value="{{ '%.3f' % min_jaccard }}">
+            <button type="submit"
+                    class="px-3 py-1.5 rounded bg-rose-700 hover:bg-rose-600 text-white text-xs font-medium transition">
+              Keep A &middot; delete B (#{{ pair.b_id }})
+            </button>
+          </form>
+          <form method="post" action="/admin/ocr-near-duplicates/delete"
+                onsubmit="return confirm('Move shot #{{ pair.a_id }} to the recycle bin?');"
+                class="inline-block">
+            <input type="hidden" name="shot_id" value="{{ pair.a_id }}">
+            <input type="hidden" name="days" value="{{ days }}">
+            <input type="hidden" name="min_jaccard" value="{{ '%.3f' % min_jaccard }}">
+            <button type="submit"
+                    class="px-3 py-1.5 rounded bg-rose-700 hover:bg-rose-600 text-white text-xs font-medium transition">
+              Keep B &middot; delete A (#{{ pair.a_id }})
+            </button>
+          </form>
+          <span class="px-3 py-1.5 rounded bg-ink-700 text-zinc-400 text-xs font-medium">
+            Keep both (no action)
+          </span>
+          <span class="ml-auto text-xs text-zinc-500">
+            Deletes route through the recycle bin &mdash; restorable.
+          </span>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-8 text-center">
+    <p class="text-zinc-400 text-sm">
+      No near-duplicate pairs in the last <strong>{{ days }}</strong>
+      day{{ "" if days == 1 else "s" }} at Jaccard
+      &ge; <strong>{{ '%.2f' % min_jaccard }}</strong>.
+    </p>
+    <p class="text-zinc-600 text-xs mt-2">
+      Try lowering the threshold or widening the window. If the window
+      exceeds <strong>2000</strong> OCR'd shots the comparison is
+      skipped &mdash; the pairwise loop is O(N&sup2;) and a narrower
+      window keeps the page responsive.
+    </p>
+  </div>
+{% endif %}
+{% endblock %}

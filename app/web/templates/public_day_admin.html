@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Public days</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Opt specific calendar days into a public, unauthenticated view at
+    <code class="text-zinc-300">/public/day/&lt;slug&gt;</code>. The public page strips
+    annotations, hides screenshots tagged <code class="text-zinc-300">private</code> or
+    <code class="text-zinc-300">confidential</code>, and runs OCR text through the same
+    redaction rules that protect the internal search index. Unpublishing removes the URL
+    immediately.
+  </p>
+</div>
+
+<form action="/admin/public-days" method="post"
+      class="rounded-lg border border-ink-700 bg-ink-800 p-4 mb-8">
+  <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+    <label class="md:col-span-2 block">
+      <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">Day</span>
+      <input name="day" type="date" required
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm
+                    text-zinc-100 focus:outline-none focus:border-accent-500">
+    </label>
+    <label class="md:col-span-3 block">
+      <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">Slug</span>
+      <input name="slug" required maxlength="60"
+             pattern="^[a-z0-9-]{1,60}$"
+             placeholder="launch-week"
+             title="1-60 chars: lowercase letters, digits, hyphens"
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm
+                    font-mono text-zinc-100 focus:outline-none focus:border-accent-500">
+    </label>
+    <label class="md:col-span-3 block">
+      <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">Title</span>
+      <input name="title" required maxlength="200"
+             placeholder="Launch week, day 3"
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm
+                    text-zinc-100 focus:outline-none focus:border-accent-500">
+    </label>
+    <label class="md:col-span-3 block">
+      <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">Blurb</span>
+      <input name="blurb" maxlength="500"
+             placeholder="Optional one-liner shown under the title"
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm
+                    text-zinc-100 focus:outline-none focus:border-accent-500">
+    </label>
+    <button type="submit"
+            class="md:col-span-1 px-4 py-2 bg-accent-600 hover:bg-accent-500 rounded
+                   text-sm font-medium text-white">
+      Publish
+    </button>
+  </div>
+</form>
+
+{% if rows %}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-ink-900 text-zinc-500 text-xs uppercase tracking-wider">
+        <tr>
+          <th class="text-left py-2 px-4">Day</th>
+          <th class="text-left py-2 px-4">Slug</th>
+          <th class="text-left py-2 px-4">Title</th>
+          <th class="text-left py-2 px-4">Published</th>
+          <th class="py-2 px-4"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          <tr class="border-t border-ink-700 align-top">
+            <td class="py-2 px-4 font-mono text-zinc-200 whitespace-nowrap">{{ row.day }}</td>
+            <td class="py-2 px-4">
+              <a href="/public/day/{{ row.slug }}"
+                 target="_blank" rel="noopener noreferrer"
+                 class="text-accent-400 hover:underline font-mono">
+                /public/day/{{ row.slug }}
+              </a>
+            </td>
+            <td class="py-2 px-4 text-zinc-200">
+              <div class="font-medium">{{ row.title }}</div>
+              {% if row.blurb %}
+                <div class="text-xs text-zinc-500 mt-1 break-words">{{ row.blurb }}</div>
+              {% endif %}
+            </td>
+            <td class="py-2 px-4 text-zinc-400 text-xs font-mono whitespace-nowrap">
+              {{ row.published_at }}
+            </td>
+            <td class="py-2 px-4 text-right">
+              <form action="/admin/public-days/{{ row.day }}/unpublish"
+                    method="post" class="inline"
+                    onsubmit="return confirm('Unpublish {{ row.day }}? The public URL will 404 immediately.');">
+                <button type="submit"
+                        class="text-xs px-2 py-1 rounded bg-rose-900/40 hover:bg-rose-900 text-rose-300">
+                  Unpublish
+                </button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  <p class="text-zinc-500 text-sm">No days are public right now. Pick a date and publish above.</p>
+{% endif %}
+
+<section class="mt-10 rounded-lg border border-ink-700 bg-ink-800 p-5">
+  <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">How it works</h2>
+  <ul class="text-zinc-400 text-sm space-y-2 list-disc list-inside">
+    <li>Slug grammar is <code class="text-zinc-300">^[a-z0-9-]{1,60}$</code> — lowercase letters,
+      digits, hyphens.</li>
+    <li>Re-publishing the same day overwrites the slug, title, and blurb.</li>
+    <li>The public page filters screenshots tagged <code class="text-zinc-300">private</code> or
+      <code class="text-zinc-300">confidential</code> and masks OCR text via your redaction rules
+      before rendering.</li>
+    <li>Annotations are never shown publicly. Per-screenshot notes are shown but redacted.</li>
+    <li>Unpublishing deletes the row immediately — anyone with the link gets a 404 on the next
+      request.</li>
+  </ul>
+</section>
+{% endblock %}

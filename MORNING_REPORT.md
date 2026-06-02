@@ -1,6 +1,6 @@
 # 🌅 Morning report — Persona
 
-Forty-three autonomous sessions: …v0.40 → v0.41 → v0.42 → **v0.43** without stopping. Self-pacing /loop continues until you cancel. **Live on GitHub:** https://github.com/SwairIt/persona
+Forty-four autonomous sessions: …v0.41 → v0.42 → v0.43 → **v0.44** without stopping. Self-pacing /loop continues until you cancel. **Live on GitHub:** https://github.com/SwairIt/persona
 
 ## By the numbers (current)
 
@@ -11,6 +11,14 @@ Forty-three autonomous sessions: …v0.40 → v0.41 → v0.42 → **v0.43** with
 - **20+ test files**
 - **0 git commits** — entirely up to you
 - **0 network calls at runtime** (only optional outgoing call: BYO-LLM keys to your chosen provider)
+
+## What landed in v0.44 (webhook event filters + OCR near-dup admin + public day)
+
+Built via 3 parallel Workflow agents → sequential wire-up.
+
+- 🪝 **Webhook event filters** — each webhook row now has an `event_types` column. Default `*` keeps the old "fire on everything" behaviour. Set it to a comma-separated list (`screenshot.captured, ocr.done`) or a glob (`screenshot.*`) to subscribe to a specific subset. Editable per-webhook from the settings page.
+- 👯 **OCR near-duplicate admin** — `/admin/ocr-near-duplicates` runs a Jaccard similarity scan over OCR token sets and lists clusters above your threshold (default 0.85) with side-by-side thumbnails and a Keep-A / Keep-B / Keep-both decision. Deleting an item routes through the v0.40 recycle bin so nothing is hard-deleted.
+- 🌍 **Public day opt-in** — `/admin/public-days` lets you publish a single day under a friendly slug. `/public/day/{slug}` renders that day chrome-free for sharing. Sensitive content is filtered server-side: shots tagged `private`/`confidential` are skipped, OCR text passes through your v0.24 redaction rules.
 
 ## What landed in v0.43 (query help + context menu + per-shot share link)
 

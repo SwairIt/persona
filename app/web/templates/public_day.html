@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
+  <title>{{ page_title }}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      background: #0a0a0c;
+      color: #e4e4e7;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    }
+    .lightbox {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.92);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 50;
+      padding: 1.5rem;
+      cursor: zoom-out;
+    }
+    .lightbox.is-open { display: flex; }
+    .lightbox img {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+      box-shadow: 0 0 60px rgba(0, 0, 0, 0.6);
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col">
+  <header class="border-b border-zinc-900">
+    <div class="max-w-5xl mx-auto px-6 py-8">
+      <p class="text-xs uppercase tracking-widest text-zinc-500 font-mono">
+        Public day · {{ day }}
+      </p>
+      <h1 class="mt-2 text-3xl font-bold tracking-tight text-zinc-100">
+        {{ page_title }}
+      </h1>
+      {% if blurb %}
+        <p class="mt-3 text-zinc-400 leading-relaxed max-w-2xl whitespace-pre-wrap">{{ blurb }}</p>
+      {% endif %}
+      <p class="mt-4 text-xs text-zinc-600 font-mono">
+        {{ shot_count }} frame{{ "" if shot_count == 1 else "s" }}
+      </p>
+    </div>
+  </header>
+
+  <main class="flex-1 max-w-5xl w-full mx-auto px-6 py-10">
+    {% if shots %}
+      <section aria-label="Screenshots" class="mb-12">
+        <h2 class="sr-only">Screenshots</h2>
+        <div id="public-day-grid"
+             class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {% for shot in shots %}
+            <figure class="rounded-lg overflow-hidden border border-zinc-800 bg-zinc-900">
+              {% if shot.thumbnail_url %}
+                <button type="button"
+                        class="block w-full bg-black focus:outline-none focus:ring-2 focus:ring-zinc-600"
+                        data-public-day-zoom
+                        data-full-src="{{ shot.thumbnail_url }}"
+                        data-caption="{{ shot.caption or shot.ocr_excerpt or '' }}"
+                        aria-label="Enlarge frame">
+                  <img src="{{ shot.thumbnail_url }}"
+                       alt="Screenshot at {{ shot.captured_at | humantime }}"
+                       loading="lazy"
+                       class="w-full aspect-video object-cover bg-zinc-900">
+                </button>
+              {% else %}
+                <div class="w-full aspect-video flex items-center justify-center text-zinc-600 text-xs bg-zinc-900">
+                  thumbnail unavailable
+                </div>
+              {% endif %}
+              <figcaption class="px-3 py-2 text-xs text-zinc-500 flex items-center justify-between gap-2">
+                <span class="font-mono">{{ shot.captured_at | clock }}</span>
+                {% if shot.app_name %}
+                  <span class="truncate" title="{{ shot.app_name }}">{{ shot.app_name }}</span>
+                {% endif %}
+              </figcaption>
+            </figure>
+          {% endfor %}
+        </div>
+      </section>
+
+      {% set notes_present = shots | selectattr("caption") | list %}
+      {% if notes_present %}
+        <section aria-label="Notes" class="mb-12">
+          <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-4">Notes</h2>
+          <ol class="space-y-4">
+            {% for shot in notes_present %}
+              <li class="rounded-md border border-zinc-800 bg-zinc-900 px-4 py-3">
+                <p class="text-xs text-zinc-500 font-mono mb-1">{{ shot.captured_at | clock }}</p>
+                <p class="text-sm text-zinc-200 whitespace-pre-wrap leading-relaxed">{{ shot.caption }}</p>
+              </li>
+            {% endfor %}
+          </ol>
+        </section>
+      {% endif %}
+    {% else %}
+      <div class="rounded-lg border border-zinc-800 bg-zinc-900 p-12 text-center text-zinc-500 text-sm">
+        Nothing public on this day yet.
+      </div>
+    {% endif %}
+  </main>
+
+  <div id="public-day-lightbox" class="lightbox" role="dialog" aria-modal="true" aria-label="Enlarged frame">
+    <img id="public-day-lightbox-img" src="" alt="">
+  </div>
+
+  <footer class="border-t border-zinc-900 py-6 text-center text-[11px] text-zinc-600">
+    Powered by
+    <a href="https://github.com/SwairIt/persona" target="_blank" rel="noopener noreferrer"
+       class="text-zinc-400 hover:text-zinc-200 underline-offset-2 hover:underline">
+      Persona
+    </a>
+  </footer>
+
+  <script>
+    /*
+     * Inline lightbox for the public-day grid.
+     *
+     * Click any thumbnail to overlay the same image at full size; click
+     * the overlay (or press Escape) to dismiss. We intentionally do not
+     * link to /screenshot/{id} — the public surface should not expose
+     * Persona's internal detail view to anonymous visitors.
+     */
+    (function () {
+      var overlay = document.getElementById('public-day-lightbox');
+      var img = document.getElementById('public-day-lightbox-img');
+      if (!overlay || !img) return;
+
+      function open(src, alt) {
+        img.src = src;
+        img.alt = alt || '';
+        overlay.classList.add('is-open');
+        document.body.style.overflow = 'hidden';
+      }
+
+      function close() {
+        overlay.classList.remove('is-open');
+        img.src = '';
+        document.body.style.overflow = '';
+      }
+
+      var triggers = document.querySelectorAll('[data-public-day-zoom]');
+      triggers.forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var src = btn.getAttribute('data-full-src') || '';
+          var caption = btn.getAttribute('data-caption') || '';
+          if (!src) return;
+          open(src, caption);
+        });
+      });
+
+      overlay.addEventListener('click', close);
+
+      document.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Escape' && overlay.classList.contains('is-open')) {
+          ev.preventDefault();
+          close();
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
