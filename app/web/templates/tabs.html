@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Browser tabs</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Sampled by the Persona Companion extension. Install it from
+    <code class="text-zinc-400">browser-extension/</code> in this repo.
+  </p>
+</div>
+
+{% if top_domains %}
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
+    <h2 class="text-lg font-semibold mb-3">Top domains</h2>
+    {% set max_n = top_domains | map(attribute='count') | max %}
+    <div class="space-y-1">
+      {% for d in top_domains %}
+        <div class="flex items-center gap-3 text-xs">
+          <span class="font-mono text-zinc-400 w-56 truncate">{{ d.domain }}</span>
+          <div class="flex-1 bg-ink-900 rounded h-3 overflow-hidden">
+            <div class="h-full bg-accent-500" style="width: {{ ((d.count / max_n) * 100) | round(1) }}%"></div>
+          </div>
+          <span class="font-mono text-zinc-300 w-12 text-right">{{ d.count }}</span>
+        </div>
+      {% endfor %}
+    </div>
+  </section>
+{% endif %}
+
+{% if tabs %}
+  <section>
+    <h2 class="text-lg font-semibold mb-3">Recent tabs (200)</h2>
+    <div class="space-y-1">
+      {% for tab in tabs %}
+        <a href="{{ tab.url }}" target="_blank" rel="noopener"
+           class="block rounded bg-ink-800 border border-ink-700 hover:border-accent-500 px-3 py-2">
+          <div class="flex items-center justify-between text-xs">
+            <span class="text-zinc-200 truncate flex-1">{{ tab.title or tab.domain }}</span>
+            <span class="font-mono text-zinc-500 flex-shrink-0 ml-3">{{ tab.captured_at | humantime }}</span>
+          </div>
+          <div class="text-xs text-zinc-500 mt-0.5 truncate">{{ tab.url }}</div>
+        </a>
+      {% endfor %}
+    </div>
+  </section>
+{% else %}
+  <p class="text-zinc-500 text-sm">No tabs captured yet. Install the companion extension and refresh.</p>
+{% endif %}
+{% endblock %}

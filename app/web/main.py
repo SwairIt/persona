@@ -1,0 +1,278 @@
+"""FastAPI application factory and entry point."""
+
+from __future__ import annotations
+
+import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from starlette.middleware import Middleware
+from starlette.middleware.gzip import GZipMiddleware
+
+from app.logging_setup import configure_logging, get_logger
+from app.settings import get_settings
+from app.storage.db import init_database
+from app.web.routes import (
+    about as about_routes,
+    analysis as analysis_routes,
+    annotations as annotations_routes,
+    app_overrides as app_overrides_routes,
+    app_stats as app_stats_routes,
+    archive as archive_routes,
+    archive_browse as archive_browse_routes,
+    auto_collections as auto_collections_routes,
+    auto_tag as auto_tag_routes,
+    budget as budget_routes,
+    bulk as bulk_routes,
+    bulk_delete as bulk_delete_routes,
+    calendar as calendar_routes,
+    capture_api,
+    companion as companion_routes,
+    csv_export,
+    daily_digests as daily_digests_routes,
+    diff_picker as diff_picker_routes,
+    diff_slider as diff_slider_routes,
+    digest as digest_routes,
+    doctor as doctor_routes,
+    embeddings_status,
+    export,
+    favourites as favourites_routes,
+    focus as focus_routes,
+    full_export as full_export_routes,
+    health,
+    heatmap as heatmap_routes,
+    hour_histogram as hour_histogram_routes,
+    help as help_routes,
+    icons as icons_routes,
+    idle_stats as idle_stats_routes,
+    journal as journal_routes,
+    journal_export as journal_export_routes,
+    keywords as keywords_routes,
+    mobile as mobile_routes,
+    note_assist as note_assist_routes,
+    note_templates as note_templates_routes,
+    notes as notes_routes,
+    notes_search as notes_search_routes,
+    ocr_status,
+    pdf_export as pdf_export_routes,
+    pin as pin_routes,
+    process_remap as process_remap_routes,
+    qa as qa_routes,
+    quiet_hours as quiet_hours_routes,
+    regex_rules as regex_rules_routes,
+    range_timeline as range_timeline_routes,
+    reading as reading_routes,
+    redaction as redaction_routes,
+    reminders as reminders_routes,
+    ocr_admin as ocr_admin_routes,
+    ocr_languages as ocr_languages_routes,
+    ocr_phrase_tags as ocr_phrase_tags_routes,
+    ocr_skip as ocr_skip_routes,
+    rss as rss_routes,
+    saved_searches as saved_searches_routes,
+    screenshot,
+    search as search_routes,
+    share as share_routes,
+    shot_of_day as shot_of_day_routes,
+    share_collection as share_collection_routes,
+    settings as settings_routes,
+    smtp_settings as smtp_settings_routes,
+    stats,
+    storage_report as storage_report_routes,
+    streak as streak_routes,
+    summary as summary_routes,
+    tag_trends as tag_trends_routes,
+    tags as tags_routes,
+    theme as theme_routes,
+    topics as topics_routes,
+    thumbnails as thumbnails_routes,
+    time_on_app as time_on_app_routes,
+    timeline,
+    timeline_api as timeline_api_routes,
+    timesheet as timesheet_routes,
+    vault as vault_routes,
+    webhooks_routes,
+    weekly_digests as weekly_digests_routes,
+    whitelist,
+)
+from app.workers import (
+    get_controller,
+    run_capture_loop,
+    run_digest_scheduler,
+    run_embeddings_worker,
+    run_ocr_worker,
+    run_retention_worker,
+    run_weekly_digest_scheduler,
+)
+
+log = get_logger("persona.web")
+
+STATIC_DIR = Path(__file__).parent / "static"
+
+
+def create_app() -> FastAPI:
+    """Build the FastAPI application instance."""
+    configure_logging()
+    settings = get_settings()
+    settings.ensure_directories()
+
+    middleware = [
+        Middleware(GZipMiddleware, minimum_size=512),
+        Middleware(
+            CORSMiddleware,
+            allow_origins=["chrome-extension://*", "moz-extension://*"],
+            allow_origin_regex=r"^(chrome|moz)-extension://.*$",
+            allow_methods=["POST", "GET", "OPTIONS"],
+            allow_headers=["Content-Type"],
+            max_age=86400,
+        ),
+    ]
+
+    app = FastAPI(
+        title="Persona",
+        version="0.33.0",
+        description="Open-source personal AI memory.",
+        lifespan=_lifespan,
+        middleware=middleware,
+    )
+
+    if STATIC_DIR.exists():
+        app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+    app.include_router(timeline.router)
+    app.include_router(search_routes.router)
+    app.include_router(screenshot.router)
+    app.include_router(settings_routes.router)
+    app.include_router(stats.router)
+    app.include_router(capture_api.router)
+    app.include_router(thumbnails_routes.router)
+    app.include_router(whitelist.router)
+    app.include_router(export.router)
+    app.include_router(summary_routes.router)
+    app.include_router(health.router)
+    app.include_router(csv_export.router)
+    app.include_router(calendar_routes.router)
+    app.include_router(tags_routes.router)
+    app.include_router(analysis_routes.router)
+    app.include_router(notes_routes.router)
+    app.include_router(ocr_status.router)
+    app.include_router(embeddings_status.router)
+    app.include_router(journal_routes.router)
+    app.include_router(help_routes.router)
+    app.include_router(bulk_routes.router)
+    app.include_router(budget_routes.router)
+    app.include_router(pin_routes.router)
+    app.include_router(qa_routes.router)
+    app.include_router(archive_routes.router)
+    app.include_router(app_stats_routes.router)
+    app.include_router(digest_routes.router)
+    app.include_router(full_export_routes.router)
+    app.include_router(timeline_api_routes.router)
+    app.include_router(icons_routes.router)
+    app.include_router(topics_routes.router)
+    app.include_router(daily_digests_routes.router)
+    app.include_router(rss_routes.router)
+    app.include_router(share_routes.router)
+    app.include_router(timesheet_routes.router)
+    app.include_router(mobile_routes.router)
+    app.include_router(webhooks_routes.router)
+    app.include_router(companion_routes.router)
+    app.include_router(focus_routes.router)
+    app.include_router(reminders_routes.router)
+    app.include_router(reading_routes.router)
+    app.include_router(vault_routes.router)
+    app.include_router(note_assist_routes.router)
+    app.include_router(auto_tag_routes.router)
+    app.include_router(process_remap_routes.router)
+    app.include_router(journal_export_routes.router)
+    app.include_router(about_routes.router)
+    app.include_router(range_timeline_routes.router)
+    app.include_router(app_overrides_routes.router)
+    app.include_router(diff_picker_routes.router)
+    app.include_router(quiet_hours_routes.router)
+    app.include_router(share_collection_routes.router)
+    app.include_router(ocr_admin_routes.router)
+    app.include_router(archive_browse_routes.router)
+    app.include_router(regex_rules_routes.router)
+    app.include_router(doctor_routes.router)
+    app.include_router(weekly_digests_routes.router)
+    app.include_router(auto_collections_routes.router)
+    app.include_router(ocr_skip_routes.router)
+    app.include_router(redaction_routes.router)
+    app.include_router(storage_report_routes.router)
+    app.include_router(note_templates_routes.router)
+    app.include_router(notes_search_routes.router)
+    app.include_router(annotations_routes.router)
+    app.include_router(saved_searches_routes.router)
+    app.include_router(streak_routes.router)
+    app.include_router(heatmap_routes.router)
+    app.include_router(keywords_routes.router)
+    app.include_router(shot_of_day_routes.router)
+    app.include_router(time_on_app_routes.router)
+    app.include_router(ocr_languages_routes.router)
+    app.include_router(favourites_routes.router)
+    app.include_router(bulk_delete_routes.router)
+    app.include_router(hour_histogram_routes.router)
+    app.include_router(idle_stats_routes.router)
+    app.include_router(ocr_phrase_tags_routes.router)
+    app.include_router(smtp_settings_routes.router)
+    app.include_router(pdf_export_routes.router)
+    app.include_router(theme_routes.router)
+    app.include_router(tag_trends_routes.router)
+    app.include_router(diff_slider_routes.router)
+
+    return app
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Initialise DB, start workers, and tear them down on shutdown."""
+    await init_database()
+    controller = get_controller()
+
+    tasks: list[asyncio.Task[None]] = [
+        asyncio.create_task(run_capture_loop(controller), name="capture-loop"),
+        asyncio.create_task(run_ocr_worker(controller), name="ocr-worker"),
+        asyncio.create_task(run_retention_worker(controller), name="retention-worker"),
+        asyncio.create_task(run_embeddings_worker(controller), name="embeddings-worker"),
+        asyncio.create_task(run_digest_scheduler(controller), name="digest-scheduler"),
+        asyncio.create_task(run_weekly_digest_scheduler(controller), name="weekly-digest-scheduler"),
+    ]
+
+    controller.pause()
+    log.info("persona.started", host=get_settings().host, port=get_settings().port)
+
+    try:
+        yield
+    finally:
+        log.info("persona.stopping")
+        controller.request_stop()
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        log.info("persona.stopped")
+
+
+app = create_app()
+
+
+def run() -> None:
+    """Console-script entry point: launch uvicorn with current settings."""
+    import uvicorn
+
+    settings = get_settings()
+    uvicorn.run(
+        "app.web.main:app",
+        host=settings.host,
+        port=settings.port,
+        log_level=settings.log_level.lower(),
+        reload=False,
+    )
+
+
+if __name__ == "__main__":
+    run()

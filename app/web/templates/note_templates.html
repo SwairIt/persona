@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Note templates</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Reusable bodies you can paste into a new note &mdash; e.g. Daily standup, Meeting / 1:1,
+    Bug investigation. The slug appears in the dropdown next to a note's textarea.
+  </p>
+</div>
+
+<form action="/notes/templates" method="post"
+      class="mb-8 rounded-lg border border-ink-700 bg-ink-800 p-5">
+  <h2 class="text-lg font-semibold mb-3">Add a template</h2>
+  <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
+    <label class="md:col-span-3 block text-sm">
+      <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">Slug</span>
+      <input name="slug" required pattern="^[a-z0-9-]{1,40}$"
+             placeholder="retro"
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
+      <span class="block text-[11px] text-zinc-500 mt-1">lowercase, digits, hyphen; 1&ndash;40 chars</span>
+    </label>
+    <label class="md:col-span-9 block text-sm">
+      <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">Title</span>
+      <input name="title" required placeholder="Retrospective"
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
+    </label>
+    <label class="md:col-span-12 block text-sm">
+      <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">Body (markdown)</span>
+      <textarea name="body" required rows="8"
+                placeholder="## Went well&#10;-&#10;&#10;## To improve&#10;- "
+                class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500"></textarea>
+    </label>
+  </div>
+  <button type="submit"
+          class="mt-4 px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
+    Add template
+  </button>
+</form>
+
+{% if items %}
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    {% for tpl in items %}
+      <article class="rounded-lg border border-ink-700 bg-ink-800 p-4 flex flex-col">
+        <header class="flex items-start justify-between gap-3 mb-2">
+          <div>
+            <h3 class="text-base font-semibold text-zinc-100">{{ tpl.title }}</h3>
+            <code class="text-xs text-accent-400">{{ tpl.slug }}</code>
+          </div>
+          <form action="/notes/templates/{{ tpl.slug }}/delete" method="post"
+                onsubmit="return confirm('Delete template {{ tpl.slug }}?');">
+            <button class="text-xs px-2 py-1 rounded bg-rose-900/40 hover:bg-rose-900 text-rose-300">
+              remove
+            </button>
+          </form>
+        </header>
+        <pre class="text-xs text-zinc-300 bg-ink-900 border border-ink-700 rounded p-3 overflow-auto whitespace-pre-wrap font-mono max-h-64">{{ tpl.body }}</pre>
+        <footer class="mt-2 text-[11px] text-zinc-500">
+          Added {{ tpl.created_at }}
+        </footer>
+      </article>
+    {% endfor %}
+  </div>
+{% else %}
+  <p class="text-zinc-500 text-sm">No templates yet. Add one above.</p>
+{% endif %}
+{% endblock %}

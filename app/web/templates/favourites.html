@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-start justify-between gap-4 flex-wrap">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Favourites</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Screenshots you've starred for quick access. Different from
+      <span class="text-amber-400">pinned</span> shots &mdash; pin protects a frame
+      from auto-demotion, a star is just a bookmark.
+    </p>
+  </div>
+  <div class="text-xs text-zinc-500 font-mono flex-shrink-0">
+    {{ total }} starred &middot; page {{ page }} / {{ total_pages }}
+  </div>
+</div>
+
+{% if items %}
+  <div class="grid gap-4"
+       style="grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));">
+    {% for shot in items %}
+      <article id="fav-card-{{ shot.id }}"
+               class="group rounded-lg overflow-hidden bg-ink-800 border border-ink-700 hover:border-accent-500 transition flex flex-col"
+               style="width: 100%; max-width: 320px;">
+        <a href="/screenshot/{{ shot.id }}" class="block relative">
+          {% if shot.thumbnail_path %}
+            <div class="aspect-video bg-ink-900 overflow-hidden">
+              <img src="{{ shot.thumbnail_path | thumbnail_url }}"
+                   alt=""
+                   loading="lazy"
+                   width="320"
+                   class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300">
+            </div>
+          {% else %}
+            <div class="aspect-video bg-ink-900 flex items-center justify-center text-zinc-600 text-xs flex-col gap-1">
+              <span>{{ '&#129482; cold' if shot.tier == 'cold' else 'metadata only' }}</span>
+              <span class="text-[9px] text-zinc-700 truncate px-2">{{ shot.window_title or '' }}</span>
+            </div>
+          {% endif %}
+          {% if shot.tier == 'pinned' %}
+            <span class="absolute top-1.5 left-1.5 text-[11px] text-amber-400 bg-ink-900/80 rounded px-1.5 py-0.5"
+                  title="Pinned">&#128204;</span>
+          {% endif %}
+        </a>
+
+        <div class="px-3 py-2.5 flex items-start justify-between gap-2">
+          <div class="min-w-0">
+            <div class="text-sm text-zinc-200 font-medium truncate"
+                 title="{{ shot.window_title or '' }}">
+              {{ shot.app_name or '&mdash;' }}
+            </div>
+            <div class="text-[11px] text-zinc-500 font-mono mt-0.5"
+                 title="starred {{ shot.starred_at }}">
+              {{ shot.captured_at }}
+            </div>
+          </div>
+          <button type="button"
+                  data-favourite-id="{{ shot.id }}"
+                  title="Unstar"
+                  aria-label="Unstar screenshot {{ shot.id }}"
+                  class="flex-shrink-0 text-amber-400 hover:text-rose-400 text-lg leading-none px-2 py-1 rounded hover:bg-ink-900 transition">
+            &#9733;
+          </button>
+        </div>
+      </article>
+    {% endfor %}
+  </div>
+
+  {% if has_prev or has_next %}
+    <nav class="mt-8 flex items-center justify-between text-sm">
+      {% if has_prev %}
+        <a href="/favourites?page={{ page - 1 }}"
+           class="px-4 py-2 rounded-md bg-ink-800 hover:bg-ink-700 text-zinc-300">
+          &larr; Newer stars
+        </a>
+      {% else %}
+        <span></span>
+      {% endif %}
+      <span class="text-xs text-zinc-500 font-mono">page {{ page }} / {{ total_pages }}</span>
+      {% if has_next %}
+        <a href="/favourites?page={{ page + 1 }}"
+           class="px-4 py-2 rounded-md bg-ink-800 hover:bg-ink-700 text-zinc-300">
+          Older stars &rarr;
+        </a>
+      {% else %}
+        <span></span>
+      {% endif %}
+    </nav>
+  {% endif %}
+{% else %}
+  <div class="text-center py-20 px-6 rounded-lg border border-dashed border-ink-700 bg-ink-900/40">
+    <div class="text-5xl text-zinc-700 mb-4">&#9734;</div>
+    <h2 class="text-lg font-semibold text-zinc-300">No favourites yet</h2>
+    <p class="text-sm text-zinc-500 mt-2 max-w-md mx-auto">
+      Open any screenshot and tap the star to add it here. Favourites are a
+      personal shortcut list &mdash; they don't affect the tier sweep or any
+      automatic cleanup. Use <span class="text-amber-400">pin</span> for that.
+    </p>
+    <a href="/"
+       class="inline-block mt-5 px-4 py-2 rounded-md bg-accent-600 hover:bg-accent-500 text-white text-sm font-medium transition">
+      Browse the timeline &rarr;
+    </a>
+  </div>
+{% endif %}
+
+<script>
+  document.addEventListener('click', async (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target) return;
+    const btn = target.closest('[data-favourite-id]');
+    if (!(btn instanceof HTMLElement)) return;
+    event.preventDefault();
+    const id = btn.dataset.favouriteId;
+    if (!id) return;
+    btn.setAttribute('disabled', 'disabled');
+    try {
+      const res = await fetch(`/api/screenshot/${encodeURIComponent(id)}/favourite`, {
+        method: 'POST',
+        headers: { 'Accept': 'application/json' },
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data && data.favourited === false) {
+        const card = document.getElementById(`fav-card-${id}`);
+        if (card) card.remove();
+      }
+    } finally {
+      btn.removeAttribute('disabled');
+    }
+  });
+</script>
+{% endblock %}

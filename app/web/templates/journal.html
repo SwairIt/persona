@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Journal</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    {{ total }} moments you marked as worth remembering.
+    {% if total == 0 %}<br>Open any screenshot and write a note to start your journal.{% endif %}
+  </p>
+</div>
+
+{% if not groups %}
+  <div class="text-center py-24 text-zinc-500">
+    <p>Your journal is empty.</p>
+    <p class="text-xs text-zinc-600 mt-2">
+      Notes you add to individual screenshots will show up here, grouped by day.
+    </p>
+  </div>
+{% else %}
+  {% for day, entries in groups.items() %}
+    <section class="mb-10">
+      <h2 class="text-sm font-mono text-zinc-500 uppercase tracking-widest mb-4">
+        {{ day }} · <span class="text-zinc-600">{{ entries | length }} {{ 'entry' if entries | length == 1 else 'entries' }}</span>
+      </h2>
+      <div class="space-y-4">
+        {% for entry in entries %}
+          <article class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden">
+            <div class="flex">
+              {% if entry.thumbnail_path %}
+                <a href="/screenshot/{{ entry.screenshot_id }}" class="block flex-shrink-0">
+                  <img src="{{ entry.thumbnail_path | thumbnail_url }}"
+                       loading="lazy"
+                       class="w-48 h-32 object-cover bg-ink-900">
+                </a>
+              {% endif %}
+              <div class="flex-1 p-4 min-w-0">
+                <div class="flex items-center justify-between gap-3 mb-2">
+                  <a href="/screenshot/{{ entry.screenshot_id }}" class="text-sm text-zinc-200 hover:text-accent-400 font-medium">
+                    {{ entry.app_name or '—' }}
+                  </a>
+                  <span class="text-xs text-zinc-500 font-mono">{{ entry.captured_at | humantime }}</span>
+                </div>
+                {% if entry.window_title %}
+                  <p class="text-xs text-zinc-500 truncate mb-2">{{ entry.window_title }}</p>
+                {% endif %}
+                <textarea id="journal-source-{{ entry.screenshot_id }}" hidden>{{ entry.body }}</textarea>
+                <div data-md-target data-md-source="journal-source-{{ entry.screenshot_id }}"
+                     class="prose prose-invert prose-sm max-w-none text-zinc-200"></div>
+              </div>
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    </section>
+  {% endfor %}
+{% endif %}
+{% endblock %}

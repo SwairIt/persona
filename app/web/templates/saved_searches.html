@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Saved searches</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Pin queries you run often. Different from the recent-search history on
+    <a href="/search" class="text-accent-400 hover:underline">/search</a> &mdash;
+    bookmarks have a title and stay until you delete them.
+  </p>
+</div>
+
+<form action="/searches" method="post"
+      class="mb-8 rounded-lg border border-ink-700 bg-ink-800 p-5">
+  <h2 class="text-lg font-semibold mb-3">Add a bookmark</h2>
+  <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
+    <label class="md:col-span-3 block text-sm">
+      <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">Slug</span>
+      <input name="slug" required pattern="^[a-z0-9-]{1,40}$" maxlength="40"
+             placeholder="invoices-q2"
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
+      <span class="block text-[11px] text-zinc-500 mt-1">lowercase, digits, hyphen; 1&ndash;40 chars</span>
+    </label>
+    <label class="md:col-span-9 block text-sm">
+      <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">Title</span>
+      <input name="title" required minlength="1" maxlength="100"
+             placeholder="Invoices Q2"
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
+    </label>
+    <label class="md:col-span-12 block text-sm">
+      <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">Query</span>
+      <input name="query" required minlength="1" maxlength="500"
+             placeholder='invoice OR receipt app:Outlook'
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
+      <span class="block text-[11px] text-zinc-500 mt-1">FTS5 syntax; up to 500 chars</span>
+    </label>
+  </div>
+  <button type="submit"
+          class="mt-4 px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
+    Save bookmark
+  </button>
+</form>
+
+{% if items %}
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    {% for s in items %}
+      <article class="rounded-lg border border-ink-700 bg-ink-800 p-4 flex flex-col">
+        <header class="flex items-start justify-between gap-3 mb-2">
+          <div class="min-w-0">
+            <h3 class="text-base font-semibold text-zinc-100 truncate">{{ s.title }}</h3>
+            <code class="text-xs text-accent-400">{{ s.slug }}</code>
+          </div>
+          <form action="/searches/{{ s.slug }}/delete" method="post"
+                onsubmit="return confirm('Delete bookmark {{ s.slug }}?');">
+            <button class="text-xs px-2 py-1 rounded bg-rose-900/40 hover:bg-rose-900 text-rose-300">
+              delete
+            </button>
+          </form>
+        </header>
+        <pre class="text-xs text-zinc-300 bg-ink-900 border border-ink-700 rounded p-3 overflow-auto whitespace-pre-wrap font-mono max-h-24">{{ s.query }}</pre>
+        <footer class="mt-3 flex items-center justify-between text-[11px] text-zinc-500">
+          <span>Added {{ s.created_at }}</span>
+          <a href="/searches/{{ s.slug }}"
+             class="px-3 py-1.5 rounded bg-accent-600 hover:bg-accent-500 text-white text-xs font-medium transition">
+            Run &rarr;
+          </a>
+        </footer>
+      </article>
+    {% endfor %}
+  </div>
+{% else %}
+  <p class="text-zinc-500 text-sm">No bookmarks yet. Save your first query above.</p>
+{% endif %}
+{% endblock %}

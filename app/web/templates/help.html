@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto">
+  <h1 class="text-2xl font-bold tracking-tight mb-6">Help</h1>
+
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
+    <h2 class="text-lg font-semibold mb-4">Keyboard shortcuts</h2>
+    <dl class="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm">
+      <dt class="font-mono text-accent-400">/</dt><dd>focus the search box</dd>
+      <dt class="font-mono text-accent-400">g t</dt><dd>go to timeline</dd>
+      <dt class="font-mono text-accent-400">g s</dt><dd>go to search</dd>
+      <dt class="font-mono text-accent-400">g h</dt><dd>go to stats</dd>
+      <dt class="font-mono text-accent-400">g n</dt><dd>go to settings</dd>
+      <dt class="font-mono text-accent-400">j / k</dt><dd>next / previous screenshot card</dd>
+      <dt class="font-mono text-accent-400">o / Enter</dt><dd>open focused screenshot</dd>
+      <dt class="font-mono text-accent-400">Esc</dt><dd>close lightbox · blur input</dd>
+      <dt class="font-mono text-accent-400">?</dt><dd>toggle the floating shortcuts panel</dd>
+    </dl>
+  </section>
+
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
+    <h2 class="text-lg font-semibold mb-4">Search modes</h2>
+    <dl class="space-y-3 text-sm">
+      <div>
+        <dt class="text-accent-400 font-semibold">Hybrid (default)</dt>
+        <dd class="text-zinc-300 mt-1">
+          Best for almost any query. Runs keyword (FTS5) and semantic searches in parallel
+          and merges the rankings. Matches exact words AND understands meaning.
+        </dd>
+      </div>
+      <div>
+        <dt class="text-accent-400 font-semibold">Keywords</dt>
+        <dd class="text-zinc-300 mt-1">
+          Pure full-text search. Supports operators: <code>slack OR discord</code>,
+          <code>"exact phrase"</code>, prefix matches like <code>migr</code> match <code>migration</code>.
+        </dd>
+      </div>
+      <div>
+        <dt class="text-accent-400 font-semibold">Semantic</dt>
+        <dd class="text-zinc-300 mt-1">
+          Embeddings-only. Ask in natural language: "what was that auth bug I was debugging?"
+          Requires <code>uv sync --extra embeddings</code> + <code>PERSONA_EMBEDDINGS_ENABLED=true</code>.
+        </dd>
+      </div>
+    </dl>
+  </section>
+
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
+    <h2 class="text-lg font-semibold mb-4">Notes (markdown)</h2>
+    <p class="text-zinc-300 text-sm mb-3">
+      Open any screenshot, write a note in the Notes box. Notes accept basic markdown:
+    </p>
+    <pre class="bg-ink-900 p-3 rounded text-xs font-mono text-zinc-200">**bold** _italic_ `code`
+[link](https://example.com)
+
+- bullet
+- list
+
+> quote</pre>
+    <p class="text-zinc-500 text-xs mt-3">
+      Click <strong>Preview</strong> to see how it renders. Find all your notes in <a href="/journal" class="text-accent-400">Journal</a>.
+    </p>
+  </section>
+
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
+    <h2 class="text-lg font-semibold mb-4">Privacy reminders</h2>
+    <ul class="space-y-2 text-sm text-zinc-300 list-disc list-inside">
+      <li>Everything is saved to <code>data/</code> on this machine. No telemetry.</li>
+      <li>Server binds to <code>127.0.0.1</code> only — not reachable from the network.</li>
+      <li>Capture pauses when idle for 5+ minutes (configurable).</li>
+      <li>Password managers and games are excluded by default. See <a href="/whitelist" class="text-accent-400">Whitelist</a>.</li>
+      <li>OCR redacts obvious secrets (emails, API keys, IBANs, card numbers) before storing.</li>
+      <li>BYO API keys for AI features go directly to providers — Persona never logs them.</li>
+    </ul>
+  </section>
+
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <h2 class="text-lg font-semibold mb-4">Useful CLI commands</h2>
+    <pre class="bg-ink-900 p-3 rounded text-xs font-mono text-zinc-200">uv run python scripts/setup_database.py        # init DB / re-apply migrations
+uv run python scripts/check_environment.py     # sanity check
+uv run python scripts/backup_snapshot.py       # cold-storage backup
+uv run python scripts/cleanup_orphans.py       # remove orphan thumbnails
+
+uv run persona-capture                         # capture-only headless worker
+uv run uvicorn app.web.main:app                # full app with UI</pre>
+  </section>
+</div>
+{% endblock %}

@@ -1,0 +1,52 @@
+<a href="/screenshot/{{ shot.id }}"
+   data-shot-card
+   data-href="/screenshot/{{ shot.id }}"
+   class="group block rounded-lg overflow-hidden bg-ink-800 border border-ink-700 hover:border-accent-500 transition">
+  {% if shot.thumbnail_path %}
+    <div class="aspect-video bg-ink-900 overflow-hidden">
+      <img src="{{ shot.thumbnail_path | thumbnail_url }}"
+           alt=""
+           loading="lazy"
+           class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300">
+    </div>
+  {% else %}
+    <div class="aspect-video bg-ink-900 flex items-center justify-center text-zinc-600 text-xs flex-col gap-1">
+      <span>{{ '🧊 cold' if shot.tier == 'cold' else 'metadata only' }}</span>
+      <span class="text-[9px] text-zinc-700 truncate px-2">{{ shot.window_title or '' }}</span>
+    </div>
+  {% endif %}
+  <div class="px-2.5 py-2">
+    <div class="text-xs text-zinc-300 font-mono truncate" title="{{ shot.window_title or '' }}">
+      {{ shot.app_name or '—' }}
+    </div>
+    {% set _tags = (tags_by_id or {}).get(shot.id, []) %}
+    {% if _tags %}
+      <div class="flex flex-wrap gap-1 mt-1">
+        {% for t in _tags[:3] %}
+          <span class="px-1.5 py-0.5 rounded text-[9px] font-mono"
+                style="background: {{ (t.color or '#8b5cf6') + '33' }}; color: {{ t.color or '#a78bfa' }};">
+            {{ t.name }}
+          </span>
+        {% endfor %}
+        {% if _tags | length > 3 %}
+          <span class="text-[9px] text-zinc-500">+{{ _tags | length - 3 }}</span>
+        {% endif %}
+      </div>
+    {% endif %}
+    <div class="flex items-center justify-between mt-0.5">
+      <div class="text-[10px] text-zinc-500 font-mono">
+        {{ shot.captured_at | clock }}
+      </div>
+      <div class="flex items-center gap-1">
+        {% if shot.tier == 'pinned' %}
+          <span class="text-[10px] text-amber-400" title="Pinned">📌</span>
+        {% endif %}
+        {% if shot.ocr_status == 'done' %}
+          <span class="text-[10px] text-emerald-500 font-mono" title="OCR completed">✓</span>
+        {% elif shot.ocr_status == 'pending' %}
+          <span class="text-[10px] text-amber-500 font-mono" title="OCR pending">…</span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</a>

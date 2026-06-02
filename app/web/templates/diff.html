@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Diff</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    <a href="/screenshot/{{ left.id }}" class="text-accent-400">#{{ left.id }}</a>
+    ({{ left.captured_at | humantime }})
+    vs
+    <a href="/screenshot/{{ right.id }}" class="text-accent-400">#{{ right.id }}</a>
+    ({{ right.captured_at | humantime }})
+  </p>
+</div>
+
+<div class="grid sm:grid-cols-3 gap-4 mb-6">
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Unchanged tokens</div>
+    <div class="text-2xl font-bold mt-1">{{ (diff.unchanged_ratio * 100) | round(1) }}%</div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">pHash distance</div>
+    <div class="text-2xl font-bold mt-1">
+      {% if diff.phash_hamming is not none %}{{ diff.phash_hamming }} / 64{% else %}—{% endif %}
+    </div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">App</div>
+    <div class="text-2xl font-bold mt-1 truncate">{{ left.app_name or '—' }}</div>
+  </div>
+</div>
+
+<div class="grid lg:grid-cols-2 gap-4">
+  <section class="rounded-lg border border-rose-700/40 bg-rose-900/10 p-5">
+    <h3 class="text-sm uppercase tracking-widest text-rose-300 mb-3">Removed ({{ diff.removed | length }})</h3>
+    <div class="font-mono text-xs text-zinc-200 flex flex-wrap gap-1.5">
+      {% for token in diff.removed[:200] %}
+        <span class="bg-rose-900/40 px-1.5 py-0.5 rounded">{{ token }}</span>
+      {% endfor %}
+    </div>
+    {% if diff.removed | length > 200 %}<p class="text-zinc-500 text-xs mt-2">+ {{ diff.removed | length - 200 }} more</p>{% endif %}
+  </section>
+
+  <section class="rounded-lg border border-emerald-700/40 bg-emerald-900/10 p-5">
+    <h3 class="text-sm uppercase tracking-widest text-emerald-300 mb-3">Added ({{ diff.added | length }})</h3>
+    <div class="font-mono text-xs text-zinc-200 flex flex-wrap gap-1.5">
+      {% for token in diff.added[:200] %}
+        <span class="bg-emerald-900/40 px-1.5 py-0.5 rounded">{{ token }}</span>
+      {% endfor %}
+    </div>
+    {% if diff.added | length > 200 %}<p class="text-zinc-500 text-xs mt-2">+ {{ diff.added | length - 200 }} more</p>{% endif %}
+  </section>
+</div>
+{% endblock %}

@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-center justify-between flex-wrap gap-3">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Topics</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Auto-discovered themes in your recent captures.
+      Uses k-means over your local semantic embeddings — no cloud.
+    </p>
+  </div>
+  <form method="get" class="flex items-center gap-2 text-sm">
+    <label class="text-zinc-500">k =</label>
+    <input type="number" name="k" value="{{ k }}" min="2" max="24"
+           class="w-20 px-2 py-1 bg-ink-800 border border-ink-700 rounded font-mono text-center">
+    <button type="submit" class="px-3 py-1 rounded bg-ink-800 hover:bg-ink-700">recluster</button>
+  </form>
+</div>
+
+{% if not ready %}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-6 text-center">
+    <p class="text-zinc-300 font-medium">Topic discovery needs embeddings.</p>
+    <p class="text-zinc-500 text-sm mt-2">
+      Run <code class="text-accent-400">uv sync --extra embeddings</code> and set
+      <code class="text-accent-400">PERSONA_EMBEDDINGS_ENABLED=true</code> in <code>.env</code>.
+    </p>
+  </div>
+{% elif not clusters %}
+  <p class="text-zinc-500">Not enough indexed captures yet. Let Persona run for a bit and come back.</p>
+{% else %}
+  <div class="space-y-8">
+    {% for cluster in clusters %}
+      <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+        <div class="flex items-baseline justify-between mb-3">
+          <h2 class="text-lg font-semibold">
+            <span class="text-accent-400">#{{ loop.index }}</span> {{ cluster.label }}
+          </h2>
+          <span class="text-xs text-zinc-500 font-mono">{{ cluster.member_ids | length }} captures</span>
+        </div>
+        {% set preview = samples.get(loop.index0, []) %}
+        {% if preview %}
+          <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            {% for shot in preview %}
+              {% include "_screenshot_card.html" %}
+            {% endfor %}
+          </div>
+        {% endif %}
+      </section>
+    {% endfor %}
+  </div>
+{% endif %}
+{% endblock %}

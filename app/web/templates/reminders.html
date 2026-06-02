@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Reminders</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Short todos for a specific day. Not your task manager — just things you don't want to forget today.
+  </p>
+</div>
+
+<form action="/reminders/create" method="post" class="flex gap-2 mb-6">
+  <input name="body" placeholder="What do you want to remember?" required
+         class="flex-1 px-3 py-2 bg-ink-800 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
+  <input type="date" name="due_date" value="{{ day.isoformat() }}"
+         class="px-3 py-2 bg-ink-800 border border-ink-700 rounded text-sm font-mono">
+  <button type="submit" class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium">Add</button>
+</form>
+
+{% if overdue %}
+  <section class="mb-6 rounded-lg border border-amber-700/40 bg-amber-900/20 p-4">
+    <h2 class="text-sm font-semibold text-amber-300 mb-2">Overdue ({{ overdue | length }})</h2>
+    <div class="space-y-1.5">
+      {% for r in overdue %}
+        <div class="flex items-center justify-between gap-2 text-sm">
+          <div class="flex-1 min-w-0">
+            <span class="text-zinc-200">{{ r.body }}</span>
+            <span class="text-amber-400/70 text-xs ml-2 font-mono">{{ r.due_date }}</span>
+          </div>
+          <form action="/reminders/{{ r.id }}/toggle" method="post" class="inline">
+            <input type="hidden" name="done" value="true">
+            <button class="text-xs px-2 py-1 rounded bg-ink-800 hover:bg-emerald-700">done</button>
+          </form>
+        </div>
+      {% endfor %}
+    </div>
+  </section>
+{% endif %}
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+  <h2 class="text-lg font-semibold mb-3">{{ day.isoformat() }}</h2>
+  {% if items %}
+    <div class="space-y-2">
+      {% for r in items %}
+        <div class="flex items-center justify-between gap-2 text-sm">
+          <form action="/reminders/{{ r.id }}/toggle" method="post" class="inline">
+            <input type="hidden" name="done" value="{{ 'false' if r.done else 'true' }}">
+            <button class="flex items-center gap-2 text-left w-full">
+              <span class="w-5 h-5 rounded border border-ink-700 flex items-center justify-center text-xs">
+                {% if r.done %}<span class="text-emerald-400">✓</span>{% endif %}
+              </span>
+              <span class="{{ 'text-zinc-500 line-through' if r.done else 'text-zinc-200' }}">{{ r.body }}</span>
+            </button>
+          </form>
+          {% if r.screenshot_id %}
+            <a href="/screenshot/{{ r.screenshot_id }}"
+               class="text-xs text-accent-400 hover:text-accent-300 font-mono whitespace-nowrap"
+               title="Jump to screenshot #{{ r.screenshot_id }}">🖼 #{{ r.screenshot_id }}</a>
+          {% endif %}
+          <form action="/reminders/{{ r.id }}/delete" method="post" class="inline"
+                onsubmit="return confirm('Delete?')">
+            <button class="text-zinc-500 hover:text-rose-400 text-xs">×</button>
+          </form>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="text-zinc-500 text-sm">Nothing for {{ day.isoformat() }} yet.</p>
+  {% endif %}
+</section>
+{% endblock %}

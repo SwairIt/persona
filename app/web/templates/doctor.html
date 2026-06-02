@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="flex items-start justify-between mb-6 gap-4 flex-wrap">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Doctor</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Fast triage when something stops working. Each check returns
+      <span class="text-emerald-400 font-mono">PASS</span>,
+      <span class="text-amber-400 font-mono">WARN</span>, or
+      <span class="text-rose-400 font-mono">FAIL</span>.
+    </p>
+  </div>
+  <div class="flex items-center gap-2">
+    <a href="/about"
+       class="px-3 py-1.5 rounded-md text-sm bg-ink-800 hover:bg-ink-700 text-zinc-300">
+      About
+    </a>
+    <button onclick="window.location.reload()"
+            class="px-3 py-1.5 rounded-md text-sm bg-accent-600 hover:bg-accent-500 text-white">
+      Re-run
+    </button>
+  </div>
+</div>
+
+<div class="grid sm:grid-cols-3 gap-4 mb-6">
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Pass</div>
+    <div class="text-3xl font-bold mt-1 text-emerald-400">{{ summary.pass }}</div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Warn</div>
+    <div class="text-3xl font-bold mt-1 text-amber-400">{{ summary.warn }}</div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Fail</div>
+    <div class="text-3xl font-bold mt-1 text-rose-400">{{ summary.fail }}</div>
+  </div>
+</div>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
+  <h2 class="text-lg font-semibold mb-4">Checks</h2>
+  <ul class="space-y-1">
+    {% for r in results %}
+      {% if r.status == 'pass' %}
+        {% set badge_classes = 'bg-emerald-400/15 text-emerald-400 ring-1 ring-emerald-400/30' %}
+        {% set badge_label = 'PASS' %}
+      {% elif r.status == 'warn' %}
+        {% set badge_classes = 'bg-amber-400/15 text-amber-400 ring-1 ring-amber-400/30' %}
+        {% set badge_label = 'WARN' %}
+      {% else %}
+        {% set badge_classes = 'bg-rose-400/15 text-rose-400 ring-1 ring-rose-400/30' %}
+        {% set badge_label = 'FAIL' %}
+      {% endif %}
+      <li class="flex items-start gap-4 py-2 border-b border-ink-700/60 last:border-b-0">
+        <span class="mt-0.5 inline-flex items-center justify-center rounded px-2 py-0.5 text-xs font-mono font-bold w-14 {{ badge_classes }}">
+          {{ badge_label }}
+        </span>
+        <div class="flex-1 min-w-0">
+          <div class="text-zinc-200 font-medium font-mono text-sm">{{ r.name }}</div>
+          <div class="text-xs text-zinc-500 mt-0.5 break-words">{{ r.detail }}</div>
+        </div>
+      </li>
+    {% endfor %}
+  </ul>
+</section>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5" x-data="{ open: false }">
+  <button type="button" @click="open = !open"
+          class="w-full flex items-center justify-between text-left">
+    <span class="text-sm font-semibold text-zinc-300">What does each check mean?</span>
+    <span class="text-zinc-500 font-mono text-xs" x-text="open ? '−' : '+'"></span>
+  </button>
+  <div x-show="open" x-cloak x-transition class="mt-4 text-sm text-zinc-400 space-y-3">
+    <dl class="space-y-3">
+      <div>
+        <dt class="font-mono text-zinc-300">python_version</dt>
+        <dd class="text-zinc-500">Warns if Python is older than 3.12. Persona is written against 3.12 syntax and stdlib features.</dd>
+      </div>
+      <div>
+        <dt class="font-mono text-zinc-300">sqlite_version</dt>
+        <dd class="text-zinc-500">Fails if SQLite's FTS5 extension is missing. Full-text search will not work without it.</dd>
+      </div>
+      <div>
+        <dt class="font-mono text-zinc-300">data_dir_writable</dt>
+        <dd class="text-zinc-500">Fails if Persona cannot write a probe file inside the configured data directory.</dd>
+      </div>
+      <div>
+        <dt class="font-mono text-zinc-300">db_path_exists_and_readable</dt>
+        <dd class="text-zinc-500">Fails if the SQLite database file is missing or unreadable.</dd>
+      </div>
+      <div>
+        <dt class="font-mono text-zinc-300">db_integrity</dt>
+        <dd class="text-zinc-500">Runs <code class="font-mono">PRAGMA integrity_check</code>. Pass only when SQLite reports <code class="font-mono">ok</code>.</dd>
+      </div>
+      <div>
+        <dt class="font-mono text-zinc-300">tesseract_available</dt>
+        <dd class="text-zinc-500">Warns if the Tesseract OCR binary cannot be located. OCR-dependent features will be skipped.</dd>
+      </div>
+      <div>
+        <dt class="font-mono text-zinc-300">embeddings_lib_available</dt>
+        <dd class="text-zinc-500">Warns if embeddings are enabled in settings but <code class="font-mono">fastembed</code> is not importable.</dd>
+      </div>
+      <div>
+        <dt class="font-mono text-zinc-300">byo_llm_configured</dt>
+        <dd class="text-zinc-500">Warns if a feature that needs a BYO LLM (such as the auto digest) is on while the API key or provider is blank.</dd>
+      </div>
+      <div>
+        <dt class="font-mono text-zinc-300">disk_free</dt>
+        <dd class="text-zinc-500">Warns if less than 500 MB are free on the disk that holds <code class="font-mono">data_dir</code>; fails below 100 MB.</dd>
+      </div>
+      <div>
+        <dt class="font-mono text-zinc-300">thumbnails_dir_size</dt>
+        <dd class="text-zinc-500">Informational. Reports how many MB the thumbnails folder is currently taking up.</dd>
+      </div>
+      <div>
+        <dt class="font-mono text-zinc-300">capture_loop_recent</dt>
+        <dd class="text-zinc-500">Warns if no captures have been recorded in the last 24 hours (skipped on a fresh install with zero rows).</dd>
+      </div>
+      <div>
+        <dt class="font-mono text-zinc-300">schema_version</dt>
+        <dd class="text-zinc-500">Lists how many migration files were found on disk and which one is the newest.</dd>
+      </div>
+    </dl>
+  </div>
+</section>
+{% endblock %}

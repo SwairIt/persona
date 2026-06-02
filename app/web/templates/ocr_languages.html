@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">OCR languages</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Pick which Tesseract language packs the OCR worker should activate on every
+    capture. Selections are validated against the language data files actually
+    installed on this host, so you can only enable packs that exist on disk.
+    Combine packs with <code class="font-mono text-xs">eng+rus</code> syntax to
+    OCR multi-language screens (mixed UI + chat, code + comments, etc.).
+  </p>
+</div>
+
+{% if installed|length == 1 and installed[0] == "eng" %}
+  <div class="rounded-lg border border-amber-700/40 bg-amber-900/20 text-amber-200 px-4 py-3 mb-6 text-sm">
+    Only the default <code class="font-mono">eng</code> pack is detected. Install additional
+    Tesseract language packs on the host to enable more options here.
+  </div>
+{% endif %}
+
+<form action="/settings/ocr-languages" method="post"
+      class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+  <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">
+    Installed packs ({{ installed|length }})
+  </h2>
+
+  <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2 mb-6">
+    {% for lang in installed %}
+      <label class="flex items-center gap-2 px-3 py-2 rounded border border-ink-700 bg-ink-900 hover:border-accent-500 cursor-pointer">
+        <input type="checkbox"
+               name="langs"
+               value="{{ lang }}"
+               {% if lang in configured_set %}checked{% endif %}
+               class="w-4 h-4 accent-accent-500">
+        <span class="font-mono text-sm text-zinc-200">{{ lang }}</span>
+      </label>
+    {% endfor %}
+  </div>
+
+  <div class="flex items-center justify-between flex-wrap gap-3 pt-4 border-t border-ink-700">
+    <div class="text-xs text-zinc-500">
+      Current Tesseract <code class="font-mono">lang=</code> string:
+      <code id="lang-preview" class="font-mono text-zinc-200 ml-1">{{ current_string }}</code>
+    </div>
+    <button type="submit"
+            class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
+      Save selection
+    </button>
+  </div>
+</form>
+
+<p class="text-zinc-500 text-xs mt-6">
+  Tip: the OCR worker caches this selection in-process for 60s, so it can take up
+  to a minute for new captures to pick up your changes. Already-OCR&rsquo;d
+  screenshots are not re-processed automatically &mdash; use
+  <a href="/ocr-admin" class="underline hover:text-zinc-300">OCR admin</a> to
+  re-queue them.
+</p>
+
+<script>
+  (function () {
+    const form = document.querySelector('form[action="/settings/ocr-languages"]');
+    const preview = document.getElementById('lang-preview');
+    if (!form || !preview) {
+      return;
+    }
+    function update() {
+      const checked = Array.from(
+        form.querySelectorAll('input[name="langs"]:checked')
+      ).map(function (el) { return el.value; });
+      preview.textContent = checked.length ? checked.join('+') : '(none)';
+    }
+    form.addEventListener('change', update);
+    update();
+  })();
+</script>
+{% endblock %}

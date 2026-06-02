@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-center justify-between flex-wrap gap-3">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Weekly digest</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      {{ start.strftime('%Y-%m-%d') }} → {{ end.strftime('%Y-%m-%d') }}
+    </p>
+  </div>
+  <div class="flex items-center gap-2 text-sm">
+    <a href="/digest/daily" class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700 text-zinc-400">Daily digests</a>
+    <a href="/api/export/journal.md" class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700 text-zinc-400" title="Today as Markdown">↓ today.md</a>
+    <a href="/digest/weekly?weeks_ago={{ weeks_ago + 1 }}" class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700">← Previous week</a>
+    {% if weeks_ago > 0 %}
+      <a href="/digest/weekly?weeks_ago={{ weeks_ago - 1 }}" class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700">Next week →</a>
+    {% endif %}
+  </div>
+</div>
+
+<div class="grid sm:grid-cols-3 gap-4 mb-8">
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Captures</div>
+    <div class="text-3xl font-bold mt-1">{{ total }}</div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Days active</div>
+    <div class="text-3xl font-bold mt-1">{{ days_active }} / 7</div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Busiest day</div>
+    {% if busiest %}
+      <div class="text-2xl font-bold mt-1">{{ busiest.day }}</div>
+      <div class="text-xs text-zinc-500 mt-1">{{ busiest.count }} captures</div>
+    {% else %}
+      <div class="text-zinc-500">—</div>
+    {% endif %}
+  </div>
+</div>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
+  <h2 class="text-lg font-semibold mb-3">Per-day activity</h2>
+  {% if per_day %}
+    {% set max_n = per_day | map(attribute='count') | max %}
+    <div class="space-y-1">
+      {% for row in per_day %}
+        <div class="flex items-center gap-3 text-sm">
+          <a href="/?date={{ row.day }}" class="font-mono text-zinc-400 w-24 hover:text-accent-400">{{ row.day }}</a>
+          <div class="flex-1 bg-ink-900 rounded h-3 overflow-hidden">
+            <div class="h-full bg-accent-500"
+                 style="width: {{ ((row.count / max_n) * 100) | round(1) }}%"></div>
+          </div>
+          <span class="font-mono text-zinc-300 w-12 text-right text-xs">{{ row.count }}</span>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="text-zinc-500">No activity this week.</p>
+  {% endif %}
+</section>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
+  <h2 class="text-lg font-semibold mb-3">Top apps this week</h2>
+  {% if top_apps %}
+    {% set max_n = top_apps | map(attribute='count') | max %}
+    <div class="space-y-1">
+      {% for row in top_apps %}
+        <div class="flex items-center gap-3 text-sm">
+          <a href="/apps/{{ row.app }}" class="text-zinc-300 w-44 truncate hover:text-accent-400 text-xs">{{ row.app }}</a>
+          <div class="flex-1 bg-ink-900 rounded h-3 overflow-hidden">
+            <div class="h-full bg-sky-500"
+                 style="width: {{ ((row.count / max_n) * 100) | round(1) }}%"></div>
+          </div>
+          <span class="font-mono text-zinc-300 w-12 text-right text-xs">{{ row.count }}</span>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="text-zinc-500">No apps logged.</p>
+  {% endif %}
+</section>
+
+{% if notes %}
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <h2 class="text-lg font-semibold mb-3">Your notes this week ({{ notes | length }})</h2>
+    <div class="space-y-3">
+      {% for note in notes %}
+        <a href="/screenshot/{{ note.id }}"
+           class="block rounded bg-ink-900 p-3 hover:bg-ink-700/40">
+          <div class="flex items-center justify-between text-xs text-zinc-500 mb-2">
+            <span>{{ note.app_name or '—' }} · {{ note.window_title or '' }}</span>
+            <span class="font-mono">{{ note.updated_at[:19] }}</span>
+          </div>
+          <pre class="text-sm text-zinc-200 whitespace-pre-wrap font-sans leading-relaxed">{{ note.body }}</pre>
+        </a>
+      {% endfor %}
+    </div>
+  </section>
+{% endif %}
+{% endblock %}

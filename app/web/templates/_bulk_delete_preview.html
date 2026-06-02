@@ -1,0 +1,63 @@
+{# Fragment returned by /admin/bulk-delete/preview and /confirm.
+   Receives either `preview` (dry-run summary + HMAC token) or `result`
+   (actual delete outcome). Swapped into #bulk-delete-preview by HTMX. #}
+
+{% if result is defined %}
+  <div class="rounded-lg border border-emerald-700/60 bg-emerald-900/20 p-5">
+    <h2 class="text-lg font-semibold text-emerald-200 mb-2">Done.</h2>
+    <p class="text-emerald-100 text-sm">
+      Deleted <strong>{{ result.deleted }}</strong> screenshot(s) matching
+      <code class="font-mono text-xs bg-ink-900 px-1.5 py-0.5 rounded">{{ result.query }}</code>
+      (matched {{ result.matched }}). Thumbnails were also removed from disk.
+    </p>
+    <p class="text-emerald-200/70 text-xs mt-3">
+      Run another query above to delete more, or
+      <a href="/admin/bulk-delete" class="underline hover:text-emerald-100">reset the page</a>.
+    </p>
+  </div>
+{% elif preview is defined %}
+  {% if preview.matched == 0 %}
+    <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+      <p class="text-zinc-300 text-sm">
+        No screenshots matched
+        <code class="font-mono text-xs bg-ink-900 px-1.5 py-0.5 rounded">{{ preview.query }}</code>.
+        Nothing to delete.
+      </p>
+    </div>
+  {% else %}
+    <div class="rounded-lg border border-rose-700 bg-rose-900/30 p-5 space-y-4">
+      <h2 class="text-lg font-semibold text-rose-100">
+        {{ preview.matched }} screenshot{{ "s" if preview.matched != 1 else "" }} will be deleted
+      </h2>
+      <p class="text-rose-100/80 text-sm">
+        Query:
+        <code class="font-mono text-xs bg-ink-900 px-1.5 py-0.5 rounded">{{ preview.query }}</code>
+        · limit {{ preview.limit }}
+      </p>
+
+      {% if preview.ids %}
+        <details class="text-xs text-rose-100/70">
+          <summary class="cursor-pointer hover:text-rose-50">Show first {{ preview.ids|length }} ids</summary>
+          <div class="mt-2 font-mono break-all">
+            {{ preview.ids|join(", ") }}
+          </div>
+        </details>
+      {% endif %}
+
+      <form hx-post="/admin/bulk-delete/confirm"
+            hx-target="#bulk-delete-preview"
+            hx-swap="innerHTML"
+            hx-confirm="Really delete {{ preview.matched }} screenshot(s)? This cannot be undone."
+            class="pt-2 border-t border-rose-700/60">
+        <input type="hidden" name="query"   value="{{ preview.query }}">
+        <input type="hidden" name="limit"   value="{{ preview.limit }}">
+        <input type="hidden" name="matched" value="{{ preview.matched }}">
+        <input type="hidden" name="token"   value="{{ preview.token }}">
+        <button type="submit"
+                class="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded text-sm font-bold tracking-wide">
+          Delete {{ preview.matched }} match{{ "es" if preview.matched != 1 else "" }}
+        </button>
+      </form>
+    </div>
+  {% endif %}
+{% endif %}

@@ -1,0 +1,191 @@
+{% set _persona_theme = get_theme() %}
+<!DOCTYPE html>
+<html lang="en"{% if _persona_theme == 'dark' %} class="dark"{% elif _persona_theme == 'light' %} class=""{% endif %}>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ title }} — Persona</title>
+  {% if _persona_theme == 'auto' %}
+  <script>
+    // v0.32 — theme=auto: follow the OS preference and update live if
+    // the user toggles their system appearance while the page is open.
+    (function () {
+      var mq = window.matchMedia('(prefers-color-scheme: dark)');
+      function apply() {
+        document.documentElement.classList.toggle('dark', mq.matches);
+      }
+      apply();
+      if (typeof mq.addEventListener === 'function') {
+        mq.addEventListener('change', apply);
+      } else if (typeof mq.addListener === 'function') {
+        mq.addListener(apply);
+      }
+    })();
+  </script>
+  {% endif %}
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@2.0.4" defer></script>
+  <script defer src="https://unpkg.com/alpinejs@3.14.7/dist/cdn.min.js"></script>
+  <link rel="stylesheet" href="/static/css/app.css">
+  <script defer src="/static/js/keyboard.js"></script>
+  <script defer src="/static/js/palette.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/markdown-it@14.1.0/dist/markdown-it.min.js"></script>
+  <script defer src="/static/js/notes.js"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            ink: { 950: '#0a0a0c', 900: '#111114', 800: '#1a1a1f', 700: '#26262e' },
+            accent: { 400: '#a78bfa', 500: '#8b5cf6', 600: '#7c3aed' }
+          },
+          fontFamily: {
+            sans: ['system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'],
+            mono: ['JetBrains Mono', 'Cascadia Code', 'Consolas', 'monospace']
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="bg-zinc-50 text-zinc-900 dark:bg-ink-950 dark:text-zinc-100 min-h-screen font-sans antialiased transition-colors">
+  <header class="border-b border-ink-700 bg-ink-900/80 backdrop-blur sticky top-0 z-10">
+    <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+      <a href="/" class="flex items-center gap-2 hover:opacity-90">
+        <span class="text-2xl">●</span>
+        <span class="font-bold tracking-tight text-lg">Persona</span>
+        <span class="text-xs text-zinc-500 font-mono">v0.1</span>
+      </a>
+
+      <nav class="flex items-center gap-1 text-sm">
+        {% set items = [
+          ('timeline', '/', 'Timeline'),
+          ('search', '/search', 'Search'),
+          ('ask', '/ask', 'Ask'),
+          ('focus', '/focus', 'Focus'),
+          ('reminders', '/reminders', 'Reminders'),
+          ('reading', '/reading', 'Reading'),
+          ('digest', '/digest/weekly', 'Digest'),
+          ('journal', '/journal', 'Journal'),
+          ('apps', '/apps', 'Apps'),
+          ('stats', '/stats', 'Stats'),
+          ('settings', '/settings', 'Settings')
+        ] %}
+        {% for slug, href, label in items %}
+          <a href="{{ href }}"
+             class="px-3 py-1.5 rounded-md transition
+                    {% if active_nav == slug %}bg-accent-600/20 text-accent-400{% else %}text-zinc-400 hover:text-zinc-100 hover:bg-ink-800{% endif %}">
+            {{ label }}
+          </a>
+        {% endfor %}
+      </nav>
+
+      <div x-data="captureStatus()" x-init="poll()" class="flex items-center gap-3 text-xs">
+        <span x-show="paused" class="flex items-center gap-1.5 text-amber-400">
+          <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+          <span>Paused</span>
+        </span>
+        <span x-show="!paused" class="flex items-center gap-1.5 text-emerald-400">
+          <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span>Capturing</span>
+        </span>
+        <span class="text-zinc-500" x-text="`${captures} frames`"></span>
+        <span x-show="ocrPending > 0" class="text-amber-400" :title="`${ocrPending} OCR pending`">
+          OCR <span x-text="ocrPending"></span>
+        </span>
+        <span x-show="embPending > 0" class="text-accent-400" :title="`${embPending} embeddings pending`">
+          AI <span x-text="embPending"></span>
+        </span>
+        <a href="/stats" :title="`${budgetMb.toFixed(2)}MB / ${budgetCap}MB today`"
+           :class="overBudget ? 'text-rose-400' : (budgetPct > 70 ? 'text-amber-400' : 'text-zinc-500')"
+           class="hover:underline">
+          <span x-text="budgetMb.toFixed(1) + 'MB'"></span>
+        </a>
+        <button @click="captureNow()"
+                title="Capture now"
+                class="px-2 py-1 rounded bg-ink-800 hover:bg-ink-700 text-zinc-300">●</button>
+        <button @click="toggleTheme()"
+                title="Toggle dark / light"
+                class="px-2 py-1 rounded bg-ink-800 hover:bg-ink-700 text-zinc-300">
+          <span x-text="theme === 'dark' ? '☀' : '☾'"></span>
+        </button>
+        <button @click="toggle()"
+                class="px-2 py-1 rounded bg-ink-800 hover:bg-ink-700 text-zinc-300"
+                x-text="paused ? 'Start' : 'Pause'"></button>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-6 py-8">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="border-t border-ink-700 mt-16 py-6 text-center text-xs text-zinc-500">
+    <a href="https://github.com/SwairIt/persona" class="hover:text-zinc-300">github.com/SwairIt/persona</a>
+    · 100% local · AGPL-3.0
+  </footer>
+
+  <script>
+    function captureStatus() {
+      return {
+        paused: true,
+        captures: 0,
+        ocrPending: 0,
+        embPending: 0,
+        budgetMb: 0,
+        budgetCap: 0,
+        budgetPct: 0,
+        overBudget: false,
+        theme: localStorage.getItem('persona-theme') || 'dark',
+        toggleTheme() {
+          this.theme = this.theme === 'dark' ? 'light' : 'dark';
+          localStorage.setItem('persona-theme', this.theme);
+          document.documentElement.classList.toggle('dark', this.theme === 'dark');
+        },
+        async poll() {
+          await this.refresh();
+          setInterval(() => this.refresh(), 5000);
+        },
+        async refresh() {
+          try {
+            const [r, ro, re, rb] = await Promise.all([
+              fetch('/api/capture/status'),
+              fetch('/api/ocr/status'),
+              fetch('/api/embeddings/status'),
+              fetch('/api/budget/status')
+            ]);
+            const j = await r.json();
+            this.paused = j.paused;
+            this.captures = j.captures_total;
+            if (ro.ok) {
+              const jo = await ro.json();
+              this.ocrPending = jo.pending || 0;
+            }
+            if (re.ok) {
+              const je = await re.json();
+              this.embPending = je.pending || 0;
+            }
+            if (rb.ok) {
+              const jb = await rb.json();
+              this.budgetMb = jb.today_mb || 0;
+              this.budgetCap = jb.budget_mb || 0;
+              this.budgetPct = jb.used_percent || 0;
+              this.overBudget = jb.over_budget || false;
+            }
+          } catch (e) { /* ignore */ }
+        },
+        async toggle() {
+          const url = this.paused ? '/api/capture/start' : '/api/capture/pause';
+          await fetch(url, { method: 'POST' });
+          await this.refresh();
+        },
+        async captureNow() {
+          await fetch('/api/capture/now', { method: 'POST' });
+          await this.refresh();
+        }
+      }
+    }
+  </script>
+</body>
+</html>

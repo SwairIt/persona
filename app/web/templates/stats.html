@@ -1,0 +1,311 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Stats</h1>
+  <p class="text-zinc-500 text-sm mt-1">Live runtime metrics and 14-day activity.</p>
+</div>
+
+{% set budget_used = (today_bytes / budget_bytes) if budget_bytes else 0 %}
+{% set budget_pct = (budget_used * 100) | round(1) %}
+{% set over_budget = today_bytes > budget_bytes %}
+
+<section class="mb-8 rounded-lg border {% if over_budget %}border-rose-500/40{% else %}border-ink-700{% endif %} bg-ink-800 p-5">
+  <div class="flex items-center justify-between mb-3 flex-wrap gap-3">
+    <div>
+      <h2 class="text-lg font-semibold">Today's size budget</h2>
+      <p class="text-zinc-500 text-xs mt-1">
+        Target: <strong class="text-zinc-300">{{ budget_mb }} MB/day</strong> ·
+        smart-thumbnail: <strong class="text-zinc-300">{{ 'on' if smart_thumbnail else 'off' }}</strong>
+        (min gap {{ smart_min_gap_seconds | int }}s)
+      </p>
+    </div>
+    <div class="text-right">
+      <div class="text-2xl font-bold {% if over_budget %}text-rose-400{% else %}text-emerald-400{% endif %}">
+        {{ today_bytes | filesize }}
+      </div>
+      <div class="text-xs text-zinc-500">{{ budget_pct }}% of budget</div>
+    </div>
+  </div>
+  <div class="bg-ink-900 rounded h-3 overflow-hidden mb-4">
+    <div class="h-full transition-all {% if over_budget %}bg-rose-500{% else %}bg-emerald-500{% endif %}"
+         style="width: {{ (budget_pct if budget_pct < 100 else 100) }}%"></div>
+  </div>
+
+  {% if size_history %}
+    {% set max_b = size_history | map(attribute='bytes') | max %}
+    <div class="space-y-1">
+      {% for row in size_history %}
+        {% set bar_pct = ((row.bytes / max_b) * 100) if max_b else 0 %}
+        <div class="flex items-center gap-3 text-xs">
+          <span class="font-mono text-zinc-500 w-20">{{ row.day }}</span>
+          <div class="flex-1 bg-ink-900 rounded h-3 overflow-hidden">
+            <div class="h-full {% if row.bytes > budget_bytes %}bg-rose-500/70{% else %}bg-emerald-500/70{% endif %}"
+                 style="width: {{ bar_pct | round(1) }}%"></div>
+          </div>
+          <span class="font-mono text-zinc-400 w-16 text-right">{{ row.bytes | filesize }}</span>
+          <span class="font-mono text-zinc-600 w-10 text-right">{{ row.screenshots }}</span>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="text-zinc-500 text-xs">No size history yet — populates as the retention worker runs (hourly).</p>
+  {% endif %}
+</section>
+
+<section class="mb-8 rounded-lg border border-ink-700 bg-ink-800 p-5">
+  <h2 class="text-lg font-semibold mb-3">Year of activity</h2>
+  <p class="text-zinc-500 text-xs mb-3">Each cell = one day, shaded by total active time. Click to open that day.</p>
+  <div x-data="yearHeatmap()" x-init="build()" class="overflow-x-auto">
+    <div class="flex gap-[2px]" x-html="grid"></div>
+    <div class="flex items-center gap-2 text-xs text-zinc-500 mt-3">
+      <span>less</span>
+      <span class="w-3 h-3 rounded-sm" style="background: rgba(139,92,246,0.05)"></span>
+      <span class="w-3 h-3 rounded-sm" style="background: rgba(139,92,246,0.25)"></span>
+      <span class="w-3 h-3 rounded-sm" style="background: rgba(139,92,246,0.5)"></span>
+      <span class="w-3 h-3 rounded-sm" style="background: rgba(139,92,246,0.75)"></span>
+      <span class="w-3 h-3 rounded-sm" style="background: rgba(139,92,246,1)"></span>
+      <span>more</span>
+    </div>
+  </div>
+</section>
+
+<script>
+  const yearActivity = {{ year_activity | tojson }};
+  function yearHeatmap() {
+    return {
+      grid: '',
+      build() {
+        const today = new Date();
+        const start = new Date(today);
+        start.setDate(today.getDate() - 364);
+        let maxVal = 1;
+        for (const k in yearActivity) {
+          if (yearActivity[k] > maxVal) maxVal = yearActivity[k];
+        }
+        const days = [];
+        for (let i = 0; i < 365; i++) {
+          const d = new Date(start);
+          d.setDate(start.getDate() + i);
+          const key = d.toISOString().slice(0, 10);
+          const v = yearActivity[key] || 0;
+          days.push({ key, v });
+        }
+        const weeks = [];
+        let week = [];
+        const firstDow = (start.getDay() + 6) % 7;
+        for (let i = 0; i < firstDow; i++) week.push(null);
+        for (const day of days) {
+          week.push(day);
+          if (week.length === 7) { weeks.push(week); week = []; }
+        }
+        if (week.length) {
+          while (week.length < 7) week.push(null);
+          weeks.push(week);
+        }
+        let html = '';
+        for (const w of weeks) {
+          html += '<div class="flex flex-col gap-[2px]">';
+          for (const d of w) {
+            if (!d) {
+              html += '<div class="w-3 h-3"></div>';
+            } else {
+              const ratio = d.v / maxVal;
+              const alpha = d.v > 0 ? Math.max(0.08, ratio) : 0;
+              html += `<a href="/?date=${d.key}" title="${d.key}: ${Math.round(d.v/60)}min"
+                          class="w-3 h-3 rounded-sm"
+                          style="background-color: rgba(139,92,246,${alpha})"></a>`;
+            }
+          }
+          html += '</div>';
+        }
+        this.grid = html;
+      }
+    }
+  }
+</script>
+
+<section class="mb-8 rounded-lg border border-ink-700 bg-ink-800 p-5">
+  <h2 class="text-lg font-semibold mb-3">Streak</h2>
+  <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+    <div class="rounded bg-ink-900 p-3">
+      <div class="text-xs uppercase tracking-widest text-zinc-500">Current</div>
+      <div class="text-2xl font-bold mt-1 text-emerald-400">🔥 {{ streak_current }}<span class="text-xs text-zinc-500 ml-1">d</span></div>
+    </div>
+    <div class="rounded bg-ink-900 p-3">
+      <div class="text-xs uppercase tracking-widest text-zinc-500">Longest</div>
+      <div class="text-2xl font-bold mt-1">{{ streak_longest }}<span class="text-xs text-zinc-500 ml-1">d</span></div>
+    </div>
+    <div class="rounded bg-ink-900 p-3">
+      <div class="text-xs uppercase tracking-widest text-zinc-500">Active (30d)</div>
+      <div class="text-2xl font-bold mt-1">{{ streak_active_30d }}<span class="text-xs text-zinc-500 ml-1">/30</span></div>
+    </div>
+    <div class="rounded bg-ink-900 p-3">
+      <div class="text-xs uppercase tracking-widest text-zinc-500">Total active days</div>
+      <div class="text-2xl font-bold mt-1">{{ streak_active_total }}</div>
+    </div>
+  </div>
+</section>
+
+<section class="mb-8 rounded-lg border border-ink-700 bg-ink-800 p-5">
+  <h2 class="text-lg font-semibold mb-3">Storage tiers</h2>
+  <p class="text-zinc-500 text-xs mb-4">
+    Hot = full thumb · Warm (after {{ warm_after_days }}d) = downscaled · Cold (after {{ cold_after_days }}d) = metadata only · Pinned = never demoted
+  </p>
+  <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+    {% for label, key, colour in [('Hot', 'hot', 'emerald'), ('Warm', 'warm', 'sky'), ('Cold', 'cold', 'zinc'), ('Pinned', 'pinned', 'amber')] %}
+      <div class="rounded bg-ink-900 p-3">
+        <div class="text-xs text-zinc-500 uppercase tracking-widest">{{ label }}</div>
+        <div class="text-2xl font-bold mt-1 text-{{ colour }}-400">{{ tiers.get(key, 0) }}</div>
+      </div>
+    {% endfor %}
+  </div>
+</section>
+
+<div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Captures total</div>
+    <div class="text-3xl font-bold mt-1">{{ captures_total }}</div>
+    <div class="text-xs text-zinc-500 mt-2">since uvicorn start</div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Stored screenshots</div>
+    <div class="text-3xl font-bold mt-1">{{ total_screenshots }}</div>
+    <div class="text-xs text-zinc-500 mt-2">unique after dedup</div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Dedup ratio</div>
+    <div class="text-3xl font-bold mt-1">{{ (dedup_ratio * 100) | round(1) }}%</div>
+    <div class="text-xs text-zinc-500 mt-2">{{ total_groups }} unique groups</div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Disk usage</div>
+    <div class="text-3xl font-bold mt-1">{{ disk_usage_bytes | filesize }}</div>
+    <div class="text-xs text-zinc-500 mt-2">retention: {{ retention_days }}d</div>
+  </div>
+</div>
+
+<div class="grid lg:grid-cols-2 gap-6">
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <h2 class="text-lg font-semibold mb-4">Activity (14 days)</h2>
+    {% if events_by_day %}
+      {% set max_n = events_by_day | map(attribute='count') | max %}
+      <div class="space-y-2">
+        {% for row in events_by_day %}
+          <div class="flex items-center gap-3 text-sm">
+            <span class="font-mono text-zinc-500 w-20 text-xs">{{ row.day }}</span>
+            <div class="flex-1 bg-ink-900 rounded h-4 overflow-hidden">
+              <div class="h-full bg-accent-500"
+                   style="width: {{ ((row.count / max_n) * 100) | round(1) }}%"></div>
+            </div>
+            <span class="font-mono text-zinc-300 w-10 text-right text-xs">{{ row.count }}</span>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="text-zinc-500 text-sm">No activity yet.</p>
+    {% endif %}
+  </section>
+
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <h2 class="text-lg font-semibold mb-4">Top windows (14 days)</h2>
+    {% if top_windows %}
+      {% set max_n = top_windows | map(attribute='count') | max %}
+      <div class="space-y-2">
+        {% for row in top_windows %}
+          <div class="flex items-center gap-3 text-sm">
+            <span class="text-zinc-300 w-56 truncate text-xs" title="{{ row.title }}">{{ row.title }}</span>
+            <div class="flex-1 bg-ink-900 rounded h-3 overflow-hidden">
+              <div class="h-full bg-sky-500"
+                   style="width: {{ ((row.count / max_n) * 100) | round(1) }}%"></div>
+            </div>
+            <span class="font-mono text-zinc-300 w-12 text-right text-xs">{{ row.count }}</span>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="text-zinc-500 text-sm">No window data yet.</p>
+    {% endif %}
+  </section>
+
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <h2 class="text-lg font-semibold mb-4">Top apps (14 days)</h2>
+    {% if top_apps %}
+      {% set max_n = top_apps | map(attribute='count') | max %}
+      <div class="space-y-2">
+        {% for row in top_apps %}
+          <div class="flex items-center gap-3 text-sm">
+            <span class="text-zinc-300 w-40 truncate text-xs">{{ row.app }}</span>
+            <div class="flex-1 bg-ink-900 rounded h-4 overflow-hidden">
+              <div class="h-full bg-emerald-500"
+                   style="width: {{ ((row.count / max_n) * 100) | round(1) }}%"></div>
+            </div>
+            <span class="font-mono text-zinc-300 w-12 text-right text-xs">{{ row.count }}</span>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="text-zinc-500 text-sm">No app data yet.</p>
+    {% endif %}
+  </section>
+
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <h2 class="text-lg font-semibold mb-4">Capture loop</h2>
+    <dl class="space-y-2 text-sm font-mono">
+      <div class="flex justify-between"><dt class="text-zinc-500">Interval</dt><dd>{{ interval_seconds }}s</dd></div>
+      <div class="flex justify-between"><dt class="text-zinc-500">Paused</dt><dd>{{ "yes" if paused else "no" }}</dd></div>
+      <div class="flex justify-between"><dt class="text-zinc-500">Last capture</dt><dd>{{ last_capture_at | humantime }}</dd></div>
+      <div class="flex justify-between"><dt class="text-zinc-500">Skipped (dedup)</dt><dd>{{ captures_skipped_dedup }}</dd></div>
+      <div class="flex justify-between"><dt class="text-zinc-500">Skipped (idle)</dt><dd>{{ captures_skipped_idle }}</dd></div>
+      <div class="flex justify-between"><dt class="text-zinc-500">Failed</dt><dd>{{ captures_failed }}</dd></div>
+    </dl>
+  </section>
+
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <h2 class="text-lg font-semibold mb-4">OCR breakdown</h2>
+    <dl class="space-y-2 text-sm font-mono">
+      {% for status, count in ocr_breakdown.items() %}
+        <div class="flex justify-between">
+          <dt class="text-zinc-500">{{ status }}</dt>
+          <dd>{{ count }}</dd>
+        </div>
+      {% else %}
+        <p class="text-zinc-500 text-sm">No screenshots yet.</p>
+      {% endfor %}
+    </dl>
+  </section>
+</div>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mt-6">
+  <h2 class="text-lg font-semibold mb-4">Activity heatmap — last 14 days</h2>
+  <p class="text-zinc-500 text-xs mb-3">When during the week and day you've been at the screen.</p>
+  {% set day_labels = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'] %}
+  {% set max_cell = namespace(value=1) %}
+  {% for row in heatmap %}{% for v in row %}{% if v > max_cell.value %}{% set max_cell.value = v %}{% endif %}{% endfor %}{% endfor %}
+  <div class="overflow-x-auto">
+    <table class="text-xs font-mono">
+      <thead>
+        <tr>
+          <th></th>
+          {% for h in range(24) %}<th class="text-zinc-600 px-0.5 text-center w-6">{{ "%02d" | format(h) }}</th>{% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in heatmap %}
+          <tr>
+            <td class="text-zinc-500 pr-2">{{ day_labels[loop.index0] }}</td>
+            {% for v in row %}
+              {% set intensity = (v / max_cell.value) if max_cell.value > 0 else 0 %}
+              <td class="p-0.5"
+                  title="{{ day_labels[loop.index0] }} {{ "%02d:00" | format(loop.index0) }} — {{ v }} captures">
+                <div class="w-5 h-5 rounded-sm"
+                     style="background-color: rgba(139, 92, 246, {{ (intensity * 0.85 + 0.05) if v > 0 else 0 }});"></div>
+              </td>
+            {% endfor %}
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

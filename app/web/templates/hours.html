@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-8">
+  <h1 class="text-2xl font-bold tracking-tight">Hour-of-day histogram</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    When do you capture most? 24 bars, one per hour of the day, summed across the last {{ days }} day{{ '' if days == 1 else 's' }}.
+  </p>
+</div>
+
+{# Day-window selector — pure links, no JS. #}
+<div class="flex flex-wrap items-center gap-2 mb-6">
+  <span class="text-xs uppercase tracking-widest text-zinc-500 mr-1">Window</span>
+  {% for choice in window_choices %}
+    <a href="/hours?days={{ choice }}"
+       class="px-3 py-1.5 rounded-md text-sm font-mono transition
+              {% if choice == days %}bg-accent-600/20 text-accent-400 border border-accent-600/40{% else %}text-zinc-400 hover:text-zinc-100 hover:bg-ink-800 border border-ink-700{% endif %}">
+      {{ choice }}d
+    </a>
+  {% endfor %}
+</div>
+
+<section class="grid sm:grid-cols-2 gap-4 mb-6">
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Grand total</div>
+    <div class="text-3xl font-bold mt-1 tabular-nums">
+      {{ "{:,}".format(total) }}
+      <span class="text-base font-normal text-zinc-500 ml-1">
+        shot{{ '' if total == 1 else 's' }}
+      </span>
+    </div>
+    <div class="text-xs text-zinc-500 mt-1">
+      Last {{ days }} day{{ '' if days == 1 else 's' }}.
+    </div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Peak hour</div>
+    {% if peak %}
+      <div class="text-3xl font-bold mt-1 tabular-nums">
+        {{ "%02d"|format(peak.hour) }}:00
+        <span class="text-base font-normal text-zinc-500 ml-1">
+          · {{ "{:,}".format(peak.count) }} shot{{ '' if peak.count == 1 else 's' }}
+        </span>
+      </div>
+      <div class="text-xs text-zinc-500 mt-1 tabular-nums">
+        {{ "%.1f"|format(peak.pct) }}% of the window's captures.
+      </div>
+    {% else %}
+      <div class="text-3xl font-bold mt-1 tabular-nums text-zinc-600">—</div>
+      <div class="text-xs text-zinc-500 mt-1">
+        No captures in this window yet.
+      </div>
+    {% endif %}
+  </div>
+</section>
+
+<div class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6 overflow-x-auto">
+  <svg xmlns="http://www.w3.org/2000/svg"
+       width="{{ svg_width }}"
+       height="{{ svg_height }}"
+       viewBox="0 0 {{ svg_width }} {{ svg_height }}"
+       role="img"
+       aria-label="Hour-of-day capture histogram over the last {{ days }} days">
+
+    {# Y-axis baseline #}
+    <line x1="{{ pad_left }}"
+          y1="{{ baseline_y }}"
+          x2="{{ svg_width - pad_right }}"
+          y2="{{ baseline_y }}"
+          stroke="#52525b"
+          stroke-width="1" />
+
+    {# Y-axis ticks + labels #}
+    {% for tick in y_ticks %}
+      <line x1="{{ pad_left - 3 }}"
+            y1="{{ tick.y }}"
+            x2="{{ pad_left }}"
+            y2="{{ tick.y }}"
+            stroke="#52525b"
+            stroke-width="1" />
+      <text x="{{ pad_left - 5 }}"
+            y="{{ tick.y + 3 }}"
+            fill="#71717a"
+            font-size="9"
+            text-anchor="end"
+            font-family="JetBrains Mono, Cascadia Code, Consolas, monospace">
+        {{ tick.label }}
+      </text>
+    {% endfor %}
+
+    {# The bars #}
+    {% for bar in bars %}
+      <rect x="{{ "%.2f"|format(bar.x) }}"
+            y="{{ "%.2f"|format(bar.y) }}"
+            width="{{ "%.2f"|format(bar.width) }}"
+            height="{{ "%.2f"|format(bar.height) }}"
+            rx="1"
+            ry="1"
+            fill="{{ bar.fill }}">
+        <title>{{ bar.tooltip }}</title>
+      </rect>
+    {% endfor %}
+
+    {# X-axis labels (every 3rd hour) #}
+    {% for bar in bars %}
+      {% if bar.label_visible %}
+        <text x="{{ "%.2f"|format(bar.label_x) }}"
+              y="{{ svg_height - 6 }}"
+              fill="#a1a1aa"
+              font-size="10"
+              text-anchor="middle"
+              font-family="JetBrains Mono, Cascadia Code, Consolas, monospace">
+          {{ bar.label }}
+        </text>
+      {% endif %}
+    {% endfor %}
+  </svg>
+
+  {# Legend #}
+  <div class="flex items-center justify-end gap-3 mt-3 text-xs text-zinc-500 font-mono">
+    <span class="flex items-center gap-1.5">
+      <span class="inline-block rounded-sm"
+            style="width: 10px; height: 10px; background-color: {{ fill_active }};"></span>
+      <span>Captured</span>
+    </span>
+    <span class="flex items-center gap-1.5">
+      <span class="inline-block rounded-sm"
+            style="width: 10px; height: 10px; background-color: {{ fill_empty }};"></span>
+      <span>Empty</span>
+    </span>
+  </div>
+</div>
+
+{# Compact table — accessibility + screen-readability for the bar data. #}
+<details class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
+  <summary class="cursor-pointer text-sm text-zinc-300 hover:text-zinc-100">
+    Show all 24 hours as a table
+  </summary>
+  <table class="mt-4 w-full text-sm font-mono tabular-nums">
+    <thead>
+      <tr class="text-xs uppercase tracking-widest text-zinc-500 border-b border-ink-700">
+        <th class="text-left py-1.5 pr-4 font-normal">Hour</th>
+        <th class="text-right py-1.5 px-4 font-normal">Shots</th>
+        <th class="text-right py-1.5 pl-4 font-normal">Share</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for bucket in buckets %}
+        <tr class="border-b border-ink-700/50 last:border-0">
+          <td class="py-1 pr-4 text-zinc-400">{{ "%02d"|format(bucket.hour) }}:00</td>
+          <td class="py-1 px-4 text-right">{{ "{:,}".format(bucket.count) }}</td>
+          <td class="py-1 pl-4 text-right text-zinc-500">{{ "%.1f"|format(bucket.pct) }}%</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</details>
+
+<p class="text-xs text-zinc-500">
+  Machine-readable counterpart at
+  <a href="/api/hours.json?days={{ days }}" class="font-mono text-accent-400 hover:underline">/api/hours.json?days={{ days }}</a>.
+</p>
+{% endblock %}

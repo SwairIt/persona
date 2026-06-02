@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Sessions — {{ target_day | humandate }}</h1>
+  <p class="text-zinc-500 text-sm mt-1">Consecutive captures grouped by app with at most 5-min gaps.</p>
+</div>
+
+{% if not sessions %}
+  <p class="text-zinc-500">No sessions for this day.</p>
+{% else %}
+  <div class="space-y-2">
+    {% for s in sessions %}
+      <div class="rounded-lg border border-ink-700 bg-ink-800 p-4 flex items-center gap-4">
+        <div class="text-xs font-mono text-zinc-500 w-28 flex-shrink-0">
+          {{ s.started_at | clock }} – {{ s.ended_at | clock }}
+        </div>
+        <div class="flex-1 min-w-0">
+          <div class="font-semibold text-zinc-200">{{ s.app_name or '—' }}</div>
+          {% if s.sample_titles %}
+            <div class="text-xs text-zinc-400 truncate mt-0.5">
+              {{ s.sample_titles | join(' · ') }}
+            </div>
+          {% endif %}
+        </div>
+        <div class="text-xs text-zinc-500 font-mono flex-shrink-0">{{ s.screenshot_count }} frames</div>
+      </div>
+    {% endfor %}
+  </div>
+{% endif %}
+{% endblock %}

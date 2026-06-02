@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-start justify-between gap-4">
+  <div>
+    <div class="flex items-center gap-3">
+      <h1 class="text-2xl font-bold tracking-tight">{{ rule.title }}</h1>
+      {% if rule.public %}
+        <span class="text-xs px-2 py-0.5 rounded bg-emerald-900/40 text-emerald-300">public</span>
+      {% else %}
+        <span class="text-xs px-2 py-0.5 rounded bg-zinc-800 text-zinc-400">private</span>
+      {% endif %}
+      <span class="text-zinc-500 text-sm">{{ count }} screenshot{{ '' if count == 1 else 's' }}</span>
+    </div>
+    <div class="text-zinc-500 text-sm mt-1">
+      tag <span class="font-mono text-accent-400">{{ rule.tag }}</span>
+      · slug <span class="font-mono text-zinc-300">{{ rule.slug }}</span>
+    </div>
+    <a href="/collections" class="text-accent-400 text-sm">← all collections</a>
+  </div>
+
+  <form action="/collection/{{ rule.slug }}/delete" method="post"
+        onsubmit="return confirm('Delete rule {{ rule.slug }}? Screenshots stay tagged.');">
+    <button class="text-xs px-3 py-1.5 rounded bg-rose-900/40 hover:bg-rose-900 text-rose-300">
+      Delete rule
+    </button>
+  </form>
+</div>
+
+{% if shots %}
+  <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3"
+       style="--shot-width: 320px;">
+    {% for shot in shots %}
+      {% include "_screenshot_card.html" %}
+    {% endfor %}
+  </div>
+{% else %}
+  <p class="text-zinc-500">
+    No screenshots currently carry the tag <strong>{{ rule.tag }}</strong>.
+    Tag some shots and they'll appear here automatically.
+  </p>
+{% endif %}
+{% endblock %}

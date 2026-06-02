@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-center justify-between flex-wrap gap-3">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Range: {{ since }} → {{ until }}</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      {{ days_count }} day{% if days_count != 1 %}s{% endif %} · {{ total }} capture{% if total != 1 %}s{% endif %}
+    </p>
+  </div>
+</div>
+
+<form method="get" action="/range"
+      class="mb-4 flex flex-wrap items-end gap-3 bg-ink-900/60 border border-ink-700 rounded-lg p-4">
+  <label class="flex flex-col text-xs text-zinc-500 gap-1">
+    <span class="uppercase tracking-widest">Since</span>
+    <input type="date" name="since" value="{{ since }}"
+           class="bg-ink-800 border border-ink-700 rounded px-2 py-1.5 text-sm text-zinc-100
+                  focus:outline-none focus:border-accent-500">
+  </label>
+  <label class="flex flex-col text-xs text-zinc-500 gap-1">
+    <span class="uppercase tracking-widest">Until</span>
+    <input type="date" name="until" value="{{ until }}"
+           class="bg-ink-800 border border-ink-700 rounded px-2 py-1.5 text-sm text-zinc-100
+                  focus:outline-none focus:border-accent-500">
+  </label>
+  <button type="submit"
+          class="px-4 py-1.5 rounded bg-accent-600 hover:bg-accent-500 text-sm font-medium text-white">
+    Apply
+  </button>
+</form>
+
+<div class="mb-6 flex flex-wrap gap-2">
+  {% for preset in presets %}
+    {% set active = (preset.since == since and preset.until == until) %}
+    <a href="/range?since={{ preset.since }}&until={{ preset.until }}"
+       class="px-3 py-1 rounded-full text-xs border transition
+              {% if active %}bg-accent-600/30 border-accent-500 text-accent-200{% else %}bg-ink-800 border-ink-700 hover:border-zinc-500 text-zinc-400{% endif %}">
+      {{ preset.label }}
+    </a>
+  {% endfor %}
+</div>
+
+{% if total == 0 %}
+  <div class="text-center py-24">
+    <p class="text-zinc-400">No captures in that window.</p>
+    <p class="text-zinc-600 text-sm mt-2">
+      Try a wider range, or use a preset above.
+    </p>
+  </div>
+{% else %}
+  <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
+    {% for shot in shots %}
+      {% include "_screenshot_card.html" %}
+    {% endfor %}
+  </div>
+{% endif %}
+{% endblock %}

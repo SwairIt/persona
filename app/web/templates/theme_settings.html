@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Theme</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Pick how Persona looks in this browser. The choice is stored in
+    <code class="font-mono">kv_settings</code> and applies on every page
+    load &mdash; including the inline boot script that runs before first
+    paint so you never see a flash of the wrong palette.
+  </p>
+</div>
+
+<form action="/settings/theme" method="post"
+      class="rounded-lg border border-ink-700 bg-ink-800 p-5 grid grid-cols-1 md:grid-cols-3 gap-4">
+  {% for value, label, description in options %}
+    <label class="cursor-pointer rounded-lg border bg-ink-900 p-4 flex flex-col gap-2 transition
+                  {% if current == value %}border-accent-500 ring-1 ring-accent-500/40{% else %}border-ink-700 hover:border-accent-500/60{% endif %}">
+      <span class="flex items-center gap-2">
+        <input type="radio" name="theme" value="{{ value }}"
+               {% if current == value %}checked{% endif %}
+               class="w-4 h-4 accent-accent-500">
+        <span class="text-sm font-semibold text-zinc-100">{{ label }}</span>
+      </span>
+      <span class="text-xs text-zinc-500 leading-relaxed">{{ description }}</span>
+      <span class="text-[10px] uppercase tracking-widest font-mono text-zinc-600">{{ value }}</span>
+    </label>
+  {% endfor %}
+
+  <div class="md:col-span-3 flex items-center justify-between flex-wrap gap-3 pt-4 border-t border-ink-700">
+    <div class="text-xs text-zinc-500">
+      <strong>Auto</strong> uses <code class="font-mono">window.matchMedia('(prefers-color-scheme: dark)')</code>
+      and re-evaluates whenever the OS toggles its appearance.
+    </div>
+    <button type="submit"
+            class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
+      Save theme
+    </button>
+  </div>
+</form>
+{% endblock %}

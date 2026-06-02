@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ title }}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/static/css/app.css">
+  <script>
+    tailwind.config = { darkMode: 'class', theme: { extend: { colors: {
+      ink: { 950: '#0a0a0c', 900: '#111114', 800: '#1a1a1f', 700: '#26262e' },
+      accent: { 400: '#a78bfa', 500: '#8b5cf6', 600: '#7c3aed' }
+    } } } }
+  </script>
+</head>
+<body class="bg-ink-950 text-zinc-100 min-h-screen p-4 font-sans antialiased">
+  <header class="mb-6">
+    <div class="flex items-center justify-between">
+      <h1 class="text-xl font-bold tracking-tight">Persona <span class="text-zinc-500 text-xs font-mono ml-1">mobile</span></h1>
+      <a href="/" class="text-accent-400 text-xs">desktop →</a>
+    </div>
+  </header>
+
+  <form action="/search" method="get" class="mb-6 flex gap-2">
+    <input type="text" name="q" placeholder="search…"
+           class="flex-1 px-3 py-2 bg-ink-800 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
+    <button type="submit" class="px-4 py-2 bg-accent-600 rounded text-sm">Go</button>
+  </form>
+
+  {% if digest %}
+    <section class="mb-6 rounded-lg border border-ink-700 bg-ink-800 p-3">
+      <div class="text-xs uppercase tracking-widest text-zinc-500 mb-2">Yesterday's digest · {{ digest.day }}</div>
+      <p class="text-sm text-zinc-200 leading-relaxed whitespace-pre-wrap line-clamp-2">{{ digest.body }}</p>
+      <a href="/digest/daily/{{ digest.day }}" class="text-accent-400 text-xs mt-2 inline-block">read more →</a>
+    </section>
+  {% endif %}
+
+  {% if notes %}
+    <section class="mb-6">
+      <h2 class="text-xs uppercase tracking-widest text-zinc-500 mb-2">Recent notes</h2>
+      <div class="space-y-2">
+        {% for note in notes %}
+          <a href="/screenshot/{{ note.id }}" class="block rounded bg-ink-800 border border-ink-700 p-3">
+            <div class="flex items-center justify-between text-xs text-zinc-500 mb-1">
+              <span>{{ note.app_name or '—' }}</span>
+              <span class="font-mono">{{ note.updated_at.strftime('%H:%M %m-%d') }}</span>
+            </div>
+            <p class="text-sm text-zinc-200 line-clamp-2">{{ note.body }}</p>
+          </a>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+
+  {% if latest %}
+    <section>
+      <h2 class="text-xs uppercase tracking-widest text-zinc-500 mb-2">Today</h2>
+      <div class="space-y-1.5">
+        {% for shot in latest %}
+          <a href="/screenshot/{{ shot.id }}" class="block rounded bg-ink-800 border border-ink-700 p-3">
+            <div class="flex items-center justify-between text-xs">
+              <span class="text-zinc-300 truncate">{{ shot.app_name or '—' }}</span>
+              <span class="text-zinc-500 font-mono flex-shrink-0 ml-2">{{ shot.captured_at.strftime('%H:%M') }}</span>
+            </div>
+            {% if shot.window_title %}
+              <p class="text-xs text-zinc-500 truncate mt-0.5">{{ shot.window_title }}</p>
+            {% endif %}
+            {% if shot.ocr_snippet %}
+              <p class="text-xs text-zinc-400 mt-1 line-clamp-1">{{ shot.ocr_snippet }}</p>
+            {% endif %}
+          </a>
+        {% endfor %}
+      </div>
+    </section>
+  {% else %}
+    <p class="text-zinc-500 text-sm">No captures today.</p>
+  {% endif %}
+</body>
+</html>

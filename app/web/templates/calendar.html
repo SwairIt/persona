@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-center justify-between flex-wrap gap-3">
+  <h1 class="text-2xl font-bold tracking-tight">{{ month_name }} {{ year }}</h1>
+  <div class="flex items-center gap-2 text-sm">
+    <a href="/calendar?year={{ prev_year }}&month={{ prev_month }}"
+       class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700">← {{ prev_month }}/{{ prev_year }}</a>
+    <a href="/calendar" class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700">This month</a>
+    <a href="/calendar?year={{ next_year }}&month={{ next_month }}"
+       class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700">{{ next_month }}/{{ next_year }} →</a>
+  </div>
+</div>
+
+{% set max_count = namespace(value=1) %}
+{% for week in weeks %}{% for day in week %}{% if day > 0 %}
+  {% set key = "%04d-%02d-%02d" | format(year, month, day) %}
+  {% set n = counts.get(key, 0) %}
+  {% if n > max_count.value %}{% set max_count.value = n %}{% endif %}
+{% endif %}{% endfor %}{% endfor %}
+
+<div class="grid grid-cols-7 gap-2 text-xs text-zinc-500 mb-2">
+  {% for label in ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] %}
+    <div class="text-center font-mono">{{ label }}</div>
+  {% endfor %}
+</div>
+
+<div class="grid grid-cols-7 gap-2">
+  {% for week in weeks %}
+    {% for day in week %}
+      {% if day == 0 %}
+        <div class="aspect-square"></div>
+      {% else %}
+        {% set key = "%04d-%02d-%02d" | format(year, month, day) %}
+        {% set n = counts.get(key, 0) %}
+        {% set intensity = (n / max_count.value) if max_count.value > 0 else 0 %}
+        <a href="/?date={{ key }}"
+           class="aspect-square rounded-lg border border-ink-700 hover:border-accent-500 p-2 flex flex-col justify-between
+                  {% if today_iso == key %}ring-2 ring-accent-500{% endif %}"
+           style="background-color: rgba(139, 92, 246, {{ (intensity * 0.4 + 0.05) if n > 0 else 0 }});">
+          <span class="text-zinc-200 font-mono text-sm">{{ day }}</span>
+          {% if n > 0 %}
+            <span class="text-xs text-zinc-400 self-end font-mono">{{ n }}</span>
+          {% endif %}
+        </a>
+      {% endif %}
+    {% endfor %}
+  {% endfor %}
+</div>
+{% endblock %}

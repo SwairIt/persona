@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-center justify-between flex-wrap gap-3">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Focus</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Pomodoro-style timer. Persona auto-pauses screen capture during the block
+      and resumes when you finish (capture stays paused if you bail mid-block).
+    </p>
+  </div>
+  <div class="text-sm text-zinc-400 font-mono">
+    🍅 today: <span class="text-emerald-400">{{ completed_today }}</span>
+  </div>
+</div>
+
+<div x-data="focusTimer()" class="grid lg:grid-cols-2 gap-6">
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-6 text-center">
+    <div class="text-7xl font-mono font-bold mb-4" x-text="display"
+         :class="ringClass"></div>
+
+    <div class="text-zinc-500 text-sm mb-4" x-text="state === 'idle' ? 'Ready' : (state === 'running' ? 'Focus on it' : 'Finished')"></div>
+
+    <div x-show="state === 'idle'" class="space-y-3">
+      <input x-model="intent" placeholder="What are you focusing on?"
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm">
+      <div class="flex items-center justify-center gap-2">
+        <button @click="duration = 15" :class="duration === 15 ? 'bg-accent-600' : 'bg-ink-900'"
+                class="px-3 py-1.5 rounded text-xs">15m</button>
+        <button @click="duration = 25" :class="duration === 25 ? 'bg-accent-600' : 'bg-ink-900'"
+                class="px-3 py-1.5 rounded text-xs">25m</button>
+        <button @click="duration = 50" :class="duration === 50 ? 'bg-accent-600' : 'bg-ink-900'"
+                class="px-3 py-1.5 rounded text-xs">50m</button>
+        <button @click="duration = 90" :class="duration === 90 ? 'bg-accent-600' : 'bg-ink-900'"
+                class="px-3 py-1.5 rounded text-xs">90m</button>
+      </div>
+      <button @click="start()" class="w-full px-5 py-2.5 bg-accent-600 hover:bg-accent-500 rounded-lg font-medium">
+        Start <span x-text="duration"></span>-minute focus
+      </button>
+    </div>
+
+    <div x-show="state === 'running'" class="space-y-3">
+      <p class="text-zinc-400 text-sm" x-show="intent" x-text="'→ ' + intent"></p>
+      <div class="flex items-center justify-center gap-2">
+        <button @click="finish(true)" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded text-sm font-medium">Done</button>
+        <button @click="finish(false)" class="px-4 py-2 bg-rose-700 hover:bg-rose-600 rounded text-sm font-medium">Bail</button>
+      </div>
+    </div>
+
+    <div x-show="state === 'done'" class="space-y-3">
+      <input x-model="outcome" placeholder="What did you ship?"
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm">
+      <button @click="reset()" class="w-full px-5 py-2.5 bg-accent-600 hover:bg-accent-500 rounded-lg font-medium">
+        Save & reset
+      </button>
+    </div>
+  </section>
+
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <h2 class="text-lg font-semibold mb-3">Recent sessions</h2>
+    {% if recent %}
+      <div class="space-y-2 text-sm">
+        {% for s in recent %}
+          <div class="flex items-center justify-between gap-2 text-xs">
+            <div class="flex items-center gap-2 flex-1 min-w-0">
+              <span class="font-mono text-zinc-500 flex-shrink-0">{{ s.started_at.strftime('%m-%d %H:%M') }}</span>
+              <span class="truncate {{ 'text-emerald-400' if s.completed else 'text-rose-400' }}">
+                {{ '✓' if s.completed else '✗' }} {{ s.intent or '(no intent)' }}
+              </span>
+            </div>
+            <span class="font-mono text-zinc-500 flex-shrink-0">{{ s.duration_minutes }}m</span>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="text-zinc-500 text-sm">No focus sessions yet.</p>
+    {% endif %}
+  </section>
+</div>
+
+<script>
+  function focusTimer() {
+    return {
+      state: 'idle',
+      duration: 25,
+      intent: '',
+      outcome: '',
+      remainingSeconds: 0,
+      sessionId: null,
+      tickHandle: null,
+      get display() {
+        if (this.state === 'idle') return `${this.duration}:00`;
+        const m = Math.floor(this.remainingSeconds / 60);
+        const s = this.remainingSeconds % 60;
+        return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+      },
+      get ringClass() {
+        if (this.state === 'running' && this.remainingSeconds < 60) return 'text-amber-400';
+        if (this.state === 'done') return 'text-emerald-400';
+        if (this.state === 'running') return 'text-accent-400';
+        return 'text-zinc-100';
+      },
+      async start() {
+        const fd = new FormData();
+        fd.append('duration_minutes', this.duration);
+        fd.append('intent', this.intent);
+        const r = await fetch('/api/focus/start', { method: 'POST', body: fd });
+        const data = await r.json();
+        this.sessionId = data.session_id;
+        this.remainingSeconds = this.duration * 60;
+        this.state = 'running';
+        this.tickHandle = setInterval(() => {
+          this.remainingSeconds--;
+          if (this.remainingSeconds <= 0) {
+            clearInterval(this.tickHandle);
+            this.finish(true);
+          }
+        }, 1000);
+      },
+      async finish(completed) {
+        if (this.tickHandle) clearInterval(this.tickHandle);
+        const fd = new FormData();
+        fd.append('session_id', this.sessionId);
+        fd.append('completed', completed ? 'true' : 'false');
+        fd.append('outcome', this.outcome);
+        await fetch('/api/focus/finish', { method: 'POST', body: fd });
+        this.state = 'done';
+      },
+      reset() {
+        this.state = 'idle';
+        this.intent = '';
+        this.outcome = '';
+        this.sessionId = null;
+        window.location.reload();
+      },
+    };
+  }
+</script>
+{% endblock %}

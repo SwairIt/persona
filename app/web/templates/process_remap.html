@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Process renames</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Override how a process name shows up in your timeline. The built-in table already maps
+    common apps (Chrome, VS Code, …). Add custom mappings here for everything else.
+    Existing screenshots aren't backfilled — only future captures pick up your rename.
+  </p>
+</div>
+
+<form action="/process-remap" method="post" class="flex gap-2 mb-6">
+  <input name="process_name" placeholder="process.exe" required
+         class="flex-1 px-3 py-2 bg-ink-800 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
+  <input name="app_name" placeholder="Pretty App Name" required
+         class="flex-1 px-3 py-2 bg-ink-800 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
+  <button type="submit" class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium">Save</button>
+</form>
+
+{% if items %}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden mb-8">
+    <table class="w-full text-sm">
+      <thead class="bg-ink-900 text-zinc-500 text-xs uppercase tracking-wider">
+        <tr>
+          <th class="text-left py-2 px-4">Process</th>
+          <th class="text-left py-2 px-4">→ Shown as</th>
+          <th class="py-2 px-4"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in items %}
+          <tr class="border-t border-ink-700">
+            <td class="py-2 px-4 font-mono text-xs text-zinc-300">{{ item.process_name }}</td>
+            <td class="py-2 px-4 text-zinc-200">{{ item.app_name }}</td>
+            <td class="py-2 px-4 text-right">
+              <form action="/process-remap/{{ item.process_name }}/delete" method="post" class="inline">
+                <button class="text-xs px-2 py-1 rounded bg-rose-900/40 hover:bg-rose-900 text-rose-300">remove</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endif %}
+
+{% if suggested %}
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">Suggested (your top processes without an override)</h2>
+    <div class="space-y-2">
+      {% for s in suggested %}
+        <form action="/process-remap" method="post" class="flex gap-2 items-center">
+          <input type="hidden" name="process_name" value="{{ s.process_name }}">
+          <span class="font-mono text-xs text-zinc-400 w-56 truncate">{{ s.process_name }}</span>
+          <span class="text-zinc-500 text-xs w-12">{{ s.count }}</span>
+          <input name="app_name" placeholder="Pretty name"
+                 class="flex-1 px-3 py-1.5 bg-ink-900 border border-ink-700 rounded text-sm">
+          <button class="px-3 py-1.5 bg-ink-700 hover:bg-ink-600 rounded text-xs">Add</button>
+        </form>
+      {% endfor %}
+    </div>
+  </section>
+{% endif %}
+{% endblock %}

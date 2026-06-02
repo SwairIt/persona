@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-center justify-between flex-wrap gap-3">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Time-sheet</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      {{ target.isoformat() }} · total active time: <strong class="text-zinc-300">{{ total_duration }}</strong>
+    </p>
+  </div>
+  <div class="flex items-center gap-2 text-sm">
+    <a href="/timesheet?date={{ prev_day.isoformat() }}" class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700">← Prev</a>
+    <a href="/timesheet" class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700">Today</a>
+    <a href="/timesheet?date={{ next_day.isoformat() }}" class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700">Next →</a>
+  </div>
+</div>
+
+{% if not items %}
+  <p class="text-zinc-500">No activity on this day.</p>
+{% else %}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    {% for item in items %}
+      <div class="mb-3">
+        <div class="flex items-center justify-between text-sm mb-1">
+          <a href="/apps/{{ item.app }}" class="text-zinc-200 hover:text-accent-400 flex items-center gap-2">
+            <img src="/icons/{{ item.app | replace(' ', '_') }}.png" alt="" onerror="this.style.display='none'" class="w-4 h-4 rounded">
+            {{ item.app }}
+          </a>
+          <div class="font-mono text-xs text-zinc-400">{{ item.duration }} · {{ item.percent | round(1) }}%</div>
+        </div>
+        <div class="bg-ink-900 rounded h-2 overflow-hidden">
+          <div class="h-full bg-accent-500" style="width: {{ item.percent | round(2) }}%"></div>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+{% endif %}
+{% endblock %}

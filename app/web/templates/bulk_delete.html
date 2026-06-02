@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight flex items-center gap-3">
+    <span class="text-rose-500">⚠</span> Bulk delete
+  </h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Permanently remove screenshots that match a full-text search query.
+    Removes thumbnails on disk too — there is no undo.
+  </p>
+</div>
+
+<div class="rounded-lg border border-rose-700/60 bg-rose-900/20 p-4 mb-8">
+  <p class="text-rose-200 text-sm">
+    <strong class="font-semibold">Heads up.</strong>
+    This is a destructive operation. Always preview first to see how many
+    screenshots will be removed. The confirm button is only enabled after a
+    successful preview, and the confirmation token is invalidated as soon as
+    the query or match count changes.
+  </p>
+</div>
+
+<form id="bulk-delete-form"
+      hx-post="/admin/bulk-delete/preview"
+      hx-target="#bulk-delete-preview"
+      hx-swap="innerHTML"
+      class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6 space-y-4">
+  <label class="block">
+    <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">FTS5 query</span>
+    <input name="query" required minlength="1" maxlength="500"
+           autocomplete="off"
+           placeholder='e.g. "discord" or app:slack OR password'
+           class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm focus:outline-none focus:border-rose-500">
+  </label>
+  <label class="block max-w-xs">
+    <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">Limit (max 10000)</span>
+    <input name="limit" type="number" min="1" max="10000" value="{{ default_limit }}"
+           class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm focus:outline-none focus:border-rose-500">
+  </label>
+  <div class="flex items-center gap-3">
+    <button type="submit"
+            class="px-4 py-2 bg-zinc-700 hover:bg-zinc-600 rounded text-sm font-medium">
+      Preview matches
+    </button>
+    <span class="text-xs text-zinc-500">Preview is always dry-run — nothing is deleted yet.</span>
+  </div>
+</form>
+
+<div id="bulk-delete-preview"></div>
+{% endblock %}

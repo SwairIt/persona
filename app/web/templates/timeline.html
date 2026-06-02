@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-center justify-between flex-wrap gap-3">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Timeline</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      {{ target_day | humandate }} · {{ total }} captures
+      {% if app_filter %} · filtered: <span class="text-accent-400 font-mono">{{ app_filter }}</span>{% endif %}
+    </p>
+  </div>
+  <div class="flex items-center gap-2 text-sm">
+    <a href="/?date={{ prev_day.strftime('%Y-%m-%d') }}"
+       class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700">← Prev</a>
+    <a href="/" class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700">Today</a>
+    <a href="/?date={{ next_day.strftime('%Y-%m-%d') }}"
+       class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700">Next →</a>
+    <a href="/api/export/day?date={{ target_day.strftime('%Y-%m-%d') }}"
+       class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700 text-zinc-400" title="Download JSON snapshot">↓ JSON</a>
+  </div>
+</div>
+
+{% if apps_for_day %}
+  <div class="mb-6 flex flex-wrap gap-2">
+    {% if app_filter %}
+      <a href="/?date={{ target_day.strftime('%Y-%m-%d') }}"
+         class="px-3 py-1 rounded-full text-xs bg-accent-600/20 text-accent-300 border border-accent-600/40">
+        × clear filter
+      </a>
+    {% endif %}
+    {% for app_name, count in apps_for_day %}
+      <a href="/?date={{ target_day.strftime('%Y-%m-%d') }}&app={{ app_name }}"
+         class="px-3 py-1 rounded-full text-xs border transition
+                {% if app_filter == app_name %}bg-accent-600/30 border-accent-500 text-accent-200{% else %}bg-ink-800 border-ink-700 hover:border-zinc-500 text-zinc-400{% endif %}">
+        {{ app_name }} <span class="text-zinc-500">· {{ count }}</span>
+      </a>
+    {% endfor %}
+  </div>
+{% endif %}
+
+{% set latest_id = namespace(value=0) %}
+{% for hour, shots in groups.items() %}{% for shot in shots %}{% if shot.id > latest_id.value %}{% set latest_id.value = shot.id %}{% endif %}{% endfor %}{% endfor %}
+
+<div x-data="liveTimeline({{ latest_id.value }})" x-init="poll()" class="mb-4">
+  <button x-show="newSince > 0"
+          @click="window.location.reload()"
+          class="px-3 py-1.5 rounded-full bg-accent-600 hover:bg-accent-500 text-sm font-medium text-white shadow">
+    <span x-text="newSince"></span> new captures — click to refresh
+  </button>
+</div>
+
+<script>
+  function liveTimeline(initialMax) {
+    return {
+      maxId: initialMax || 0,
+      newSince: 0,
+      async poll() {
+        await this.tick();
+        setInterval(() => this.tick(), 15000);
+      },
+      async tick() {
+        try {
+          const r = await fetch(`/api/timeline/new-count?since_id=${this.maxId}`);
+          if (r.ok) {
+            const j = await r.json();
+            this.newSince = j.new || 0;
+          }
+        } catch (e) { /* ignore */ }
+      }
+    }
+  }
+</script>
+
+{% if total == 0 %}
+  <div class="text-center py-24">
+    <p class="text-zinc-400">No captures for this day.</p>
+    <p class="text-zinc-600 text-sm mt-2">
+      {% if app_filter %}
+        Try clearing the <code class="text-accent-400">{{ app_filter }}</code> filter,
+        or switching to a different day with <code class="text-zinc-400">← Prev</code> / <code class="text-zinc-400">Next →</code>.
+      {% else %}
+        Click <strong>Start</strong> in the header to begin capturing, or browse other days.
+      {% endif %}
+    </p>
+    <p class="text-zinc-600 text-xs mt-3">
+      Press <code class="bg-ink-900 px-1.5 py-0.5 rounded">?</code> for keyboard shortcuts,
+      or <a href="/help" class="text-accent-400">visit Help</a>.
+    </p>
+  </div>
+{% else %}
+  <div class="space-y-8">
+    {% for hour, shots in groups.items() %}
+      <section>
+        <h2 class="text-sm font-mono text-zinc-500 uppercase tracking-widest mb-3">
+          {{ hour }} · <span class="text-zinc-600">{{ shots | length }} frames</span>
+        </h2>
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
+          {% for shot in shots %}
+            {% include "_screenshot_card.html" %}
+          {% endfor %}
+        </div>
+      </section>
+    {% endfor %}
+  </div>
+{% endif %}
+{% endblock %}

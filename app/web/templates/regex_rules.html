@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Regex auto-tag rules</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Define regex patterns that automatically tag screenshots when OCR completes.
+    Example: pattern <code class="text-zinc-300">invoice</code> with tag
+    <code class="text-zinc-300">invoice</code> will auto-tag every screenshot whose
+    OCR text contains &ldquo;invoice&rdquo; (or &ldquo;Invoice&rdquo;, with case-insensitive on).
+  </p>
+</div>
+
+<form action="/regex-rules" method="post" class="rounded-lg border border-ink-700 bg-ink-800 p-4 mb-8">
+  <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+    <label class="md:col-span-6 block">
+      <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">Pattern (Python regex)</span>
+      <input name="pattern" required placeholder="invoice|receipt"
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
+    </label>
+    <label class="md:col-span-3 block">
+      <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">Tag</span>
+      <input name="tag_name" required placeholder="invoice"
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
+    </label>
+    <label class="md:col-span-2 flex items-center gap-2 text-sm text-zinc-300 pb-2">
+      <input type="checkbox" name="case_insensitive" checked
+             class="w-4 h-4 rounded bg-ink-900 border-ink-700">
+      <span>Case-insensitive</span>
+    </label>
+    <button type="submit"
+            class="md:col-span-1 px-4 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium">
+      Add
+    </button>
+  </div>
+</form>
+
+{% if rules %}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden mb-8">
+    <table class="w-full text-sm">
+      <thead class="bg-ink-900 text-zinc-500 text-xs uppercase tracking-wider">
+        <tr>
+          <th class="text-left py-2 px-4">Pattern</th>
+          <th class="text-left py-2 px-4">Tag</th>
+          <th class="text-left py-2 px-4">CI</th>
+          <th class="text-left py-2 px-4">Enabled</th>
+          <th class="text-left py-2 px-4">Matches</th>
+          <th class="text-left py-2 px-4">Last matched</th>
+          <th class="py-2 px-4"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for rule in rules %}
+          <tr class="border-t border-ink-700">
+            <td class="py-2 px-4 font-mono text-xs text-zinc-200 break-all">{{ rule.pattern }}</td>
+            <td class="py-2 px-4">
+              <span class="inline-block px-2 py-0.5 rounded bg-accent-600/20 text-accent-400 text-xs">
+                {{ rule.tag_name }}
+              </span>
+            </td>
+            <td class="py-2 px-4 text-zinc-400 text-xs">
+              {% if rule.case_insensitive %}yes{% else %}no{% endif %}
+            </td>
+            <td class="py-2 px-4">
+              <form action="/regex-rules/{{ rule.id }}/toggle" method="post" class="inline">
+                {% if rule.enabled %}
+                  <input type="hidden" name="enabled" value="0">
+                  <button class="text-xs px-2 py-1 rounded bg-emerald-900/40 hover:bg-emerald-900 text-emerald-300">on</button>
+                {% else %}
+                  <input type="hidden" name="enabled" value="1">
+                  <button class="text-xs px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-400">off</button>
+                {% endif %}
+              </form>
+            </td>
+            <td class="py-2 px-4 font-mono text-xs text-zinc-300">{{ rule.match_count }}</td>
+            <td class="py-2 px-4 text-zinc-400 text-xs">{{ rule.last_matched_at or '—' }}</td>
+            <td class="py-2 px-4 text-right">
+              <form action="/regex-rules/{{ rule.id }}/delete" method="post" class="inline">
+                <button class="text-xs px-2 py-1 rounded bg-rose-900/40 hover:bg-rose-900 text-rose-300">remove</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  <p class="text-zinc-500 text-sm mb-8">No rules yet. Add one above.</p>
+{% endif %}
+
+<section x-data="regexTester()" class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+  <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">Try a pattern</h2>
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div>
+      <label class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">Pattern</label>
+      <input x-model="pattern" @input.debounce.250ms="test()" placeholder="invoice|receipt"
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
+      <label class="flex items-center gap-2 text-xs text-zinc-400 mt-2">
+        <input type="checkbox" x-model="caseInsensitive" @change="test()"
+               class="w-4 h-4 rounded bg-ink-900 border-ink-700">
+        <span>Case-insensitive</span>
+      </label>
+    </div>
+    <div>
+      <label class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">Test text</label>
+      <textarea x-model="text" @input.debounce.250ms="test()" rows="4"
+                placeholder="Paste some OCR text to test against..."
+                class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500"></textarea>
+    </div>
+  </div>
+
+  <div class="mt-4">
+    <template x-if="error">
+      <div class="text-xs text-rose-400" x-text="`Invalid regex: ${error}`"></div>
+    </template>
+    <template x-if="!error && matches.length === 0 && pattern">
+      <div class="text-xs text-zinc-500">No matches.</div>
+    </template>
+    <template x-if="!error && matches.length > 0">
+      <div>
+        <div class="text-xs uppercase tracking-wider text-zinc-500 mb-2"
+             x-text="`${matches.length} match${matches.length === 1 ? '' : 'es'}`"></div>
+        <div class="flex flex-wrap gap-2">
+          <template x-for="(m, i) in matches" :key="i">
+            <span class="px-2 py-1 rounded bg-accent-600/20 text-accent-400 text-xs font-mono" x-text="m"></span>
+          </template>
+        </div>
+      </div>
+    </template>
+  </div>
+</section>
+
+<script>
+  function regexTester() {
+    return {
+      pattern: '',
+      text: '',
+      caseInsensitive: true,
+      matches: [],
+      error: '',
+      async test() {
+        if (!this.pattern) {
+          this.matches = [];
+          this.error = '';
+          return;
+        }
+        const fd = new FormData();
+        fd.append('pattern', this.pattern);
+        fd.append('text', this.text);
+        if (this.caseInsensitive) fd.append('case_insensitive', '1');
+        try {
+          const r = await fetch('/api/regex-rules/test', { method: 'POST', body: fd });
+          const j = await r.json();
+          this.matches = j.matches || [];
+          this.error = j.error || '';
+        } catch (e) {
+          this.error = String(e);
+          this.matches = [];
+        }
+      }
+    };
+  }
+</script>
+{% endblock %}

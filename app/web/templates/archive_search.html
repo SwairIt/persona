@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-start justify-between gap-4 flex-wrap">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Archive search</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Full-text search over screenshots that were rolled out of the live database into the long-term archive.
+      No thumbnails are kept — only OCR text, app and window title.
+    </p>
+  </div>
+  <div class="flex items-center gap-2 text-xs">
+    <a href="/archive/browse" class="px-3 py-1.5 rounded-md bg-ink-800 hover:bg-ink-700 text-zinc-300">
+      Recent ({{ total }})
+    </a>
+    <a href="/about" class="px-3 py-1.5 rounded-md bg-ink-800 hover:bg-ink-700 text-zinc-300">
+      Archive status
+    </a>
+  </div>
+</div>
+
+<form method="get" action="/archive/search" class="mb-6">
+  <div class="flex items-center gap-3">
+    <input type="text" name="q" value="{{ query }}"
+           placeholder="search archived OCR · window titles · app names"
+           autofocus
+           class="flex-1 px-4 py-2.5 bg-ink-800 border border-ink-700 rounded-lg
+                  placeholder:text-zinc-600 focus:outline-none focus:border-accent-500
+                  font-mono text-sm">
+    <button type="submit" class="px-5 py-2.5 bg-accent-600 hover:bg-accent-500 rounded-lg font-medium transition">
+      Search
+    </button>
+  </div>
+  <p class="mt-2 text-xs text-zinc-500">
+    {{ total }} row{{ '' if total == 1 else 's' }} archived in total.
+  </p>
+</form>
+
+{% if not query %}
+  <div class="text-center py-16 text-zinc-500">
+    <p class="text-sm">Enter a query to search the archive.</p>
+    <p class="text-xs text-zinc-600 mt-2">
+      <code>"exact phrase"</code> · <code>migration</code> · bare words become prefix matches
+    </p>
+  </div>
+{% elif hits | length == 0 %}
+  <div class="text-center py-16">
+    <p class="text-zinc-400">No archived rows matched <strong class="text-zinc-200">{{ query }}</strong>.</p>
+    <p class="text-zinc-500 text-xs mt-2">
+      Try the <a href="/search?q={{ query }}" class="text-accent-400 hover:underline">live search</a>
+      if you're looking for a recent screenshot.
+    </p>
+  </div>
+{% else %}
+  <p class="text-zinc-500 text-xs mb-3">{{ hits | length }} match{{ '' if hits|length == 1 else 'es' }}</p>
+  <div class="space-y-3">
+    {% for hit in hits %}
+      <article class="p-4 rounded-lg bg-ink-800 border border-ink-700 hover:border-accent-500 transition">
+        <header class="flex items-center justify-between gap-3 mb-2">
+          <div class="text-sm text-zinc-200 font-medium truncate">{{ hit.app_name or '—' }}</div>
+          <div class="text-xs text-zinc-500 font-mono flex-shrink-0">{{ hit.captured_at }}</div>
+        </header>
+        {% if hit.window_title %}
+          <div class="text-xs text-zinc-400 truncate mb-2">{{ hit.window_title }}</div>
+        {% endif %}
+        <div class="text-sm text-zinc-300 line-clamp-3">
+          {{ hit.snippet | safe }}
+        </div>
+        {% if hit.ocr_text %}
+          <details class="mt-2">
+            <summary class="text-xs text-zinc-500 cursor-pointer hover:text-zinc-300">
+              show OCR preview
+            </summary>
+            <p class="mt-2 text-xs text-zinc-400 font-mono whitespace-pre-wrap">{{ hit.ocr_text }}</p>
+          </details>
+        {% endif %}
+        <footer class="mt-2 text-[10px] text-zinc-600 font-mono">archive id #{{ hit.id }}</footer>
+      </article>
+    {% endfor %}
+  </div>
+{% endif %}
+{% endblock %}

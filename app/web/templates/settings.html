@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Settings</h1>
+  <p class="text-zinc-500 text-sm mt-1">Read-only view of current config. Edit <code class="text-accent-400">.env</code> and restart to change.</p>
+</div>
+
+<div class="grid lg:grid-cols-2 gap-6">
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <h2 class="text-lg font-semibold mb-4">Capture</h2>
+    <dl class="space-y-2 text-sm font-mono">
+      <div class="flex justify-between"><dt class="text-zinc-500">Interval</dt><dd>{{ settings.capture_interval_seconds }}s</dd></div>
+      <div class="flex justify-between"><dt class="text-zinc-500">Thumbnail quality</dt><dd>{{ settings.thumbnail_quality }}</dd></div>
+      <div class="flex justify-between"><dt class="text-zinc-500">Thumbnail max width</dt><dd>{{ settings.thumbnail_max_width }}px</dd></div>
+      <div class="flex justify-between"><dt class="text-zinc-500">Dedup hamming threshold</dt><dd>{{ settings.dedup_hamming_threshold }}</dd></div>
+      <div class="flex justify-between"><dt class="text-zinc-500">Retention</dt><dd>{{ settings.retention_days }}d</dd></div>
+      <div class="flex justify-between"><dt class="text-zinc-500">Idle threshold</dt><dd>{{ settings.idle_threshold_seconds }}s</dd></div>
+    </dl>
+  </section>
+
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <h2 class="text-lg font-semibold mb-4">OCR</h2>
+    <dl class="space-y-2 text-sm">
+      <div class="flex justify-between">
+        <dt class="text-zinc-500">Enabled in .env</dt>
+        <dd class="font-mono">{{ "yes" if settings.ocr_enabled else "no" }}</dd>
+      </div>
+      <div class="flex justify-between">
+        <dt class="text-zinc-500">Binary configured</dt>
+        <dd class="font-mono">{{ "yes" if settings.tesseract_path else "no" }}</dd>
+      </div>
+      <div class="flex justify-between">
+        <dt class="text-zinc-500">Binary available</dt>
+        <dd class="font-mono">{{ "yes" if tesseract.available else "no" }}</dd>
+      </div>
+      {% if tesseract.binary_path %}
+        <div class="flex justify-between gap-3">
+          <dt class="text-zinc-500">Path</dt>
+          <dd class="font-mono text-right truncate text-xs">{{ tesseract.binary_path }}</dd>
+        </div>
+      {% endif %}
+      {% if tesseract.version %}
+        <div class="flex justify-between">
+          <dt class="text-zinc-500">Version</dt>
+          <dd class="font-mono">{{ tesseract.version }}</dd>
+        </div>
+      {% endif %}
+      <div class="flex justify-between">
+        <dt class="text-zinc-500">Languages</dt>
+        <dd class="font-mono">{{ settings.tesseract_langs }}</dd>
+      </div>
+    </dl>
+    {% if tesseract.error %}
+      <p class="text-amber-400 text-xs mt-3">{{ tesseract.error }}</p>
+      <details class="mt-3 text-xs text-zinc-400">
+        <summary class="cursor-pointer text-zinc-300">How to enable OCR</summary>
+        <ol class="list-decimal list-inside space-y-1 mt-2">
+          <li>Install Tesseract: <a class="text-accent-400 underline" href="https://github.com/UB-Mannheim/tesseract/wiki">UB-Mannheim build</a></li>
+          <li>Set <code>PERSONA_TESSERACT_PATH=C:\Program Files\Tesseract-OCR\tesseract.exe</code></li>
+          <li>Set <code>PERSONA_OCR_ENABLED=true</code></li>
+          <li>Restart Persona — old screenshots backfill automatically</li>
+        </ol>
+      </details>
+    {% endif %}
+  </section>
+
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <h2 class="text-lg font-semibold mb-4">Paths</h2>
+    <dl class="space-y-2 text-sm font-mono text-xs">
+      <div><dt class="text-zinc-500">Data dir</dt><dd class="text-zinc-300 truncate">{{ settings.data_dir }}</dd></div>
+      <div><dt class="text-zinc-500">DB</dt><dd class="text-zinc-300 truncate">{{ settings.db_path }}</dd></div>
+      <div><dt class="text-zinc-500">Thumbnails</dt><dd class="text-zinc-300 truncate">{{ settings.thumbnails_dir }}</dd></div>
+    </dl>
+  </section>
+
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <h2 class="text-lg font-semibold mb-4">Server</h2>
+    <dl class="space-y-2 text-sm font-mono">
+      <div class="flex justify-between"><dt class="text-zinc-500">Host</dt><dd>{{ settings.host }}</dd></div>
+      <div class="flex justify-between"><dt class="text-zinc-500">Port</dt><dd>{{ settings.port }}</dd></div>
+      <div class="flex justify-between"><dt class="text-zinc-500">Log level</dt><dd>{{ settings.log_level }}</dd></div>
+    </dl>
+  </section>
+</div>
+
+<section class="mt-8 rounded-lg border border-rose-700/40 bg-rose-950/20 p-5">
+  <h2 class="text-lg font-semibold mb-2 text-rose-300">Danger zone</h2>
+  <p class="text-zinc-400 text-xs mb-4">
+    Bulk-delete screenshots. <strong class="text-rose-300">Irreversible.</strong> Snapshots are not affected.
+  </p>
+
+  <details class="mb-4">
+    <summary class="cursor-pointer text-sm text-zinc-300">Delete all screenshots for one app</summary>
+    <form action="/api/bulk/delete-by-app" method="post" class="flex gap-2 mt-3"
+          onsubmit="return confirm('Really delete every screenshot for this app?')">
+      <input name="app" placeholder="exact app name (e.g. Discord)" required
+             class="flex-1 px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm">
+      <input name="confirm" placeholder="repeat app name to confirm" required
+             class="flex-1 px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm">
+      <button type="submit" class="px-4 py-2 bg-rose-700 hover:bg-rose-600 rounded text-sm font-medium">Delete</button>
+    </form>
+  </details>
+
+  <details>
+    <summary class="cursor-pointer text-sm text-zinc-300">Delete all screenshots in a time range</summary>
+    <form action="/api/bulk/delete-by-range" method="post" class="grid sm:grid-cols-4 gap-2 mt-3"
+          onsubmit="return confirm('Really delete every screenshot in this range?')">
+      <input name="since" type="datetime-local" required
+             class="px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm">
+      <input name="until" type="datetime-local" required
+             class="px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm">
+      <input name="confirm" placeholder='type "yes" to confirm' required
+             class="px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm">
+      <button type="submit" class="px-4 py-2 bg-rose-700 hover:bg-rose-600 rounded text-sm font-medium">Delete range</button>
+    </form>
+  </details>
+</section>
+
+<section class="mt-8 rounded-lg border border-ink-700 bg-ink-800 p-5">
+  <h2 class="text-lg font-semibold mb-3">UI overrides ({{ overrides | length }})</h2>
+  <p class="text-zinc-500 text-xs mb-4">
+    Stored in <code>kv_settings</code>. These are informational for now — they will be wired into Settings in v0.2.
+  </p>
+  <form action="/settings/override" method="post" class="flex gap-3 mb-4">
+    <input name="key" placeholder="key" class="px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm">
+    <input name="value" placeholder="value" class="flex-1 px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm">
+    <button class="px-4 py-2 bg-accent-600 rounded text-sm font-medium hover:bg-accent-500">Save</button>
+  </form>
+  {% if overrides %}
+    <table class="w-full text-sm">
+      <thead class="text-zinc-500 text-xs uppercase tracking-wider">
+        <tr><th class="text-left py-2">Key</th><th class="text-left py-2">Value</th></tr>
+      </thead>
+      <tbody class="font-mono">
+        {% for key, value in overrides.items() %}
+          <tr class="border-t border-ink-700"><td class="py-2">{{ key }}</td><td class="py-2 text-zinc-400">{{ value }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+</section>
+{% endblock %}

@@ -1,0 +1,126 @@
+{% if not query %}
+  <div class="text-center py-16 text-zinc-500">
+    <p class="text-sm">Type a query to start searching.</p>
+    <p class="text-xs text-zinc-600 mt-2">
+      <code>"exact phrase"</code> · <code>slack OR discord</code> · <code>migration</code>
+    </p>
+  </div>
+{% elif total == 0 %}
+  <div class="text-center py-16">
+    <p class="text-zinc-400">No results for <strong class="text-zinc-200">{{ query }}</strong>.</p>
+    {% if mode == 'fts' %}
+      <p class="text-zinc-500 text-xs mt-2">Try <strong>Hybrid</strong> or <strong>Semantic</strong> mode.</p>
+    {% endif %}
+  </div>
+{% else %}
+  <div x-data="bulkTagBar()" class="space-y-3">
+    <div class="flex items-center justify-between flex-wrap gap-2">
+      <p class="text-zinc-500 text-xs">
+        {{ total }} matches · mode: <span class="text-accent-400">{{ mode }}</span>
+        <span x-show="selected.length" class="ml-3 text-accent-300" x-text="`${selected.length} selected`"></span>
+      </p>
+      <div x-show="selected.length" class="flex items-center gap-2">
+        <input type="text" x-model="tagName" placeholder="bulk tag"
+               @keydown.enter="apply()"
+               class="px-3 py-1 bg-ink-900 border border-ink-700 rounded text-xs font-mono w-40">
+        <button @click="apply()" :disabled="!tagName || loading"
+                class="px-3 py-1 bg-accent-600 hover:bg-accent-500 disabled:opacity-50 rounded text-xs font-medium">
+          Tag <span x-text="selected.length"></span>
+        </button>
+        <button @click="pinAll()" :disabled="loading"
+                class="px-3 py-1 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 rounded text-xs font-medium" title="Pin all selected">
+          📌 Pin
+        </button>
+        <button @click="selected = []" class="text-xs text-zinc-500 hover:text-zinc-200">clear</button>
+      </div>
+    </div>
+    <div class="space-y-3">
+      {% for hit in hits %}
+        <label class="flex gap-3 p-3 rounded-lg bg-ink-800 border border-ink-700 hover:border-accent-500 transition cursor-pointer">
+          <input type="checkbox" :value="{{ hit.screenshot_id }}" x-model.number="selected"
+                 @click.stop
+                 class="mt-1 self-start flex-shrink-0">
+          <a href="/screenshot/{{ hit.screenshot_id }}" class="flex gap-4 flex-1 min-w-0" @click.stop>
+            {% if hit.thumbnail_path %}
+              <img src="{{ hit.thumbnail_path | thumbnail_url }}"
+                   alt=""
+                   loading="lazy"
+                   class="w-40 h-24 object-cover rounded bg-ink-900 flex-shrink-0">
+            {% else %}
+              <div class="w-40 h-24 bg-ink-900 rounded flex-shrink-0 flex items-center justify-center text-xs text-zinc-600">
+                no preview
+              </div>
+            {% endif %}
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center justify-between gap-3">
+                <div class="text-sm text-zinc-200 font-medium truncate">{{ hit.app_name or '—' }}</div>
+                <div class="flex items-center gap-2 flex-shrink-0">
+                  {% if hit.similarity is not none %}
+                    <span class="text-[10px] font-mono text-accent-400" title="cosine similarity">
+                      {{ (hit.similarity * 100) | round(0, 'floor') | int }}%
+                    </span>
+                  {% endif %}
+                  <div class="text-xs text-zinc-500 font-mono">{{ hit.captured_at | humantime }}</div>
+                </div>
+              </div>
+              {% if hit.window_title %}
+                <div class="text-xs text-zinc-400 truncate mt-0.5">{{ hit.window_title }}</div>
+              {% endif %}
+              <div class="text-sm text-zinc-300 mt-2 line-clamp-2">
+                {{ hit.snippet | safe }}
+              </div>
+            </div>
+          </a>
+        </label>
+      {% endfor %}
+    </div>
+  </div>
+
+  <script>
+    function bulkTagBar() {
+      return {
+        selected: [],
+        tagName: '',
+        loading: false,
+        async apply() {
+          if (!this.tagName.trim() || !this.selected.length) return;
+          this.loading = true;
+          try {
+            const fd = new FormData();
+            fd.append('tag_name', this.tagName.trim());
+            fd.append('screenshot_ids', this.selected.join(','));
+            const r = await fetch('/api/tags/bulk-apply', { method: 'POST', body: fd });
+            if (r.ok) {
+              const data = await r.json();
+              this.selected = [];
+              this.tagName = '';
+              alert(`Tagged ${data.applied} screenshot(s) with "${data.tag}".`);
+            } else {
+              alert((await r.json()).detail || 'Bulk-tag failed');
+            }
+          } finally {
+            this.loading = false;
+          }
+        },
+        async pinAll() {
+          if (!this.selected.length) return;
+          this.loading = true;
+          try {
+            const fd = new FormData();
+            fd.append('screenshot_ids', this.selected.join(','));
+            const r = await fetch('/api/screenshots/bulk-pin', { method: 'POST', body: fd });
+            if (r.ok) {
+              const data = await r.json();
+              this.selected = [];
+              alert(`Pinned ${data.pinned} screenshot(s).`);
+            } else {
+              alert((await r.json()).detail || 'Bulk-pin failed');
+            }
+          } finally {
+            this.loading = false;
+          }
+        }
+      }
+    }
+  </script>
+{% endif %}

@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">SMTP delivery</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Mail your daily and weekly LLM digests to yourself via a SMTP relay you own
+    (Gmail app password, Fastmail, your own Postfix, etc.). Delivery is
+    <strong>opt-in</strong> &mdash; the toggle below is off by default and no message
+    leaves this machine until you flip it.
+  </p>
+</div>
+
+<div class="rounded-lg border border-amber-700/40 bg-amber-900/20 text-amber-200 px-4 py-3 mb-6 text-xs">
+  Optional dependency: SMTP delivery requires
+  <code class="font-mono">aiosmtplib</code>. If you have not installed it, run
+  <code class="font-mono">uv pip install aiosmtplib</code> in the Persona checkout
+  and restart the server. The "Send test" button will report
+  <code class="font-mono">missing_dep</code> until then.
+</div>
+
+<form action="/settings/smtp" method="post"
+      class="rounded-lg border border-ink-700 bg-ink-800 p-5 grid grid-cols-1 md:grid-cols-2 gap-4">
+  <label class="flex flex-col gap-1 md:col-span-2">
+    <span class="text-xs uppercase tracking-widest text-zinc-500">Enabled</span>
+    <span class="flex items-center gap-2">
+      <input type="checkbox" name="smtp_enabled" value="true"
+             {% if values.smtp_enabled == "true" %}checked{% endif %}
+             class="w-4 h-4 accent-accent-500">
+      <span class="text-sm text-zinc-200">
+        Send digests via SMTP. When off, nothing is delivered &mdash; digests are
+        only visible inside Persona.
+      </span>
+    </span>
+  </label>
+
+  <label class="flex flex-col gap-1">
+    <span class="text-xs uppercase tracking-widest text-zinc-500">SMTP host</span>
+    <input type="text" name="smtp_host" value="{{ values.smtp_host }}"
+           placeholder="smtp.gmail.com"
+           class="px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm">
+  </label>
+
+  <label class="flex flex-col gap-1">
+    <span class="text-xs uppercase tracking-widest text-zinc-500">SMTP port</span>
+    <input type="text" name="smtp_port" value="{{ values.smtp_port }}"
+           placeholder="587"
+           class="px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm">
+  </label>
+
+  <label class="flex flex-col gap-1">
+    <span class="text-xs uppercase tracking-widest text-zinc-500">Username</span>
+    <input type="text" name="smtp_user" value="{{ values.smtp_user }}"
+           placeholder="you@example.com" autocomplete="off"
+           class="px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm">
+  </label>
+
+  <label class="flex flex-col gap-1">
+    <span class="text-xs uppercase tracking-widest text-zinc-500">Password</span>
+    <input type="password" name="smtp_pass" value="{{ values.smtp_pass }}"
+           placeholder="{% if has_password %}leave blank to keep existing{% else %}app password / SMTP secret{% endif %}"
+           autocomplete="new-password"
+           class="px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm">
+    {% if has_password %}
+      <span class="text-xs text-zinc-500">A password is on file. The field shows
+        <code class="font-mono">***</code> &mdash; clear it and type a new one to rotate,
+        or leave it untouched to keep the stored secret.</span>
+    {% endif %}
+  </label>
+
+  <label class="flex flex-col gap-1">
+    <span class="text-xs uppercase tracking-widest text-zinc-500">From address</span>
+    <input type="text" name="smtp_from" value="{{ values.smtp_from }}"
+           placeholder="persona@example.com"
+           class="px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm">
+  </label>
+
+  <label class="flex flex-col gap-1">
+    <span class="text-xs uppercase tracking-widest text-zinc-500">To address</span>
+    <input type="text" name="smtp_to" value="{{ values.smtp_to }}"
+           placeholder="you@example.com"
+           class="px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm">
+  </label>
+
+  <label class="flex flex-col gap-1 md:col-span-2">
+    <span class="text-xs uppercase tracking-widest text-zinc-500">Transport</span>
+    <span class="flex items-center gap-2">
+      <input type="checkbox" name="smtp_tls" value="true"
+             {% if values.smtp_tls == "true" %}checked{% endif %}
+             class="w-4 h-4 accent-accent-500">
+      <span class="text-sm text-zinc-200">
+        Use STARTTLS on the configured port (recommended; pair with port
+        <code class="font-mono">587</code>). Turn this off only for a local relay
+        on <code class="font-mono">localhost:25</code>.
+      </span>
+    </span>
+  </label>
+
+  <div class="md:col-span-2 flex items-center justify-between flex-wrap gap-3 pt-4 border-t border-ink-700">
+    <div class="text-xs text-zinc-500">
+      Settings are written to <code class="font-mono">kv_settings</code> and used by
+      the daily &amp; weekly digest jobs.
+    </div>
+    <div class="flex items-center gap-2">
+      <button type="button" id="smtp-test"
+              class="px-4 py-2 border border-ink-700 hover:border-accent-500 rounded text-sm">
+        Send test
+      </button>
+      <button type="submit"
+              class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
+        Save settings
+      </button>
+    </div>
+  </div>
+</form>
+
+<div id="smtp-test-result"
+     class="mt-4 hidden rounded-lg border px-4 py-3 text-sm font-mono"></div>
+
+<script>
+  (function () {
+    const btn = document.getElementById('smtp-test');
+    const out = document.getElementById('smtp-test-result');
+    if (!btn || !out) {
+      return;
+    }
+    function paint(kind, text) {
+      out.classList.remove('hidden', 'border-emerald-700/40', 'bg-emerald-900/20', 'text-emerald-200',
+                                      'border-rose-700/40',    'bg-rose-900/20',    'text-rose-200',
+                                      'border-amber-700/40',   'bg-amber-900/20',   'text-amber-200');
+      const palette = {
+        ok:    ['border-emerald-700/40', 'bg-emerald-900/20', 'text-emerald-200'],
+        bad:   ['border-rose-700/40',    'bg-rose-900/20',    'text-rose-200'],
+        warn:  ['border-amber-700/40',   'bg-amber-900/20',   'text-amber-200']
+      }[kind];
+      palette.forEach(function (cls) { out.classList.add(cls); });
+      out.textContent = text;
+    }
+    btn.addEventListener('click', async function () {
+      btn.disabled = true;
+      const original = btn.textContent;
+      btn.textContent = 'Sending...';
+      try {
+        const r = await fetch('/settings/smtp/test', { method: 'POST' });
+        const j = await r.json();
+        if (j.status === 'sent') {
+          paint('ok', 'Sent to ' + j.to);
+        } else if (j.status === 'disabled') {
+          paint('warn', 'SMTP delivery is disabled. Tick "Enabled" and save first.');
+        } else if (j.status === 'misconfigured') {
+          paint('warn', 'Missing required fields: ' + (j.missing || []).join(', '));
+        } else if (j.status === 'missing_dep') {
+          paint('warn', j.hint || 'aiosmtplib is not installed.');
+        } else if (j.status === 'error') {
+          paint('bad', 'SMTP error: ' + (j.error || 'unknown'));
+        } else {
+          paint('bad', 'Unexpected response: ' + JSON.stringify(j));
+        }
+      } catch (e) {
+        paint('bad', 'Network error: ' + (e && e.message ? e.message : e));
+      } finally {
+        btn.disabled = false;
+        btn.textContent = original;
+      }
+    });
+  })();
+</script>
+{% endblock %}

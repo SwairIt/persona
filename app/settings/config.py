@@ -1,0 +1,126 @@
+"""Typed application settings loaded from environment / .env."""
+
+from __future__ import annotations
+
+from functools import lru_cache
+from pathlib import Path
+
+from pydantic import Field, field_validator, model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    """Single source of truth for runtime configuration."""
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        env_prefix="PERSONA_",
+        case_sensitive=False,
+        extra="ignore",
+    )
+
+    data_dir: Path = Field(default=Path("./data"))
+    db_path: Path = Field(default=Path("./data/persona.db"))
+    thumbnails_dir: Path = Field(default=Path("./data/thumbnails"))
+
+    capture_interval_seconds: float = Field(default=5.0, ge=0.5, le=60.0)
+    thumbnail_quality: int = Field(default=45, ge=10, le=100)
+    thumbnail_max_width: int = Field(default=900, ge=320, le=3840)
+    dedup_hamming_threshold: int = Field(default=4, ge=0, le=64)
+    retention_days: int = Field(default=180, ge=1, le=3650)
+    idle_threshold_seconds: float = Field(default=300.0, ge=10.0)
+    lock_aware_pause_enabled: bool = Field(default=True)
+
+    smart_thumbnail: bool = Field(default=True)
+    smart_min_gap_seconds: float = Field(default=180.0, ge=0.0)
+    daily_size_budget_mb: float = Field(default=4.0, ge=0.1, le=10240.0)
+    tier_warm_after_days: int = Field(default=7, ge=1, le=3650)
+    tier_cold_after_days: int = Field(default=30, ge=1, le=3650)
+    tier_warm_thumbnail_width: int = Field(default=320, ge=64, le=3840)
+    tier_warm_thumbnail_quality: int = Field(default=30, ge=10, le=100)
+    tiered_retention: bool = Field(default=True)
+    archive_after_days: int = Field(default=180, ge=30, le=3650)
+    archive_enabled: bool = Field(default=False)
+    multi_monitor: bool = Field(default=False)
+    theme: str = Field(default="dark")
+    auto_digest_enabled: bool = Field(default=False)
+    auto_digest_hour_local: int = Field(default=22, ge=0, le=23)
+    weekly_digest_enabled: bool = Field(default=False)
+    weekly_digest_hour_local: int = Field(default=8, ge=0, le=23)
+
+    host: str = Field(default="127.0.0.1")
+    port: int = Field(default=8765, ge=1, le=65535)
+    log_level: str = Field(default="INFO")
+
+    tesseract_path: Path | None = Field(default=None)
+    tesseract_langs: str = Field(default="eng+rus")
+    ocr_enabled: bool = Field(default=False)
+    image_blur_enabled: bool = Field(default=False)
+
+    byo_api_key: str = Field(default="")
+    byo_api_provider: str = Field(default="")
+
+    embeddings_enabled: bool = Field(default=False)
+    embeddings_model: str = Field(default="intfloat/multilingual-e5-small")
+    embeddings_batch_size: int = Field(default=16, ge=1, le=128)
+    embeddings_min_text_length: int = Field(default=20, ge=0, le=10000)
+
+    battery_aware_enabled: bool = Field(default=True)
+    battery_capture_multiplier: float = Field(default=3.0, gt=0.0, le=20.0)
+    battery_critical_pct: int = Field(default=15, ge=1, le=50)
+
+    adaptive_cadence_enabled: bool = Field(default=True)
+    adaptive_min_seconds: int = Field(default=30, ge=5, le=300)
+    adaptive_max_seconds: int = Field(default=600, ge=60, le=3600)
+
+    # v0.34 — when False (default) ``/api/*`` endpoints stay open to the
+    # local UI exactly as before; bearer auth only kicks in for requests
+    # that carry an ``Authorization: Bearer …`` header. Flip to True to
+    # *require* a valid token on every ``/api/*`` call.
+    api_auth_required: bool = Field(default=False)
+
+    @model_validator(mode="after")
+    def _validate_adaptive_bounds(self) -> Settings:
+        if self.adaptive_max_seconds < self.adaptive_min_seconds:
+            msg = (
+                f"adaptive_max_seconds ({self.adaptive_max_seconds}) must be "
+                f">= adaptive_min_seconds ({self.adaptive_min_seconds})"
+            )
+            raise ValueError(msg)
+        return self
+
+    @field_validator("data_dir", "db_path", "thumbnails_dir", mode="after")
+    @classmethod
+    def _resolve_path(cls, value: Path) -> Path:
+        return value.expanduser().resolve()
+
+    @field_validator("tesseract_path", mode="after")
+    @classmethod
+    def _resolve_optional_path(cls, value: Path | None) -> Path | None:
+        if value is None or str(value).strip() == "":
+            return None
+        return value.expanduser().resolve()
+
+    @field_validator("log_level", mode="after")
+    @classmethod
+    def _normalise_log_level(cls, value: str) -> str:
+        upper = value.upper()
+        if upper not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
+            msg = f"Invalid log level: {value}"
+            raise ValueError(msg)
+        return upper
+
+    def ensure_directories(self) -> None:
+        """Create data directories if they do not yet exist."""
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        self.thumbnails_dir.mkdir(parents=True, exist_ok=True)
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+
+
+@lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    """Return the process-wide settings instance."""
+    settings = Settings()
+    settings.ensure_directories()
+    return settings

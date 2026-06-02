@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-8">
+  <h1 class="text-2xl font-bold tracking-tight">Capture streak</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Days in a row with at least one screenshot. Skip a full day and the streak resets.
+  </p>
+</div>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-10 mb-6 text-center">
+  <div class="text-xs uppercase tracking-widest text-zinc-500 mb-3">Current streak</div>
+  <div class="flex items-baseline justify-center gap-3">
+    <span class="text-7xl font-bold tabular-nums {% if days > 0 %}text-accent-400{% else %}text-zinc-600{% endif %}">
+      {{ days }}
+    </span>
+    <span class="text-xl text-zinc-400">
+      {{ 'day' if days == 1 else 'days' }}
+    </span>
+    {% if days >= 3 %}
+      <span class="text-4xl ml-1" title="3+ day streak">🔥</span>
+    {% endif %}
+  </div>
+  <div class="mt-4 text-sm">
+    {% if captured_today %}
+      <span class="inline-flex items-center gap-1.5 text-emerald-400">
+        <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+        Captured today ({{ today_count }} frame{{ '' if today_count == 1 else 's' }})
+      </span>
+    {% else %}
+      <span class="inline-flex items-center gap-1.5 text-amber-400">
+        <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+        Nothing captured today yet
+      </span>
+    {% endif %}
+  </div>
+</section>
+
+<div class="grid sm:grid-cols-2 gap-4 mb-8">
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Longest streak</div>
+    <div class="text-3xl font-bold mt-1 tabular-nums">
+      {{ longest }}
+      <span class="text-base font-normal text-zinc-500 ml-1">
+        {{ 'day' if longest == 1 else 'days' }}
+      </span>
+    </div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Last capture</div>
+    <div class="text-3xl font-bold mt-1 font-mono">
+      {% if last_capture_date %}
+        {{ last_capture_date }}
+      {% else %}
+        <span class="text-zinc-600">—</span>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<p class="text-xs text-zinc-500">
+  Tip: leave Persona running in the background — a single frame per day keeps the streak alive.
+  Machine-readable counterpart at
+  <a href="/api/streak.json" class="font-mono text-accent-400 hover:underline">/api/streak.json</a>.
+</p>
+{% endblock %}

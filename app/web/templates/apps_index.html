@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Apps</h1>
+  <p class="text-zinc-500 text-sm mt-1">Every app you've ever had on screen, sorted by capture count.</p>
+</div>
+
+{% if not apps %}
+  <p class="text-zinc-500">No app data yet.</p>
+{% else %}
+  <div x-data="{ q: '', filter(name) { return !this.q || name.toLowerCase().includes(this.q.toLowerCase()); } }">
+    <input type="text" x-model="q" placeholder="Filter apps…"
+           class="w-full mb-3 px-3 py-2 bg-ink-800 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
+    <div class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-ink-900 text-zinc-500 text-xs uppercase tracking-wider">
+          <tr>
+            <th class="text-left py-2 px-4">App</th>
+            <th class="text-right py-2 px-4">Total</th>
+            <th class="text-left py-2 px-4">14d activity</th>
+            <th class="text-left py-2 px-4">Last seen</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for a in apps %}
+            {% set spark_max = (a.spark | max) or 1 %}
+            <tr class="border-t border-ink-700 hover:bg-ink-900/50" x-show="filter('{{ a.name | replace(\"'\", \"\\'\") }}')">
+              <td class="py-2 px-4">
+                <a href="/apps/{{ a.name }}" class="text-zinc-200 hover:text-accent-400 flex items-center gap-2">
+                  <img src="/icons/{{ a.name | replace(' ', '_') }}.png" alt=""
+                       onerror="this.style.display='none'"
+                       class="w-5 h-5 rounded">
+                  {{ a.name }}
+                </a>
+              </td>
+              <td class="py-2 px-4 text-right font-mono text-zinc-300">{{ a.count }}</td>
+              <td class="py-2 px-4">
+                <div class="flex items-end gap-[1px] h-6">
+                  {% for v in a.spark %}
+                    <div class="w-1 rounded-sm {% if v == 0 %}bg-ink-700{% else %}bg-accent-500{% endif %}"
+                         style="height: {{ (8 + (v / spark_max) * 18) | round(0) }}px"
+                         title="{{ v }}"></div>
+                  {% endfor %}
+                </div>
+              </td>
+              <td class="py-2 px-4 text-xs text-zinc-500 font-mono">{{ a.last_seen[:19] }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Persona Companion</title>
+  <style>
+    body { font-family: -apple-system, system-ui, sans-serif; padding: 12px; width: 300px; background: #111114; color: #e4e4e7; margin: 0; }
+    h2 { margin: 0 0 10px; font-size: 14px; font-weight: 600; }
+    label { display: block; font-size: 11px; color: #71717a; margin: 8px 0 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+    input[type=text], input[type=url] { width: 100%; padding: 6px 8px; background: #1a1a1f; color: #e4e4e7; border: 1px solid #26262e; border-radius: 4px; font-size: 12px; box-sizing: border-box; }
+    button { margin-top: 10px; width: 100%; padding: 8px; background: #7c3aed; color: white; border: 0; border-radius: 4px; cursor: pointer; font-size: 12px; }
+    .toggle { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12px; }
+    .status { margin-top: 10px; font-size: 11px; color: #a1a1aa; }
+  </style>
+</head>
+<body>
+  <h2>Persona Companion</h2>
+  <label for="endpoint">Endpoint URL</label>
+  <input type="url" id="endpoint" placeholder="http://127.0.0.1:8765/api/companion/tab">
+  <div class="toggle">
+    <input type="checkbox" id="enabled">
+    <label for="enabled" style="margin: 0; text-transform: none; letter-spacing: 0; color: #e4e4e7;">Send active tab every minute</label>
+  </div>
+  <button id="save">Save</button>
+  <div class="status" id="status"></div>
+  <script src="popup.js"></script>
+</body>
+</html>

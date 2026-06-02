@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">OCR redaction</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Regex patterns that mask sensitive text inside OCR output <em>before</em> it lands in the
+    database or full-text index. Every match becomes <code class="text-zinc-300">***</code>, so
+    emails, credit-card numbers, and tokens never surface in search. The screenshot image itself
+    is never touched — only the searchable text representation.
+  </p>
+</div>
+
+<form action="/settings/redaction" method="post"
+      class="rounded-lg border border-ink-700 bg-ink-800 p-4 mb-8">
+  <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+    <label class="md:col-span-3 block">
+      <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">Name</span>
+      <input name="name" required placeholder="phone_number"
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
+    </label>
+    <label class="md:col-span-8 block">
+      <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">Pattern (Python regex)</span>
+      <input name="pattern" required placeholder="\+?\d{1,3}[\s\-]?\(?\d{2,4}\)?[\s\-]?\d{2,4}[\s\-]?\d{2,4}"
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
+    </label>
+    <button type="submit"
+            class="md:col-span-1 px-4 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium">
+      Add
+    </button>
+  </div>
+</form>
+
+{% if rules %}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden mb-8">
+    <table class="w-full text-sm">
+      <thead class="bg-ink-900 text-zinc-500 text-xs uppercase tracking-wider">
+        <tr>
+          <th class="text-left py-2 px-4">Name</th>
+          <th class="text-left py-2 px-4">Pattern</th>
+          <th class="text-left py-2 px-4">Enabled</th>
+          <th class="text-left py-2 px-4">Added</th>
+          <th class="py-2 px-4"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for rule in rules %}
+          <tr class="border-t border-ink-700">
+            <td class="py-2 px-4">
+              <span class="inline-block px-2 py-0.5 rounded bg-accent-600/20 text-accent-400 text-xs">
+                {{ rule.name }}
+              </span>
+            </td>
+            <td class="py-2 px-4 font-mono text-xs text-zinc-200 break-all">{{ rule.pattern }}</td>
+            <td class="py-2 px-4">
+              <form action="/settings/redaction/{{ rule.name|urlencode }}/toggle"
+                    method="post" class="inline">
+                {% if rule.enabled %}
+                  <button class="text-xs px-2 py-1 rounded bg-emerald-900/40 hover:bg-emerald-900 text-emerald-300">on</button>
+                {% else %}
+                  <button class="text-xs px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-400">off</button>
+                {% endif %}
+              </form>
+            </td>
+            <td class="py-2 px-4 text-zinc-400 text-xs">{{ rule.created_at }}</td>
+            <td class="py-2 px-4 text-right">
+              <form action="/settings/redaction/{{ rule.name|urlencode }}/delete"
+                    method="post" class="inline"
+                    onsubmit="return confirm('Delete redaction rule {{ rule.name }}?')">
+                <button class="text-xs px-2 py-1 rounded bg-rose-900/40 hover:bg-rose-900 text-rose-300">remove</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  <p class="text-zinc-500 text-sm mb-8">No redaction rules — OCR text is stored verbatim.</p>
+{% endif %}
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+  <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">How it works</h2>
+  <ul class="text-zinc-400 text-sm space-y-2 list-disc list-inside">
+    <li>Patterns run in stable insertion order after every OCR job.</li>
+    <li>Every match is replaced with <code class="text-zinc-300">***</code>.</li>
+    <li>Disabled rules are stored but skipped, so you can pause without losing the pattern.</li>
+    <li>Invalid regex are logged as <code class="text-zinc-300">redaction.bad_pattern</code> and silently skipped — one broken rule cannot break the OCR worker.</li>
+    <li>Screenshots that were captured <em>before</em> a rule was added are not re-scanned.</li>
+  </ul>
+</section>
+{% endblock %}

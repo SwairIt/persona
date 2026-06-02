@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-8">
+  <h1 class="text-2xl font-bold tracking-tight">Shot of the day</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    A featured frame from the last 90 days. Stable for today, rolls over tomorrow.
+  </p>
+</div>
+
+{% if shot %}
+  {% set thumb_src = thumbnail_path | thumbnail_url %}
+  <article class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden">
+    {% if thumb_src %}
+      <a href="/screenshot/{{ shot.id }}"
+         class="block bg-ink-900 cursor-zoom-in"
+         title="Open full screenshot detail">
+        <img src="{{ thumb_src }}"
+             alt="Featured screenshot #{{ shot.id }}"
+             class="w-full max-h-[70vh] object-contain mx-auto">
+      </a>
+    {% else %}
+      <a href="/screenshot/{{ shot.id }}"
+         class="aspect-video flex items-center justify-center text-zinc-500 bg-ink-900">
+        Thumbnail no longer on disk — open detail page →
+      </a>
+    {% endif %}
+
+    <div class="p-5 space-y-3">
+      <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <span class="font-semibold text-lg">
+          {{ shot.app_name or "Unknown app" }}
+        </span>
+        <span class="text-sm text-zinc-500"
+              data-relative-time="{{ shot.captured_at }}"
+              title="{{ shot.captured_at }}">
+          {{ shot.captured_at }}
+        </span>
+        <a href="/screenshot/{{ shot.id }}"
+           class="ml-auto text-sm text-accent-400 hover:underline">
+          Open detail →
+        </a>
+      </div>
+
+      {% if shot.ocr_preview %}
+        <p class="text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap break-words">
+          {{ shot.ocr_preview }}{% if shot.ocr_preview|length >= 200 %}…{% endif %}
+        </p>
+      {% else %}
+        <p class="text-sm text-zinc-500 italic">
+          No OCR text on this frame.
+        </p>
+      {% endif %}
+    </div>
+  </article>
+
+  <p class="text-xs text-zinc-500 mt-4">
+    Machine-readable counterpart at
+    <a href="/api/shot-of-the-day.json" class="font-mono text-accent-400 hover:underline">/api/shot-of-the-day.json</a>.
+  </p>
+
+  <script>
+    (function () {
+      // Convert ISO-ish captured_at strings into a relative "5 minutes ago" label.
+      // Kept tiny + dependency-free; falls back gracefully on parse failure.
+      function relative(iso) {
+        const parsed = Date.parse(iso.replace(' ', 'T'));
+        if (Number.isNaN(parsed)) return iso;
+        const deltaSec = Math.round((Date.now() - parsed) / 1000);
+        const abs = Math.abs(deltaSec);
+        const suffix = deltaSec >= 0 ? 'ago' : 'from now';
+        const units = [
+          [60, 'second'], [60, 'minute'], [24, 'hour'],
+          [7, 'day'], [4.345, 'week'], [12, 'month']
+        ];
+        let value = abs, label = 'second';
+        for (const [step, name] of units) {
+          if (value < step) { label = name; break; }
+          value = value / step;
+          label = name;
+        }
+        if (value > 24 && label === 'month') { value = value / 12; label = 'year'; }
+        const rounded = Math.max(1, Math.round(value));
+        return `${rounded} ${label}${rounded === 1 ? '' : 's'} ${suffix}`;
+      }
+      document.querySelectorAll('[data-relative-time]').forEach((el) => {
+        const iso = el.getAttribute('data-relative-time');
+        if (iso) el.textContent = relative(iso);
+      });
+    })();
+  </script>
+{% else %}
+  <section class="rounded-lg border border-dashed border-ink-700 bg-ink-900/40 p-12 text-center">
+    <div class="text-5xl mb-3">📸</div>
+    <h2 class="text-lg font-semibold">No featured shot yet</h2>
+    <p class="text-zinc-500 text-sm mt-2 max-w-md mx-auto">
+      No screenshots in the last 90 days yet — keep capturing! Persona picks one
+      featured frame each day from the recent window.
+    </p>
+  </section>
+{% endif %}
+{% endblock %}

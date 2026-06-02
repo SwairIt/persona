@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Webhooks</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Fire-and-forget HTTP POST when something happens. Persona never retries — if your endpoint is flaky,
+    you're on your own. Optionally sign with HMAC-SHA256 via the <code>secret</code> field
+    (delivered as <code>X-Persona-Signature: sha256=&lt;hex&gt;</code>).
+  </p>
+</div>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
+  <h2 class="text-lg font-semibold mb-3">Add subscription</h2>
+  <form action="/webhooks" method="post" class="space-y-3">
+    <input name="url" placeholder="https://your-endpoint.example.com/persona" required
+           class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
+    <div class="flex gap-2">
+      <select name="event_type" required
+              class="flex-1 px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm">
+        {% for ev in events %}
+          <option value="{{ ev }}">{{ ev }}</option>
+        {% endfor %}
+      </select>
+      <input name="secret" placeholder="HMAC secret (optional)"
+             class="flex-1 px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono">
+      <button type="submit" class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium">Add</button>
+    </div>
+  </form>
+</section>
+
+{% if subs %}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-ink-900 text-zinc-500 text-xs uppercase tracking-wider">
+        <tr>
+          <th class="text-left py-2 px-3">Event</th>
+          <th class="text-left py-2 px-3">URL</th>
+          <th class="text-left py-2 px-3">Last status</th>
+          <th class="text-left py-2 px-3">Last delivery</th>
+          <th class="py-2 px-3"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in subs %}
+          <tr class="border-t border-ink-700">
+            <td class="py-2 px-3 font-mono text-xs">{{ s.event_type }}</td>
+            <td class="py-2 px-3 text-xs truncate max-w-[20rem]" title="{{ s.url }}">{{ s.url }}</td>
+            <td class="py-2 px-3 text-xs">
+              {% if s.last_status_code %}
+                <span class="font-mono {% if s.last_status_code >= 200 and s.last_status_code < 300 %}text-emerald-400{% else %}text-rose-400{% endif %}">
+                  {{ s.last_status_code }}
+                </span>
+                {% if s.last_error %}<div class="text-rose-300 text-[10px] mt-0.5">{{ s.last_error }}</div>{% endif %}
+              {% else %}
+                <span class="text-zinc-600">—</span>
+              {% endif %}
+            </td>
+            <td class="py-2 px-3 text-xs text-zinc-500 font-mono">{{ s.last_delivered_at or '—' }}</td>
+            <td class="py-2 px-3 text-right space-x-1">
+              <button type="button"
+                      class="text-xs px-2 py-1 rounded bg-sky-700 hover:bg-sky-600 text-white"
+                      onclick="personaTestWebhook(this, {{ s.id }})">test</button>
+              <form action="/webhooks/{{ s.id }}/toggle" method="post" class="inline">
+                <input type="hidden" name="enabled" value="{{ 'false' if s.enabled else 'true' }}">
+                <button type="submit" class="text-xs px-2 py-1 rounded bg-ink-900 hover:bg-ink-700">
+                  {{ 'disable' if s.enabled else 'enable' }}
+                </button>
+              </form>
+              <form action="/webhooks/{{ s.id }}/delete" method="post" class="inline"
+                    onsubmit="return confirm('Delete this webhook?')">
+                <button type="submit" class="text-xs px-2 py-1 rounded bg-rose-900/40 hover:bg-rose-900 text-rose-300">delete</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  <p class="text-zinc-500 text-sm">No webhooks configured.</p>
+{% endif %}
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mt-8">
+  <h2 class="text-lg font-semibold mb-3">Event reference</h2>
+  <ul class="text-sm space-y-1 text-zinc-400">
+    <li><code class="text-accent-400">capture.saved</code> — fired after a thumbnail is persisted (smart-thumbnail decisions skip this).</li>
+    <li><code class="text-accent-400">capture.budget_exceeded</code> — first time today's MB usage crossed the budget.</li>
+    <li><code class="text-accent-400">digest.daily_generated</code> — auto-digest worker finished and stored a day summary.</li>
+    <li><code class="text-accent-400">ocr.completed</code> — OCR finished for a screenshot.</li>
+    <li><code class="text-accent-400">tier.demoted</code> — a screenshot moved hot→warm or warm→cold.</li>
+    <li><code class="text-accent-400">streak.broken</code> — current streak counter dropped to 0 today.</li>
+  </ul>
+</section>
+
+<script>
+  async function personaTestWebhook(btn, webhookId) {
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "firing...";
+    try {
+      const resp = await fetch("/api/webhooks/" + webhookId + "/test", {
+        method: "POST",
+        headers: { "Accept": "application/json" },
+      });
+      if (!resp.ok) {
+        const text = await resp.text();
+        alert("Test failed: " + resp.status + " " + text);
+      } else {
+        const data = await resp.json();
+        btn.textContent = "queued";
+        setTimeout(function () { btn.textContent = original; btn.disabled = false; }, 1500);
+        return;
+      }
+    } catch (err) {
+      alert("Test error: " + err);
+    }
+    btn.textContent = original;
+    btn.disabled = false;
+  }
+</script>
+{% endblock %}

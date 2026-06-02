@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto">
+  <div class="mb-4 flex items-center justify-between gap-4">
+    <div>
+      <h1 class="text-xl font-bold tracking-tight">
+        {{ collection_title or "Shared collection" }}
+      </h1>
+      <p class="text-xs text-zinc-500 mt-1">
+        {{ count }} screenshot{{ "" if count == 1 else "s" }} · read-only · time-limited
+      </p>
+    </div>
+    <span class="text-xs text-zinc-500 font-mono whitespace-nowrap">
+      collection
+    </span>
+  </div>
+
+  <div class="mb-5 rounded-md border border-amber-700/40 bg-amber-900/20 px-4 py-2 text-sm text-amber-200">
+    {% if hours_left > 0 %}
+      Expires in {{ hours_left }} hour{{ "" if hours_left == 1 else "s" }}.
+    {% else %}
+      Expires within the hour.
+    {% endif %}
+  </div>
+
+  {% if shots %}
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      {% for shot in shots %}
+        <figure class="rounded-lg overflow-hidden border border-ink-700 bg-ink-900">
+          {% if shot.thumbnail_path %}
+            <img src="/thumbs/{{ shot.id }}"
+                 alt="Screenshot #{{ shot.id }}"
+                 loading="lazy"
+                 class="w-full aspect-video object-cover bg-ink-800">
+          {% else %}
+            <div class="w-full aspect-video flex items-center justify-center text-zinc-500 text-xs">
+              thumbnail unavailable
+            </div>
+          {% endif %}
+          <figcaption class="px-3 py-2 text-xs text-zinc-400 flex justify-between gap-2">
+            <span class="font-mono text-zinc-500">#{{ shot.id }}</span>
+            <span class="truncate" title="{{ shot.app_name or '' }}">
+              {{ shot.app_name or "—" }}
+            </span>
+            <span class="font-mono text-zinc-500 whitespace-nowrap">
+              {{ shot.captured_at | humantime }}
+            </span>
+          </figcaption>
+        </figure>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="rounded-lg border border-ink-700 bg-ink-900 p-8 text-center text-zinc-500 text-sm">
+      All screenshots in this collection have been deleted by the retention policy.
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

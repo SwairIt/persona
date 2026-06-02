@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Encrypted vault</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Store API keys, webhook secrets and SMTP passwords encrypted with a
+    master password you re-enter on every read. Each row uses its own
+    salt + Fernet token; rotating one secret never touches the others.
+    Persona <strong>never</strong> stores the master password &mdash; lose it and
+    the rows are unrecoverable.
+  </p>
+</div>
+
+<div class="rounded-lg border border-amber-700/40 bg-amber-900/20 text-amber-200 px-4 py-3 mb-6 text-xs">
+  Optional dependency: the vault needs
+  <code class="font-mono">cryptography</code>. If it is missing the
+  read/write forms return <code class="font-mono">missing_dep</code> &mdash;
+  install with <code class="font-mono">uv pip install cryptography</code>
+  and restart the server.
+</div>
+
+{% if error %}
+  <div class="rounded-lg border border-rose-700/40 bg-rose-900/20 text-rose-200 px-4 py-3 mb-6 text-sm">
+    {{ error }}
+  </div>
+{% endif %}
+
+{% if notice %}
+  <div class="rounded-lg border border-emerald-700/40 bg-emerald-900/20 text-emerald-200 px-4 py-3 mb-6 text-sm">
+    {{ notice }}
+  </div>
+{% endif %}
+
+{% if revealed_key %}
+  <div class="rounded-lg border border-accent-700/40 bg-accent-900/20 text-accent-200 px-4 py-4 mb-6 text-sm">
+    <div class="flex items-center justify-between mb-2">
+      <span class="text-xs uppercase tracking-widest text-accent-300">
+        Revealed value for &ldquo;{{ revealed_key }}&rdquo;
+      </span>
+      <a href="/vault" class="text-xs text-zinc-400 hover:text-zinc-100">dismiss &times;</a>
+    </div>
+    <pre class="font-mono text-xs whitespace-pre-wrap break-all bg-ink-950/60 border border-ink-700 rounded p-3 text-zinc-100">{{ revealed_value }}</pre>
+    <p class="text-xs text-zinc-500 mt-2">
+      Shown once. Refresh the page to clear it from the DOM.
+    </p>
+  </div>
+{% endif %}
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden mb-8">
+  <header class="px-5 py-3 border-b border-ink-700 flex items-center justify-between">
+    <h2 class="text-sm font-semibold tracking-wider uppercase text-zinc-400">
+      Stored keys
+    </h2>
+    <span class="text-xs text-zinc-500">{{ vault_items | length }} entr{{ 'y' if vault_items | length == 1 else 'ies' }}</span>
+  </header>
+
+  {% if not vault_items %}
+    <div class="p-6 text-center text-zinc-500 text-sm">
+      The vault is empty. Add your first secret using the form below.
+    </div>
+  {% else %}
+    <table class="w-full text-sm">
+      <thead class="bg-ink-900 text-zinc-500 text-xs uppercase tracking-wider">
+        <tr>
+          <th class="text-left py-2 px-4">Key</th>
+          <th class="text-left py-2 px-4">Created</th>
+          <th class="py-2 px-4"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in vault_items %}
+          <tr class="border-t border-ink-700 hover:bg-ink-900/50">
+            <td class="py-2 px-4 font-mono text-zinc-200">{{ item.key }}</td>
+            <td class="py-2 px-4 font-mono text-xs text-zinc-500">{{ item.created_at[:19] }}</td>
+            <td class="py-2 px-4 text-right">
+              <form action="/vault/{{ item.key }}/delete" method="post" class="inline"
+                    onsubmit="return confirm('Delete the secret &quot;{{ item.key }}&quot;? This cannot be undone.');">
+                <button type="submit" class="text-rose-400 hover:text-rose-300 text-xs">
+                  delete
+                </button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+</section>
+
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+  <form action="/vault/set" method="post"
+        class="rounded-lg border border-ink-700 bg-ink-800 p-5 flex flex-col gap-3">
+    <h2 class="text-sm font-semibold tracking-wider uppercase text-zinc-400">
+      Add or rotate a secret
+    </h2>
+
+    <label class="flex flex-col gap-1">
+      <span class="text-xs uppercase tracking-widest text-zinc-500">Key</span>
+      <input type="text" name="key" required
+             placeholder="e.g. anthropic_api_key" autocomplete="off"
+             class="px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm">
+    </label>
+
+    <label class="flex flex-col gap-1">
+      <span class="text-xs uppercase tracking-widest text-zinc-500">Value</span>
+      <input type="password" name="value" required
+             placeholder="sk-ant-..." autocomplete="new-password"
+             class="px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm">
+    </label>
+
+    <label class="flex flex-col gap-1">
+      <span class="text-xs uppercase tracking-widest text-zinc-500">Master password</span>
+      <input type="password" name="password" required
+             autocomplete="new-password"
+             class="px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm">
+    </label>
+
+    <button type="submit"
+            class="mt-2 px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
+      Encrypt &amp; store
+    </button>
+  </form>
+
+  <form action="/vault/get" method="post"
+        class="rounded-lg border border-ink-700 bg-ink-800 p-5 flex flex-col gap-3">
+    <h2 class="text-sm font-semibold tracking-wider uppercase text-zinc-400">
+      Reveal a stored secret
+    </h2>
+
+    <label class="flex flex-col gap-1">
+      <span class="text-xs uppercase tracking-widest text-zinc-500">Key</span>
+      <input type="text" name="key" required
+             list="vault-key-options" autocomplete="off"
+             placeholder="anthropic_api_key"
+             class="px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm">
+      <datalist id="vault-key-options">
+        {% for item in vault_items %}
+          <option value="{{ item.key }}"></option>
+        {% endfor %}
+      </datalist>
+    </label>
+
+    <label class="flex flex-col gap-1">
+      <span class="text-xs uppercase tracking-widest text-zinc-500">Master password</span>
+      <input type="password" name="password" required
+             autocomplete="current-password"
+             class="px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm">
+    </label>
+
+    <button type="submit"
+            class="mt-2 px-5 py-2 border border-ink-700 hover:border-accent-500 rounded text-sm font-medium transition">
+      Decrypt &amp; show once
+    </button>
+
+    <p class="text-xs text-zinc-500">
+      A wrong password returns <code class="font-mono">401</code> and the
+      value stays sealed.
+    </p>
+  </form>
+</div>
+{% endblock %}

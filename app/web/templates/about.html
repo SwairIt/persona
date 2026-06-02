@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">About</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Persona <span class="font-mono">v{{ version }}</span> — what's running, what's off.
+  </p>
+</div>
+
+<div class="grid sm:grid-cols-3 gap-4 mb-8">
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Screenshots</div>
+    <div class="text-3xl font-bold mt-1">{{ total_screenshots }}</div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Notes</div>
+    <div class="text-3xl font-bold mt-1">{{ total_notes }}</div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Tags</div>
+    <div class="text-3xl font-bold mt-1">{{ total_tags }}</div>
+  </div>
+</div>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
+  <h2 class="text-lg font-semibold mb-4">Features</h2>
+  <ul class="space-y-2">
+    {% for f in features %}
+      <li class="flex items-start gap-3 py-2 border-b border-ink-700/60 last:border-b-0">
+        <span class="mt-1 w-2 h-2 rounded-full flex-shrink-0
+                     {% if f.on %}bg-emerald-400{% else %}bg-zinc-700{% endif %}"></span>
+        <div class="flex-1 min-w-0">
+          <div class="text-zinc-200 font-medium">{{ f.name }}</div>
+          <div class="text-xs text-zinc-500">{{ f.detail }}</div>
+        </div>
+        <span class="text-xs font-mono
+                     {% if f.on %}text-emerald-400{% else %}text-zinc-600{% endif %}">
+          {{ 'ON' if f.on else 'off' }}
+        </span>
+      </li>
+    {% endfor %}
+  </ul>
+</section>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+  <h2 class="text-lg font-semibold mb-3">Hidden routes</h2>
+  <p class="text-zinc-500 text-xs mb-3">Not in the nav but always reachable (or via Cmd+K).</p>
+  <div class="grid sm:grid-cols-2 gap-2 text-sm">
+    {% for href, label in [
+      ('/topics', 'Topics (cluster discovery)'),
+      ('/timesheet', 'Time-sheet'),
+      ('/vault', 'Private vault'),
+      ('/whitelist', 'Process whitelist'),
+      ('/process-remap', 'Process renames'),
+      ('/webhooks', 'Webhooks'),
+      ('/companion/tabs', 'Browser tabs'),
+      ('/digest/daily', 'Daily AI digests'),
+      ('/calendar', 'Calendar'),
+      ('/feeds/journal.rss', 'Journal RSS feed'),
+      ('/m', 'Mobile companion'),
+      ('/health', 'Health endpoint'),
+      ('/welcome', 'First-run wizard'),
+    ] %}
+      <a href="{{ href }}" class="block px-3 py-2 rounded bg-ink-900 hover:bg-ink-700 text-zinc-300 hover:text-accent-400">
+        <span class="font-mono text-xs">{{ href }}</span>
+        <span class="text-zinc-500 text-xs ml-2">{{ label }}</span>
+      </a>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

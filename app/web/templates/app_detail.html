@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-center justify-between flex-wrap gap-3">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">{{ app_name }}</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      {{ total }} captures · first: <code class="text-zinc-400">{{ first_seen[:19] }}</code>
+      · last: <code class="text-zinc-400">{{ last_seen[:19] }}</code>
+    </p>
+  </div>
+  <a href="/apps" class="text-accent-400 text-sm hover:underline">← all apps</a>
+</div>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
+  <h2 class="text-lg font-semibold mb-3">Activity in the last {{ days }} days</h2>
+  {% if per_day %}
+    {% set max_n = per_day | map(attribute='count') | max %}
+    <div class="space-y-1">
+      {% for row in per_day %}
+        <div class="flex items-center gap-3 text-xs">
+          <span class="font-mono text-zinc-500 w-20">{{ row.day }}</span>
+          <div class="flex-1 bg-ink-900 rounded h-3 overflow-hidden">
+            <div class="h-full bg-accent-500"
+                 style="width: {{ ((row.count / max_n) * 100) | round(1) }}%"></div>
+          </div>
+          <span class="font-mono text-zinc-300 w-12 text-right">{{ row.count }}</span>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="text-zinc-500 text-sm">No activity in the last {{ days }} days.</p>
+  {% endif %}
+</section>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
+  <h2 class="text-lg font-semibold mb-3">Top window titles</h2>
+  {% if top_titles %}
+    {% set max_n = top_titles | map(attribute='count') | max %}
+    <div class="space-y-1">
+      {% for row in top_titles %}
+        <div class="flex items-center gap-3 text-xs">
+          <span class="text-zinc-300 w-72 truncate" title="{{ row.title }}">{{ row.title }}</span>
+          <div class="flex-1 bg-ink-900 rounded h-3 overflow-hidden">
+            <div class="h-full bg-sky-500"
+                 style="width: {{ ((row.count / max_n) * 100) | round(1) }}%"></div>
+          </div>
+          <span class="font-mono text-zinc-300 w-12 text-right">{{ row.count }}</span>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="text-zinc-500 text-sm">No window titles captured.</p>
+  {% endif %}
+</section>
+
+{% if latest %}
+  <section>
+    <h2 class="text-lg font-semibold mb-3">Latest 24 captures</h2>
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
+      {% for shot in latest %}
+        {% include "_screenshot_card.html" %}
+      {% endfor %}
+    </div>
+  </section>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto py-8">
+  <div class="text-center mb-12">
+    <span class="text-6xl">●</span>
+    <h1 class="text-4xl font-bold tracking-tight mt-4">Welcome to Persona</h1>
+    <p class="text-zinc-400 mt-3 max-w-xl mx-auto">
+      Your personal memory layer. Captures your screen so you can search your past
+      — what you read, wrote, watched, decided. Everything stays on your machine.
+    </p>
+  </div>
+
+  <ol class="space-y-6">
+    <li class="rounded-lg border border-ink-700 bg-ink-800 p-5 flex gap-4">
+      <span class="text-accent-400 font-mono text-2xl flex-shrink-0">1.</span>
+      <div>
+        <h3 class="font-semibold">Press Start in the header</h3>
+        <p class="text-zinc-400 text-sm mt-1">
+          Capture is paused by default. The pill in the top-right shows live state.
+          Once you press Start, Persona takes a screenshot every {{ settings.capture_interval_seconds }} seconds.
+        </p>
+      </div>
+    </li>
+
+    <li class="rounded-lg border border-ink-700 bg-ink-800 p-5 flex gap-4">
+      <span class="text-accent-400 font-mono text-2xl flex-shrink-0">2.</span>
+      <div>
+        <h3 class="font-semibold">Optional — enable OCR</h3>
+        <p class="text-zinc-400 text-sm mt-1 mb-2">
+          OCR turns on-screen text into searchable content. Without it, search still works
+          on window titles and app names.
+        </p>
+        {% if tesseract.available %}
+          <span class="inline-flex items-center gap-1.5 text-emerald-400 text-sm">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+            Tesseract detected — OCR ready ({{ tesseract.version }})
+          </span>
+        {% else %}
+          <details class="text-sm text-zinc-400">
+            <summary class="cursor-pointer text-accent-400">How to install Tesseract on Windows</summary>
+            <ol class="list-decimal list-inside space-y-1 mt-2 ml-3">
+              <li>Download from <a class="underline" href="https://github.com/UB-Mannheim/tesseract/wiki">UB-Mannheim build</a></li>
+              <li>Run installer with default options (path is <code>C:\Program Files\Tesseract-OCR</code>)</li>
+              <li>Open <code>.env</code> in Persona's folder and add:<br>
+                <code>PERSONA_TESSERACT_PATH=C:\Program Files\Tesseract-OCR\tesseract.exe</code><br>
+                <code>PERSONA_OCR_ENABLED=true</code>
+              </li>
+              <li>Restart Persona</li>
+            </ol>
+          </details>
+        {% endif %}
+      </div>
+    </li>
+
+    <li class="rounded-lg border border-ink-700 bg-ink-800 p-5 flex gap-4">
+      <span class="text-accent-400 font-mono text-2xl flex-shrink-0">3.</span>
+      <div>
+        <h3 class="font-semibold">Optional — plug in an LLM for AI summaries</h3>
+        <p class="text-zinc-400 text-sm mt-1 mb-2">
+          Add your own API key from Anthropic, OpenAI, or Groq to <code>.env</code>:
+        </p>
+        <pre class="bg-ink-900 p-3 rounded text-xs font-mono text-zinc-300">PERSONA_BYO_API_PROVIDER=anthropic
+PERSONA_BYO_API_KEY=sk-ant-…</pre>
+        <p class="text-zinc-500 text-xs mt-2">
+          Requests go directly from this app to the provider. Persona never sees your key
+          or your data in the cloud.
+        </p>
+      </div>
+    </li>
+
+    <li class="rounded-lg border border-ink-700 bg-ink-800 p-5 flex gap-4">
+      <span class="text-accent-400 font-mono text-2xl flex-shrink-0">4.</span>
+      <div>
+        <h3 class="font-semibold">Use Persona day-to-day</h3>
+        <ul class="text-zinc-400 text-sm mt-1 space-y-1 list-disc list-inside">
+          <li><a class="text-accent-400" href="/">Timeline</a> — browse your day, hour by hour</li>
+          <li><a class="text-accent-400" href="/search">Search</a> — find anything you saw</li>
+          <li><a class="text-accent-400" href="/summary/">AI Summary</a> — daily recap from your captures</li>
+          <li><a class="text-accent-400" href="/stats">Stats</a> — top apps, dedup ratio, activity heatmap</li>
+          <li><a class="text-accent-400" href="/whitelist">Whitelist</a> — exclude apps from capture (games, password managers)</li>
+        </ul>
+        <p class="text-zinc-500 text-xs mt-3">Press <code class="bg-ink-900 px-1.5 py-0.5 rounded">?</code> anywhere for keyboard shortcuts.</p>
+      </div>
+    </li>
+  </ol>
+
+  <div class="text-center mt-12">
+    <a href="/" class="inline-block px-6 py-3 bg-accent-600 hover:bg-accent-500 rounded-lg font-medium">
+      Open my timeline →
+    </a>
+  </div>
+</div>
+{% endblock %}

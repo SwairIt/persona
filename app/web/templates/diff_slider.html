@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Slider diff</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Drag the slider to reveal more of
+    <a href="/screenshot/{{ shot_b.id }}" class="text-accent-400 font-mono">#{{ shot_b.id }}</a>
+    over
+    <a href="/screenshot/{{ shot_a.id }}" class="text-accent-400 font-mono">#{{ shot_a.id }}</a>.
+    Also see the
+    <a href="/diff?left={{ shot_a.id }}&amp;right={{ shot_b.id }}" class="text-accent-400 underline">OCR diff</a>.
+  </p>
+</div>
+
+<figure id="diff-slider"
+        style="--split: 50%;"
+        class="relative w-full max-w-5xl mx-auto rounded-lg overflow-hidden
+               border border-ink-700 bg-ink-900 select-none">
+  <div class="relative w-full" style="aspect-ratio: {{ shot_a.width }} / {{ shot_a.height }};">
+    {# Bottom image — fully visible underneath. #}
+    {% if shot_a.thumbnail_path %}
+      <img src="{{ shot_a.thumbnail_path | thumbnail_url }}"
+           alt="Screenshot #{{ shot_a.id }}"
+           class="absolute inset-0 w-full h-full object-contain bg-ink-950">
+    {% else %}
+      <div class="absolute inset-0 flex items-center justify-center text-zinc-600 text-sm">
+        no thumbnail for #{{ shot_a.id }}
+      </div>
+    {% endif %}
+
+    {# Top image — clipped from the right side by the CSS variable. #}
+    {% if shot_b.thumbnail_path %}
+      <img src="{{ shot_b.thumbnail_path | thumbnail_url }}"
+           alt="Screenshot #{{ shot_b.id }}"
+           style="clip-path: inset(0 var(--split) 0 0);"
+           class="absolute inset-0 w-full h-full object-contain bg-ink-950">
+    {% else %}
+      <div style="clip-path: inset(0 var(--split) 0 0);"
+           class="absolute inset-0 flex items-center justify-center text-zinc-600 text-sm bg-ink-900">
+        no thumbnail for #{{ shot_b.id }}
+      </div>
+    {% endif %}
+
+    {# Visual divider line that tracks the split. #}
+    <div aria-hidden="true"
+         style="left: calc(100% - var(--split));"
+         class="absolute top-0 bottom-0 w-px bg-accent-400 shadow-[0_0_8px_rgba(167,139,250,0.7)] pointer-events-none"></div>
+  </div>
+
+  <input type="range" min="0" max="100" value="50" step="1"
+         aria-label="Reveal slider"
+         oninput="document.getElementById('diff-slider').style.setProperty('--split', (100 - this.value) + '%')"
+         class="block w-full mt-3 px-4 pb-4 accent-accent-500 cursor-ew-resize">
+</figure>
+
+<div class="grid sm:grid-cols-2 gap-4 mt-6 max-w-5xl mx-auto">
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Before (bottom layer)</div>
+    <div class="text-lg font-semibold mt-1">
+      <a href="/screenshot/{{ shot_a.id }}" class="text-accent-400 hover:underline font-mono">#{{ shot_a.id }}</a>
+      <span class="text-zinc-300">— {{ shot_a.app_name or '—' }}</span>
+    </div>
+    <div class="text-zinc-500 text-xs font-mono mt-1">{{ shot_a.captured_at | humantime }}</div>
+    <div class="text-zinc-500 text-xs">{{ shot_a.width }}×{{ shot_a.height }}</div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">After (top layer)</div>
+    <div class="text-lg font-semibold mt-1">
+      <a href="/screenshot/{{ shot_b.id }}" class="text-accent-400 hover:underline font-mono">#{{ shot_b.id }}</a>
+      <span class="text-zinc-300">— {{ shot_b.app_name or '—' }}</span>
+    </div>
+    <div class="text-zinc-500 text-xs font-mono mt-1">{{ shot_b.captured_at | humantime }}</div>
+    <div class="text-zinc-500 text-xs">{{ shot_b.width }}×{{ shot_b.height }}</div>
+  </div>
+</div>
+{% endblock %}

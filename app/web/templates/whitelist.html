@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Process whitelist</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Skip capture during sensitive apps and games. Process names are matched case-insensitively (e.g. <code>dota2.exe</code>).
+  </p>
+</div>
+
+<form action="/whitelist" method="post" class="space-y-6">
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <h2 class="text-lg font-semibold mb-2">Deny these (always skip capture)</h2>
+    <p class="text-zinc-500 text-xs mb-3">One per line. These add to the built-in defaults shown below.</p>
+    <textarea name="deny" rows="6"
+              class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm
+                     focus:outline-none focus:border-accent-500">{{ user_deny | join('\n') }}</textarea>
+  </section>
+
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <h2 class="text-lg font-semibold mb-2">Allow-only (strict mode)</h2>
+    <p class="text-zinc-500 text-xs mb-3">
+      If non-empty, ONLY these processes are captured. Useful for "I only want to log my work apps".
+    </p>
+    <textarea name="allow_only" rows="6"
+              class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm
+                     focus:outline-none focus:border-accent-500">{{ user_allow_only | join('\n') }}</textarea>
+  </section>
+
+  <button type="submit" class="px-5 py-2.5 bg-accent-600 hover:bg-accent-500 rounded-lg font-medium transition">
+    Save lists
+  </button>
+</form>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mt-8">
+  <h2 class="text-lg font-semibold mb-3">Built-in defaults</h2>
+  <p class="text-zinc-500 text-xs mb-4">Always denied — cannot be overridden.</p>
+  <div class="flex flex-wrap gap-2">
+    {% for proc in defaults %}
+      <span class="px-2 py-1 bg-ink-900 rounded text-xs font-mono text-zinc-400">{{ proc }}</span>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

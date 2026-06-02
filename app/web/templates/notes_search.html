@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Search notes</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Full-text search across every note you've attached to a screenshot.
+    Matches are highlighted; click a hit to jump to its frame.
+  </p>
+</div>
+
+<form action="/notes/search" method="get"
+      class="mb-8 flex items-center gap-3">
+  <input type="text" name="q" value="{{ query | e }}"
+         placeholder="auth bug · meeting notes · deploy plan …"
+         autofocus
+         class="flex-1 px-4 py-2.5 bg-ink-800 border border-ink-700 rounded-lg
+                placeholder:text-zinc-600 focus:outline-none focus:border-accent-500
+                font-mono text-sm">
+  <button type="submit"
+          class="px-5 py-2.5 bg-accent-600 hover:bg-accent-500 rounded-lg font-medium transition">
+    Search
+  </button>
+</form>
+
+{% if not query %}
+  <div class="rounded-lg border border-dashed border-ink-700 bg-ink-900/40 p-8 text-center">
+    <p class="text-zinc-400 text-sm">
+      Type something above to search your notes.
+    </p>
+    <p class="text-zinc-600 text-xs mt-2">
+      Powered by SQLite FTS5 · ranked by bm25
+    </p>
+  </div>
+{% elif not results %}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-6 text-center">
+    <p class="text-zinc-300 text-sm">
+      No notes match
+      <code class="text-accent-400 font-mono">{{ query | e }}</code>.
+    </p>
+    <p class="text-zinc-500 text-xs mt-2">
+      Try a shorter phrase, or check your spelling.
+    </p>
+  </div>
+{% else %}
+  <p class="text-xs uppercase tracking-wider text-zinc-500 mb-3">
+    {{ total }} match{{ 'es' if total != 1 else '' }} · capped at 50
+  </p>
+  <ul class="space-y-3">
+    {% for hit in results %}
+      <li class="rounded-lg border border-ink-700 bg-ink-800 hover:border-accent-500/60 transition">
+        <a href="/screenshot/{{ hit.id }}" class="block p-4">
+          <header class="flex items-center justify-between mb-2 text-xs text-zinc-500">
+            <span class="font-mono">note #{{ hit.id }}</span>
+            {% if hit.created_at %}
+              <time class="font-mono">{{ hit.created_at }}</time>
+            {% endif %}
+          </header>
+          {# snippet() output is built by SQLite itself: only the literal
+             <mark> / </mark> tags + ellipsis are HTML; the matched text is
+             column data and SQLite escapes nothing. We accept this because
+             the body is user-private (single-tenant local app) and the
+             alternative — escaping then re-injecting <mark> — is fragile.
+             If this app ever becomes multi-tenant, replace |safe with a
+             custom Jinja filter that escapes everything except the markers. #}
+          <p class="text-sm text-zinc-200 leading-relaxed">
+            {{ hit.snippet | safe }}
+          </p>
+        </a>
+      </li>
+    {% endfor %}
+  </ul>
+{% endif %}
+{% endblock %}

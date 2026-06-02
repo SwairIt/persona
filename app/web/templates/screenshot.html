@@ -1,0 +1,514 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-4 flex items-center justify-between text-sm">
+  <div class="flex items-center gap-2">
+    {% if prev_id %}
+      <a href="/screenshot/{{ prev_id }}" id="prev-shot"
+         class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700">← prev</a>
+    {% else %}
+      <span class="px-3 py-1.5 rounded bg-ink-900 text-zinc-600">← prev</span>
+    {% endif %}
+    {% if next_id %}
+      <a href="/screenshot/{{ next_id }}" id="next-shot"
+         class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700">next →</a>
+    {% else %}
+      <span class="px-3 py-1.5 rounded bg-ink-900 text-zinc-600">next →</span>
+    {% endif %}
+    <span class="text-xs text-zinc-500 ml-2 hidden sm:inline">use ← → keys</span>
+  </div>
+  <a href="/?date={{ shot.captured_at.strftime('%Y-%m-%d') }}"
+     class="text-xs text-accent-400 hover:underline">back to {{ shot.captured_at.strftime('%Y-%m-%d') }} →</a>
+</div>
+
+<script>
+  document.addEventListener('keydown', (e) => {
+    if (e.target && (['INPUT','TEXTAREA'].includes(e.target.tagName) || e.target.isContentEditable)) return;
+    if (e.key === 'ArrowLeft') { const a = document.getElementById('prev-shot'); if (a) a.click(); }
+    if (e.key === 'ArrowRight') { const a = document.getElementById('next-shot'); if (a) a.click(); }
+  });
+</script>
+
+<div class="grid lg:grid-cols-3 gap-6">
+  <div class="lg:col-span-2 space-y-4">
+    {% if shot.thumbnail_path %}
+      {% set thumb_src = shot.thumbnail_path | thumbnail_url %}
+      <div class="rounded-lg overflow-hidden border border-ink-700 bg-ink-900 cursor-zoom-in"
+           data-lightbox-src="{{ thumb_src }}">
+        <img src="{{ thumb_src }}"
+             alt="Screenshot #{{ shot.id }}"
+             class="w-full object-contain">
+      </div>
+    {% else %}
+      <div class="aspect-video flex items-center justify-center text-zinc-500 bg-ink-900 rounded-lg border border-ink-700">
+        Thumbnail deleted by retention policy.
+      </div>
+    {% endif %}
+
+    {% if shot.ocr_text %}
+      <section class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+        <h3 class="text-xs uppercase tracking-widest text-zinc-500 mb-3">OCR text</h3>
+        <pre class="text-sm font-mono text-zinc-200 whitespace-pre-wrap leading-relaxed">{{ shot.ocr_text }}</pre>
+      </section>
+    {% endif %}
+
+    <section class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+      <h3 class="text-xs uppercase tracking-widest text-zinc-500 mb-3">
+        Note <span class="text-zinc-600">· markdown supported</span>
+      </h3>
+      <form hx-post="/api/screenshots/{{ shot.id }}/note" hx-swap="none"
+            x-data="{ preview: false }"
+            class="space-y-2">
+        <div class="flex items-center gap-2 text-xs">
+          <button type="button" @click="preview = false"
+                  :class="!preview ? 'text-accent-400' : 'text-zinc-500'">Write</button>
+          <span class="text-zinc-700">|</span>
+          <button type="button" @click="preview = true"
+                  :class="preview ? 'text-accent-400' : 'text-zinc-500'">Preview</button>
+        </div>
+        <textarea x-show="!preview" id="note-source-{{ shot.id }}" name="body" rows="4"
+                  placeholder="why is this moment worth remembering?&#10;&#10;**bold**, _italic_, `code`, links auto-detected"
+                  class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm
+                         focus:outline-none focus:border-accent-500 font-mono">{{ note }}</textarea>
+        <div x-show="preview"
+             data-md-target data-md-source="note-source-{{ shot.id }}"
+             class="prose prose-invert prose-sm max-w-none px-3 py-2 bg-ink-900 border border-ink-700 rounded min-h-[6rem]"></div>
+        <button type="submit"
+                class="px-4 py-1.5 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium">
+          Save note
+        </button>
+      </form>
+    </section>
+
+    <section class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+      <h3 class="text-xs uppercase tracking-widest text-zinc-500 mb-3">
+        Annotations <span class="text-zinc-600">· per-shot scribbles</span>
+      </h3>
+      <div id="annotations-list-{{ shot.id }}"
+           hx-get="/api/screenshot/{{ shot.id }}/annotations"
+           hx-trigger="load, refresh-annotations from:body"
+           hx-swap="innerHTML"
+           class="space-y-2 mb-3 text-sm text-zinc-300">
+        <div class="text-xs text-zinc-500">loading…</div>
+      </div>
+      <form hx-post="/api/screenshot/{{ shot.id }}/annotations"
+            hx-target="#annotations-list-{{ shot.id }}"
+            hx-swap="none"
+            hx-on::after-request="if (event.detail.successful) { this.reset(); htmx.trigger('body', 'refresh-annotations'); }"
+            class="flex flex-col gap-2">
+        <textarea name="body" rows="2" required
+                  placeholder="Add a quick scribble about this shot…"
+                  class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm
+                         focus:outline-none focus:border-accent-500"></textarea>
+        <div>
+          <button type="submit"
+                  class="px-4 py-1.5 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium">
+            Add annotation
+          </button>
+        </div>
+      </form>
+      <script>
+        (function () {
+          const list = document.getElementById('annotations-list-{{ shot.id }}');
+          if (!list || list.dataset.bound === '1') return;
+          list.dataset.bound = '1';
+          function escapeHtml(s) {
+            return String(s).replace(/[&<>"']/g, c => ({
+              '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            }[c]));
+          }
+          list.addEventListener('htmx:afterRequest', (e) => {
+            if (e.detail.requestConfig.verb !== 'get') return;
+            let items = [];
+            try { items = JSON.parse(e.detail.xhr.responseText); } catch (_) { items = []; }
+            if (!items.length) {
+              list.innerHTML = '<div class="text-xs text-zinc-500">no annotations yet</div>';
+              return;
+            }
+            list.innerHTML = items.map(a =>
+              '<div class="flex items-start justify-between gap-2 px-3 py-2 bg-ink-900 border border-ink-700 rounded">' +
+                '<div class="flex-1 min-w-0">' +
+                  '<div class="whitespace-pre-wrap break-words">' + escapeHtml(a.body) + '</div>' +
+                  '<div class="text-xs text-zinc-500 mt-1 font-mono">' + escapeHtml(a.created_at) + '</div>' +
+                '</div>' +
+                '<button type="button" ' +
+                  'hx-post="/api/annotation/' + a.id + '/delete" ' +
+                  'hx-swap="none" ' +
+                  'hx-on::after-request="if (event.detail.successful) htmx.trigger(\'body\', \'refresh-annotations\');" ' +
+                  'class="text-zinc-500 hover:text-rose-400 text-sm leading-none">×</button>' +
+              '</div>'
+            ).join('');
+            if (window.htmx) window.htmx.process(list);
+          });
+        })();
+      </script>
+    </section>
+
+    <section class="rounded-lg border border-ink-700 bg-ink-800 p-4"
+             x-data="{
+               body: '',
+               due: new Date(Date.now() + 86400000).toISOString().slice(0, 10),
+               saving: false,
+               async submit() {
+                 if (!this.body.trim()) return;
+                 this.saving = true;
+                 try {
+                   const fd = new FormData();
+                   fd.append('body', this.body);
+                   fd.append('due_date', this.due);
+                   const r = await fetch('/api/screenshots/{{ shot.id }}/remind', { method: 'POST', body: fd });
+                   if (r.ok) {
+                     const j = await r.json();
+                     alert('Reminder #' + j.reminder_id + ' set for ' + j.due_date);
+                     this.body = '';
+                   } else {
+                     alert('Failed: ' + ((await r.json()).detail || r.status));
+                   }
+                 } finally {
+                   this.saving = false;
+                 }
+               }
+             }">
+      <h3 class="text-xs uppercase tracking-widest text-zinc-500 mb-3">Remind me</h3>
+      <form @submit.prevent="submit()" class="flex flex-wrap gap-2">
+        <input type="text" x-model="body" required
+               placeholder="What to remember about this moment?"
+               class="flex-1 min-w-[180px] px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
+        <input type="date" x-model="due"
+               class="px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono">
+        <button type="submit" :disabled="saving"
+                class="px-4 py-2 bg-accent-600 hover:bg-accent-500 disabled:opacity-50 rounded text-sm font-medium">
+          <span x-show="!saving">Set reminder</span>
+          <span x-show="saving">Saving…</span>
+        </button>
+      </form>
+    </section>
+
+    <section class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+      <h3 class="text-xs uppercase tracking-widest text-zinc-500 mb-3">Tags</h3>
+      <div class="flex flex-wrap gap-2 mb-3">
+        {% for t in attached_tags %}
+          <span class="px-3 py-1 rounded-full text-xs flex items-center gap-1.5"
+                style="background: {{ (t.color or '#8b5cf6') + '33' }}; color: {{ t.color or '#a78bfa' }};">
+            {{ t.name }}
+            <button hx-delete="/api/screenshots/{{ shot.id }}/tags/{{ t.id }}"
+                    hx-swap="none"
+                    onclick="setTimeout(() => location.reload(), 200)"
+                    class="hover:text-rose-400">×</button>
+          </span>
+        {% else %}
+          <span class="text-zinc-500 text-xs">no tags yet</span>
+        {% endfor %}
+      </div>
+      {% if all_tags %}
+        <form hx-post="/api/screenshots/{{ shot.id }}/tags" hx-swap="none"
+              onsubmit="setTimeout(() => location.reload(), 200)"
+              class="flex gap-2">
+          <select name="tag_id"
+                  class="flex-1 px-3 py-1.5 bg-ink-900 border border-ink-700 rounded text-sm">
+            {% for t in all_tags %}
+              <option value="{{ t.id }}">{{ t.name }}</option>
+            {% endfor %}
+          </select>
+          <button type="submit"
+                  class="px-3 py-1.5 bg-ink-700 hover:bg-ink-600 rounded text-sm">Add tag</button>
+        </form>
+      {% endif %}
+
+      {% if not shot.is_private %}
+        <div x-data="autoTagger({{ shot.id }})" class="mt-3 pt-3 border-t border-ink-700">
+          <button @click="suggest()" :disabled="loading"
+                  class="w-full px-3 py-1.5 text-xs bg-accent-600/20 hover:bg-accent-600/30 text-accent-300 rounded border border-accent-600/40 disabled:opacity-50">
+            <span x-show="!loading">✨ Suggest tags via AI</span>
+            <span x-show="loading">Thinking…</span>
+          </button>
+          <p x-show="error" x-text="error" class="text-rose-400 text-xs mt-2"></p>
+          <div x-show="suggestions.length" class="mt-3">
+            <p class="text-zinc-500 text-xs mb-2">Tap to select, then Apply:</p>
+            <div class="flex flex-wrap gap-1.5">
+              <template x-for="(tag, idx) in suggestions" :key="idx">
+                <button @click="picked.includes(tag) ? picked.splice(picked.indexOf(tag), 1) : picked.push(tag)"
+                        :class="picked.includes(tag) ? 'bg-accent-600 text-white' : 'bg-ink-900 text-zinc-300'"
+                        class="px-2 py-1 rounded text-xs">
+                  <span x-text="tag"></span>
+                </button>
+              </template>
+            </div>
+            <button @click="apply()" x-show="picked.length" :disabled="loading"
+                    class="mt-2 px-3 py-1 bg-emerald-600 hover:bg-emerald-500 rounded text-xs disabled:opacity-50">
+              Apply <span x-text="picked.length"></span> tag(s)
+            </button>
+          </div>
+        </div>
+
+        <script>
+          function autoTagger(sid) {
+            return {
+              suggestions: [],
+              picked: [],
+              error: '',
+              loading: false,
+              async suggest() {
+                this.loading = true; this.error = ''; this.suggestions = []; this.picked = [];
+                try {
+                  const r = await fetch(`/api/screenshots/${sid}/auto-tag-suggest`, { method: 'POST' });
+                  if (!r.ok) { this.error = (await r.json()).detail || `HTTP ${r.status}`; return; }
+                  this.suggestions = (await r.json()).suggested || [];
+                  if (!this.suggestions.length) this.error = 'No suggestions';
+                } finally { this.loading = false; }
+              },
+              async apply() {
+                this.loading = true;
+                try {
+                  const fd = new FormData();
+                  fd.append('tags', this.picked.join(','));
+                  const r = await fetch(`/api/screenshots/${sid}/auto-tag-apply`, { method: 'POST', body: fd });
+                  if (r.ok) setTimeout(() => location.reload(), 200);
+                  else this.error = (await r.json()).detail || `HTTP ${r.status}`;
+                } finally { this.loading = false; }
+              }
+            }
+          }
+        </script>
+      {% endif %}
+    </section>
+  </div>
+
+  <aside class="space-y-4">
+    <section class="rounded-lg border border-ink-700 bg-ink-800 p-4 flex items-center justify-between gap-3">
+      <div class="flex items-center gap-2">
+        {% if shot.tier == 'pinned' %}
+          <span class="px-2 py-1 rounded text-xs bg-amber-500/20 text-amber-300">📌 pinned</span>
+        {% elif shot.tier == 'hot' %}
+          <span class="px-2 py-1 rounded text-xs bg-emerald-500/20 text-emerald-300">hot</span>
+        {% elif shot.tier == 'warm' %}
+          <span class="px-2 py-1 rounded text-xs bg-sky-500/20 text-sky-300">warm</span>
+        {% else %}
+          <span class="px-2 py-1 rounded text-xs bg-zinc-500/20 text-zinc-300">cold (metadata only)</span>
+        {% endif %}
+      </div>
+      <div class="flex items-center gap-2 flex-wrap justify-end">
+        {% if in_reading_list %}
+          <button hx-delete="/api/screenshots/{{ shot.id }}/read-later" hx-swap="none"
+                  onclick="setTimeout(() => location.reload(), 200)"
+                  class="px-3 py-1.5 text-xs bg-ink-700 hover:bg-ink-600 rounded">📚 In list ✓</button>
+        {% else %}
+          <button hx-post="/api/screenshots/{{ shot.id }}/read-later" hx-swap="none"
+                  onclick="setTimeout(() => location.reload(), 200)"
+                  class="px-3 py-1.5 text-xs bg-ink-700 hover:bg-ink-600 rounded">📚 Read later</button>
+        {% endif %}
+        {% if shot.tier == 'pinned' %}
+          <button hx-post="/api/screenshots/{{ shot.id }}/unpin" hx-swap="none"
+                  onclick="setTimeout(() => location.reload(), 200)"
+                  class="px-3 py-1.5 text-xs bg-ink-700 hover:bg-ink-600 rounded">Unpin</button>
+        {% else %}
+          <button hx-post="/api/screenshots/{{ shot.id }}/pin" hx-swap="none"
+                  onclick="setTimeout(() => location.reload(), 200)"
+                  class="px-3 py-1.5 text-xs bg-accent-600 hover:bg-accent-500 rounded">📌 Pin</button>
+        {% endif %}
+        {% if shot.is_private %}
+          <button @click="$dispatch('open-restore')"
+                  class="px-3 py-1.5 text-xs bg-rose-900/40 hover:bg-rose-900 text-rose-300 rounded">🔓 Restore</button>
+        {% else %}
+          <button @click="$dispatch('open-private')"
+                  class="px-3 py-1.5 text-xs bg-ink-700 hover:bg-ink-600 rounded">🔒 Make private</button>
+        {% endif %}
+      </div>
+    </section>
+
+    {% if shot.is_private %}
+      <section class="rounded-lg border border-amber-700/40 bg-amber-900/15 p-4"
+               x-data="vaultViewer({{ shot.id }})">
+        <h3 class="text-xs uppercase tracking-widest text-amber-300 mb-3">🔒 Private — vault unlock</h3>
+        <p class="text-xs text-zinc-400 mb-3">
+          Plaintext OCR and the thumbnail are encrypted with AES-256-GCM. They'll never appear
+          again unless you decrypt with the passphrase below. The decryption happens entirely
+          in your browser session — no plaintext is written back to disk.
+        </p>
+        <div class="flex gap-2">
+          <input type="password" x-model="passphrase" placeholder="Vault passphrase"
+                 @keydown.enter="unlock()"
+                 class="flex-1 px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm focus:outline-none focus:border-amber-500">
+          <button @click="unlock()" :disabled="loading"
+                  class="px-4 py-2 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 rounded text-sm font-medium">
+            Unlock
+          </button>
+        </div>
+        <p x-show="error" x-text="error" class="text-rose-400 text-xs mt-2"></p>
+
+        <template x-if="ocr">
+          <div class="mt-4">
+            <h4 class="text-xs uppercase tracking-widest text-zinc-500 mb-2">OCR (decrypted)</h4>
+            <pre class="bg-ink-900 p-3 rounded text-xs font-mono text-zinc-200 whitespace-pre-wrap" x-text="ocr"></pre>
+          </div>
+        </template>
+        <template x-if="thumbUrl">
+          <div class="mt-4">
+            <h4 class="text-xs uppercase tracking-widest text-zinc-500 mb-2">Thumbnail (decrypted)</h4>
+            <img :src="thumbUrl" class="rounded border border-ink-700 max-w-full">
+          </div>
+        </template>
+      </section>
+    {% endif %}
+
+    <div x-data="{ open: false, passphrase: '' }" @open-private.window="open = true">
+      <div x-show="open" x-cloak class="fixed inset-0 bg-black/60 z-40 flex items-center justify-center p-4">
+        <div class="bg-ink-900 border border-ink-700 rounded-lg p-5 max-w-md w-full">
+          <h3 class="font-semibold mb-2">Move to private vault</h3>
+          <p class="text-xs text-zinc-400 mb-3">
+            This encrypts the OCR text and thumbnail with your passphrase, then deletes the
+            plaintext from disk. Forgetting the passphrase means losing the data. Choose
+            something memorable.
+          </p>
+          <form @submit.prevent="
+                  const fd = new FormData(); fd.append('passphrase', passphrase);
+                  const r = await fetch('/api/screenshots/{{ shot.id }}/make-private', { method: 'POST', body: fd });
+                  if (r.ok) location.reload(); else alert((await r.json()).detail);
+                  ">
+            <input type="password" x-model="passphrase" minlength="8" required
+                   placeholder="Passphrase (8+ chars)"
+                   class="w-full px-3 py-2 bg-ink-800 border border-ink-700 rounded text-sm">
+            <div class="flex justify-end gap-2 mt-3">
+              <button type="button" @click="open = false" class="px-3 py-1.5 text-xs rounded bg-ink-800">Cancel</button>
+              <button type="submit" class="px-3 py-1.5 text-xs rounded bg-rose-700 text-white">Encrypt & lock</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <div x-data="{ open: false, passphrase: '' }" @open-restore.window="open = true">
+      <div x-show="open" x-cloak class="fixed inset-0 bg-black/60 z-40 flex items-center justify-center p-4">
+        <div class="bg-ink-900 border border-ink-700 rounded-lg p-5 max-w-md w-full">
+          <h3 class="font-semibold mb-2">Restore to public</h3>
+          <p class="text-xs text-zinc-400 mb-3">
+            Decrypts the vault entry and writes the plaintext OCR + thumbnail back to disk.
+            This screenshot will become indexable again.
+          </p>
+          <form @submit.prevent="
+                  const fd = new FormData(); fd.append('passphrase', passphrase);
+                  const r = await fetch('/api/screenshots/{{ shot.id }}/restore-public', { method: 'POST', body: fd });
+                  if (r.ok) location.reload(); else alert((await r.json()).detail);
+                  ">
+            <input type="password" x-model="passphrase" required
+                   placeholder="Vault passphrase"
+                   class="w-full px-3 py-2 bg-ink-800 border border-ink-700 rounded text-sm">
+            <div class="flex justify-end gap-2 mt-3">
+              <button type="button" @click="open = false" class="px-3 py-1.5 text-xs rounded bg-ink-800">Cancel</button>
+              <button type="submit" class="px-3 py-1.5 text-xs rounded bg-amber-600 text-white">Restore</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      function vaultViewer(sid) {
+        return {
+          passphrase: '',
+          ocr: '',
+          thumbUrl: '',
+          error: '',
+          loading: false,
+          async unlock() {
+            if (!this.passphrase) return;
+            this.loading = true;
+            this.error = '';
+            this.ocr = '';
+            this.thumbUrl = '';
+            try {
+              const fd = new FormData();
+              fd.append('passphrase', this.passphrase);
+              const r = await fetch(`/api/screenshots/${sid}/unlock`, { method: 'POST', body: fd });
+              if (!r.ok) {
+                this.error = (await r.json()).detail || 'Unlock failed';
+                return;
+              }
+              const j = await r.json();
+              this.ocr = j.ocr_text || '';
+              if (j.has_thumbnail) {
+                const fd2 = new FormData();
+                fd2.append('passphrase', this.passphrase);
+                const tr = await fetch(`/api/screenshots/${sid}/unlock-thumbnail`, { method: 'POST', body: fd2 });
+                if (tr.ok) {
+                  const blob = await tr.blob();
+                  this.thumbUrl = URL.createObjectURL(blob);
+                }
+              }
+            } finally {
+              this.loading = false;
+            }
+          },
+        };
+      }
+    </script>
+
+    <section class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+      <h3 class="text-xs uppercase tracking-widest text-zinc-500 mb-3">Metadata</h3>
+      <dl class="space-y-2 text-sm">
+        <div class="flex justify-between gap-3">
+          <dt class="text-zinc-500">Captured</dt>
+          <dd class="font-mono text-zinc-300 text-right">{{ shot.captured_at | humantime }}</dd>
+        </div>
+        <div class="flex justify-between gap-3">
+          <dt class="text-zinc-500">App</dt>
+          <dd class="text-zinc-300 text-right">{{ shot.app_name or '—' }}</dd>
+        </div>
+        <div class="flex justify-between gap-3">
+          <dt class="text-zinc-500">Process</dt>
+          <dd class="font-mono text-zinc-300 text-right">{{ shot.process_name or '—' }}</dd>
+        </div>
+        <div class="flex justify-between gap-3">
+          <dt class="text-zinc-500">Title</dt>
+          <dd class="text-zinc-300 text-right truncate max-w-[200px]" title="{{ shot.window_title or '' }}">
+            {{ shot.window_title or '—' }}
+          </dd>
+        </div>
+        <div class="flex justify-between gap-3">
+          <dt class="text-zinc-500">Resolution</dt>
+          <dd class="font-mono text-zinc-300 text-right">{{ shot.width }}×{{ shot.height }}</dd>
+        </div>
+        <div class="flex justify-between gap-3">
+          <dt class="text-zinc-500">pHash</dt>
+          <dd class="font-mono text-zinc-300 text-right text-xs">{{ shot.phash }}</dd>
+        </div>
+        <div class="flex justify-between gap-3">
+          <dt class="text-zinc-500">OCR</dt>
+          <dd class="text-zinc-300 text-right">{{ shot.ocr_status }}</dd>
+        </div>
+      </dl>
+    </section>
+
+    {% if neighbours %}
+      <section class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+        <h3 class="text-xs uppercase tracking-widest text-zinc-500 mb-3">Around this time</h3>
+        <div class="grid grid-cols-3 gap-2">
+          {% for n in neighbours if n.id != shot.id %}
+            <a href="/screenshot/{{ n.id }}"
+               class="block rounded overflow-hidden border border-ink-700 hover:border-accent-500">
+              {% if n.thumbnail_path %}
+                <img src="{{ n.thumbnail_path | thumbnail_url }}"
+                     class="w-full h-12 object-cover">
+              {% else %}
+                <div class="w-full h-12 bg-ink-900"></div>
+              {% endif %}
+            </a>
+          {% endfor %}
+        </div>
+        {% set previous = namespace(id=None) %}
+        {% for n in neighbours %}
+          {% if n.id < shot.id and (previous.id is none or n.id > previous.id) %}
+            {% set previous.id = n.id %}
+          {% endif %}
+        {% endfor %}
+        {% if previous.id %}
+          <a href="/diff?left={{ previous.id }}&right={{ shot.id }}"
+             class="block mt-3 text-xs text-accent-400 hover:text-accent-300">
+            → diff vs previous capture (#{{ previous.id }})
+          </a>
+        {% endif %}
+      </section>
+    {% endif %}
+  </aside>
+</div>
+{% endblock %}

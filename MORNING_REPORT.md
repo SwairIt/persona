@@ -1,0 +1,362 @@
+# 🌅 Morning report — Persona
+
+Thirty-three autonomous sessions: …v0.30 → v0.31 → v0.32 → **v0.33** without stopping. Self-pacing /loop continues until you cancel.
+
+## By the numbers (current)
+
+- `version = "0.2.0"` in `pyproject.toml`
+- **~135 source/template/SQL/doc files**, **~8 500 lines** of code & UI
+- **22 HTTP route modules** mounted on a single FastAPI app
+- **17 modules** in `app/` (settings, capture, dedup, ocr, search, embeddings, storage, workers, web, llm, analysis)
+- **20+ test files**
+- **0 git commits** — entirely up to you
+- **0 network calls at runtime** (only optional outgoing call: BYO-LLM keys to your chosen provider)
+
+## What landed in v0.33 (tag trend sparklines + encrypted KV vault + diff slider)
+
+Built via 3 parallel Workflow agents → sequential wire-up.
+
+- 📈 **Per-tag trend sparklines** — `/tags/{tag}/trend` shows a 30-day sparkline of how often that tag appears, plus a date/count table. JSON API at `/api/tags/{tag}/trend.json`. Useful for tracking how often "standup" or "blocker" actually fired this month.
+- 🔐 **Encrypted KV vault** — `/vault` stores API keys / webhook secrets / SMTP password under a master password. Fernet symmetric encryption, PBKDF2-HMAC-SHA256 with 100k iters and per-key salt. List of stored *names* is visible; values require master password to decrypt. Needs `[backup]` optional dep (cryptography). ⚠️ Heads-up: this re-uses the `/vault` URL — if you had any custom vault routes from a prior version, double-check before deploying.
+- 🎚️ **Screenshot diff slider** — `/diff/{id_a}/{id_b}` overlays two screenshots with a draggable vertical handle that reveals before/after. Pure CSS clip-path + 1-line vanilla JS, no framework. Great for "what did I change between 10:00 and 11:00?". `/diff/random` picks two random shots for demo.
+
+## What landed in v0.32 (day PDF export + theme switcher + adaptive cadence)
+
+Built via 3 parallel Workflow agents → sequential wire-up.
+
+- 📄 **Day PDF export** — `/export/pdf?day=YYYY-MM-DD` produces a printable PDF of any day: title + totals on page 1, then thumbnail + caption + OCR preview per screenshot, then the day's notes. Also from CLI: `persona-cli export-day-pdf --day YYYY-MM-DD --out file.pdf`. Needs `uv pip install reportlab` (reports `missing_dep` until installed).
+- 🎨 **Theme switcher** — `/settings/theme` lets you pick dark / light / auto (auto follows `prefers-color-scheme`). Stored in `kv_setting`, applied server-side via a new `get_theme()` Jinja global so the choice survives reloads with no flash.
+- ⚡ **Adaptive capture cadence** — capture interval now adapts to your activity: <30 s idle → min interval (default 30 s); 30-120 s → base interval; >120 s idle → grows toward max (default 600 s). Composes with v0.26's battery slowdown (adaptive first, then battery multiplier). Saves disk while you're AFK without missing actively-used moments.
+
+## What landed in v0.31 (idle stats + phrase auto-tag + SMTP digest)
+
+Built via 3 parallel Workflow agents → sequential wire-up.
+
+- 💤 **Idle-time stats** — `/idle?day=YYYY-MM-DD` splits each day into active vs idle time using your `idle_seconds` (Win32 `GetLastInputInfo`) plus the same 5-min-gap rule as v0.29's time-on-app. Big H:MM:SS for each bucket, ratio bar, first/last capture times.
+- 🏷️ **OCR phrase auto-tag** — `/settings/phrase-tags` adds literal multi-word rules like `"daily standup" → #standup`. Worker applies them right after OCR + redaction. Different from v0.21's regex auto-tag (these are exact phrases, no regex syntax). Toggle case-sensitivity per rule.
+- 📧 **SMTP digest delivery** — `/settings/smtp` configures your own SMTP server (Gmail, Yandex, Migadu, etc.) and Persona can email your daily/weekly LLM digests to yourself. Opt-in (`smtp_enabled=true`), password masked in the UI, test-send button. Needs `uv pip install aiosmtplib` — Persona reports `missing_dep` status until installed.
+
+## What landed in v0.30 (webhook HMAC + bulk-delete + hour histogram)
+
+Built via 3 parallel Workflow agents → sequential wire-up. v0.30 is the 10th milestone in this autonomous loop.
+
+- 🔐 **Webhook HMAC signing** — every outgoing webhook now ships with `X-Persona-Signature: sha256=…` and `X-Persona-Timestamp: …` headers. Each webhook row gets its own auto-generated `secrets.token_urlsafe(32)` secret on first use. `docs/WEBHOOK_SIGNING.md` has receiver-verify recipes for Python and Node (constant-time compare + replay protection).
+- 🗑️ **Bulk-delete** — `persona-cli delete --query "old screenshot stuff" --confirm` deletes matching shots from CLI; without `--confirm` it dry-runs and prints the count. `/admin/bulk-delete` web page does the same with an HTMX preview + HMAC-token-protected confirm step (you can't accidentally delete by mashing buttons). Cascades to FTS index + thumbnail files.
+- 📊 **Hour-of-day histogram** — `/hours?days=30` shows when you actually capture — 24-bar SVG chart with peak hour labelled. JSON API at `/api/hours.json`. Useful for spotting your real working windows.
+
+## What landed in v0.29 (time-on-app + OCR language switcher + favourites)
+
+Built via 3 parallel Workflow agents → sequential wire-up.
+
+- ⏱️ **Time-on-app dashboard** — `/time-on-app?day=YYYY-MM-DD` sums up active time per app by walking consecutive captures. Gaps over 5 min count as idle so AFK time doesn't inflate any app's number. Table shows H:MM:SS, shot count, and a horizontal bar bar (CSS-only, no JS). `/time-on-app/summary?days=7` aggregates across a window.
+- 🌐 **OCR language switcher** — `/settings/ocr-languages` lists every Tesseract language pack installed on your machine. Tick the boxes and save; the OCR worker picks up the new `eng+rus`-style string with a 60-second TTL cache. No need to restart.
+- ⭐ **Favourites / star** — toggle a ★ on any shot via `POST /api/screenshot/{id}/favourite`; `/favourites` shows the starred grid, newest-first. Separate from pin: pin protects from auto-demotion, favourite is just a personal bookmark.
+
+## What landed in v0.28 (calendar heatmap + top keywords + shot of the day)
+
+Built via 3 parallel Workflow agents → sequential wire-up.
+
+- 📅 **Calendar heatmap** — `/heatmap` shows 365 days of capture activity as a GitHub-style 53×7 SVG grid, with emerald cells bucketed by activity level (pct33/66/90). Hover any cell for date + shot count. JSON API at `/api/heatmap.json`.
+- ☁️ **Top keywords of the week** — `/keywords?days=7&n=30` extracts the most frequent words from your OCR text + notes, filters out ~150 stopwords (English, Russian, technical noise), and renders them as a size-weighted tag cloud. Click any word to jump to `/search?q=...`. Configurable window (7 / 30 / 90 days) and count (15 / 30 / 50).
+- 🎲 **Screenshot of the day** — `/shot-of-the-day` picks one shot from the last 90 days, deterministically seeded by today's date — same shot all day, different shot tomorrow. Bounded to 5000 candidates so memory stays flat.
+
+## What landed in v0.27 (annotations + saved searches + daily streak)
+
+Built via 3 parallel Workflow agents → sequential wire-up.
+
+- 💬 **Per-screenshot annotations** — leave free-form commentary on any single shot. List/add/delete via `/api/screenshot/{id}/annotations` (HTMX-ready). Different from OCR text (auto-extracted), notes (global), and tags (categorical). Cascades on shot deletion.
+- 🔖 **Saved search bookmarks** — pin queries you run often. `/searches` page lists them; clicking one (`/searches/{slug}`) redirects to `/search?q=...`. Separate from the auto-tracked search history added in v0.21 — these are explicit pins, not last-N-recent.
+- 🔥 **Daily-capture streak** — `/streak` page shows current consecutive-days count, longest run ever, last capture date, and today's shot count. JSON API at `/api/streak.json`. Zero-state on empty DB.
+
+## What landed in v0.26 (lock-aware pause + power-aware capture + notes FTS)
+
+Built via 3 parallel Workflow agents → sequential wire-up. Privacy + battery-life focus this tick.
+
+- 🔒 **Lock-aware capture pause** — when Windows is locked (Win+L), the capture loop detects the session state via WTS APIs and skips the iteration. No more useless lock-screen screenshots. On by default; toggle with `PERSONA_LOCK_AWARE_PAUSE_ENABLED=false`.
+- 🔋 **Power-aware capture cadence** — on battery, capture interval is multiplied (default 3×) — fewer shots, less CPU drain. Below `battery_critical_pct` (default 15%), capture pauses entirely. Settings: `PERSONA_BATTERY_AWARE_ENABLED`, `PERSONA_BATTERY_CAPTURE_MULTIPLIER`, `PERSONA_BATTERY_CRITICAL_PCT`. Desktop machines (no battery) unaffected.
+- 🔍 **Notes FTS search** — `/notes/search?q=...` searches across all your notes with `<mark>`-highlighted snippets, ranked by bm25. JSON API at `/api/notes/search.json` for integrations. FTS5 virtual table kept in sync via triggers (insert/update/delete).
+
+## What landed in v0.25 (image-region blur + storage report + notes templates)
+
+Built via 3 parallel Workflow agents → sequential wire-up.
+
+- 🖼️ **Physical image-region blur** — opt-in (`PERSONA_IMAGE_BLUR_ENABLED=true`). After OCR, the worker uses Tesseract's word-level bounding boxes to find regions matching your redaction patterns (emails, tokens, credit cards — same rules as v0.24's text redaction) and Gaussian-blurs those pixels in the saved image. The image at `/screenshot/{id}` now hides the secret visually, not just in search.
+- 📊 **Per-day storage report** — `/storage-report` shows the last 30 days of disk usage: shots taken, thumbnails MB, OCR text KB, total MB. Pure-SVG sparkline (no JS), days over 4 MB highlighted amber, under 4 MB green. Directly tracks your 2–4 MB/day target.
+- 📝 **Notes templates** — `/notes/templates` ships with three starters (Daily standup, Meeting/1:1, Bug investigation). Add your own with a slug + title + Markdown body. `GET /notes/templates/{slug}/apply` returns the body for one-tap paste into any note textarea.
+
+## What landed in v0.24 (bulk-tag CLI + OCR redaction + RSS-per-collection)
+
+Built via 3 parallel Workflow agents → sequential wire-up.
+
+- 🏷️ **Bulk-tag CLI** — `persona-cli tag --add work --query "GPT-4 OR Claude" --limit 1000` applies a tag to every screenshot whose FTS5 MATCH succeeds. `--dry-run` previews the count. `persona-cli untag --remove TAG --query Q` does the inverse. Creates tag rows on the fly.
+- 🔒 **OCR text redaction** — `/settings/redaction` lets you add regex rules. The OCR worker masks every match with `***` before indexing — secrets stay out of FTS5 and out of search results. Ships with starter rules for email, credit-card numbers, and `Bearer …` tokens (all toggleable). The image itself is untouched.
+- 📰 **RSS per auto-collection** — `/collection/{slug}.rss` feeds the latest 50 screenshots for any auto-collection rule (created via v0.23's `/collections`). Public collections are reachable from anywhere; private ones only from loopback. RSS 2.0, RFC-822 pubDate, XML-escaped — drop it into any feed reader.
+
+## What landed in v0.23 (encrypted backup CLI + auto-collections + OCR skip-list)
+
+Built via 3 parallel Workflow agents → sequential wire-up.
+
+- 🔐 **Encrypted backup/restore CLI** — `persona-cli backup --out FILE [--days 30]` packs the SQLite DB (after a WAL checkpoint) plus the last N days of thumbnails into a Fernet-encrypted tarball. Key is PBKDF2-HMAC-SHA256 from the passphrase (100k iters, random salt). `persona-cli restore --in FILE [--yes]` round-trips it back. Passphrase reads from `--password` or `PERSONA_BACKUP_PASSWORD`. Needs `uv pip install -e .[backup]` (cryptography optional dep).
+- 🏷️ **Tag-driven auto-collections** — `/collections` page lets you bind a URL slug to a tag. Visiting `/collection/{slug}` renders every screenshot currently carrying that tag — membership is computed on read, so newly-tagged shots show up instantly. Public rules reachable from anywhere, non-public restricted to loopback. Slugs must match `^[a-z0-9-]{1,40}$`.
+- 🚫 **Per-app OCR skip-list** — `/settings/ocr-skip` page lets you blacklist noisy apps (terminals, fullscreen video, games). Worker short-circuits OCR for those apps, marks the row done with empty text. Form pre-fills suggestions from `DISTINCT app_name` in your DB. Reduces FTS table bloat and saves CPU.
+
+## What landed in v0.22 (doctor + weekly digest + capture-now CLI)
+
+Built via 3 parallel Workflow agents → sequential wire-up.
+
+- 🩺 **persona-doctor diagnostic CLI + web page** — `persona-cli doctor` runs 12 sanity checks (Python version, SQLite + FTS5, data-dir writable, DB integrity via PRAGMA, Tesseract version, fastembed installed, BYO LLM configured, disk free, thumbnails size, recent capture, schema version) with coloured PASS/WARN/FAIL output and proper exit code. Same data renders at `/doctor` with a "What does this mean?" expander.
+- 🗓️ **Weekly LLM digest scheduler** — opt-in (`PERSONA_WEEKLY_DIGEST_ENABLED=true`, `PERSONA_WEEKLY_DIGEST_HOUR_LOCAL=8`). Every Monday at the configured hour, summarises the previous Mon-Sun via BYO LLM into 250-400 words with structured sections (Big themes / Notable moments / What I shipped). Stored at `/digest/weekly-archive/{Monday}`.
+- 📸 **`persona-cli capture`** — single-shot capture from the terminal. `--app NAME` overrides window detection, `--quiet` prints only the integer id (pipe-friendly). New `scripts\\capture_now.bat` and `docs\\CAPTURE_HOTKEY.md` show how to bind it to AutoHotkey v2 / PowerToys Run / a Windows shortcut for one-tap snapshots.
+
+## What landed in v0.21 (archive search + regex auto-tag + search history)
+
+Built via 3 parallel Workflow agents → sequential wire-up.
+
+- 🗄️ **Archive browse / search** — `/archive/browse` (recent) and `/archive/search?q=` (FTS5) now expose the cold-storage satellite SQLite that the archive worker spins up after 180 days. No thumbnails, just text + metadata.
+- 🤖 **Regex auto-tag rules** — `/regex-rules` admin: define `/invoice/i` → tag "invoice"; whenever OCR finishes on a screenshot whose text matches an enabled rule, the tag gets auto-attached. Rule rows track `match_count` and `last_matched_at`. Live regex tester on the same page (debounced Alpine).
+- 🕰️ **Search history** — every successful query is recorded (top 50 by recency); `/search` now shows "Recent" chip-row above the results. Per-chip `×N` use-counter, tooltip with last_used_at. "clear history" link.
+- 🧪 Tests for regex CRUD/validation/apply-creates-tags/disabled-skipped + search-history record/list/clear + archive pages + regex test endpoint.
+
+## What landed in v0.20 (share-collection + OCR reset + webhook test-fire)
+
+Built via 3 parallel Workflow agents → sequential wire-up.
+
+- 🔗 **Shareable collection link** — `POST /api/share/collection?screenshot_ids=...&title=...&ttl_hours=24` returns a signed URL like `/share/collection/<token>` that renders a tiny gallery page. Reuses the same HMAC machinery as the single-screenshot share. Persisted in new `share_collections` table; respects `expires_unix`.
+- 🔄 **OCR reset admin** — `/ocr-admin` page with status counters and three big buttons (reset skipped / failed / all). Also a `POST /api/screenshots/{id}/reset-ocr` for single-row reset. Plus a `persona-cli reset-ocr [--scope skipped|failed|all]` subcommand.
+- 🧪 **Webhook test-fire** — every row on `/webhooks` now has a "test" button that fires a synthetic payload via the existing dispatcher. Useful for verifying a subscriber endpoint without waiting for a real event.
+
+## What landed in v0.19 (CLI + quiet hours + reminder→screenshot)
+
+Built via 3 parallel Workflow agents → sequential wire-up.
+
+- 🖥 **Standalone CLI** — `python -m app stats|search|export-day|vacuum-db|ocr-status` (also `persona-cli` after `uv sync`). Query the memory from terminal without launching the web app. `vacuum-db` reports bytes reclaimed; `export-day` dumps the same markdown as `/api/export/journal.md`; `search` runs FTS5 with truncated snippets.
+- 🌙 **Quiet hours** (`/quiet-hours`) — weekly recurring schedule for auto-pausing capture (e.g. Mon-Fri 23:00-07:00, weekends off). Capture loop checks at every tick, increments idle-skip counter without flipping the visible Paused state.
+- ⏰ **Reminder ⇄ screenshot link** — on any screenshot detail page, a small "Remind me" widget creates a tomorrow-by-default reminder attached to that screenshot. The reminder row gains a 🖼 #N link back to the moment. New `POST /api/screenshots/{id}/remind` endpoint.
+- 🧪 Tests for quiet-hours CRUD/validation/is_quiet_now match+miss/empty + reminder-screenshot linking + page render + remind API + CLI import smoke.
+
+## What landed in v0.18 (custom ranges + per-app cadence + diff picker)
+
+Built via 3 parallel Workflow agents → sequential wire-up.
+
+- 📅 **Custom date-range timeline** (`/range`) — pick any since/until window up to 90 days. Quick-presets: Last 7 / Last 30 / This week / This month. Silently swaps reversed input.
+- 🐢 **Per-app capture-interval override** (`/app-overrides`) — give Slack a 2-second cadence and Spotify a 30-second one. The capture loop reads the table after determining the foreground app and adjusts its sleep accordingly.
+- ↔️ **Diff picker** (`/diff-picker?left=ID`) — pick a screenshot, get a grid of same-app same-day candidates to compare. Each thumbnail is a click-through to `/diff?left=X&right=Y`.
+- 🧪 Tests for override CRUD + range edge cases (default, invalid date, reversed swap, with data) + diff picker (empty + with left).
+
+## What landed in v0.17 (bulk pin + RSS-per-search + sparklines)
+
+- 📌 **Bulk-pin from search** — checkbox + "Pin" button next to bulk-tag, pins all selected.
+- 📡 **Per-saved-search RSS feed** — `/feeds/saved-search/{id}.rss`. Each saved search now has a tiny RSS icon next to it on `/tags`. Drop into your reader to watch a query.
+- 📈 **14-day sparkline on Apps index** — every app row shows a tiny vertical bar chart of last-14-day activity. Filter input still works.
+- 🧪 Tests for bulk-pin (happy + validation) + saved-search RSS (happy + 404).
+
+## What landed in v0.16 (navigation + bulk tag)
+
+- ⬅️ ➡️ **Prev / next screenshot navigation** — buttons + ← → keyboard on every screenshot detail page (input fields don't grab the keys). "back to YYYY-MM-DD →" link returns to that day's timeline.
+- 🏷️ **Bulk-tag from search** — checkbox on every search result + sticky bulk-tag input. Type a name, hit Apply, the tag is auto-created if needed and bound to every selected screenshot.
+- 🧪 Tests for neighbour lookup (happy / first / last / missing) + bulk-apply happy path + validation (empty tag / empty ids / non-numeric).
+
+## What landed in v0.15 (day-journal export + about page + tag chips)
+
+- 📓 **Per-day journal Markdown** — `/api/export/journal.md?date=YYYY-MM-DD` bundles the day's auto-digest, focus sessions, every note, and top apps into one portable .md. Download link added to the weekly digest header.
+- 🪪 **`/about` feature dashboard** — pills for each optional bit (OCR, semantic, BYO LLM, auto-digest, tiered retention, smart thumb, multi-monitor, archive, vault, webhooks), tally cards, and a grid of all the hidden routes that aren't in the nav.
+- 🏷️ **Tag chips on timeline cards** — every screenshot card on the timeline now shows up to 3 colour-coded tag chips with overflow indicator.
+- 🧪 Tests for /about render, journal export edge cases, bulk get_tags_for_many.
+
+## What landed in v0.14 (rename apps + tag colour edit + saved-search alerts)
+
+- 🏷️ **Process rename** — `/process-remap` lets you map `whatever.exe` → "Pretty Name". Built-in mappings (Chrome, VS Code, …) still apply for everything you don't override. Suggested list shows your top processes that don't yet have a custom rename. Applied at capture time, future captures only (old screenshots keep their old `app_name`).
+- 🎨 **Tag colour picker** — clickable colour swatch next to each tag on `/tags` updates the colour live via `/api/tags/{id}/color` (hex validated).
+- 🔔 **Saved-search "N new" badge** — each saved search on `/tags` shows how many new matches landed since you last opened it. Click marks as seen.
+- 🧪 Tests for process remap CRUD + tag colour set/clear/reject-invalid + saved-search new-count / mark-seen lifecycle.
+
+## What landed in v0.13 (tag admin + per-tag stats + reading export)
+
+- 🏷️ **Tag rename / merge / delete** — every tag's `/tags/{id}` page now has a Manage section with three controls. Rename auto-merges into an existing target with the same name. Merge moves all bindings + deletes the source. Delete cascades to remove the tag from every screenshot.
+- 📈 **Per-tag stats** — same tag detail page now shows a 60-day activity bar chart + "often appears with" co-tag chart.
+- 📄 **Reading-list markdown export** — `↓ markdown` button on `/reading` produces a portable `.md` file.
+- 🧪 Tests for rename / merge / merge-into-existing / merge-self / delete / co-tag-counts / per-day.
+
+## What landed in v0.12 (auto-tag + advanced filters)
+
+- 🏷️ **AI-suggested tags** — the Tags section of every screenshot detail page now has a `✨ Suggest tags via AI` button. The LLM reads OCR+window title and proposes 3-5 short tags. Tap to select, then Apply. Robust JSON-extraction parser handles LLM preamble, lowercases, dedups, supports Russian and English. Skipped for private screenshots.
+- 🔍 **Advanced search filters** — `/search` now sports `tier` (any / hot / warm / cold / pinned), exact `tag`, exact `app`, and date-range pickers as post-filters on the merged FTS+semantic hits. State is in the URL so you can bookmark filtered queries.
+
+## What landed in v0.11 (private vault + LLM note autocomplete)
+
+- 🔒 **Private vault** — Click "Make private" on any screenshot, give it a passphrase, and the OCR text + thumbnail get encrypted with AES-256-GCM (PBKDF2 600k). Plaintext is deleted from disk and DB. Viewing requires re-entering the passphrase; decryption happens in-memory and never writes back unless you explicitly Restore. List of vaulted items at `/vault`.
+- 🤖 **LLM note draft** — Tiny `📝 Draft note` action on screenshot detail (BYO LLM) writes a 1-2 sentence journal note from the OCR + window title. Russian or English depending on what's on screen.
+- 🧪 Vault encrypt/decrypt/restore/wrong-pass tests using cryptography lib (skipped if unavailable).
+
+## What landed in v0.10 (focus + reminders + reading list)
+
+- 🍅 **Focus mode** (`/focus`) — Pomodoro-style timer with 15/25/50/90 min presets, intent ("what I'm focusing on") and outcome fields, today's completed count. Auto-pauses screen capture during the block, resumes when you finish. Sessions are logged.
+- 📝 **Reminders** (`/reminders`) — short todos pinned to a single day, with an "overdue" panel showing pending items from earlier days. Not your task manager — just things you don't want to forget today.
+- 📚 **Reading list** (`/reading`) — `📚 Read later` button on every screenshot detail page; reading-list view with optional "include read" toggle, marks items read when you click in.
+- 🧭 Nav re-shuffled to surface these three; Topics, Time-sheet, Tabs etc. are still one Cmd+K away.
+
+## What landed in v0.9 (mobile + extensions + webhooks)
+
+- 📱 **`/m` mobile companion** — text-only stripped page tuned for phones: search box, recent notes, yesterday's digest excerpt, today's 30 captures. Same backend; just lighter.
+- 🪝 **Outbound webhooks** — subscribe HTTPS endpoints to events (`capture.saved`, `digest.daily_generated`, etc.). Optional HMAC-SHA256 signing via the `X-Persona-Signature` header. Manage at `/webhooks`.
+- 🌐 **Browser-extension scaffold** — MV3 extension in `browser-extension/` that posts the URL+title of your focused tab once a minute. View ingested tabs at `/companion/tabs` with top-domains chart. Strict CORS — only chrome-extension://* and moz-extension://* origins allowed.
+- 🧪 Tests cover companion ingest validation, webhooks CRUD, mobile page rendering.
+
+## What landed in v0.8 (analytics + ergonomics)
+
+- ⏱️ **Per-app time-sheet** — `/timesheet?date=YYYY-MM-DD` shows how many minutes you really spent in each app today. Counts consecutive same-app captures within 5-min gaps; isolated frames get the tick interval. Click an app to drill into its `/apps/{name}` page.
+- 🌳 **1-year contributions heatmap** — GitHub-style grid on Stats, click any day-cell to open that day's timeline.
+- ⌨️ **Cmd+K / Ctrl+K command palette** — fuzzy-search across all routes, ↑↓ to navigate, Enter to go, Esc to close. Works everywhere in the app.
+- 🔄 **`scripts/rebuild_embeddings.py`** — drop & re-index after model change.
+
+## What landed in v0.7 (polish + shareable)
+
+- 🔥 **Streak counter** — current consecutive days, longest streak, 30-day-activity ratio, total active days. Visible in Stats.
+- 🌞 **Light mode actually works** — `html:not(.dark)` CSS overrides remap the dark `ink-` palette to off-white so existing templates look passable in light mode. Toggle via ☀/☾ in header (already shipped in v0.5, just no point earlier).
+- 📰 **RSS feed of journal** — `/feeds/journal.rss` (RSS 2.0, valid, CDATA-escaped). Subscribe to your own past in any reader.
+- 🔗 **Time-limited signed share links** — POST `/api/screenshots/{id}/share` returns `/share/{token}` + thumbnail URL. Token is HMAC-SHA256 over `id|expires|purpose` keyed with `data/.share_secret`. 24-hour TTL by default. Useful when you tunnel Persona temporarily and want to send a single screenshot to someone.
+- 🔍 **Apps fuzzy filter** — instant Alpine filter on the Apps index.
+- 🧪 Three new test modules: streak math, share-link sign/verify, RSS smoke test.
+
+## What landed in v0.6 (discovery + automation)
+
+- 🖼️ **App icons** — Persona pulls the .exe icon for each running app (Windows-only, via ctypes / shell32) and caches it as 32×32 PNG in `data/icons/`. Now the Apps page shows real icons; `/icons/{name}.png` is the serving route.
+- 🧠 **Topic discovery** — `/topics` page runs pure-Python k-means over your stored embeddings to surface "themes" in your recent captures. Each cluster gets an auto-label from frequent OCR tokens (RU+EN stopword-aware). Tunable `k` slider (2-24). Requires `PERSONA_EMBEDDINGS_ENABLED=true`.
+- 🌙 **Auto daily digest** — set `PERSONA_AUTO_DIGEST_ENABLED=true` + `PERSONA_AUTO_DIGEST_HOUR_LOCAL=22` (default 22:00 local) and Persona generates your day-end LLM summary itself. Stored in `daily_digest` table, indexed at `/digest/daily`, individual at `/digest/daily/{YYYY-MM-DD}`.
+- 🧭 Nav cleaned up: **Topics** + **Apps** promoted, Tags / Help moved out (still reachable directly).
+
+## What landed in v0.5 (visibility + multi-monitor + export)
+
+- 🖥️ **Multi-monitor capture** — flip `PERSONA_MULTI_MONITOR=true` and every connected display gets its own capture record. Dedup runs per-monitor (so each display has its own pHash space).
+- 📂 **Per-app pages** — `/apps` lists every app you've used, sorted by capture count. `/apps/{name}` drills in: 30-day activity chart, top window titles, latest 24 captures.
+- 📅 **Weekly digest** — `/digest/weekly` shows the past 7 days at a glance: captures total, days active, busiest day, top apps, every note you wrote. Walk backwards with `?weeks_ago=N`.
+- ☀ **Theme toggle** in the header (sun/moon icon, localStorage-persisted, no flash on first paint).
+- 📦 **`/api/export/full.zip`** — single-click migration archive: full DB snapshot + all thumbnails + manifest.
+- 🔴 **Live timeline** — header polls `/api/timeline/new-count` every 15s; a clickable "N new captures" chip appears so you don't need to F5.
+- Navigation cleaned up: Apps + Digest promoted into the nav bar, Summary moved into Settings → AI (still reachable at `/summary/`).
+
+## What landed in v0.4 (privacy + Q&A)
+
+- 🔐 **Passphrase-encrypted backup** — `scripts/encrypted_backup.py` produces a single `.pbkx` file: DB + manifest + last-N-days thumbnails, encrypted with AES-256-GCM (PBKDF2-HMAC-SHA256, 600k iterations). Format is documented in `app/backup/crypto.py` — anyone can write a decryptor. Restore via `--restore path.pbkx --restore-dir out/`.
+- 🧊 **Auto-archive** to satellite SQLite — once a screenshot has been `cold` for `archive_after_days` (default 180), its row + OCR move to `data/persona_archive.db` (with its own FTS5 index). The live DB stays tiny forever; archive is opt-in via `PERSONA_ARCHIVE_ENABLED=true`.
+- 🤔 **Q&A over your memory** — new `/ask` page. Ask in plain Russian/English: "когда я последний раз обсуждал auth?" The retriever runs semantic + FTS in parallel, top-K screenshots become context, your BYO LLM answers with `[#id]` citations to specific captures. No hallucinations allowed — system prompt forbids it.
+- 📁 New `app/backup/` package + `app/storage/archive.py` module.
+- 🌐 New endpoints: `/api/ask`, `/api/archive/status`, `/api/archive/run`.
+
+## What landed in v0.3 (size-budget release — your goal: 2-4 MB/day)
+
+- 🎯 **Smart-thumbnail capture** — thumbnails saved only when (a) same app hasn't had a thumb for `smart_min_gap_seconds` (default 180s) AND (b) you're under today's MB budget. Otherwise we keep only metadata + OCR + embedding (~1KB total). At default settings this brings a typical 8h workday to **2-4 MB**.
+- 🌡️ **Tiered storage** — `hot` (full thumb, recent) → `warm` (320px q=30, 8-30d) → `cold` (metadata only, 30+d). Re-compression saves ~70% of historic disk. Old metadata + OCR stays forever for search.
+- 📌 **Pin** — mark a screenshot pinned and it's never demoted. Perfect for "this moment matters". Visible on detail page + small 📌 badge on timeline.
+- 📊 **Live budget badge in header** — green / amber / red MB count, links to Stats.
+- 📈 **Stats: size-budget card** — today's MB vs target + 14-day bar chart (bars turn red on over-budget days) + 4-tier counter card.
+- 🔧 **`scripts/recompress_tiers.py`** — manually rebalance after changing tier settings.
+- ⚙️ **Tighter defaults** — thumbnail q=45 (was 60), max width 900 (was 1280), retention 180d (was 30). All overridable via `.env`.
+
+## What landed in v0.2 (the flagship features)
+
+- 🧠 **Semantic search via local ONNX embeddings** — flagship feature. `fastembed` + `intfloat/multilingual-e5-small` (~120MB, downloaded on first use). Ask "what was that auth bug I was debugging?" — even if those exact words never appeared on screen.
+- 🎯 **Hybrid ranking** — keyword (FTS5) + semantic results merged into one list. Mode toggle in the search UI.
+- 📓 **Journal view** (`/journal`) — every screenshot you wrote a note on, grouped by day, markdown-rendered.
+- ✍️ **Markdown notes** with Write/Preview toggle (markdown-it via CDN).
+- 🆘 **Help page** (`/help`) — shortcuts, search-mode guide, privacy reminders, CLI cheatsheet.
+- 🚨 **Bulk delete** by app or by date range (Settings → Danger zone).
+- 🪟 **Top windows** alongside Top apps in Stats.
+- 📊 **Live indexing badges** in header — see how many screenshots still need OCR / embeddings.
+- 🧹 **Orphan-thumbnail cleanup** script.
+- Better empty states throughout.
+
+## How to run
+
+```powershell
+cd C:\www-Yaroslav\Persona
+uv sync
+copy .env.example .env
+uv run python scripts/setup_database.py
+uv run python scripts/check_environment.py
+uv run uvicorn app.web.main:app --host 127.0.0.1 --port 8765
+```
+
+Empty DB redirects to `/welcome`. Click **Start** in the header.
+
+### Enable semantic search (recommended)
+
+```powershell
+uv sync --extra embeddings
+```
+
+Then in `.env`:
+
+```
+PERSONA_EMBEDDINGS_ENABLED=true
+```
+
+Restart. fastembed downloads `multilingual-e5-small` (~120MB) on first use into `data/models/`. The embeddings worker indexes existing OCR'd screenshots automatically.
+
+### Enable OCR
+
+```
+PERSONA_TESSERACT_PATH=C:\Program Files\Tesseract-OCR\tesseract.exe
+PERSONA_OCR_ENABLED=true
+```
+
+After installing Tesseract from <https://github.com/UB-Mannheim/tesseract/wiki>.
+
+### Enable AI daily summary
+
+```
+PERSONA_BYO_API_PROVIDER=anthropic   # or openai, groq
+PERSONA_BYO_API_KEY=sk-ant-...
+```
+
+Then visit `/summary/`. Requests go directly to the provider — Persona never sees your key in the cloud.
+
+## Routes (22)
+
+| Route | Purpose |
+|---|---|
+| `/` | Timeline (redirects to /welcome on empty DB) |
+| `/calendar` | Month-at-a-glance |
+| `/search` | Keyword + semantic search with mode toggle |
+| `/journal` | Notes-only diary, markdown-rendered |
+| `/tags`, `/tags/{id}` | Tag list + detail |
+| `/diff?left=X&right=Y` | OCR token diff + pHash hamming |
+| `/sessions?date=...` | Focus-session clustering |
+| `/screenshot/{id}` | Detail with OCR, note (markdown), tags, diff-vs-previous |
+| `/summary/` | BYO LLM daily summary |
+| `/stats` + `/stats.json` | Top apps / top windows / heatmap / OCR breakdown |
+| `/settings` | Config + Tesseract probe + Danger-zone bulk delete |
+| `/whitelist` | Process allow/deny lists |
+| `/welcome` | First-run onboarding |
+| `/help` | Keyboard shortcuts + tips |
+| `/health` | Liveness probe |
+| `/api/capture/{start,pause,status,now}` | Capture control + manual single shot |
+| `/api/ocr/status` | OCR pipeline progress |
+| `/api/embeddings/status` | Embeddings pipeline progress |
+| `/api/export/{day,range,search.csv,search.md}` | Exports |
+| `/api/tags`, `/api/saved-searches` | Manipulation |
+| `/api/screenshots/{id}/{tags,note}` | Per-shot manipulation |
+| `/api/bulk/{delete-by-app,delete-by-range}` | Bulk deletes |
+| `/thumbs/...` | Serve WebP thumbnails |
+
+## Recommended next steps for you
+
+1. Run the quickstart. Open the UI. Click around.
+2. `uv run pytest -q` to see test suite status (some Windows-only tests may skip elsewhere).
+3. `uv run ruff format --check . && uv run ruff check . && uv run mypy app`
+4. Try semantic search after enabling — ask vague questions, see if it finds things FTS missed.
+5. Live with it for a few days. Take notes in the Journal. That feedback is the input for v0.3.
+
+## Backlog ideas (not implemented)
+
+- Multi-monitor support
+- Cloud sync (BYO R2/B2 bucket → encrypted blobs)
+- Zero-knowledge encryption (Age/AES-256 + passphrase-derived key)
+- macOS capture via ScreenCaptureKit
+- Mobile note-only client
+- Server-Sent Events for live timeline updates
+- LLM-powered Q&A over your captures (not just summaries)
+- Auto-archive: roll old screenshots into a separate compressed DB after N months
+- Reproducible builds + code-signed installer
+
+— Claude

@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Search</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Find anything from your past — keywords, exact phrases, or natural-language questions.
+  </p>
+</div>
+
+<form hx-get="/search" hx-target="#results" hx-push-url="true" hx-trigger="submit, keyup changed delay:400ms from:input[name=q], change from:select[name=mode]"
+      class="mb-6 space-y-3">
+  <div class="flex items-center gap-3">
+    <input type="text" name="q" value="{{ query }}"
+           placeholder="meeting with anna · or · &quot;auth token&quot; · or · ask in plain words"
+           autofocus
+           class="flex-1 px-4 py-2.5 bg-ink-800 border border-ink-700 rounded-lg
+                  placeholder:text-zinc-600 focus:outline-none focus:border-accent-500
+                  font-mono text-sm">
+    <select name="mode"
+            class="px-3 py-2.5 bg-ink-800 border border-ink-700 rounded-lg text-sm">
+      <option value="hybrid" {% if mode == 'hybrid' %}selected{% endif %}>Hybrid</option>
+      <option value="fts" {% if mode == 'fts' %}selected{% endif %}>Keywords</option>
+      <option value="semantic" {% if mode == 'semantic' %}selected{% endif %}
+              {% if not embeddings_available or not embeddings_enabled %}disabled{% endif %}>
+        Semantic{% if not embeddings_available or not embeddings_enabled %} (off){% endif %}
+      </option>
+    </select>
+    <button type="submit" class="px-5 py-2.5 bg-accent-600 hover:bg-accent-500 rounded-lg font-medium transition">
+      Go
+    </button>
+  </div>
+  <div class="flex flex-wrap items-center gap-3 text-xs">
+    <label class="text-zinc-500">Tier:</label>
+    {% for t in ['', 'hot', 'warm', 'cold', 'pinned'] %}
+      <label class="flex items-center gap-1 cursor-pointer">
+        <input type="radio" name="tier" value="{{ t }}" {% if (tier or '') == t %}checked{% endif %}>
+        <span class="text-zinc-300">{{ t or 'any' }}</span>
+      </label>
+    {% endfor %}
+    <span class="text-zinc-700">|</span>
+    <input name="tag" value="{{ tag or '' }}" placeholder="exact tag name"
+           class="px-2 py-1 bg-ink-900 border border-ink-700 rounded font-mono text-xs">
+    <input name="app" value="{{ app_name or '' }}" placeholder="exact app name"
+           class="px-2 py-1 bg-ink-900 border border-ink-700 rounded font-mono text-xs">
+    <input type="date" name="since" value="{{ (since or '')[:10] }}"
+           class="px-2 py-1 bg-ink-900 border border-ink-700 rounded font-mono text-xs">
+    <span class="text-zinc-600">→</span>
+    <input type="date" name="until" value="{{ (until or '')[:10] }}"
+           class="px-2 py-1 bg-ink-900 border border-ink-700 rounded font-mono text-xs">
+  </div>
+
+  {% if not embeddings_enabled %}
+    <p class="text-zinc-500 text-xs">
+      Semantic search is off. Set <code class="text-accent-400">PERSONA_EMBEDDINGS_ENABLED=true</code>
+      and install the extra: <code class="text-accent-400">uv sync --extra embeddings</code>.
+    </p>
+  {% elif not embeddings_available %}
+    <p class="text-amber-400 text-xs">
+      Semantic search enabled in .env but <code>fastembed</code> is not installed.
+      Run <code class="text-accent-400">uv sync --extra embeddings</code>.
+    </p>
+  {% endif %}
+</form>
+
+{% if recent_searches %}
+<div id="recent-searches" class="mb-6">
+  <div class="flex items-center justify-between mb-2">
+    <h2 class="text-xs uppercase tracking-wider text-zinc-500">Recent</h2>
+    <button type="button"
+            onclick="fetch('/api/search-history/clear', {method: 'POST'}).then(function(){ var el = document.getElementById('recent-searches'); if (el) el.remove(); });"
+            class="text-xs text-zinc-500 hover:text-red-400 transition">
+      clear history
+    </button>
+  </div>
+  <div class="flex flex-wrap gap-2">
+    {% for r in recent_searches %}
+      <a href="/search?q={{ r.query | urlencode }}&mode={{ r.mode | urlencode }}"
+         class="inline-flex items-center gap-1.5 px-3 py-1 bg-ink-800 hover:bg-ink-700 border border-ink-700 rounded-full text-xs text-zinc-300 transition"
+         title="used {{ r.use_count }}× · last {{ r.last_used_at }}">
+        <span class="font-mono">{{ r.query }}</span>
+        {% if r.use_count > 1 %}
+          <span class="text-zinc-500">×{{ r.use_count }}</span>
+        {% endif %}
+      </a>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<div id="results">
+  {% include "_search_results.html" %}
+</div>
+{% endblock %}

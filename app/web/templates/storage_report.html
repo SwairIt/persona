@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+
+{% block content %}
+{# ---- helpers (binary units, 1 decimal) ---- #}
+{% macro humanize_bytes(n) -%}
+  {%- if n is none -%}—
+  {%- elif n < 1024 -%}{{ n }} B
+  {%- elif n < 1024 * 1024 -%}{{ (n / 1024) | round(1) }} KB
+  {%- elif n < 1024 * 1024 * 1024 -%}{{ (n / 1024 / 1024) | round(1) }} MB
+  {%- else -%}{{ (n / 1024 / 1024 / 1024) | round(1) }} GB
+  {%- endif -%}
+{%- endmacro %}
+
+{# ---- constants ---- #}
+{% set warn_bytes = 4 * 1024 * 1024 %}
+{% set chrono = rows | reverse | list %}
+{% set max_total = (rows | map(attribute='total_bytes') | max) if rows else 0 %}
+
+<div class="mb-6 flex items-end justify-between flex-wrap gap-3">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Storage report</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Day-by-day disk footprint for the last <strong class="text-zinc-300">{{ days_window }}</strong> days.
+      Target: <strong class="text-zinc-300">{{ budget_mb }} MB/day</strong>
+      (warn above <strong class="text-amber-400">4 MB</strong>).
+    </p>
+  </div>
+  <a href="/stats" class="text-xs text-zinc-500 hover:text-accent-400 underline">
+    ← back to stats
+  </a>
+</div>
+
+{# ---- grand totals ---- #}
+<section class="mb-6 grid grid-cols-2 md:grid-cols-4 gap-3">
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs text-zinc-500">Grand total</div>
+    <div class="text-2xl font-bold mt-1">{{ humanize_bytes(grand_total_bytes) }}</div>
+    <div class="text-xs text-zinc-500 mt-1">avg {{ humanize_bytes(avg_total_bytes) }}/day</div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs text-zinc-500">Thumbnails</div>
+    <div class="text-2xl font-bold mt-1">{{ humanize_bytes(grand_thumbnails_bytes) }}</div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs text-zinc-500">OCR text</div>
+    <div class="text-2xl font-bold mt-1">{{ humanize_bytes(grand_ocr_bytes) }}</div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs text-zinc-500">Screenshots</div>
+    <div class="text-2xl font-bold mt-1">{{ "{:,}".format(grand_screenshots) }}</div>
+  </div>
+</section>
+
+{# ---- sparkline (pure SVG, oldest → newest) ---- #}
+<section class="mb-8 rounded-lg border border-ink-700 bg-ink-800 p-5">
+  <div class="flex items-center justify-between mb-3">
+    <div>
+      <h2 class="text-sm font-semibold text-zinc-300">Total bytes per day</h2>
+      <p class="text-zinc-500 text-xs mt-0.5">
+        Oldest left → newest right. Peak: <strong class="text-zinc-300">{{ humanize_bytes(max_total) }}</strong>.
+      </p>
+    </div>
+  </div>
+
+  {% if chrono and max_total > 0 %}
+    {% set svg_w = 320 %}
+    {% set svg_h = 40 %}
+    {% set step = (svg_w / (chrono | length - 1)) if (chrono | length) > 1 else 0 %}
+    {% set warn_y = (svg_h - (warn_bytes / max_total) * svg_h) if max_total >= warn_bytes else -1 %}
+
+    <svg viewBox="0 0 {{ svg_w }} {{ svg_h }}" width="{{ svg_w }}" height="{{ svg_h }}"
+         class="block" preserveAspectRatio="none" role="img" aria-label="Daily total bytes sparkline">
+
+      {%- if warn_y >= 0 %}
+      <line x1="0" x2="{{ svg_w }}" y1="{{ warn_y | round(2) }}" y2="{{ warn_y | round(2) }}"
+            stroke="#f59e0b" stroke-width="0.5" stroke-dasharray="2,2" opacity="0.6"/>
+      {%- endif %}
+
+      {%- set pts = [] %}
+      {%- for row in chrono %}
+        {%- set x = (loop.index0 * step) if (chrono | length) > 1 else (svg_w / 2) %}
+        {%- set y = svg_h - ((row.total_bytes / max_total) * svg_h) %}
+        {%- set _ = pts.append("%.2f,%.2f" | format(x, y)) %}
+      {%- endfor %}
+
+      <polyline fill="none" stroke="#a78bfa" stroke-width="1.5"
+                stroke-linejoin="round" stroke-linecap="round"
+                points="{{ pts | join(' ') }}"/>
+
+      {%- for row in chrono %}
+        {%- set x = (loop.index0 * step) if (chrono | length) > 1 else (svg_w / 2) %}
+        {%- set y = svg_h - ((row.total_bytes / max_total) * svg_h) %}
+        {%- set fill = '#f59e0b' if row.total_bytes > warn_bytes else '#10b981' %}
+        <circle cx="{{ x | round(2) }}" cy="{{ y | round(2) }}" r="1.5" fill="{{ fill }}">
+          <title>{{ row.date }} — {{ humanize_bytes(row.total_bytes) }}</title>
+        </circle>
+      {%- endfor %}
+    </svg>
+
+    <div class="flex justify-between text-[10px] text-zinc-500 mt-1 font-mono">
+      <span>{{ chrono[0].date }}</span>
+      <span>{{ chrono[-1].date }}</span>
+    </div>
+  {% else %}
+    <p class="text-zinc-500 text-xs">No data yet — capture some screenshots first.</p>
+  {% endif %}
+</section>
+
+{# ---- table (newest first) ---- #}
+<section class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-ink-900/60 text-xs uppercase tracking-wide text-zinc-500">
+      <tr>
+        <th class="px-4 py-2 text-left font-medium">Date</th>
+        <th class="px-4 py-2 text-right font-medium">Shots</th>
+        <th class="px-4 py-2 text-right font-medium">Thumbnails (MB)</th>
+        <th class="px-4 py-2 text-right font-medium">OCR (KB)</th>
+        <th class="px-4 py-2 text-right font-medium">Total (MB)</th>
+        <th class="px-4 py-2 text-left font-medium w-40">Bar</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-ink-700">
+      {% for row in rows %}
+        {% set over = row.total_bytes > warn_bytes %}
+        {% set has_data = row.total_bytes > 0 %}
+        {% set bar_pct = ((row.total_bytes / max_total) * 100) if max_total else 0 %}
+        <tr class="hover:bg-ink-700/40">
+          <td class="px-4 py-2 font-mono text-zinc-400">{{ row.date }}</td>
+          <td class="px-4 py-2 text-right font-mono text-zinc-300">{{ row.screenshots }}</td>
+          <td class="px-4 py-2 text-right font-mono text-zinc-300">
+            {{ (row.thumbnails_bytes / 1024 / 1024) | round(1) }}
+          </td>
+          <td class="px-4 py-2 text-right font-mono text-zinc-300">
+            {{ (row.ocr_bytes / 1024) | round(1) }}
+          </td>
+          <td class="px-4 py-2 text-right font-mono font-semibold
+                     {% if not has_data %}text-zinc-600
+                     {% elif over %}text-amber-400
+                     {% else %}text-emerald-400{% endif %}">
+            {{ (row.total_bytes / 1024 / 1024) | round(1) }}
+          </td>
+          <td class="px-4 py-2">
+            <div class="bg-ink-900 rounded h-2 overflow-hidden" title="{{ humanize_bytes(row.total_bytes) }}">
+              <div class="h-full {% if over %}bg-amber-500{% else %}bg-emerald-500/70{% endif %}"
+                   style="width: {{ bar_pct | round(2) }}%"></div>
+            </div>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6" class="px-4 py-6 text-center text-zinc-500 text-xs">No data.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<p class="text-xs text-zinc-500 mt-4">
+  1 KB = 1024 B. Thumbnails measured from <code class="text-zinc-400">data/thumbnails/</code>;
+  OCR storage estimated as <code class="text-zinc-400">LENGTH(ocr_text)</code>.
+</p>
+{% endblock %}

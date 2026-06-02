@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-8">
+  <h1 class="text-2xl font-bold tracking-tight">Compare two screenshots</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Enter two screenshot IDs to inspect their OCR diff and pHash distance.
+  </p>
+</div>
+
+<form action="/diff" method="get"
+      class="grid sm:grid-cols-[1fr_1fr_auto] gap-3 items-end mb-10
+             rounded-lg border border-ink-700 bg-ink-800 p-5">
+  <div>
+    <label for="left" class="block text-xs uppercase tracking-widest text-zinc-500 mb-1">
+      Left (older)
+    </label>
+    <input id="left" name="left" type="number" min="1" required
+           value="{{ left_id if left_id is not none else '' }}"
+           placeholder="e.g. 1234"
+           class="w-full rounded-md bg-ink-900 border border-ink-700 px-3 py-2
+                  text-zinc-100 font-mono focus:outline-none focus:border-accent-500">
+  </div>
+  <div>
+    <label for="right" class="block text-xs uppercase tracking-widest text-zinc-500 mb-1">
+      Right (newer)
+    </label>
+    <input id="right" name="right" type="number" min="1" required
+           placeholder="e.g. 1235"
+           class="w-full rounded-md bg-ink-900 border border-ink-700 px-3 py-2
+                  text-zinc-100 font-mono focus:outline-none focus:border-accent-500">
+  </div>
+  <button type="submit"
+          class="px-4 py-2 rounded-md bg-accent-600 hover:bg-accent-500 text-white font-medium">
+    Compare →
+  </button>
+</form>
+
+{% if left_id is not none %}
+  <section class="space-y-6">
+    {% if left_shot is none %}
+      <div class="rounded-lg border border-rose-700/40 bg-rose-900/10 p-5 text-sm text-rose-200">
+        Screenshot <span class="font-mono">#{{ left_id }}</span> not found.
+      </div>
+    {% else %}
+      <div class="grid md:grid-cols-[16rem_1fr] gap-5 rounded-lg border border-ink-700 bg-ink-800 p-5">
+        <a href="/screenshot/{{ left_shot.id }}"
+           class="block rounded-md overflow-hidden bg-ink-900 border border-ink-700
+                  hover:border-accent-500 transition">
+          {% if left_shot.thumbnail_path %}
+            <div class="aspect-video overflow-hidden">
+              <img src="{{ left_shot.thumbnail_path | thumbnail_url }}"
+                   alt=""
+                   loading="lazy"
+                   class="w-full h-full object-cover">
+            </div>
+          {% else %}
+            <div class="aspect-video flex items-center justify-center text-zinc-600 text-xs">
+              metadata only
+            </div>
+          {% endif %}
+        </a>
+        <div class="text-sm space-y-1.5">
+          <div class="text-xs uppercase tracking-widest text-zinc-500">Left side</div>
+          <div class="text-lg font-semibold">
+            <a href="/screenshot/{{ left_shot.id }}" class="text-accent-400 hover:underline font-mono">
+              #{{ left_shot.id }}
+            </a>
+            <span class="text-zinc-300">— {{ left_shot.app_name or '—' }}</span>
+          </div>
+          <div class="text-zinc-400 text-xs truncate" title="{{ left_shot.window_title or '' }}">
+            {{ left_shot.window_title or '' }}
+          </div>
+          <div class="text-zinc-500 text-xs font-mono">
+            {{ left_shot.captured_at | humantime }}
+          </div>
+          <div class="text-zinc-500 text-xs">
+            {{ left_shot.width }}×{{ left_shot.height }}
+            · OCR <span class="font-mono">{{ left_shot.ocr_status }}</span>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <h2 class="text-base font-semibold mb-3">
+          Other captures of
+          <span class="text-accent-400">{{ left_shot.app_name or '—' }}</span>
+          on the same day — pick one to compare.
+        </h2>
+        {% if candidates %}
+          <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
+            {% for shot in candidates %}
+              <a href="/diff?left={{ left_id }}&right={{ shot.id }}"
+                 class="group block rounded-lg overflow-hidden bg-ink-800 border border-ink-700
+                        hover:border-accent-500 transition"
+                 title="Compare #{{ left_id }} ↔ #{{ shot.id }}">
+                {% if shot.thumbnail_path %}
+                  <div class="aspect-video bg-ink-900 overflow-hidden">
+                    <img src="{{ shot.thumbnail_path | thumbnail_url }}"
+                         alt=""
+                         loading="lazy"
+                         class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300">
+                  </div>
+                {% else %}
+                  <div class="aspect-video bg-ink-900 flex items-center justify-center text-zinc-600 text-xs flex-col gap-1">
+                    <span>{{ '🧊 cold' if shot.tier == 'cold' else 'metadata only' }}</span>
+                    <span class="text-[9px] text-zinc-700 truncate px-2">{{ shot.window_title or '' }}</span>
+                  </div>
+                {% endif %}
+                <div class="px-2.5 py-2">
+                  <div class="text-xs text-zinc-300 font-mono truncate" title="{{ shot.window_title or '' }}">
+                    #{{ shot.id }}
+                  </div>
+                  <div class="flex items-center justify-between mt-0.5">
+                    <div class="text-[10px] text-zinc-500 font-mono">
+                      {{ shot.captured_at | clock }}
+                    </div>
+                    {% if shot.ocr_status == 'done' %}
+                      <span class="text-[10px] text-emerald-500 font-mono" title="OCR completed">✓</span>
+                    {% elif shot.ocr_status == 'pending' %}
+                      <span class="text-[10px] text-amber-500 font-mono" title="OCR pending">…</span>
+                    {% endif %}
+                  </div>
+                </div>
+              </a>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="text-zinc-500 text-sm">
+            No other captures of this app on the same day.
+          </p>
+        {% endif %}
+      </div>
+    {% endif %}
+  </section>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Auto-collections</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Pin a tag to a short URL. Visiting <code class="text-zinc-300">/collection/&lt;slug&gt;</code>
+    shows every screenshot that currently carries that tag — membership refreshes
+    on every page load, no manual upkeep required.
+  </p>
+</div>
+
+<form action="/collections" method="post"
+      class="rounded-lg border border-ink-700 bg-ink-800 p-4 mb-8">
+  <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+    <label class="md:col-span-3 block">
+      <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">Slug</span>
+      <input name="slug" required pattern="[a-z0-9-]{1,40}" placeholder="invoices-2026"
+             title="Lowercase letters, digits and hyphens, up to 40 chars"
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
+    </label>
+    <label class="md:col-span-4 block">
+      <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">Title</span>
+      <input name="title" required placeholder="Invoices 2026"
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
+    </label>
+    <label class="md:col-span-3 block">
+      <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">Tag</span>
+      <input name="tag" required placeholder="invoice"
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
+    </label>
+    <label class="md:col-span-1 flex items-center gap-2 text-sm text-zinc-300 pb-2">
+      <input type="checkbox" name="public" value="1"
+             class="w-4 h-4 rounded bg-ink-900 border-ink-700">
+      <span>Public</span>
+    </label>
+    <button type="submit"
+            class="md:col-span-1 px-4 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium">
+      Add
+    </button>
+  </div>
+  <p class="text-xs text-zinc-500 mt-3">
+    Public rules are reachable from any client. Private rules are restricted to
+    loopback (this machine).
+  </p>
+</form>
+
+{% if rules %}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-ink-900 text-zinc-500 text-xs uppercase tracking-wider">
+        <tr>
+          <th class="text-left py-2 px-4">Slug</th>
+          <th class="text-left py-2 px-4">Title</th>
+          <th class="text-left py-2 px-4">Tag</th>
+          <th class="text-left py-2 px-4">Visibility</th>
+          <th class="text-left py-2 px-4">Created</th>
+          <th class="py-2 px-4"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for rule in rules %}
+          <tr class="border-t border-ink-700">
+            <td class="py-2 px-4 font-mono text-xs">
+              <a href="/collection/{{ rule.slug }}" class="text-accent-400 hover:text-accent-300">
+                {{ rule.slug }}
+              </a>
+            </td>
+            <td class="py-2 px-4 text-zinc-200">{{ rule.title }}</td>
+            <td class="py-2 px-4">
+              <span class="inline-block px-2 py-0.5 rounded bg-accent-600/20 text-accent-400 text-xs font-mono">
+                {{ rule.tag }}
+              </span>
+            </td>
+            <td class="py-2 px-4">
+              {% if rule.public %}
+                <span class="text-xs px-2 py-0.5 rounded bg-emerald-900/40 text-emerald-300">public</span>
+              {% else %}
+                <span class="text-xs px-2 py-0.5 rounded bg-zinc-800 text-zinc-400">private</span>
+              {% endif %}
+            </td>
+            <td class="py-2 px-4 text-zinc-400 text-xs font-mono">{{ rule.created_at }}</td>
+            <td class="py-2 px-4 text-right">
+              <form action="/collection/{{ rule.slug }}/delete" method="post" class="inline"
+                    onsubmit="return confirm('Delete rule {{ rule.slug }}? Screenshots stay tagged.');">
+                <button class="text-xs px-2 py-1 rounded bg-rose-900/40 hover:bg-rose-900 text-rose-300">
+                  remove
+                </button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  <p class="text-zinc-500 text-sm">No auto-collections yet. Add one above.</p>
+{% endif %}
+{% endblock %}

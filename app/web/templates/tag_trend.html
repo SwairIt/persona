@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-center justify-between flex-wrap gap-3">
+  <div class="flex items-center gap-3">
+    {# Big tag pill — uses the tag's stored colour, with a sane accent fallback. #}
+    <a href="/tags/{{ tag.id }}"
+       class="inline-flex items-center gap-2 px-4 py-2 rounded-full border text-sm font-mono tracking-tight transition hover:brightness-110"
+       style="background: {{ tag.color or '#8b5cf6' }}1a;
+              border-color: {{ tag.color or '#8b5cf6' }};
+              color: {{ tag.color or '#a78bfa' }};">
+      <span class="w-2 h-2 rounded-full"
+            style="background: {{ tag.color or '#8b5cf6' }};"></span>
+      <span class="text-base font-semibold">{{ tag.name }}</span>
+      <span class="text-xs opacity-70">· {{ "{:,}".format(tag.shot_count) }} total</span>
+    </a>
+    <a href="{{ search_url }}"
+       class="text-sm text-accent-400 hover:underline font-mono">
+      → /search?q=tag:{{ tag.name }}
+    </a>
+  </div>
+  <a href="/tags" class="text-sm text-zinc-500 hover:text-zinc-300">← all tags</a>
+</div>
+
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Trend over last {{ days }} day{{ '' if days == 1 else 's' }}</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Day-by-day count of screenshots tagged <span class="font-mono text-zinc-300">#{{ tag.name }}</span>.
+  </p>
+</div>
+
+<section class="grid sm:grid-cols-2 gap-4 mb-6">
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Window total</div>
+    <div class="text-3xl font-bold mt-1 tabular-nums">
+      {{ "{:,}".format(total) }}
+      <span class="text-base font-normal text-zinc-500 ml-1">
+        shot{{ '' if total == 1 else 's' }}
+      </span>
+    </div>
+    <div class="text-xs text-zinc-500 mt-1">
+      {{ days }}-day rolling window.
+    </div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Peak day</div>
+    <div class="text-3xl font-bold mt-1 tabular-nums">
+      {% if peak > 0 %}
+        {{ "{:,}".format(peak) }}
+        <span class="text-base font-normal text-zinc-500 ml-1">
+          shot{{ '' if peak == 1 else 's' }}
+        </span>
+      {% else %}
+        <span class="text-zinc-600">—</span>
+      {% endif %}
+    </div>
+    <div class="text-xs text-zinc-500 mt-1">
+      Max single-day count.
+    </div>
+  </div>
+</section>
+
+<div class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
+  <h2 class="text-xs uppercase tracking-widest text-zinc-500 mb-3">Sparkline (320 × 60)</h2>
+  <svg xmlns="http://www.w3.org/2000/svg"
+       width="{{ svg_width }}"
+       height="{{ svg_height }}"
+       viewBox="0 0 {{ svg_width }} {{ svg_height }}"
+       role="img"
+       aria-label="Per-day count of #{{ tag.name }} over the last {{ days }} days"
+       class="block">
+
+    {# Baseline #}
+    <line x1="0" y1="{{ baseline_y }}"
+          x2="{{ svg_width }}" y2="{{ baseline_y }}"
+          stroke="#3f3f46"
+          stroke-width="1"
+          stroke-dasharray="2,3" />
+
+    {% if peak and peak > 0 %}
+      {# Soft fill band under the polyline. #}
+      <polygon points="{{ band }}"
+               fill="{{ fill_band }}"
+               stroke="none" />
+
+      {# Main polyline — pure SVG, no JS. #}
+      <polyline points="{{ polyline }}"
+                fill="none"
+                stroke="{{ stroke }}"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round" />
+
+      {# Per-day dots with native title-tooltips. #}
+      {% for p in points %}
+        <circle cx="{{ "%.2f"|format(p.x) }}"
+                cy="{{ "%.2f"|format(p.y) }}"
+                r="{% if p.count == peak and peak > 0 %}2.5{% else %}1.5{% endif %}"
+                fill="{{ dot_fill }}"
+                stroke="#0a0a0c"
+                stroke-width="0.5">
+          <title>{{ p.tooltip }}</title>
+        </circle>
+      {% endfor %}
+    {% else %}
+      {# Empty-window placeholder: a flat dotted line + label. #}
+      <text x="{{ svg_width // 2 }}"
+            y="{{ svg_height // 2 + 4 }}"
+            text-anchor="middle"
+            fill="#52525b"
+            font-size="11"
+            font-family="JetBrains Mono, Cascadia Code, Consolas, monospace">
+        no captures in window
+      </text>
+    {% endif %}
+  </svg>
+</div>
+
+<details class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6" open>
+  <summary class="cursor-pointer text-sm text-zinc-300 hover:text-zinc-100">
+    Day-by-day table ({{ entries | length }} rows)
+  </summary>
+  <table class="mt-4 w-full text-sm font-mono tabular-nums">
+    <thead>
+      <tr class="text-xs uppercase tracking-widest text-zinc-500 border-b border-ink-700">
+        <th class="text-left py-1.5 pr-4 font-normal">Date</th>
+        <th class="text-right py-1.5 px-4 font-normal">Count</th>
+        <th class="text-left py-1.5 pl-4 font-normal w-full">Bar</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for entry in entries %}
+        <tr class="border-b border-ink-700/50 last:border-0">
+          <td class="py-1 pr-4 text-zinc-400">
+            <a href="/?date={{ entry.date }}" class="hover:text-accent-400">{{ entry.date }}</a>
+          </td>
+          <td class="py-1 px-4 text-right
+                     {% if entry.count == 0 %}text-zinc-600{% else %}text-zinc-100{% endif %}">
+            {{ entry.count }}
+          </td>
+          <td class="py-1 pl-4">
+            <div class="bg-ink-900 rounded h-2 overflow-hidden">
+              {% if peak and peak > 0 and entry.count > 0 %}
+                <div class="h-full"
+                     style="width: {{ ((entry.count / peak) * 100) | round(1) }}%;
+                            background: {{ tag.color or '#8b5cf6' }};"></div>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</details>
+
+<p class="text-xs text-zinc-500">
+  Machine-readable counterpart at
+  <a href="{{ json_url }}" class="font-mono text-accent-400 hover:underline">{{ json_url }}</a>.
+</p>
+{% endblock %}

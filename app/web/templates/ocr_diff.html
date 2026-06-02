@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+
+{# Persona v0.34 — OCR diff viewer.
+
+   The view-switcher is pure CSS: two hidden <input type="radio"> control
+   which of the .panel-* divs is visible via :checked + sibling selectors.
+   No JS, no Alpine — keeps it bullet-proof and printable.
+
+   .diff_add and .diff_sub come from difflib.HtmlDiff's emitted markup;
+   we style them green/red against both dark and light themes. #}
+
+{% block content %}
+<style>
+  /* ----- view toggle (CSS-only radio tabs) ----- */
+  .view-toggle { display: none; }
+  /* hide both panels by default; show the one matching :checked */
+  #ocrdiff-panels .panel-unified,
+  #ocrdiff-panels .panel-side { display: none; }
+  #view-unified:checked ~ #ocrdiff-panels .panel-unified { display: block; }
+  #view-side:checked ~ #ocrdiff-panels .panel-side { display: block; }
+  /* tab label active state */
+  #view-unified:checked ~ #ocrdiff-tabs label[for="view-unified"],
+  #view-side:checked   ~ #ocrdiff-tabs label[for="view-side"] {
+    background-color: rgb(124 58 237 / 0.2);  /* accent-600/20 */
+    color: rgb(167 139 250);                   /* accent-400 */
+  }
+
+  /* ----- HtmlDiff table styling (green add / red sub, dark+light) ----- */
+  table.diff {
+    font-family: 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
+    font-size: 12px;
+    border-collapse: collapse;
+    width: 100%;
+    table-layout: fixed;
+  }
+  table.diff td { padding: 2px 6px; vertical-align: top; word-break: break-word; }
+  table.diff .diff_header {
+    background-color: rgb(38 38 46);   /* ink-700 */
+    color: rgb(161 161 170);
+    text-align: right;
+    width: 3em;
+    user-select: none;
+  }
+  table.diff td.diff_header { border-right: 1px solid rgb(38 38 46); }
+  table.diff .diff_next { display: none; }            /* hide jump-to-next links */
+  table.diff thead th {
+    background-color: rgb(26 26 31);   /* ink-800 */
+    color: rgb(244 244 245);
+    padding: 6px 8px;
+    text-align: left;
+    border-bottom: 1px solid rgb(38 38 46);
+  }
+  .diff_add { background-color: rgb(16 185 129 / 0.25); color: rgb(167 243 208); }
+  .diff_sub { background-color: rgb(244 63 94 / 0.25);  color: rgb(254 205 211); }
+  .diff_chg { background-color: rgb(245 158 11 / 0.20); color: rgb(253 230 138); }
+  /* light-mode overrides */
+  html:not(.dark) table.diff .diff_header { background-color: rgb(244 244 245); color: rgb(82 82 91); }
+  html:not(.dark) table.diff thead th     { background-color: rgb(228 228 231); color: rgb(24 24 27); }
+  html:not(.dark) .diff_add { background-color: rgb(16 185 129 / 0.18); color: rgb(6 78 59); }
+  html:not(.dark) .diff_sub { background-color: rgb(244 63 94 / 0.18);  color: rgb(127 29 29); }
+  html:not(.dark) .diff_chg { background-color: rgb(245 158 11 / 0.18); color: rgb(120 53 15); }
+</style>
+
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">OCR diff</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    <a href="/screenshot/{{ shot_a.id }}" class="text-accent-400">#{{ shot_a.id }}</a>
+    vs
+    <a href="/screenshot/{{ shot_b.id }}" class="text-accent-400">#{{ shot_b.id }}</a>
+  </p>
+</div>
+
+<div class="grid sm:grid-cols-2 gap-4 mb-6">
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">A — #{{ shot_a.id }}</div>
+    <div class="text-base font-semibold mt-1 truncate">{{ shot_a.app_name or '—' }}</div>
+    <div class="text-zinc-400 text-xs mt-0.5">{{ shot_a.captured_at | humantime }}</div>
+    {% if shot_a.window_title %}
+      <div class="text-zinc-500 text-xs mt-1 truncate" title="{{ shot_a.window_title }}">{{ shot_a.window_title }}</div>
+    {% endif %}
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">B — #{{ shot_b.id }}</div>
+    <div class="text-base font-semibold mt-1 truncate">{{ shot_b.app_name or '—' }}</div>
+    <div class="text-zinc-400 text-xs mt-0.5">{{ shot_b.captured_at | humantime }}</div>
+    {% if shot_b.window_title %}
+      <div class="text-zinc-500 text-xs mt-1 truncate" title="{{ shot_b.window_title }}">{{ shot_b.window_title }}</div>
+    {% endif %}
+  </div>
+</div>
+
+{% if diff.identical %}
+  <div class="rounded-lg border border-emerald-700/40 bg-emerald-900/10 p-5 text-emerald-300">
+    OCR text is identical for both screenshots — nothing to diff.
+  </div>
+{% else %}
+
+  {# ---- View toggle (radios + tabs + panels are siblings of the radios) ---- #}
+  <input class="view-toggle" type="radio" name="ocrdiff-view" id="view-unified" checked>
+  <input class="view-toggle" type="radio" name="ocrdiff-view" id="view-side">
+
+  <div id="ocrdiff-tabs" class="inline-flex items-center gap-1 rounded-md bg-ink-800 border border-ink-700 p-1 mb-4 text-sm">
+    <label for="view-unified"
+           class="cursor-pointer px-3 py-1.5 rounded transition text-zinc-400 hover:text-zinc-100">
+      Unified
+    </label>
+    <label for="view-side"
+           class="cursor-pointer px-3 py-1.5 rounded transition text-zinc-400 hover:text-zinc-100">
+      Side-by-side
+    </label>
+  </div>
+
+  <div id="ocrdiff-panels">
+    <section class="panel-unified rounded-lg border border-ink-700 bg-ink-900 overflow-hidden">
+      <header class="px-4 py-2 border-b border-ink-700 text-xs uppercase tracking-widest text-zinc-500">
+        Unified diff
+      </header>
+      {% if diff.unified %}
+        <pre class="font-mono text-xs p-4 overflow-x-auto leading-relaxed">
+{%- for line in diff.unified -%}
+{%- if line.startswith('+++') or line.startswith('---') -%}
+<span class="text-zinc-400">{{ line }}</span>
+{%- elif line.startswith('@@') -%}
+<span class="text-accent-400">{{ line }}</span>
+{%- elif line.startswith('+') -%}
+<span class="text-emerald-300">{{ line }}</span>
+{%- elif line.startswith('-') -%}
+<span class="text-rose-300">{{ line }}</span>
+{%- else -%}
+<span class="text-zinc-300">{{ line }}</span>
+{%- endif %}
+{% endfor -%}
+        </pre>
+      {% else %}
+        <p class="text-zinc-500 text-sm p-4">No unified-diff hunks emitted.</p>
+      {% endif %}
+    </section>
+
+    <section class="panel-side rounded-lg border border-ink-700 bg-ink-900 overflow-x-auto">
+      <header class="px-4 py-2 border-b border-ink-700 text-xs uppercase tracking-widest text-zinc-500">
+        Side-by-side
+      </header>
+      <div class="p-2">
+        {{ diff.html | safe }}
+      </div>
+    </section>
+  </div>
+{% endif %}
+{% endblock %}

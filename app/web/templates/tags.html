@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Tags & saved searches</h1>
+  <p class="text-zinc-500 text-sm mt-1">Label important moments. Save useful queries.</p>
+</div>
+
+<div class="grid lg:grid-cols-2 gap-6">
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <h2 class="text-lg font-semibold mb-3">Tags</h2>
+    <form hx-post="/api/tags" hx-swap="none" class="flex gap-2 mb-4" onsubmit="setTimeout(() => location.reload(), 200)">
+      <input name="name" placeholder="tag name" required
+             class="flex-1 px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm">
+      <input name="color" placeholder="#a78bfa"
+             class="w-28 px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm">
+      <button type="submit"
+              class="px-4 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium">Add</button>
+    </form>
+    {% if tags %}
+      <div class="space-y-2">
+        {% for tag in tags %}
+          <div class="flex items-center justify-between px-3 py-2 rounded bg-ink-900 hover:bg-ink-700/40 transition">
+            <a href="/tags/{{ tag.id }}" class="flex items-center gap-2 flex-1 min-w-0">
+              <span class="w-2 h-2 rounded-full flex-shrink-0" style="background: {{ tag.color or '#8b5cf6' }};"></span>
+              <span class="text-zinc-200 truncate">{{ tag.name }}</span>
+            </a>
+            <div class="flex items-center gap-2">
+              <input type="color" value="{{ tag.color or '#8b5cf6' }}"
+                     @change="
+                       const fd = new FormData(); fd.append('color', $event.target.value);
+                       fetch('/api/tags/{{ tag.id }}/color', { method: 'POST', body: fd });
+                     "
+                     class="w-6 h-6 rounded cursor-pointer border-0 bg-transparent">
+              <span class="text-xs text-zinc-500 font-mono w-10 text-right">{{ tag.count }}</span>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="text-zinc-500 text-sm">No tags yet.</p>
+    {% endif %}
+  </section>
+
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <h2 class="text-lg font-semibold mb-3">Saved searches</h2>
+    <form hx-post="/api/saved-searches" hx-swap="none" class="space-y-2 mb-4" onsubmit="setTimeout(() => location.reload(), 200)">
+      <input name="name" placeholder="search name" required
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm">
+      <div class="flex gap-2">
+        <input name="query" placeholder="query" required
+               class="flex-1 px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm">
+        <input name="app_name" placeholder="app filter (optional)"
+               class="w-40 px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm">
+        <button type="submit" class="px-4 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm">Save</button>
+      </div>
+    </form>
+    {% if saved_searches %}
+      <div class="space-y-2">
+        {% for s in saved_searches %}
+          <div class="flex items-center justify-between px-3 py-2 rounded bg-ink-900">
+            <a href="/search?q={{ s.query | urlencode }}{% if s.app_name %}&app={{ s.app_name | urlencode }}{% endif %}"
+               onclick="fetch('/api/saved-searches/{{ s.id }}/mark-seen', { method: 'POST' });"
+               class="text-zinc-200 hover:text-accent-400 flex-1 min-w-0">
+              <span class="font-mono text-xs">{{ s.name }}</span>
+              <span class="text-zinc-500 text-xs ml-2">{{ s.query }}</span>
+              {% if s.app_name %}<span class="text-zinc-600 text-xs ml-1">in {{ s.app_name }}</span>{% endif %}
+            </a>
+            <div class="flex items-center gap-2 flex-shrink-0">
+              {% if s.new_count %}
+                <span class="px-1.5 py-0.5 text-[10px] rounded-full bg-accent-600/30 text-accent-300">
+                  {{ s.new_count }} new
+                </span>
+              {% endif %}
+              <a href="/feeds/saved-search/{{ s.id }}.rss" title="RSS feed"
+                 class="text-zinc-500 hover:text-amber-400 text-xs">📡</a>
+              <button hx-delete="/api/saved-searches/{{ s.id }}"
+                      onclick="setTimeout(() => location.reload(), 200)"
+                      class="text-zinc-500 hover:text-rose-400 text-xs">×</button>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="text-zinc-500 text-sm">No saved searches yet.</p>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

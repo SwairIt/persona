@@ -1,0 +1,73 @@
+/* Persona — application-specific CSS overrides. Tailwind ships via CDN. */
+
+html {
+  color-scheme: dark light;
+}
+
+html:not(.dark) {
+  color-scheme: light;
+}
+
+body {
+  font-feature-settings: "cv11", "ss01";
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: #f4f4f5;
+}
+.dark ::-webkit-scrollbar-track {
+  background: #111114;
+}
+::-webkit-scrollbar-thumb {
+  background: #d4d4d8;
+  border-radius: 5px;
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: #26262e;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #a1a1aa;
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #34343e;
+}
+
+mark {
+  background: rgba(167, 139, 250, 0.25);
+  color: inherit;
+  padding: 0 0.1em;
+  border-radius: 2px;
+}
+
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Light-mode overrides — apply when the .dark class is absent on <html>.
+   We deliberately tint the "ink" palette toward off-white in light mode so
+   existing dark-styled templates still look decent without rewriting
+   every utility class. */
+html:not(.dark) .bg-ink-950 { background-color: #fafafa; }
+html:not(.dark) .bg-ink-900 { background-color: #f4f4f5; }
+html:not(.dark) .bg-ink-800 { background-color: #ffffff; }
+html:not(.dark) .bg-ink-700 { background-color: #e4e4e7; }
+html:not(.dark) .border-ink-700 { border-color: #e4e4e7; }
+html:not(.dark) .border-ink-800 { border-color: #d4d4d8; }
+html:not(.dark) .text-zinc-100 { color: #18181b; }
+html:not(.dark) .text-zinc-200 { color: #27272a; }
+html:not(.dark) .text-zinc-300 { color: #3f3f46; }
+html:not(.dark) .text-zinc-400 { color: #52525b; }
+html:not(.dark) .text-zinc-500 { color: #71717a; }
+html:not(.dark) .text-zinc-600 { color: #a1a1aa; }
+html:not(.dark) .text-zinc-700 { color: #d4d4d8; }
+html:not(.dark) .hover\:bg-ink-700:hover { background-color: #f4f4f5; }
+html:not(.dark) .hover\:bg-ink-800:hover { background-color: #f9f9fa; }
+html:not(.dark) .bg-ink-900\/80 { background-color: rgba(244, 244, 245, 0.85); }
+html:not(.dark) .bg-ink-900\/50 { background-color: rgba(244, 244, 245, 0.6); }

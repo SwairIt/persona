@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-center justify-between flex-wrap gap-3">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Idle stats</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      {{ day_iso }} ·
+      total attended time:
+      <strong class="text-zinc-300 font-mono">{{ total_duration }}</strong>
+      <span class="text-zinc-600">(active + idle, gap &le; 5&nbsp;min)</span>
+    </p>
+  </div>
+  <div class="flex items-center gap-2 text-sm">
+    <a href="/idle?day={{ prev_day }}"
+       class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700">&larr; Prev</a>
+    <a href="/idle?day={{ today_iso }}"
+       class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700">Today</a>
+    <a href="/idle?day={{ next_day }}"
+       class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700">Next &rarr;</a>
+  </div>
+</div>
+
+<form action="/idle" method="get"
+      class="mb-6 flex flex-wrap items-center gap-3 text-sm">
+  <label for="day" class="text-zinc-400">Pick day</label>
+  <input type="date" id="day" name="day" value="{{ day_iso }}" max="{{ today_iso }}"
+         class="bg-ink-800 border border-ink-700 rounded px-2 py-1 text-zinc-100">
+
+  <label for="threshold" class="text-zinc-400 ml-2">Idle threshold (s)</label>
+  <input type="number" id="threshold" name="threshold" min="1" max="86400"
+         value="{{ threshold }}"
+         class="bg-ink-800 border border-ink-700 rounded px-2 py-1 w-24 text-zinc-100">
+
+  <button type="submit"
+          class="px-3 py-1 rounded bg-accent-600 hover:bg-accent-500 text-white">Go</button>
+</form>
+
+{% if total_seconds == 0 and active_shots == 0 and idle_shots == 0 %}
+  <p class="text-zinc-500">No screenshots on this day.</p>
+{% else %}
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+    <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+      <div class="text-xs uppercase tracking-wider text-zinc-500 mb-2">Active</div>
+      <div class="font-mono text-4xl text-emerald-400 leading-none">{{ active_duration }}</div>
+      <div class="text-xs text-zinc-500 mt-3">
+        {{ active_shots }} shots ·
+        {{ '%.1f' | format(active_percent) }}% of attended time
+      </div>
+    </div>
+    <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+      <div class="text-xs uppercase tracking-wider text-zinc-500 mb-2">Idle (AFK)</div>
+      <div class="font-mono text-4xl text-amber-400 leading-none">{{ idle_duration }}</div>
+      <div class="text-xs text-zinc-500 mt-3">
+        {{ idle_shots }} shots ·
+        {{ '%.1f' | format(idle_percent) }}% of attended time
+      </div>
+    </div>
+  </div>
+
+  <div class="mb-2 flex justify-between text-xs text-zinc-500 font-mono">
+    <span>Active {{ '%.1f' | format(active_percent) }}%</span>
+    <span>Idle {{ '%.1f' | format(idle_percent) }}%</span>
+  </div>
+  <div class="h-3 rounded-full overflow-hidden bg-ink-900 border border-ink-700 flex">
+    <div class="h-full bg-emerald-500"
+         style="width: {{ '%.2f' | format(active_percent) }}%"
+         title="Active {{ active_duration }}"></div>
+    <div class="h-full bg-amber-500"
+         style="width: {{ '%.2f' | format(idle_percent) }}%"
+         title="Idle {{ idle_duration }}"></div>
+  </div>
+
+  <div class="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+    <div class="rounded border border-ink-700 bg-ink-800 px-4 py-3">
+      <div class="text-xs uppercase tracking-wider text-zinc-500 mb-1">First capture</div>
+      <div class="font-mono text-zinc-200">{{ first_capture }}</div>
+      {% if first_capture_iso %}
+        <div class="text-xs text-zinc-600 mt-1">{{ first_capture_iso }}</div>
+      {% endif %}
+    </div>
+    <div class="rounded border border-ink-700 bg-ink-800 px-4 py-3">
+      <div class="text-xs uppercase tracking-wider text-zinc-500 mb-1">Last capture</div>
+      <div class="font-mono text-zinc-200">{{ last_capture }}</div>
+      {% if last_capture_iso %}
+        <div class="text-xs text-zinc-600 mt-1">{{ last_capture_iso }}</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <p class="mt-6 text-xs text-zinc-500">
+    Active = shots with <span class="font-mono">idle_seconds &lt; {{ threshold }}</span>.
+    Gaps wider than 5&nbsp;min between consecutive shots are dropped (capture paused).
+    <a class="hover:text-zinc-300 underline-offset-2 hover:underline"
+       href="/api/idle.json?day={{ day_iso }}&amp;threshold={{ threshold }}">JSON</a>
+  </p>
+{% endif %}
+{% endblock %}
