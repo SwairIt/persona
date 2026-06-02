@@ -22,6 +22,7 @@ from hashlib import sha256
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
+from app.audit import log_action
 from app.bulk_delete import bulk_delete
 from app.logging_setup import get_logger
 from app.settings import get_settings
@@ -137,9 +138,22 @@ async def bulk_delete_confirm(
     expected = _make_token(query_v, matched)
     if not hmac.compare_digest(expected, token):
         log.warning("bulk.delete.bad_token", query=query_v, matched=matched)
+        await log_action(
+            "bulk_delete.confirm",
+            target=query_v,
+            detail="token mismatch",
+            success=False,
+        )
         raise HTTPException(status_code=400, detail="Confirmation token mismatch.")
 
     result = await bulk_delete(query_v, limit_v, dry_run=False)
+    matched_count = int(result["matched"])
+    deleted_count = int(result["deleted"])
+    await log_action(
+        "bulk_delete.confirm",
+        target=query_v,
+        detail=str(matched_count) + " matched, " + str(deleted_count) + " deleted",
+    )
 
     return templates.TemplateResponse(
         request,

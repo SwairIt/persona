@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-end justify-between flex-wrap gap-3">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Audit log</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Append-only record of privileged admin actions &mdash; settings
+      changes, bulk-delete, token issuance, vault reads. Useful for
+      after-the-fact security review. Newest events first.
+    </p>
+  </div>
+  <a href="/api/audit.json{% if filter_action %}?action={{ filter_action }}{% endif %}"
+     class="text-xs text-zinc-500 hover:text-accent-400 underline font-mono">
+    json &rarr;
+  </a>
+</div>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-4 mb-5">
+  <form action="/audit" method="get" class="flex flex-wrap items-end gap-3">
+    <label class="flex flex-col gap-1 flex-1 min-w-[200px]">
+      <span class="text-xs uppercase tracking-widest text-zinc-500">
+        Filter by action (substring)
+      </span>
+      <input type="text" name="action" value="{{ filter_action }}"
+             placeholder="e.g. vault, bulk_delete, api_token"
+             class="px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
+    </label>
+    <div class="flex gap-2">
+      <button type="submit"
+              class="px-4 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
+        Apply
+      </button>
+      {% if filter_action %}
+        <a href="/audit"
+           class="px-4 py-2 bg-ink-900 hover:bg-ink-700 border border-ink-700 rounded text-sm">
+          Clear
+        </a>
+      {% endif %}
+    </div>
+  </form>
+  <div class="text-xs text-zinc-500 mt-3">
+    {{ "{:,}".format(total_rows) }} matching event{{ "" if total_rows == 1 else "s" }}
+    &middot; page {{ page }} of {{ total_pages }}
+  </div>
+</section>
+
+{% if rows %}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="bg-ink-900 text-zinc-500 text-xs uppercase tracking-wider">
+        <tr>
+          <th class="text-left py-2 px-3">Timestamp</th>
+          <th class="text-left py-2 px-3">Action</th>
+          <th class="text-left py-2 px-3">Actor</th>
+          <th class="text-left py-2 px-3">Target</th>
+          <th class="text-left py-2 px-3">Detail</th>
+          <th class="text-center py-2 px-3 w-12">OK</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          <tr class="border-t border-ink-700 {% if not row.success %}bg-rose-950/20{% endif %}">
+            <td class="py-2 px-3 text-xs text-zinc-500 font-mono whitespace-nowrap">{{ row.ts }}</td>
+            <td class="py-2 px-3 font-mono text-xs text-accent-400 whitespace-nowrap">{{ row.action }}</td>
+            <td class="py-2 px-3 text-xs">
+              {% if row.actor %}
+                <span class="font-mono text-zinc-300">{{ row.actor }}</span>
+              {% else %}
+                <span class="text-zinc-600">&mdash;</span>
+              {% endif %}
+            </td>
+            <td class="py-2 px-3 text-xs font-mono text-zinc-300 break-all">
+              {% if row.target %}{{ row.target }}{% else %}<span class="text-zinc-600">&mdash;</span>{% endif %}
+            </td>
+            <td class="py-2 px-3 text-xs text-zinc-400 break-all">
+              {% if row.detail %}{{ row.detail }}{% else %}<span class="text-zinc-600">&mdash;</span>{% endif %}
+            </td>
+            <td class="py-2 px-3 text-center">
+              {% if row.success %}
+                <span class="text-emerald-400 font-mono" title="success">&#x2713;</span>
+              {% else %}
+                <span class="text-rose-400 font-mono" title="failure">&#x2717;</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <nav class="flex items-center justify-between mt-5 text-xs">
+    <div class="text-zinc-500">
+      Showing rows {{ ((page - 1) * page_size) + 1 }}&ndash;{{ ((page - 1) * page_size) + (rows | length) }}
+      of {{ "{:,}".format(total_rows) }}
+    </div>
+    <div class="flex gap-2">
+      {% if has_prev %}
+        <a href="/audit?page={{ page - 1 }}{% if filter_action %}&action={{ filter_action }}{% endif %}"
+           class="px-3 py-1.5 bg-ink-900 hover:bg-ink-700 border border-ink-700 rounded">
+          &larr; Prev
+        </a>
+      {% else %}
+        <span class="px-3 py-1.5 bg-ink-900/50 border border-ink-700 rounded text-zinc-600">
+          &larr; Prev
+        </span>
+      {% endif %}
+      {% if has_next %}
+        <a href="/audit?page={{ page + 1 }}{% if filter_action %}&action={{ filter_action }}{% endif %}"
+           class="px-3 py-1.5 bg-ink-900 hover:bg-ink-700 border border-ink-700 rounded">
+          Next &rarr;
+        </a>
+      {% else %}
+        <span class="px-3 py-1.5 bg-ink-900/50 border border-ink-700 rounded text-zinc-600">
+          Next &rarr;
+        </span>
+      {% endif %}
+    </div>
+  </nav>
+{% else %}
+  <p class="text-zinc-500 text-sm">
+    {% if filter_action %}
+      No audit events match <code class="font-mono text-accent-400">{{ filter_action }}</code>.
+    {% else %}
+      No audit events recorded yet.
+    {% endif %}
+  </p>
+{% endif %}
+{% endblock %}

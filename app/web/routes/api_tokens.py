@@ -19,6 +19,7 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.api_tokens import create_token, list_tokens, revoke_token
+from app.audit import log_action
 from app.logging_setup import get_logger
 from app.settings import get_settings
 from app.web.templates_engine import templates
@@ -88,10 +89,24 @@ async def api_tokens_create(
         # Bouncing back without a banner is the simplest possible
         # "validation failed" UX; the form keeps its values via the
         # browser's bfcache.
+        await log_action(
+            "api_token.create",
+            target="",
+            detail="empty name rejected",
+            success=False,
+        )
         return RedirectResponse(url="/settings/api-tokens", status_code=303)
 
     scope_string = _normalise_scopes(scopes)
     raw = await create_token(name=cleaned_name, scopes=scope_string)
+    # Never log the raw token value — only the name + scopes survive
+    # in the audit trail. The raw string lives on the user's screen
+    # for one render and is then gone.
+    await log_action(
+        "api_token.create",
+        target=cleaned_name,
+        detail="scopes=" + scope_string,
+    )
     # The raw value is urlsafe by construction, so direct interpolation
     # is fine — no further encoding step required.
     return RedirectResponse(
@@ -103,5 +118,11 @@ async def api_tokens_create(
 @router.post("/settings/api-tokens/{token_id}/revoke")
 async def api_tokens_revoke(token_id: int) -> RedirectResponse:
     """Soft-revoke a token (sets ``revoked_at``) and return to the list."""
-    await revoke_token(token_id)
+    changed = await revoke_token(token_id)
+    await log_action(
+        "api_token.revoke",
+        target=str(token_id),
+        detail="already revoked or unknown" if not changed else None,
+        success=bool(changed),
+    )
     return RedirectResponse(url="/settings/api-tokens", status_code=303)

@@ -22,6 +22,7 @@ import io
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 
+from app.audit import log_action
 from app.storage.db import get_connection
 from app.storage.repository import get_screenshot
 from app.storage.vault import (
@@ -89,10 +90,24 @@ async def vault_set(
     trimmed_key = key.strip()
     if not trimmed_key:
         items = await list_keys()
+        await log_action(
+            "vault.set",
+            target="",
+            detail="empty key rejected",
+            success=False,
+        )
         return _render_vault_page(request, items=items, error="Key name is required.")
 
     result = await set_secret(trimmed_key, value, password)
     items = await list_keys()
+    # Audit the key name + status only. The plaintext value and master
+    # password are NEVER threaded into the audit log.
+    await log_action(
+        "vault.set",
+        target=trimmed_key,
+        detail="status=" + str(result.get("status", "")),
+        success=result.get("status") == "ok",
+    )
     if result["status"] == "ok":
         return _render_vault_page(
             request,
@@ -118,6 +133,15 @@ async def vault_get(
     trimmed_key = key.strip()
     result = await get_secret(trimmed_key, password)
     items = await list_keys()
+    # Audit the read attempt. ``success`` reflects whether the master
+    # password unlocked the row; the plaintext value never leaves
+    # ``result`` for the log.
+    await log_action(
+        "vault.get",
+        target=trimmed_key,
+        detail="status=" + str(result.get("status", "")),
+        success=result.get("status") == "ok",
+    )
 
     if result["status"] == "ok":
         return _render_vault_page(
@@ -151,7 +175,13 @@ async def vault_get(
 @router.post("/vault/{key}/delete")
 async def vault_delete(key: str) -> RedirectResponse:
     """Drop a stored secret (no password gate — see module docstring rationale)."""
-    await delete_secret(key)
+    result = await delete_secret(key)
+    await log_action(
+        "vault.delete",
+        target=key,
+        detail="status=" + str(result.get("status", "")),
+        success=result.get("status") == "ok",
+    )
     return RedirectResponse(url="/vault", status_code=303)
 
 

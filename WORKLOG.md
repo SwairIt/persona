@@ -452,6 +452,17 @@ Three feature agents in parallel via Workflow (199k tokens, 6.7 min), then seque
 - 07:53Z — wired clipboard + ocr_overlay + ics_export routers + run_clipboard_worker in lifespan tasks
 - 07:55Z — tests/test_v035.py — clipboard page + API + setting default off + overlay renders or 404 + words API + ICS returns BEGIN/END:VCALENDAR + zero-state module + RFC-5545 escaping check
 
+## 2026-06-02 — v0.36 continuation (autonomous, Ultracode workflow tick #19)
+
+Three feature agents in parallel via Workflow (204k tokens, 7.2 min), then sequential wire-up.
+
+- 08:25Z — version bump 0.35→0.36
+- 08:28Z — **Focus-mode (Pomodoro)** (agent A): migration 036 + `app/focus.py` (start_session/end_session/current_session/recent_sessions). Route `/focus` renders countdown timer (JS computed from started_at + work_minutes), CSS progress ring, Web Audio API beep on zero. Posts /focus/start and /focus/end. Recent sessions table. Note: agent overwrote earlier focus.py (the existing /focus route was wired in main.py already — same router import path keeps working).
+- 08:33Z — **Audit log** (agent B): migration 037 + `app/audit.py` (log_action / list_recent). Route `/audit` with action-substring filter + pagination. Integrated at: bulk_delete.confirm logs query+counts; api_tokens logs create/revoke; vault logs set/get/delete (key name only — NEVER the value).',
+- 08:38Z — **Per-day TL;DR** (agent C): migration 038 + `app/llm/day_tldr.py` with `summarise_day_tldr(day_iso)` returning {status, tldr, cached}. Cache-aside via `day_tldr` table. One-sentence (max 30 words) using BYO LLM. Route `/api/day-tldr.json?day=...` + POST regenerate. Returns `missing_config` if no LLM key — never blocks render.
+- 08:42Z — wired audit + day_tldr routers (focus already wired earlier)
+- 08:44Z — tests/test_v036.py — focus page + start/current/end roundtrip + audit page + log records + secret-leak smoke check + tldr API missing_config tolerant + module returns status
+
 ## How to run
 
 ```powershell

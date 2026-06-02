@@ -1,6 +1,6 @@
 # 🌅 Morning report — Persona
 
-Thirty-five autonomous sessions: …v0.32 → v0.33 → v0.34 → **v0.35** without stopping. Self-pacing /loop continues until you cancel. **Live on GitHub:** https://github.com/SwairIt/persona
+Thirty-six autonomous sessions: …v0.33 → v0.34 → v0.35 → **v0.36** without stopping. Self-pacing /loop continues until you cancel. **Live on GitHub:** https://github.com/SwairIt/persona
 
 ## By the numbers (current)
 
@@ -11,6 +11,14 @@ Thirty-five autonomous sessions: …v0.32 → v0.33 → v0.34 → **v0.35** with
 - **20+ test files**
 - **0 git commits** — entirely up to you
 - **0 network calls at runtime** (only optional outgoing call: BYO-LLM keys to your chosen provider)
+
+## What landed in v0.36 (Pomodoro focus mode + audit log + per-day TL;DR)
+
+Built via 3 parallel Workflow agents → sequential wire-up.
+
+- 🍅 **Focus-mode (Pomodoro)** — `/focus` lets you start a 25-min work / 5-min break cycle (customisable). Big countdown clock with a CSS progress ring; ends with a Web Audio API beep. Sessions are recorded so you can review streaks. JS reads `started_at + work_minutes` so the timer survives reload.
+- 📋 **Audit log** — every destructive admin action (bulk-delete, token issuance/revoke, vault set/get/delete) is recorded with timestamp, actor, target, and success flag. `/audit` page has substring filtering + pagination. Secrets are never logged — only the key *name* for vault operations.
+- ✏️ **Per-day TL;DR** — `/api/day-tldr.json?day=YYYY-MM-DD` returns a one-sentence summary of a day (≤30 words) via your BYO LLM. Cached in `day_tldr` table so it's free after the first generate. POST `/api/day-tldr/{day}/regenerate` forces a fresh take. Returns `missing_config` status when no LLM key is set — never blocks render.
 
 ## What landed in v0.35 (clipboard history + OCR confidence overlay + .ics export)
 
