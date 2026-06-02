@@ -1,6 +1,6 @@
 # 🌅 Morning report — Persona
 
-Forty autonomous sessions: …v0.37 → v0.38 → v0.39 → **v0.40 milestone** without stopping. Self-pacing /loop continues until you cancel. **Live on GitHub:** https://github.com/SwairIt/persona
+Forty-one autonomous sessions: …v0.38 → v0.39 → v0.40 → **v0.41** without stopping. Self-pacing /loop continues until you cancel. **Live on GitHub:** https://github.com/SwairIt/persona
 
 ## By the numbers (current)
 
@@ -11,6 +11,14 @@ Forty autonomous sessions: …v0.37 → v0.38 → v0.39 → **v0.40 milestone** 
 - **20+ test files**
 - **0 git commits** — entirely up to you
 - **0 network calls at runtime** (only optional outgoing call: BYO-LLM keys to your chosen provider)
+
+## What landed in v0.41 (search facets + drag-to-tag + browser bookmarklet)
+
+Built via 3 parallel Workflow agents → sequential wire-up.
+
+- 🎚️ **Search facets** — `/search` now has a collapsible Filters panel: filter by app (top 50 most-active in a dropdown), date range, and tag (with autocomplete from your existing tags). All compose with the free-text FTS5 query. Direct API at `/api/search/facets.json` for tooling.
+- 🖱️ **Drag-to-tag** — pure HTML5 drag-and-drop. Drag any tag chip onto a screenshot thumbnail to apply that tag. Green flash on success, red on failure. No framework, all vanilla.
+- 🔖 **Browser bookmarklet** — `/bookmarklet` shows a draggable javascript: URL. Click it on any page and the current URL, title, and selected text get POSTed to `/api/bookmarklet/capture` and become a new Persona note (`# {title}\n\n{url}\n\n> {selection}`). CORS-enabled by design since the bookmarklet runs on third-party origins.
 
 ## What landed in v0.40 milestone (SSE live status + OCR .txt + undo bin)
 

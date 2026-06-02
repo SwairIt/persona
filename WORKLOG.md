@@ -507,6 +507,17 @@ Three feature agents in parallel via Workflow (238k tokens, 7.9 min), then seque
 - 11:55Z — wired live_sse + ocr_txt_export + recycle routers (alphabetical j/o/r placement)
 - 11:58Z — tests/test_v040.py — OCR txt route + empty export + recycle page + list_bin empty + purge_expired safe + settings + SSE module importable + live_status.js exists with EventSource
 
+## 2026-06-02 — v0.41 continuation (autonomous, Ultracode workflow tick #24)
+
+Three feature agents in parallel via Workflow (189k tokens, 7 min), then sequential wire-up.
+
+- 12:20Z — version bump 0.40→0.41
+- 12:23Z — **Search facets** (agent A): /search now accepts query params app, date_from, date_to, tag (repeatable) — composes with FTS5 free-text. search.html has a collapsible Filters panel with app dropdown (DISTINCT app_name top 50), two date inputs, tag input with datalist autocomplete. `app/web/routes/search_facets.py` adds GET /api/search/facets.json for JS-driven population.
+- 12:28Z — **Drag-to-tag UI** (agent B): `app/web/static/drag_to_tag.js` — HTML5 drag-and-drop. Tag chips get draggable=true + data-draggable-tag; thumbnail wrappers get data-drop-target-shot. POST /api/screenshot/{id}/tags applies it; green/red flash on success/fail. base.html includes the script.
+- 12:33Z — **Browser bookmarklet** (agent C): `/bookmarklet` page shows the javascript: URL + raw source. Bookmarklet POSTs {url, title, selection} (max 5000 chars) to /api/bookmarklet/capture which creates a note "# {title}\\n\\n{url}\\n\\n> {selection}". CORS Access-Control-Allow-Origin: * on the capture endpoint (it is opt-in by design).
+- 12:37Z — wired bookmarklet + drag_to_tag + search_facets routers (alphabetical bookmarklet between bug/bulk, drag_to_tag after diff_slider, search_facets after search)
+- 12:39Z — tests/test_v041.py — facets API + drag-to-tag 404/400 + bookmarklet page + capture roundtrip + long-selection handling + JS files exist
+
 ## How to run
 
 ```powershell

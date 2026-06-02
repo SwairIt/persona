@@ -31,6 +31,7 @@ from app.web.routes import (
     audit as audit_routes,
     auto_tag as auto_tag_routes,
     budget as budget_routes,
+    bookmarklet as bookmarklet_routes,
     bulk as bulk_routes,
     bulk_delete as bulk_delete_routes,
     calendar as calendar_routes,
@@ -42,6 +43,7 @@ from app.web.routes import (
     day_tldr as day_tldr_routes,
     diff_picker as diff_picker_routes,
     diff_slider as diff_slider_routes,
+    drag_to_tag as drag_to_tag_routes,
     digest as digest_routes,
     doctor as doctor_routes,
     embeddings_status,
@@ -92,6 +94,7 @@ from app.web.routes import (
     saved_searches as saved_searches_routes,
     screenshot,
     search as search_routes,
+    search_facets as search_facets_routes,
     share as share_routes,
     shot_of_day as shot_of_day_routes,
     shot_of_week as shot_of_week_routes,
@@ -157,7 +160,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.40.0",
+        version="0.41.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -266,6 +269,9 @@ def create_app() -> FastAPI:
     app.include_router(live_sse_routes.router)
     app.include_router(ocr_txt_export_routes.router)
     app.include_router(recycle_routes.router)
+    app.include_router(search_facets_routes.router)
+    app.include_router(drag_to_tag_routes.router)
+    app.include_router(bookmarklet_routes.router)
 
     return app
 

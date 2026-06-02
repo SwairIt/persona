@@ -38,17 +38,111 @@
         <span class="text-zinc-300">{{ t or 'any' }}</span>
       </label>
     {% endfor %}
-    <span class="text-zinc-700">|</span>
-    <input name="tag" value="{{ tag or '' }}" placeholder="exact tag name"
-           class="px-2 py-1 bg-ink-900 border border-ink-700 rounded font-mono text-xs">
-    <input name="app" value="{{ app_name or '' }}" placeholder="exact app name"
-           class="px-2 py-1 bg-ink-900 border border-ink-700 rounded font-mono text-xs">
-    <input type="date" name="since" value="{{ (since or '')[:10] }}"
-           class="px-2 py-1 bg-ink-900 border border-ink-700 rounded font-mono text-xs">
-    <span class="text-zinc-600">→</span>
-    <input type="date" name="until" value="{{ (until or '')[:10] }}"
-           class="px-2 py-1 bg-ink-900 border border-ink-700 rounded font-mono text-xs">
   </div>
+
+  {# Facets panel — collapsible <details> so it stays out of the way until needed.
+     Opens automatically when any facet is active so the user can see / clear it. #}
+  {% set _facets_active = app_name or date_from or date_to or tags %}
+  <details class="rounded-lg border border-ink-700 bg-ink-900/40"
+           x-data="searchFacets()"
+           x-init="loadFacets()"
+           {% if _facets_active %}open{% endif %}>
+    <summary class="cursor-pointer select-none px-4 py-2 text-xs uppercase tracking-wider text-zinc-400 hover:text-zinc-200 flex items-center justify-between">
+      <span>Filters{% if _facets_active %} <span class="text-accent-400 normal-case tracking-normal">· active</span>{% endif %}</span>
+      <span class="text-zinc-600 normal-case tracking-normal" x-text="loaded ? `${facets.apps.length} apps · ${facets.tags.length} tags` : 'loading…'"></span>
+    </summary>
+    <div class="px-4 pb-4 pt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-xs">
+      <label class="flex flex-col gap-1">
+        <span class="text-zinc-500">App</span>
+        <select name="app"
+                class="px-2 py-1.5 bg-ink-900 border border-ink-700 rounded font-mono text-xs">
+          <option value="">— any —</option>
+          {% if app_name %}
+            <option value="{{ app_name }}" selected>{{ app_name }}</option>
+          {% endif %}
+          <template x-for="a in facets.apps" :key="a.name">
+            <option :value="a.name"
+                    x-text="`${a.name} (${a.count})`"
+                    :selected="a.name === {{ (app_name or '') | tojson }}"
+                    x-show="a.name !== {{ (app_name or '') | tojson }}"></option>
+          </template>
+        </select>
+      </label>
+
+      <label class="flex flex-col gap-1">
+        <span class="text-zinc-500">From</span>
+        <input type="date" name="date_from" value="{{ date_from or '' }}"
+               :min="facets.date_min || ''"
+               :max="facets.date_max || ''"
+               class="px-2 py-1.5 bg-ink-900 border border-ink-700 rounded font-mono text-xs">
+      </label>
+
+      <label class="flex flex-col gap-1">
+        <span class="text-zinc-500">To</span>
+        <input type="date" name="date_to" value="{{ date_to or '' }}"
+               :min="facets.date_min || ''"
+               :max="facets.date_max || ''"
+               class="px-2 py-1.5 bg-ink-900 border border-ink-700 rounded font-mono text-xs">
+      </label>
+
+      <label class="flex flex-col gap-1">
+        <span class="text-zinc-500">Tag</span>
+        <input name="tag" list="search-tag-list"
+               value="{{ tags[0] if tags else '' }}"
+               placeholder="exact tag name"
+               class="px-2 py-1.5 bg-ink-900 border border-ink-700 rounded font-mono text-xs">
+        <datalist id="search-tag-list">
+          <template x-for="t in facets.tags" :key="t.name">
+            <option :value="t.name" x-text="`${t.name} (${t.count})`"></option>
+          </template>
+        </datalist>
+      </label>
+
+      {# Additional repeatable ``tag`` params from the URL are preserved as
+         hidden inputs so the user's stacked filter set survives navigation. #}
+      {% if tags and tags|length > 1 %}
+        {% for extra in tags[1:] %}
+          <input type="hidden" name="tag" value="{{ extra }}">
+        {% endfor %}
+      {% endif %}
+
+      <div class="sm:col-span-2 lg:col-span-4 flex flex-wrap items-center justify-between gap-2 pt-1">
+        <span class="text-zinc-600">
+          Legacy datetime range:
+          <input type="datetime-local" name="since" value="{{ (since or '')[:16] }}"
+                 class="ml-1 px-2 py-1 bg-ink-900 border border-ink-700 rounded font-mono text-[11px]">
+          <span class="text-zinc-700">→</span>
+          <input type="datetime-local" name="until" value="{{ (until or '')[:16] }}"
+                 class="px-2 py-1 bg-ink-900 border border-ink-700 rounded font-mono text-[11px]">
+        </span>
+        {% if _facets_active %}
+          <a href="/search?q={{ query | urlencode }}&mode={{ mode | urlencode }}"
+             class="text-accent-400 hover:text-accent-300">clear filters</a>
+        {% endif %}
+      </div>
+    </div>
+  </details>
+
+  <script>
+    function searchFacets() {
+      return {
+        loaded: false,
+        facets: { apps: [], tags: [], date_min: null, date_max: null },
+        async loadFacets() {
+          try {
+            const r = await fetch('/api/search/facets.json', { headers: { 'Accept': 'application/json' } });
+            if (r.ok) {
+              this.facets = await r.json();
+            }
+          } catch (e) {
+            // Non-fatal: the form still works without populated dropdowns.
+          } finally {
+            this.loaded = true;
+          }
+        }
+      };
+    }
+  </script>
 
   {% if not embeddings_enabled %}
     <p class="text-zinc-500 text-xs">

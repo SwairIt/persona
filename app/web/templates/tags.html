@@ -20,7 +20,10 @@
     {% if tags %}
       <div class="space-y-2">
         {% for tag in tags %}
-          <div class="flex items-center justify-between px-3 py-2 rounded bg-ink-900 hover:bg-ink-700/40 transition">
+          <div class="flex items-center justify-between px-3 py-2 rounded bg-ink-900 hover:bg-ink-700/40 transition cursor-grab active:cursor-grabbing"
+               draggable="true"
+               data-draggable-tag="{{ tag.name }}"
+               title="Drag onto a screenshot thumbnail to apply this tag">
             <a href="/tags/{{ tag.id }}" class="flex items-center gap-2 flex-1 min-w-0">
               <span class="w-2 h-2 rounded-full flex-shrink-0" style="background: {{ tag.color or '#8b5cf6' }};"></span>
               <span class="text-zinc-200 truncate">{{ tag.name }}</span>

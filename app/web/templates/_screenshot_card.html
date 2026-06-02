@@ -1,6 +1,8 @@
 <a href="/screenshot/{{ shot.id }}"
    data-shot-card
    data-href="/screenshot/{{ shot.id }}"
+   data-drop-target-shot
+   data-shot-id="{{ shot.id }}"
    class="group block rounded-lg overflow-hidden bg-ink-800 border border-ink-700 hover:border-accent-500 transition">
   {% if shot.thumbnail_path %}
     <div class="aspect-video bg-ink-900 overflow-hidden">

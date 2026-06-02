@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Browser bookmarklet</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    One-click capture of the page you're on — URL, title, and your selected text — into a Persona note.
+  </p>
+</div>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-6 mb-6">
+  <h2 class="text-lg font-semibold mb-2">1. Drag this to your bookmarks bar</h2>
+  <p class="text-zinc-400 text-sm mb-4">
+    Press <kbd class="font-mono text-xs bg-ink-900 border border-ink-700 px-1.5 py-0.5 rounded">Ctrl+Shift+B</kbd>
+    (Windows / Linux) or
+    <kbd class="font-mono text-xs bg-ink-900 border border-ink-700 px-1.5 py-0.5 rounded">Cmd+Shift+B</kbd>
+    (macOS) first if your bookmarks bar is hidden.
+  </p>
+
+  <div class="flex items-center gap-4 flex-wrap">
+    <a href="{{ javascript_url }}"
+       draggable="true"
+       onclick="event.preventDefault(); alert('Drag this link to your bookmarks bar — clicking it here would just run on Persona itself.');"
+       class="inline-flex items-center gap-2 px-5 py-3 rounded-lg bg-accent-600 hover:bg-accent-500 text-white font-semibold shadow-lg cursor-grab active:cursor-grabbing select-none transition">
+      <span class="text-lg">+</span>
+      <span>Save to Persona</span>
+    </a>
+    <span class="text-xs text-zinc-500">Drag → don't click.</span>
+  </div>
+</section>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-6 mb-6">
+  <h2 class="text-lg font-semibold mb-3">2. How to use it</h2>
+  <ol class="list-decimal list-inside space-y-2 text-sm text-zinc-300">
+    <li>Visit any page you want to remember.</li>
+    <li>Optionally select a passage of text you want to quote.</li>
+    <li>Click <span class="font-mono text-accent-400">Save to Persona</span> in your bookmarks bar.</li>
+    <li>A small confirmation banner appears in the corner for ~2 seconds, then disappears.</li>
+    <li>Open <a class="text-accent-400 hover:underline" href="/inbox">/inbox</a> to see the new note.</li>
+  </ol>
+</section>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-6 mb-6">
+  <h2 class="text-lg font-semibold mb-3">What the note looks like</h2>
+  <div aria-hidden="true"
+       class="rounded border border-ink-700 bg-ink-900 p-4 font-mono text-xs leading-relaxed text-zinc-300 overflow-x-auto">
+<pre class="whitespace-pre-wrap"># Example page title
+
+https://example.com/some-article
+
+&gt; The passage of text you selected
+&gt; before clicking the bookmarklet
+&gt; lands here as a markdown blockquote.</pre>
+  </div>
+  <p class="text-zinc-500 text-xs mt-3">
+    Selections longer than {{ max_selection_chars }} characters are truncated server-side.
+  </p>
+</section>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-6">
+  <h2 class="text-lg font-semibold mb-3">Source — what runs when you click it</h2>
+  <p class="text-zinc-500 text-xs mb-3">
+    Hosted at <a class="font-mono text-accent-400 hover:underline" href="/static/bookmarklet_source.js">/static/bookmarklet_source.js</a>.
+    The bookmarklet posts to <span class="font-mono text-zinc-300">{{ origin }}/api/bookmarklet/capture</span>
+    with <span class="font-mono">credentials: 'include'</span> so your existing Persona session cookie travels along.
+  </p>
+  <pre class="rounded border border-ink-700 bg-ink-900 p-4 text-xs text-zinc-300 overflow-x-auto whitespace-pre">{{ raw_source }}</pre>
+</section>
+{% endblock %}

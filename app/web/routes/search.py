@@ -1,20 +1,29 @@
-"""Search route — FTS5 keyword + optional semantic ranking."""
+"""Search route — FTS5 keyword + optional semantic ranking.
+
+v0.41 adds rich filter facets: ``app`` (string), ``date_from``/``date_to``
+(``YYYY-MM-DD``) and ``tag`` (repeatable). When any of these are set we
+post-filter the merged hit list against the SQLite catalogue using bind
+parameters only — no string interpolation of user input ever reaches SQL.
+"""
 
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from app.embeddings import EmbeddingsNotAvailable, is_available, semantic_search
 from app.embeddings.model import load_model  # noqa: F401 (eager-import sanity)
+from app.logging_setup import get_logger
 from app.search import search as run_search
 from app.settings import get_settings
 from app.storage.db import get_connection
 from app.storage.search_history import clear_history, list_recent, record_query
 from app.web.templates_engine import templates
+
+log = get_logger("persona.search.facets")
 
 router = APIRouter(tags=["search"])
 
@@ -26,13 +35,29 @@ async def search_page(
     app_name: str | None = Query(default=None, alias="app"),
     since: str | None = Query(default=None),
     until: str | None = Query(default=None),
+    date_from: str | None = Query(default=None),
+    date_to: str | None = Query(default=None),
     mode: str = Query(default="hybrid"),
     tier: str | None = Query(default=None),
-    tag: str | None = Query(default=None),
+    tag: Annotated[list[str] | None, Query()] = None,
 ) -> HTMLResponse:
-    """Render search page with optional tier / tag post-filters."""
+    """Render search page with optional tier / tag / app / date post-filters."""
     since_dt = _parse_iso_or_none(since)
     until_dt = _parse_iso_or_none(until)
+
+    # Normalise repeatable ``?tag=`` query params: drop blanks, dedupe,
+    # preserve order so the template can faithfully echo what the user
+    # submitted. The legacy single-value ``tag`` form field still works
+    # because FastAPI happily promotes a single value to a one-item list.
+    tags: list[str] = _normalise_tags(tag)
+    # Back-compat: existing templates / links read ``tag`` as a scalar.
+    tag_single: str | None = tags[0] if tags else None
+
+    # Date facets accept either ``YYYY-MM-DD`` (v0.41 facet form) or a
+    # full ISO timestamp (legacy ``since``/``until``). We keep them as
+    # raw strings here and let the filter step validate the shape.
+    date_from_norm = _normalise_date(date_from)
+    date_to_norm = _normalise_date(date_to)
 
     settings = get_settings()
     chosen_mode = _coerce_mode(mode, settings.embeddings_enabled and is_available())
@@ -75,8 +100,25 @@ async def search_page(
 
         recent_searches = await list_recent(conn)
 
-    if q and (tier or tag):
-        hits = await _apply_post_filters(hits, tier=tier, tag=tag)
+    if q and (tier or tags or app_name or date_from_norm or date_to_norm):
+        hits = await _apply_post_filters(
+            hits,
+            tier=tier,
+            tags=tags,
+            app_name=app_name,
+            date_from=date_from_norm,
+            date_to=date_to_norm,
+        )
+        log.debug(
+            "search.facets.applied",
+            query=q,
+            tier=tier,
+            tags=tags,
+            app_name=app_name,
+            date_from=date_from_norm,
+            date_to=date_to_norm,
+            remaining=len(hits),
+        )
 
     is_htmx = request.headers.get("HX-Request") == "true"
     template_name = "_search_results.html" if is_htmx else "search.html"
@@ -91,9 +133,12 @@ async def search_page(
             "app_name": app_name,
             "since": since,
             "until": until,
+            "date_from": date_from_norm,
+            "date_to": date_to_norm,
             "mode": chosen_mode,
             "tier": tier,
-            "tag": tag,
+            "tag": tag_single,
+            "tags": tags,
             "hits": hits,
             "total": len(hits),
             "embeddings_enabled": settings.embeddings_enabled,
@@ -174,9 +219,17 @@ async def _apply_post_filters(
     hits: list[dict[str, Any]],
     *,
     tier: str | None,
-    tag: str | None,
+    tags: list[str],
+    app_name: str | None,
+    date_from: str | None,
+    date_to: str | None,
 ) -> list[dict[str, Any]]:
-    """Filter merged hits by tier / tag (resolved via DB lookups)."""
+    """Filter merged hits by tier / tags / app / date range via DB lookups.
+
+    All SQL uses ``?`` bind parameters; no user input is interpolated.
+    Each filter independently narrows ``keep_ids`` so a hit must satisfy
+    *every* active facet to survive (AND semantics, like the form UI).
+    """
     if not hits:
         return hits
     ids = [int(h["screenshot_id"]) for h in hits]
@@ -186,22 +239,56 @@ async def _apply_post_filters(
         if tier:
             placeholders = ",".join("?" * len(ids))
             cursor = await conn.execute(
-                f"SELECT id FROM screenshots WHERE id IN ({placeholders}) AND tier = ?",
+                f"SELECT id FROM screenshots WHERE id IN ({placeholders}) AND tier = ?",  # noqa: S608
                 (*ids, tier),
             )
             rows = await cursor.fetchall()
             keep_ids &= {int(row["id"]) for row in rows}
 
-        if tag:
+        if app_name:
             placeholders = ",".join("?" * len(ids))
             cursor = await conn.execute(
-                f"SELECT st.screenshot_id FROM screenshot_tags st "
-                f"JOIN tags t ON t.id = st.tag_id "
-                f"WHERE t.name = ? AND st.screenshot_id IN ({placeholders})",
-                (tag, *ids),
+                f"SELECT id FROM screenshots WHERE id IN ({placeholders}) "  # noqa: S608
+                "AND app_name = ?",
+                (*ids, app_name),
+            )
+            rows = await cursor.fetchall()
+            keep_ids &= {int(row["id"]) for row in rows}
+
+        if date_from:
+            placeholders = ",".join("?" * len(ids))
+            cursor = await conn.execute(
+                f"SELECT id FROM screenshots WHERE id IN ({placeholders}) "  # noqa: S608
+                "AND DATE(captured_at) >= DATE(?)",
+                (*ids, date_from),
+            )
+            rows = await cursor.fetchall()
+            keep_ids &= {int(row["id"]) for row in rows}
+
+        if date_to:
+            placeholders = ",".join("?" * len(ids))
+            cursor = await conn.execute(
+                f"SELECT id FROM screenshots WHERE id IN ({placeholders}) "  # noqa: S608
+                "AND DATE(captured_at) <= DATE(?)",
+                (*ids, date_to),
+            )
+            rows = await cursor.fetchall()
+            keep_ids &= {int(row["id"]) for row in rows}
+
+        # Tag facet — AND across tags: a hit must carry *every* requested
+        # tag, matching how stacked checkboxes feel intuitively.
+        for tag_name in tags:
+            id_placeholders = ",".join("?" * len(ids))
+            cursor = await conn.execute(
+                "SELECT st.screenshot_id FROM screenshot_tags st "  # noqa: S608
+                "JOIN tags t ON t.id = st.tag_id "
+                f"WHERE t.name = ? AND st.screenshot_id IN ({id_placeholders})",
+                (tag_name, *ids),
             )
             rows = await cursor.fetchall()
             keep_ids &= {int(row["screenshot_id"]) for row in rows}
+            if not keep_ids:
+                break
 
     return [h for h in hits if int(h["screenshot_id"]) in keep_ids]
 
@@ -212,4 +299,39 @@ def _parse_iso_or_none(value: str | None) -> datetime | None:
     try:
         return datetime.fromisoformat(value)
     except ValueError:
+        return None
+
+
+def _normalise_tags(raw: list[str] | None) -> list[str]:
+    """Strip / dedupe / order-preserve a ``?tag=`` multi-value list."""
+    if not raw:
+        return []
+    seen: set[str] = set()
+    out: list[str] = []
+    for item in raw:
+        cleaned = item.strip()
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        out.append(cleaned)
+    return out
+
+
+def _normalise_date(value: str | None) -> str | None:
+    """Accept ``YYYY-MM-DD`` (or longer ISO) and return the date part.
+
+    Anything that doesn't parse is dropped silently — the form input is
+    ``<input type="date">`` in modern browsers, so garbage is rare and a
+    permissive parser keeps URL-driven traffic working.
+    """
+    if not value:
+        return None
+    candidate = value.strip()
+    if not candidate:
+        return None
+    try:
+        return datetime.fromisoformat(candidate).date().isoformat()
+    except ValueError:
+        # Bare ``YYYY-MM-DD`` already comes back from fromisoformat, so
+        # if we land here it's truly malformed — drop it.
         return None
