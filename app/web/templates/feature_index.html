@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-end justify-between gap-4 flex-wrap">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Features</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Every page and endpoint in Persona —
+      <span class="font-mono text-zinc-400">{{ total }}</span> in total.
+      Use the search box to find one.
+    </p>
+  </div>
+  <a href="/api/features.json"
+     class="text-xs font-mono text-zinc-500 hover:text-accent-400">
+    /api/features.json
+  </a>
+</div>
+
+<div class="mb-6">
+  <label for="feature-filter" class="sr-only">Filter features</label>
+  <input id="feature-filter"
+         type="search"
+         autocomplete="off"
+         placeholder="Filter by title, hint, or path…"
+         class="w-full rounded-lg border border-ink-700 bg-ink-900 px-4 py-3 text-sm
+                placeholder-zinc-500 focus:border-accent-500 focus:outline-none
+                focus:ring-2 focus:ring-accent-500/30">
+  <div id="feature-filter-empty"
+       class="hidden mt-4 rounded-lg border border-ink-700 bg-ink-800 p-6 text-center
+              text-sm text-zinc-500">
+    Nothing matches that filter.
+  </div>
+</div>
+
+<div id="feature-groups" class="space-y-8">
+  {% for slug, label, rows in grouped %}
+    <section class="feature-group" data-group="{{ slug }}">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-lg font-semibold text-zinc-200">{{ label }}</h2>
+        <span class="feature-group-count text-xs font-mono text-zinc-500">
+          {{ rows|length }}
+        </span>
+      </div>
+      <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {% for entry in rows %}
+          <article class="feature-card group rounded-lg border border-ink-700 bg-ink-800
+                          p-4 flex flex-col gap-2 transition hover:border-accent-500/60
+                          hover:bg-ink-800/80"
+                   data-title="{{ entry.title|lower }}"
+                   data-hint="{{ entry.hint|lower }}"
+                   data-path="{{ entry.path|lower }}">
+            <header class="flex items-start justify-between gap-2">
+              <h3 class="text-zinc-100 font-medium leading-tight">{{ entry.title }}</h3>
+              <code class="text-[10px] font-mono text-zinc-500 uppercase tracking-wider
+                           shrink-0 pt-1">{{ entry.category }}</code>
+            </header>
+            <p class="text-sm text-zinc-400 flex-1">{{ entry.hint }}</p>
+            <footer class="flex items-center justify-between gap-2 pt-1">
+              <code class="text-xs font-mono text-zinc-500 truncate">{{ entry.path }}</code>
+              <a href="{{ entry.path }}"
+                 class="text-xs font-semibold px-2.5 py-1 rounded bg-ink-900 text-accent-400
+                        hover:bg-accent-600/20 hover:text-accent-400 transition shrink-0">
+                Open →
+              </a>
+            </footer>
+          </article>
+        {% endfor %}
+      </div>
+    </section>
+  {% endfor %}
+</div>
+
+<script>
+  (function () {
+    var input = document.getElementById('feature-filter');
+    var empty = document.getElementById('feature-filter-empty');
+    var groups = Array.prototype.slice.call(
+      document.querySelectorAll('.feature-group')
+    );
+    if (!input || !groups.length) { return; }
+
+    function normalise(value) {
+      return (value || '').toLowerCase().trim();
+    }
+
+    function apply() {
+      var q = normalise(input.value);
+      var anyVisible = false;
+
+      groups.forEach(function (group) {
+        var cards = Array.prototype.slice.call(
+          group.querySelectorAll('.feature-card')
+        );
+        var visibleHere = 0;
+
+        cards.forEach(function (card) {
+          if (!q) {
+            card.classList.remove('hidden');
+            visibleHere += 1;
+            return;
+          }
+          var title = card.getAttribute('data-title') || '';
+          var hint = card.getAttribute('data-hint') || '';
+          var path = card.getAttribute('data-path') || '';
+          var match = title.indexOf(q) !== -1
+                   || hint.indexOf(q) !== -1
+                   || path.indexOf(q) !== -1;
+          card.classList.toggle('hidden', !match);
+          if (match) { visibleHere += 1; }
+        });
+
+        var counter = group.querySelector('.feature-group-count');
+        if (counter) {
+          counter.textContent = String(visibleHere);
+        }
+        group.classList.toggle('hidden', visibleHere === 0);
+        if (visibleHere > 0) { anyVisible = true; }
+      });
+
+      if (empty) {
+        empty.classList.toggle('hidden', anyVisible);
+      }
+    }
+
+    input.addEventListener('input', apply);
+
+    // "/" focuses the global search by default — once focused here,
+    // Escape clears the filter without blurring so users can keep typing.
+    input.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape' && input.value !== '') {
+        event.preventDefault();
+        event.stopPropagation();
+        input.value = '';
+        apply();
+      }
+    });
+  })();
+</script>
+{% endblock %}

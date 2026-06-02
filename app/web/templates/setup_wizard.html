@@ -1,0 +1,287 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-8 max-w-3xl">
+  <h1 class="text-3xl font-bold tracking-tight">Welcome to Persona</h1>
+  <p class="text-zinc-500 text-sm mt-2 leading-relaxed">
+    Five quick choices and you&rsquo;re set. Every field is pre-filled with the
+    safest default for a brand-new install &mdash; you can change any of them
+    later in <code class="font-mono text-xs">Settings</code>. All data stays
+    on this machine; Persona never uploads anything to anyone&rsquo;s servers.
+  </p>
+
+  {% if already_configured %}
+    <div class="mt-5 rounded-lg border border-emerald-700/40 bg-emerald-900/20 text-emerald-200 px-4 py-3 text-sm flex items-start gap-3">
+      <span class="font-mono text-base leading-none mt-0.5">✓</span>
+      <div>
+        <strong>Persona is already configured.</strong>
+        Saving here will overwrite the values below. To skip the wizard,
+        head straight to <a href="/timeline" class="underline hover:text-emerald-100">/timeline</a>.
+      </div>
+    </div>
+  {% endif %}
+</div>
+
+<form action="/setup" method="post"
+      class="space-y-8 max-w-3xl">
+
+  <!-- ============================================================ -->
+  <!-- 1. Look                                                        -->
+  <!-- ============================================================ -->
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-6">
+    <header class="mb-4">
+      <h2 class="text-lg font-semibold tracking-tight flex items-center gap-2">
+        <span class="text-accent-400 font-mono text-sm">01.</span>
+        Look
+      </h2>
+      <p class="text-zinc-500 text-xs mt-1">
+        Pick a palette. <em>Auto</em> follows your operating system&rsquo;s
+        dark/light preference and re-evaluates live.
+      </p>
+    </header>
+
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      {% for value, label, description in theme_options %}
+        <label class="cursor-pointer rounded-lg border bg-ink-900 p-4 flex flex-col gap-2 transition
+                      {% if current.theme == value %}border-accent-500 ring-1 ring-accent-500/40{% else %}border-ink-700 hover:border-accent-500/60{% endif %}">
+          <span class="flex items-center gap-2">
+            <input type="radio" name="theme" value="{{ value }}"
+                   {% if current.theme == value %}checked{% endif %}
+                   class="w-4 h-4 accent-accent-500">
+            <span class="text-sm font-semibold text-zinc-100">{{ label }}</span>
+          </span>
+          <span class="text-xs text-zinc-500 leading-relaxed">{{ description }}</span>
+          <span class="text-[10px] uppercase tracking-widest font-mono text-zinc-600">{{ value }}</span>
+        </label>
+      {% endfor %}
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- 2. Capture                                                     -->
+  <!-- ============================================================ -->
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-6">
+    <header class="mb-4">
+      <h2 class="text-lg font-semibold tracking-tight flex items-center gap-2">
+        <span class="text-accent-400 font-mono text-sm">02.</span>
+        Capture
+      </h2>
+      <p class="text-zinc-500 text-xs mt-1">
+        How often Persona snaps a thumbnail of your active window. Lower
+        values give finer-grain memory at the cost of disk + CPU. The
+        adaptive worker may slow this down when you&rsquo;re idle.
+      </p>
+    </header>
+
+    <label for="capture_interval_seconds"
+           class="block text-xs uppercase tracking-widest text-zinc-500 mb-2">
+      Interval (seconds)
+    </label>
+    <div class="flex items-center gap-4">
+      <input type="number" step="0.5" min="0.5" max="60"
+             id="capture_interval_seconds"
+             name="capture_interval_seconds"
+             value="{{ current.capture_interval_seconds }}"
+             class="w-32 px-3 py-2 rounded bg-ink-900 border border-ink-700 focus:border-accent-500 focus:outline-none text-zinc-100 font-mono text-sm">
+      <span class="text-xs text-zinc-500">
+        Allowed range <code class="font-mono">0.5</code> &ndash;
+        <code class="font-mono">60</code>. Default
+        <code class="font-mono">5</code> &mdash; about 720 frames per hour.
+      </span>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- 3. OCR                                                         -->
+  <!-- ============================================================ -->
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-6">
+    <header class="mb-4">
+      <h2 class="text-lg font-semibold tracking-tight flex items-center gap-2">
+        <span class="text-accent-400 font-mono text-sm">03.</span>
+        OCR languages
+      </h2>
+      <p class="text-zinc-500 text-xs mt-1">
+        Which Tesseract language packs to run on every capture. Detected
+        packs are listed below; combine them with the <code class="font-mono">eng+rus</code>
+        syntax to OCR multi-language screens. You can skip this and add
+        them later from <code class="font-mono">/settings/ocr-languages</code>.
+      </p>
+    </header>
+
+    {% if installed_languages|length == 1 and installed_languages[0] == "eng" %}
+      <div class="rounded border border-amber-700/40 bg-amber-900/20 text-amber-200 px-3 py-2 mb-4 text-xs">
+        Only the default <code class="font-mono">eng</code> pack is detected.
+        Install more Tesseract language packs on this host to enable additional options.
+      </div>
+    {% endif %}
+
+    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+      {% for lang in installed_languages %}
+        <label class="flex items-center gap-2 px-3 py-2 rounded border border-ink-700 bg-ink-900 hover:border-accent-500 cursor-pointer">
+          <input type="checkbox"
+                 name="ocr_languages"
+                 value="{{ lang }}"
+                 {% if lang in configured_languages_set %}checked{% endif %}
+                 class="w-4 h-4 accent-accent-500">
+          <span class="font-mono text-sm text-zinc-200">{{ lang }}</span>
+        </label>
+      {% endfor %}
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- 4. AI (BYO LLM key)                                            -->
+  <!-- ============================================================ -->
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-6">
+    <header class="mb-4">
+      <h2 class="text-lg font-semibold tracking-tight flex items-center gap-2">
+        <span class="text-accent-400 font-mono text-sm">04.</span>
+        AI assistant (optional)
+      </h2>
+      <p class="text-zinc-500 text-xs mt-1">
+        Persona uses your own API key for <em>Ask</em> and digests &mdash;
+        we never see your traffic. Leave both fields blank to defer this;
+        Ask will simply be disabled until you fill them in. If
+        <code class="font-mono">cryptography</code> is installed and you supply
+        a master password the key is sealed in the encrypted vault; otherwise
+        it falls back to a plain kv row.
+      </p>
+    </header>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div>
+        <label for="llm_provider"
+               class="block text-xs uppercase tracking-widest text-zinc-500 mb-2">
+          Provider
+        </label>
+        <select id="llm_provider"
+                name="llm_provider"
+                class="w-full px-3 py-2 rounded bg-ink-900 border border-ink-700 focus:border-accent-500 focus:outline-none text-zinc-100 text-sm">
+          <option value="" {% if not current.llm_provider %}selected{% endif %}>
+            &mdash; none / skip &mdash;
+          </option>
+          {% for provider in providers %}
+            <option value="{{ provider }}"
+                    {% if current.llm_provider == provider %}selected{% endif %}>
+              {{ provider }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <label for="llm_api_key"
+               class="block text-xs uppercase tracking-widest text-zinc-500 mb-2">
+          API key
+        </label>
+        <input type="password"
+               id="llm_api_key"
+               name="llm_api_key"
+               autocomplete="off"
+               placeholder="sk-…"
+               class="w-full px-3 py-2 rounded bg-ink-900 border border-ink-700 focus:border-accent-500 focus:outline-none text-zinc-100 font-mono text-sm">
+        <p class="text-[11px] text-zinc-600 mt-1">
+          Leave blank to keep whatever is currently on file.
+        </p>
+      </div>
+
+      <div class="md:col-span-2">
+        <label for="llm_master_password"
+               class="block text-xs uppercase tracking-widest text-zinc-500 mb-2">
+          Vault master password (optional)
+        </label>
+        <input type="password"
+               id="llm_master_password"
+               name="llm_master_password"
+               autocomplete="new-password"
+               placeholder="leave blank to skip encryption"
+               class="w-full md:w-1/2 px-3 py-2 rounded bg-ink-900 border border-ink-700 focus:border-accent-500 focus:outline-none text-zinc-100 font-mono text-sm">
+        <p class="text-[11px] text-zinc-600 mt-1">
+          Required to seal the key in the encrypted vault. Without it the key
+          is stored in plain <code class="font-mono">kv_settings</code> &mdash;
+          fine for fully-local use, less ideal on a shared host.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- 5. Retention                                                   -->
+  <!-- ============================================================ -->
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-6">
+    <header class="mb-4">
+      <h2 class="text-lg font-semibold tracking-tight flex items-center gap-2">
+        <span class="text-accent-400 font-mono text-sm">05.</span>
+        Retention
+      </h2>
+      <p class="text-zinc-500 text-xs mt-1">
+        Three windows govern when Persona shrinks and finally deletes
+        captures. Must satisfy <code class="font-mono">warm &lt; cold &lt; delete</code>
+        &mdash; we check on save.
+      </p>
+    </header>
+
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div>
+        <label for="retention_warm_days"
+               class="block text-xs uppercase tracking-widest text-zinc-500 mb-2">
+          Warm tier (days)
+        </label>
+        <input type="number" min="1" max="3650"
+               id="retention_warm_days"
+               name="retention_warm_days"
+               value="{{ current.retention_warm_days }}"
+               class="w-full px-3 py-2 rounded bg-ink-900 border border-ink-700 focus:border-accent-500 focus:outline-none text-zinc-100 font-mono text-sm">
+        <p class="text-[11px] text-zinc-600 mt-1">
+          After this many days frames are downscaled.
+        </p>
+      </div>
+
+      <div>
+        <label for="retention_cold_days"
+               class="block text-xs uppercase tracking-widest text-zinc-500 mb-2">
+          Cold tier (days)
+        </label>
+        <input type="number" min="1" max="3650"
+               id="retention_cold_days"
+               name="retention_cold_days"
+               value="{{ current.retention_cold_days }}"
+               class="w-full px-3 py-2 rounded bg-ink-900 border border-ink-700 focus:border-accent-500 focus:outline-none text-zinc-100 font-mono text-sm">
+        <p class="text-[11px] text-zinc-600 mt-1">
+          After this many days only OCR text is kept.
+        </p>
+      </div>
+
+      <div>
+        <label for="retention_delete_days"
+               class="block text-xs uppercase tracking-widest text-zinc-500 mb-2">
+          Delete (days)
+        </label>
+        <input type="number" min="1" max="3650"
+               id="retention_delete_days"
+               name="retention_delete_days"
+               value="{{ current.retention_delete_days }}"
+               class="w-full px-3 py-2 rounded bg-ink-900 border border-ink-700 focus:border-accent-500 focus:outline-none text-zinc-100 font-mono text-sm">
+        <p class="text-[11px] text-zinc-600 mt-1">
+          Hard deletion. The recycle bin still gives you a 7-day grace.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- Footer                                                         -->
+  <!-- ============================================================ -->
+  <div class="flex items-center justify-between flex-wrap gap-3 pt-2">
+    <p class="text-xs text-zinc-500">
+      Everything is written to <code class="font-mono">kv_settings</code> in
+      one transaction. You can revisit this page any time at
+      <code class="font-mono">/setup</code>.
+    </p>
+    <button type="submit"
+            class="px-6 py-2.5 bg-accent-600 hover:bg-accent-500 rounded text-sm font-semibold transition shadow-lg shadow-accent-900/30">
+      {% if already_configured %}Save changes{% else %}Finish setup &rarr;{% endif %}
+    </button>
+  </div>
+</form>
+{% endblock %}

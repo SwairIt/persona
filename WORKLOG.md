@@ -606,6 +606,17 @@ Three feature agents in parallel via Workflow (171k tokens, 7.4 min). Chained.
 - 03:31Z — wired visual_diff + app_retention routers; tag RSS lives in existing rss.py
 - 03:33Z — tests/test_v049.py — tag RSS unknown-tag + visual diff 404 + app-retention page + save + module roundtrip + never_delete flag
 
+## 2026-06-03 — v0.50 MILESTONE — half-way to v1 (autonomous, Ultracode workflow tick #33)
+
+Three feature agents in parallel via Workflow (236k tokens, 6.9 min). v0.50 is the half-way milestone: every prior tick was iterative, this one is a "meta" tick — index, programmable surface, first-run UX.
+
+- 03:50Z — version bump 0.49→0.50
+- 03:53Z — **Feature index** (agent A): `app/feature_index.py` walks app.routes and pairs with curated category metadata (timeline/search/capture/ocr/llm/export/share/admin/stats/settings/integrations). /features renders filter input + grouped cards. /api/features.json for programmatic discovery.
+- 03:57Z — **JSON query API** (agent B): `app/query_api.py` with run_query(query). POST /api/query accepts {fts, app, date_from, date_to, tags, kinds, limit}, validates pydantic v2 model, dispatches into existing search/notes_search/etc helpers. Returns {results: {screenshots, notes, tags, days}, total_per_kind}. GET /api/query/example for self-describing schema.
+- 04:01Z — **One-shot setup wizard** (agent C): /setup renders a single tall form (theme, capture_interval, ocr_languages, llm_provider+api_key, retention warm/cold/delete). POST persists kv_setting setup_complete=true and (if cryptography present) writes API key to v0.33 vault else kv_setting. `SetupGateMiddleware` redirects fresh installs to /setup, allow-listing /setup, /static/*, /api/*, /favicon.ico, /events, /health.
+- 04:05Z — wired feature_index + query_api + setup routers + SetupGateMiddleware FIRST in middleware stack (before ApiAuth, before GZip)
+- 04:08Z — tests/test_v050.py — feature index page + API ≥20 entries + query example + empty/full queries + setup page + save + module returns list
+
 ## How to run
 
 ```powershell

@@ -17,6 +17,7 @@ from app.logging_setup import configure_logging, get_logger
 from app.settings import get_settings
 from app.storage.db import init_database
 from app.web.middleware.api_auth import ApiAuthMiddleware
+from app.web.routes.setup_gate import SetupGateMiddleware
 from app.web.routes import (
     about as about_routes,
     analysis as analysis_routes,
@@ -57,6 +58,7 @@ from app.web.routes import (
     encrypted_notes as encrypted_notes_routes,
     export,
     favourites as favourites_routes,
+    feature_index as feature_index_routes,
     focus as focus_routes,
     full_export as full_export_routes,
     health,
@@ -86,6 +88,7 @@ from app.web.routes import (
     process_remap as process_remap_routes,
     public_day as public_day_routes,
     qa as qa_routes,
+    query_api as query_api_routes,
     quiet_hours as quiet_hours_routes,
     regex_rules as regex_rules_routes,
     range_timeline as range_timeline_routes,
@@ -118,6 +121,7 @@ from app.web.routes import (
     share_collection as share_collection_routes,
     settings as settings_routes,
     settings_backup as settings_backup_routes,
+    setup as setup_routes,
     smtp_settings as smtp_settings_routes,
     stats,
     stats_csv as stats_csv_routes,
@@ -166,6 +170,7 @@ def create_app() -> FastAPI:
     settings.ensure_directories()
 
     middleware = [
+        Middleware(SetupGateMiddleware),
         Middleware(ApiAuthMiddleware),
         Middleware(GZipMiddleware, minimum_size=512),
         Middleware(
@@ -180,7 +185,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.49.0",
+        version="0.50.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -312,6 +317,9 @@ def create_app() -> FastAPI:
     app.include_router(tag_merge_routes.router)
     app.include_router(visual_diff_routes.router)
     app.include_router(app_retention_routes.router)
+    app.include_router(feature_index_routes.router)
+    app.include_router(query_api_routes.router)
+    app.include_router(setup_routes.router)
 
     return app
 

@@ -1,6 +1,6 @@
 # 🌅 Morning report — Persona
 
-Forty-nine autonomous sessions: …v0.46 → v0.47 → v0.48 → **v0.49** without stopping (chained back-to-back). **Live on GitHub:** https://github.com/SwairIt/persona
+Fifty autonomous sessions: …v0.47 → v0.48 → v0.49 → **v0.50 MILESTONE** (half-way to v1, chained back-to-back). **Live on GitHub:** https://github.com/SwairIt/persona
 
 ## By the numbers (current)
 
@@ -11,6 +11,14 @@ Forty-nine autonomous sessions: …v0.46 → v0.47 → v0.48 → **v0.49** witho
 - **20+ test files**
 - **0 git commits** — entirely up to you
 - **0 network calls at runtime** (only optional outgoing call: BYO-LLM keys to your chosen provider)
+
+## What landed in v0.50 MILESTONE (feature index + JSON query API + setup wizard)
+
+Built via 3 parallel Workflow agents → sequential wire-up. **Half-way to v1.** First "meta" tick instead of just adding features — addresses *discoverability*, *programmability*, and *first-run UX*.
+
+- 🗂️ **Feature index** — `/features` lists every route in the app with a one-line hint, grouped by category (timeline / search / capture / ocr / llm / export / share / admin / stats / settings / integrations). Type to filter. Programmatic at `/api/features.json` — useful for plugins or tooling that wants to know what's available.
+- 🔎 **JSON query API** — POST `/api/query` accepts `{fts, app, date_from, date_to, tags, kinds, limit}` and returns mixed results: screenshots, notes, tags, days. Reuses every existing search helper under the hood — no duplicated SQL. `/api/query/example` is self-describing.
+- 🧙 **One-shot setup wizard** — fresh installs are redirected to `/setup` by a tiny `SetupGateMiddleware` until they complete the form: theme, capture cadence, OCR languages, BYO LLM key, retention windows. API key goes into the v0.33 encrypted vault when `cryptography` is installed. Allow-list keeps `/api/*` and `/static/*` reachable so the redirect can't loop or break the bookmarklet.
 
 ## What landed in v0.49 (per-tag RSS + visual diff thumbs + per-app retention)
 
