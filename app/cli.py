@@ -5,6 +5,7 @@ Subcommands:
     search QUERY       FTS search across captures.
     export-day [DATE]  Render the journal markdown for a day (default: today).
     export-day-pdf     Render a per-day PDF (--day YYYY-MM-DD, --out FILE).
+    export-week-pdf    Render a Mon-Sun weekly PDF (--week YYYY-MM-DD, --out FILE).
     vacuum-db          Run SQLite VACUUM and report the freed bytes.
     ocr-status         OCR pipeline counts (pending / done / skipped / failed).
     reset-ocr          Mass-reset OCR statuses back to pending (--scope skipped|failed|all).
@@ -52,6 +53,7 @@ from app.storage.repository import insert_screenshot, set_dedup_group_representa
 from app.storage.size_log import sample_today, today_bytes
 from app.storage.thumbnails import save_thumbnail
 from app.storage.time import iso, parse_iso
+from app.weekly_pdf import export_week_pdf
 
 _ANSI_GREEN = "\033[32m"
 _ANSI_YELLOW = "\033[33m"
@@ -290,6 +292,45 @@ async def _cmd_export_day_pdf(day: str | None, out: Path) -> int:
     print(f"Pages:       {result['pages']}")
     print(f"Screenshots: {result['screenshots']}")
     print(f"Notes:       {result['notes']}")
+    print(f"Size bytes:  {result['size_bytes']}")
+    return 0
+
+
+def _parse_week(value: str | None) -> date:
+    """Parse ``--week`` and snap to that week's Monday (defaults to *this* Mon)."""
+    if not value:
+        today = date.today()
+        return today - timedelta(days=today.weekday())
+    try:
+        parsed = datetime.strptime(value, "%Y-%m-%d").date()
+    except ValueError as exc:
+        msg = f"invalid week: {value!r} (expected YYYY-MM-DD)"
+        raise SystemExit(msg) from exc
+    return parsed - timedelta(days=parsed.weekday())
+
+
+async def _cmd_export_week_pdf(week: str | None, out: Path) -> int:
+    """Render a weekly PDF via :func:`app.weekly_pdf.export_week_pdf`."""
+    target = _parse_week(week)
+    result = await export_week_pdf(target.isoformat(), out)
+
+    status = result["status"]
+    if status == "missing_dep":
+        print(
+            "error: reportlab is not installed — `uv pip install reportlab` to enable PDF export",
+            file=sys.stderr,
+        )
+        return 1
+    if status == "bad_date":
+        print(f"error: invalid week {target.isoformat()!r}", file=sys.stderr)
+        return 2
+    if status != "ok" or result["path"] is None:
+        print(f"error: unexpected status {status!r}", file=sys.stderr)
+        return 1
+
+    print(f"Week start:  {result['week_start']}")
+    print(f"Path:        {result['path']}")
+    print(f"Pages:       {result['pages']}")
     print(f"Size bytes:  {result['size_bytes']}")
     return 0
 
@@ -668,6 +709,24 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Destination PDF path (parent dirs are created).",
     )
 
+    week_pdf_parser = sub.add_parser(
+        "export-week-pdf",
+        help="Render a Mon-Sun weekly PDF (heatmap + apps + keywords + streak).",
+    )
+    week_pdf_parser.add_argument(
+        "--week",
+        dest="week",
+        default=None,
+        help="Any date inside the desired week, YYYY-MM-DD (default: this week's Monday).",
+    )
+    week_pdf_parser.add_argument(
+        "--out",
+        dest="out",
+        type=Path,
+        required=True,
+        help="Destination PDF path (parent dirs are created).",
+    )
+
     sub.add_parser("vacuum-db", help="Run SQLite VACUUM and report freed bytes.")
     sub.add_parser("ocr-status", help="Show OCR pipeline counts.")
 
@@ -853,6 +912,8 @@ async def _run(args: argparse.Namespace) -> int:  # noqa: PLR0911, PLR0912 — d
         return await _cmd_export_day(args.date)
     if args.command == "export-day-pdf":
         return await _cmd_export_day_pdf(args.day, args.out)
+    if args.command == "export-week-pdf":
+        return await _cmd_export_week_pdf(args.week, args.out)
     if args.command == "vacuum-db":
         return await _cmd_vacuum_db()
     if args.command == "ocr-status":

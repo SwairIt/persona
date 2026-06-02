@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">API tokens</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Bearer tokens for external apps hitting Persona's <code class="font-mono">/api/*</code> endpoints.
+    Use the header <code class="font-mono">Authorization: Bearer &lt;token&gt;</code>.
+    Persona stores only the SHA-256 hash &mdash; the raw value is shown
+    <strong>exactly once</strong> below, right after you issue it.
+  </p>
+</div>
+
+{% if api_auth_required %}
+  <div class="rounded-lg border border-emerald-700/40 bg-emerald-900/20 text-emerald-200 px-4 py-3 mb-6 text-xs">
+    <strong>Enforcement is ON.</strong> Every <code class="font-mono">/api/*</code> request
+    must supply a valid bearer token. Requests without an
+    <code class="font-mono">Authorization</code> header are rejected with HTTP 401.
+  </div>
+{% else %}
+  <div class="rounded-lg border border-amber-700/40 bg-amber-900/20 text-amber-200 px-4 py-3 mb-6 text-xs">
+    <strong>Enforcement is OFF</strong> (default). Tokens are validated when supplied,
+    but <code class="font-mono">/api/*</code> is still reachable without one. Set
+    <code class="font-mono">PERSONA_API_AUTH_REQUIRED=true</code> in your
+    <code class="font-mono">.env</code> to require a token on every API call.
+  </div>
+{% endif %}
+
+{% if new_token %}
+  <div class="rounded-lg border border-emerald-700/60 bg-emerald-900/20 text-emerald-100 px-4 py-4 mb-6">
+    <div class="text-sm font-semibold mb-2">New token issued &mdash; copy it now.</div>
+    <div class="text-xs text-emerald-300 mb-2">
+      This value is shown <strong>once</strong>. Persona stored only its hash; if you lose
+      this string you must revoke this token and issue a new one.
+    </div>
+    <div class="flex items-center gap-2">
+      <code id="persona-new-token"
+            class="flex-1 font-mono text-sm bg-ink-900 border border-ink-700 rounded px-3 py-2 break-all select-all">{{ new_token }}</code>
+      <button type="button" id="persona-copy-token"
+              class="px-3 py-2 bg-emerald-700 hover:bg-emerald-600 rounded text-xs font-medium">
+        Copy
+      </button>
+    </div>
+    <div class="mt-3">
+      <a href="/settings/api-tokens"
+         class="text-xs text-emerald-300 hover:text-emerald-200 underline">
+        I&rsquo;ve saved it &mdash; hide this banner
+      </a>
+    </div>
+  </div>
+{% endif %}
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
+  <h2 class="text-lg font-semibold mb-3">Issue a new token</h2>
+  <form action="/settings/api-tokens" method="post" class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+    <label class="flex flex-col gap-1 md:col-span-2">
+      <span class="text-xs uppercase tracking-widest text-zinc-500">Name</span>
+      <input type="text" name="name" required
+             placeholder="e.g. macbook-cli, browser-extension, dashboards"
+             class="px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
+    </label>
+    <label class="flex flex-col gap-1">
+      <span class="text-xs uppercase tracking-widest text-zinc-500">Scopes</span>
+      <select name="scopes"
+              class="px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono">
+        {% for scope in allowed_scopes %}
+          <option value="{{ scope }}">{{ scope }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <div class="md:col-span-3 flex justify-end">
+      <button type="submit"
+              class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
+        Issue token
+      </button>
+    </div>
+  </form>
+</section>
+
+{% if tokens %}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-ink-900 text-zinc-500 text-xs uppercase tracking-wider">
+        <tr>
+          <th class="text-left py-2 px-3">Name</th>
+          <th class="text-left py-2 px-3">Scopes</th>
+          <th class="text-left py-2 px-3">Created</th>
+          <th class="text-left py-2 px-3">Last used</th>
+          <th class="text-left py-2 px-3">Status</th>
+          <th class="py-2 px-3"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in tokens %}
+          <tr class="border-t border-ink-700 {% if t.revoked_at %}opacity-60{% endif %}">
+            <td class="py-2 px-3">
+              <span class="font-medium">{{ t.name }}</span>
+              <span class="text-zinc-600 font-mono text-[10px] ml-2">#{{ t.id }}</span>
+            </td>
+            <td class="py-2 px-3 font-mono text-xs text-accent-400">{{ t.scopes }}</td>
+            <td class="py-2 px-3 text-xs text-zinc-500 font-mono">{{ t.created_at }}</td>
+            <td class="py-2 px-3 text-xs text-zinc-500 font-mono">{{ t.last_used_at or '—' }}</td>
+            <td class="py-2 px-3 text-xs">
+              {% if t.revoked_at %}
+                <span class="text-rose-400 font-mono">revoked {{ t.revoked_at }}</span>
+              {% else %}
+                <span class="text-emerald-400 font-mono">active</span>
+              {% endif %}
+            </td>
+            <td class="py-2 px-3 text-right">
+              {% if not t.revoked_at %}
+                <form action="/settings/api-tokens/{{ t.id }}/revoke" method="post" class="inline"
+                      onsubmit="return confirm('Revoke this token? Any client using it will start getting 401 immediately.');">
+                  <button type="submit"
+                          class="text-xs px-2 py-1 rounded bg-rose-900/40 hover:bg-rose-900 text-rose-300">
+                    revoke
+                  </button>
+                </form>
+              {% else %}
+                <span class="text-zinc-600 text-xs">&mdash;</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  <p class="text-zinc-500 text-sm">No API tokens issued yet.</p>
+{% endif %}
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mt-8 text-xs text-zinc-400 space-y-2">
+  <h2 class="text-sm font-semibold text-zinc-200">Usage example</h2>
+  <pre class="font-mono bg-ink-900 border border-ink-700 rounded p-3 overflow-x-auto"><code>curl -H "Authorization: Bearer &lt;your-token&gt;" \
+     http://127.0.0.1:8765/api/screenshots/recent</code></pre>
+  <p>
+    The <code class="font-mono">scopes</code> string is currently advisory &mdash; individual
+    routes will start enforcing it in future versions. Issue read-only tokens by default
+    and only upgrade to <code class="font-mono">read,write</code> when a specific client needs it.
+  </p>
+</section>
+
+{% if new_token %}
+<script>
+  (function () {
+    var btn = document.getElementById('persona-copy-token');
+    var src = document.getElementById('persona-new-token');
+    if (!btn || !src) {
+      return;
+    }
+    btn.addEventListener('click', function () {
+      var text = src.textContent || '';
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function () {
+          var original = btn.textContent;
+          btn.textContent = 'Copied';
+          setTimeout(function () { btn.textContent = original; }, 1500);
+        });
+      } else {
+        // Fallback for ancient browsers — select the code block so the
+        // user can hit Ctrl+C themselves.
+        var range = document.createRange();
+        range.selectNodeContents(src);
+        var sel = window.getSelection();
+        if (sel) { sel.removeAllRanges(); sel.addRange(range); }
+      }
+    });
+  })();
+</script>
+{% endif %}
+{% endblock %}

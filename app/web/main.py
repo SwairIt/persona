@@ -16,10 +16,12 @@ from starlette.middleware.gzip import GZipMiddleware
 from app.logging_setup import configure_logging, get_logger
 from app.settings import get_settings
 from app.storage.db import init_database
+from app.web.middleware.api_auth import ApiAuthMiddleware
 from app.web.routes import (
     about as about_routes,
     analysis as analysis_routes,
     annotations as annotations_routes,
+    api_tokens as api_tokens_routes,
     app_overrides as app_overrides_routes,
     app_stats as app_stats_routes,
     archive as archive_routes,
@@ -70,6 +72,7 @@ from app.web.routes import (
     reminders as reminders_routes,
     ocr_admin as ocr_admin_routes,
     ocr_languages as ocr_languages_routes,
+    ocr_diff as ocr_diff_routes,
     ocr_phrase_tags as ocr_phrase_tags_routes,
     ocr_skip as ocr_skip_routes,
     rss as rss_routes,
@@ -97,6 +100,7 @@ from app.web.routes import (
     vault as vault_routes,
     webhooks_routes,
     weekly_digests as weekly_digests_routes,
+    weekly_pdf as weekly_pdf_routes,
     whitelist,
 )
 from app.workers import (
@@ -121,6 +125,7 @@ def create_app() -> FastAPI:
     settings.ensure_directories()
 
     middleware = [
+        Middleware(ApiAuthMiddleware),
         Middleware(GZipMiddleware, minimum_size=512),
         Middleware(
             CORSMiddleware,
@@ -134,7 +139,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.33.0",
+        version="0.34.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -224,6 +229,9 @@ def create_app() -> FastAPI:
     app.include_router(theme_routes.router)
     app.include_router(tag_trends_routes.router)
     app.include_router(diff_slider_routes.router)
+    app.include_router(weekly_pdf_routes.router)
+    app.include_router(ocr_diff_routes.router)
+    app.include_router(api_tokens_routes.router)
 
     return app
 

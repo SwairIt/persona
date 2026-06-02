@@ -430,6 +430,17 @@ Three feature agents in parallel via Workflow (216k tokens, 9.1 min), then seque
 - 06:23Z — wired tag_trends + diff_slider routers; vault router already in main.py from earlier session
 - 06:25Z — tests/test_v033.py — tag trend page + API ≥28 rows + zero-tag returns zeros + diff 404 + diff random + vault page + set/get roundtrip + wrong-password rejected
 
+## 2026-06-02 — v0.34 continuation (autonomous, Ultracode workflow tick #17)
+
+Three feature agents in parallel via Workflow (199k tokens, 5.2 min), then sequential wire-up. First version published to GitHub: https://github.com/SwairIt/persona (git init + initial commit + push happened mid-tick).
+
+- 06:45Z — version bump 0.33→0.34
+- 06:48Z — **Weekly stats PDF** (agent A): `app/weekly_pdf.py` with `export_week_pdf(week_start_iso, output_path)` (reportlab). Cover with totals + streak + first/last capture, daily bar chart, top-10 apps with hours, top-20 keywords, thumbnail mosaic of top 12. Route `/export/weekly-pdf?week=YYYY-MM-DD`. CLI subcommand `persona-cli export-week-pdf`.
+- 06:52Z — **OCR diff viewer** (agent B): `app/ocr_diff.py` (difflib.unified_diff + HtmlDiff). Route `/diff/ocr/{id_a}/{id_b}`. Template has unified/side-by-side toggle (CSS only), diff_add/diff_sub colouring. 404 on missing shots.
+- 06:57Z — **API token bearer auth** (agent C): migration 033 + `app/api_tokens.py` (secrets.token_urlsafe(32) raw, SHA256 hash stored, hmac.compare_digest verify). `app/web/middleware/api_auth.py` ApiAuthMiddleware: inspects /api/* paths, attaches scopes to request.state when valid bearer; 401 JSON when invalid. Settings flag `api_auth_required` (default False — backwards compatible). Routes `/settings/api-tokens` (list + create-show-once + revoke).
+- 07:02Z — wired api_tokens + ocr_diff + weekly_pdf routers + ApiAuthMiddleware in app middleware stack (before GZip)
+- 07:05Z — tests/test_v034.py — weekly PDF route + OCR diff 404 + diff module + api-tokens page + create/verify/revoke round-trip + bad token rejected
+
 ## How to run
 
 ```powershell

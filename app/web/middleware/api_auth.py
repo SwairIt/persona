@@ -57,6 +57,18 @@ def _unauthorized(reason: str) -> JSONResponse:
     )
 
 
+def _extract_bearer(header: str) -> str | None:
+    """Pull the raw token out of ``Authorization``. ``None`` if malformed.
+
+    Empty header *is* malformed at this layer — the caller decides
+    whether "no header" means anonymous or 401 *before* invoking us.
+    """
+    if not header.startswith(_BEARER_PREFIX):
+        return None
+    raw = header[len(_BEARER_PREFIX) :].strip()
+    return raw or None
+
+
 class ApiAuthMiddleware(BaseHTTPMiddleware):
     """Gate ``/api/*`` on a bearer token when one is supplied (or required)."""
 
@@ -81,15 +93,11 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
                 return _unauthorized("missing_token")
             return await call_next(request)
 
-        # Header present but not a Bearer scheme → always reject; we
-        # don't want anything else (Basic, Digest, garbage) to silently
-        # be treated as anonymous.
-        if not header.startswith(_BEARER_PREFIX):
-            log.info("api_token.middleware.reject", reason="malformed")
-            return _unauthorized("malformed")
-
-        raw = header[len(_BEARER_PREFIX) :].strip()
-        if not raw:
+        # Header present but not a Bearer scheme, or empty payload →
+        # always reject; we don't want Basic / Digest / garbage to
+        # silently be treated as anonymous.
+        raw = _extract_bearer(header)
+        if raw is None:
             log.info("api_token.middleware.reject", reason="malformed")
             return _unauthorized("malformed")
 

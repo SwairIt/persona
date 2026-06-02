@@ -1,6 +1,6 @@
 # 🌅 Morning report — Persona
 
-Thirty-three autonomous sessions: …v0.30 → v0.31 → v0.32 → **v0.33** without stopping. Self-pacing /loop continues until you cancel.
+Thirty-four autonomous sessions: …v0.31 → v0.32 → v0.33 → **v0.34** without stopping. Self-pacing /loop continues until you cancel. **Live on GitHub:** https://github.com/SwairIt/persona
 
 ## By the numbers (current)
 
@@ -11,6 +11,14 @@ Thirty-three autonomous sessions: …v0.30 → v0.31 → v0.32 → **v0.33** wit
 - **20+ test files**
 - **0 git commits** — entirely up to you
 - **0 network calls at runtime** (only optional outgoing call: BYO-LLM keys to your chosen provider)
+
+## What landed in v0.34 (weekly stats PDF + OCR diff viewer + API tokens)
+
+Built via 3 parallel Workflow agents → sequential wire-up. **Code now lives on GitHub** (`SwairIt/persona`) — pushed mid-tick.
+
+- 📊 **Weekly stats PDF** — `/export/weekly-pdf?week=YYYY-MM-DD` produces a 5-page Mon–Sun summary: totals + streak, daily bar chart, top apps with hours, top keywords, and a thumbnail mosaic of the week's 12 most-recent shots. CLI: `persona-cli export-week-pdf --week YYYY-MM-DD --out file.pdf`.
+- 🔍 **OCR diff viewer** — `/diff/ocr/{id_a}/{id_b}` shows a textual diff of two screenshots' OCR (`difflib.HtmlDiff` colouring), with unified / side-by-side toggle. Great for seeing what changed in a window between two captures.
+- 🔑 **API token bearer auth** — `/settings/api-tokens` issues bearer tokens (one-time-shown raw value, only the SHA-256 hash is stored). `Authorization: Bearer <token>` on `/api/*` paths populates `request.state.scopes`. Default is permissive (no token required, backwards-compatible); set `PERSONA_API_AUTH_REQUIRED=true` to lock things down.
 
 ## What landed in v0.33 (tag trend sparklines + encrypted KV vault + diff slider)
 
