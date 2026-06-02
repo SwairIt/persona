@@ -516,4 +516,18 @@
     {% endif %}
   </aside>
 </div>
+
+{# Possibly related — v0.47 feature 2/3.
+   HTMX swaps in /api/screenshot/{id}/similar.json once the page is rendered.
+   Returns up to four shots from the same dedup_group_id, padded with
+   nearest-pHash neighbours when the group is too small. Stays as an
+   inert placeholder until the call resolves; replaces itself on swap. #}
+<div id="dup-suggest-strip-{{ shot.id }}"
+     hx-get="/api/screenshot/{{ shot.id }}/similar.json"
+     hx-trigger="load"
+     hx-swap="outerHTML"
+     class="mt-4 text-xs text-zinc-500"
+     aria-live="polite">
+  <span class="opacity-60">Loading possibly related…</span>
+</div>
 {% endblock %}

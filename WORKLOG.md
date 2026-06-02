@@ -573,6 +573,17 @@ Three feature agents in parallel via Workflow (215k tokens, 9.3 min). First tick
 - 02:14Z — wired tag_colour + day_kanban routers
 - 02:16Z — tests/test_v046.py — colour valid/invalid/short-hex + kanban page + API + image_viewer static files contain data-zoomable + transform
 
+## 2026-06-03 — v0.47 continuation (autonomous, Ultracode workflow tick #30)
+
+Three feature agents in parallel via Workflow (195k tokens, 7.7 min). 30th tick — chained back-to-back.
+
+- 02:25Z — version bump 0.46→0.47
+- 02:28Z — **Per-day notes timeline** (agent A): `app/web/routes/notes_timeline.py` GET /notes/day/{day} + /api/notes/day/{day}.json. Vertical timeline with id="note-{id}" anchors for deep-linking. Markdown rendered if `markdown` lib present, else escaped <pre>. Encrypted notes show [locked] with link to v0.45 decrypt.
+- 02:33Z — **Duplicate-screenshot suggestions** (agent B): `app/dup_suggest.py` with suggest_similar(shot_id, limit). Checks dedup_group_id first, falls back to nearest-Hamming pHash. /api/screenshot/{id}/similar.json. screenshot.html gets HTMX-loaded "Possibly related" strip.
+- 02:38Z — **Audit-log RSS** (agent C): `app/web/routes/audit_rss.py` GET /audit.rss. Loopback-only (127.0.0.1/::1) since audit data is admin. Last 100 entries as RSS 2.0; title "[PASS|FAIL] action on target"; properly XML-escaped.
+- 02:42Z — wired notes_timeline + dup_suggest + audit_rss routers
+- 02:44Z — tests/test_v047.py — notes timeline page + API + dup suggest missing-shot + module empty + audit RSS XML
+
 ## How to run
 
 ```powershell

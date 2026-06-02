@@ -1,6 +1,6 @@
 # 🌅 Morning report — Persona
 
-Forty-six autonomous sessions: …v0.43 → v0.44 → v0.45 → **v0.46** without stopping (now chained back-to-back with zero wakeup gap). **Live on GitHub:** https://github.com/SwairIt/persona
+Forty-seven autonomous sessions: …v0.44 → v0.45 → v0.46 → **v0.47** without stopping (chained back-to-back, zero wakeup gap). **Live on GitHub:** https://github.com/SwairIt/persona
 
 ## By the numbers (current)
 
@@ -11,6 +11,14 @@ Forty-six autonomous sessions: …v0.43 → v0.44 → v0.45 → **v0.46** withou
 - **20+ test files**
 - **0 git commits** — entirely up to you
 - **0 network calls at runtime** (only optional outgoing call: BYO-LLM keys to your chosen provider)
+
+## What landed in v0.47 (notes day-timeline + dup suggestions + audit RSS)
+
+Built via 3 parallel Workflow agents → sequential wire-up.
+
+- 🧵 **Per-day notes timeline** — `/notes/day/YYYY-MM-DD` shows the day's notes as a vertical timeline (left-edge line, dots, timestamps, body). Each note has an `#note-{id}` anchor for deep-linking. Markdown rendered when the optional `markdown` lib is installed; otherwise escaped `<pre>`.
+- 👁️ **Possibly-related strip** — the screenshot detail page now lazily loads up to 4 similar shots: same `dedup_group_id` first, then nearest-Hamming pHash neighbours. Click any to jump there.
+- 📡 **Audit-log RSS** — `/audit.rss` is your personal "what did the admin endpoints do?" feed. Loopback-only (so no random visitor reads your audit log), last 100 entries, RSS 2.0, properly XML-escaped. Drop into any feed reader pointing at `localhost`.
 
 ## What landed in v0.46 (tag colours + image zoom + day kanban)
 

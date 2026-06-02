@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+
+{#
+  notes_day.html — v0.47 per-day notes timeline.
+
+  Vertical timeline:
+    * left-edge vertical line drawn with a `border-l`
+    * one dot + card per note, anchored as #note-{id}
+    * encrypted rows show "[locked]" with an inline unlock form that
+      POSTs to /api/notes/{id}/decrypt (v0.45 endpoint)
+    * markdown rendering is controlled by `markdown_available`; the
+      route already pre-rendered the body when the dep was importable
+#}
+
+{% block content %}
+<div class="mb-6 flex items-center justify-between flex-wrap gap-3">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Notes — {{ day }}</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      {{ total }} note{% if total != 1 %}s{% endif %}
+      {% if not markdown_available %}
+        · <span class="text-amber-400" title="Install the optional `markdown` package for rich rendering">plain-text fallback</span>
+      {% endif %}
+      {% if truncated %}
+        · <span class="text-amber-400">truncated</span>
+      {% endif %}
+    </p>
+  </div>
+  <a href="/notes/day/{{ day }}.json"
+     class="px-3 py-1 rounded-full text-xs border bg-ink-800 border-ink-700 hover:border-zinc-500 text-zinc-400 transition"
+     title="Machine-readable companion endpoint">
+    JSON
+  </a>
+</div>
+
+{% if total == 0 %}
+  <div class="text-center py-24">
+    <p class="text-zinc-400">No notes on {{ day }}.</p>
+    <p class="text-zinc-600 text-sm mt-2">
+      Drop a markdown file into <code class="px-1 py-0.5 rounded bg-ink-800 text-zinc-300 font-mono">./data/inbox/</code>
+      and it will appear here.
+    </p>
+  </div>
+{% else %}
+  <ol class="relative border-l border-ink-700 ml-3 pl-6 space-y-6">
+    {% for item in notes %}
+      <li id="note-{{ item.id }}" class="relative scroll-mt-24">
+        {# Dot on the timeline rail. Negative left offset puts it ON the rail. #}
+        <span class="absolute -left-[31px] top-2 w-3 h-3 rounded-full
+                     {% if item.encrypted %}bg-amber-400 ring-4 ring-amber-400/15
+                     {% else %}bg-accent-500 ring-4 ring-accent-500/15{% endif %}"
+              aria-hidden="true"></span>
+
+        <article class="bg-ink-900/60 border border-ink-700 rounded-lg p-4
+                        hover:border-ink-700 target:border-accent-500 target:ring-1 target:ring-accent-500/30
+                        transition-colors">
+          <header class="flex items-baseline justify-between gap-3 mb-2">
+            <div class="flex items-baseline gap-3 min-w-0">
+              <a href="#note-{{ item.id }}"
+                 class="font-mono text-xs text-zinc-500 hover:text-accent-400 tabular-nums shrink-0"
+                 title="Permalink to this note">
+                {{ item.created_at }}
+              </a>
+              {% if item.title %}
+                <h2 class="font-semibold text-zinc-100 truncate">{{ item.title }}</h2>
+              {% endif %}
+            </div>
+            <span class="font-mono text-[10px] text-zinc-600 shrink-0">#{{ item.id }}</span>
+          </header>
+
+          {% if item.encrypted %}
+            <div class="flex flex-wrap items-center gap-3 text-sm">
+              <span class="px-2 py-0.5 rounded bg-amber-400/10 border border-amber-400/30
+                           text-amber-300 font-mono text-xs">
+                {{ locked_marker }}
+              </span>
+              <form method="post"
+                    action="/api/notes/{{ item.id }}/decrypt"
+                    class="flex items-center gap-2"
+                    title="Unlock this note via the v0.45 decrypt endpoint">
+                <input type="password"
+                       name="password"
+                       placeholder="master password"
+                       autocomplete="off"
+                       required
+                       class="bg-ink-800 border border-ink-700 rounded px-2 py-1 text-xs
+                              text-zinc-100 focus:outline-none focus:border-accent-500
+                              w-44" />
+                <button type="submit"
+                        class="px-3 py-1 rounded bg-accent-600 hover:bg-accent-500
+                               text-xs font-medium text-white">
+                  Unlock this note
+                </button>
+              </form>
+            </div>
+          {% else %}
+            {# Body: when the optional markdown package was importable the
+               route already converted to HTML and we trust it via |safe;
+               otherwise we surface the raw text inside an escaped <pre>. #}
+            {% if markdown_available %}
+              <div class="prose prose-invert prose-sm max-w-none
+                          prose-code:bg-ink-800 prose-code:px-1 prose-code:py-0.5
+                          prose-code:rounded prose-pre:bg-ink-950 prose-pre:border
+                          prose-pre:border-ink-700">
+                {{ item.rendered_body | safe }}
+              </div>
+            {% else %}
+              <pre class="whitespace-pre-wrap break-words font-mono text-sm
+                          text-zinc-200 bg-ink-950/60 border border-ink-700
+                          rounded p-3">{{ item.body }}</pre>
+            {% endif %}
+          {% endif %}
+
+          {% if item.tags %}
+            <footer class="mt-3 flex flex-wrap gap-1.5">
+              {% for tag in item.tags %}
+                <a href="/search?q=%23{{ tag }}"
+                   class="px-2 py-0.5 rounded-full text-[11px] bg-ink-800
+                          border border-ink-700 hover:border-accent-500
+                          text-zinc-400 hover:text-accent-300 transition">
+                  #{{ tag }}
+                </a>
+              {% endfor %}
+            </footer>
+          {% endif %}
+        </article>
+      </li>
+    {% endfor %}
+  </ol>
+{% endif %}
+{% endblock %}

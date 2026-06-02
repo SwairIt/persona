@@ -1,0 +1,49 @@
+{# Possibly-related strip fragment served by /api/screenshot/{id}/similar.json.
+
+   HTMX swaps this entire <section> in via hx-swap="outerHTML" so the
+   loading placeholder on the detail page is replaced rather than wrapped.
+   When ``suggestions`` is empty we still emit an empty hidden marker so
+   the page layout doesn't jump — the surrounding container collapses
+   to zero height because the inner section is ``hidden``. #}
+<section id="dup-suggest-strip-{{ shot_id }}"
+         class="rounded-lg border border-ink-700 bg-ink-800 p-4 mt-4{% if not suggestions %} hidden{% endif %}">
+  <h3 class="text-xs uppercase tracking-widest text-zinc-500 mb-3">
+    Possibly related
+    <span class="text-zinc-600">· same dedup group or near-pHash neighbours</span>
+  </h3>
+  {% if suggestions %}
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+      {% for s in suggestions %}
+        <a href="/screenshot/{{ s.id }}"
+           data-reason="{{ s.reason }}"
+           class="block rounded overflow-hidden border border-ink-700 hover:border-accent-500 transition group"
+           title="{{ s.app_name or '—' }} · {{ s.captured_at }} · {{ 'same dedup group' if s.reason == 'same_dedup_group' else 'pHash neighbour' }}">
+          {% if s.thumbnail_url %}
+            <div class="aspect-video bg-ink-900 overflow-hidden">
+              <img src="{{ s.thumbnail_url }}"
+                   alt=""
+                   loading="lazy"
+                   class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300">
+            </div>
+          {% else %}
+            <div class="aspect-video bg-ink-900 flex items-center justify-center text-zinc-600 text-xs">
+              metadata only
+            </div>
+          {% endif %}
+          <div class="px-2 py-1.5 flex items-center justify-between gap-1.5">
+            <span class="text-[10px] text-zinc-400 font-mono truncate">
+              {{ s.app_name or '—' }}
+            </span>
+            {% if s.reason == 'same_dedup_group' %}
+              <span class="text-[9px] px-1 py-0.5 rounded bg-emerald-500/15 text-emerald-300 flex-shrink-0"
+                    title="Same dedup group">group</span>
+            {% else %}
+              <span class="text-[9px] px-1 py-0.5 rounded bg-sky-500/15 text-sky-300 flex-shrink-0"
+                    title="Near-pHash neighbour">pHash</span>
+            {% endif %}
+          </div>
+        </a>
+      {% endfor %}
+    </div>
+  {% endif %}
+</section>
