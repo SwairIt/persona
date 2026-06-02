@@ -101,6 +101,8 @@ from app.web.routes import (
     share as share_routes,
     shot_of_day as shot_of_day_routes,
     shot_of_week as shot_of_week_routes,
+    shot_share as shot_share_routes,
+    shot_share_ui as shot_share_ui_routes,
     share_collection as share_collection_routes,
     settings as settings_routes,
     settings_backup as settings_backup_routes,
@@ -163,7 +165,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.42.0",
+        version="0.43.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -278,6 +280,8 @@ def create_app() -> FastAPI:
     app.include_router(day_scrubber_routes.router)
     app.include_router(ocr_retry_routes.router)
     app.include_router(day_collage_routes.router)
+    app.include_router(shot_share_routes.router)
+    app.include_router(shot_share_ui_routes.router)
 
     return app
 

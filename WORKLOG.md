@@ -529,6 +529,17 @@ Three feature agents in parallel via Workflow (227k tokens, 5.8 min), then seque
 - 13:20Z — wired day_scrubber + ocr_retry + day_collage routers
 - 13:22Z — tests/test_v042.py — scrubber page + API + ocr-retry page + list/requeue empty-DB + collage route empty + build_day_collage empty-day
 
+## 2026-06-02 — v0.43 continuation (autonomous, Ultracode workflow tick #26)
+
+Three feature agents in parallel via Workflow (173k tokens, 5.5 min), then sequential wire-up.
+
+- 13:50Z — version bump 0.42→0.43
+- 13:53Z — **Query syntax help** (agent A): `app/web/static/query_help.js` + css. ? button next to search input opens a popover with FTS5 cheatsheet (phrase, AND/OR/NOT, NEAR, prefix*, tag:, app:, date:). Escape closes. base.html includes globally.
+- 13:57Z — **Right-click context menu** (agent B): `app/web/static/context_menu.js`. Attaches contextmenu listener to data-shot-id thumbnails; menu has Pin, Favourite, Open, Add tag (prompt), Add to collection (fetch list), Delete (confirm → soft-delete to recycle bin from v0.40). Green/red flash on result. Close on outside-click + Escape.
+- 14:01Z — **Per-shot share link** (agent C): `app/web/routes/shot_share.py` reuses _sign/_verify from app/web/routes/share.py. POST /api/screenshot/{id}/share/create with ttl_hours (max 720h = 30 days) returns signed URL /shot/share/{id}/{token}. Public minimalist template (no base.html chrome). Revoke list in kv_setting key shot_share_revoked. UI page /screenshot/{id}/share with create form + existing tokens list.
+- 14:06Z — wired shot_share + shot_share_ui routers (query_help, context_menu are JS-only)
+- 14:08Z — tests/test_v043.py — JS files exist with expected keywords + shot_share 404/400 + invalid-token 410 + share-UI page
+
 ## How to run
 
 ```powershell

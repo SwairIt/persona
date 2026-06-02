@@ -1,0 +1,127 @@
+/*
+ * context_menu.css — v0.43
+ *
+ * Right-click context menu for screenshot thumbnails. Pairs with
+ * context_menu.js; intentionally framework-free (no Tailwind @apply,
+ * no Alpine bindings) so the menu can render before the rest of the
+ * page hydrates and survives htmx swaps unchanged.
+ *
+ * Theme tokens mirror the ink/accent palette declared in base.html so
+ * the menu blends with both light and dark surfaces without a second
+ * dark-mode rule.
+ */
+
+.persona-ctx-menu {
+  position: fixed;
+  z-index: 9999;
+  min-width: 200px;
+  max-width: 280px;
+  padding: 4px 0;
+  margin: 0;
+  list-style: none;
+  background: #1a1a1f;          /* ink-800 */
+  color: #e4e4e7;               /* zinc-200 */
+  border: 1px solid #26262e;    /* ink-700 */
+  border-radius: 10px;
+  box-shadow:
+    0 12px 32px rgba(0, 0, 0, 0.55),
+    0 2px 6px rgba(0, 0, 0, 0.35);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+  line-height: 1.3;
+  user-select: none;
+  animation: persona-ctx-fade-in 90ms ease-out;
+}
+
+.persona-ctx-menu[hidden] {
+  display: none;
+}
+
+.persona-ctx-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 14px;
+  cursor: pointer;
+  white-space: nowrap;
+  color: inherit;
+  transition: background-color 80ms ease, color 80ms ease;
+}
+
+.persona-ctx-menu__item:hover,
+.persona-ctx-menu__item:focus {
+  background: #26262e;          /* ink-700 */
+  color: #fafafa;               /* zinc-50 */
+  outline: none;
+}
+
+.persona-ctx-menu__item--danger {
+  color: #fb7185;               /* rose-400 */
+}
+
+.persona-ctx-menu__item--danger:hover,
+.persona-ctx-menu__item--danger:focus {
+  background: rgba(244, 63, 94, 0.15);
+  color: #fda4af;               /* rose-300 */
+}
+
+.persona-ctx-menu__icon {
+  display: inline-block;
+  width: 16px;
+  text-align: center;
+  font-size: 13px;
+  opacity: 0.85;
+}
+
+.persona-ctx-menu__sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: #26262e;          /* ink-700 */
+}
+
+/* Flash overlay applied to the source thumbnail wrapper after an action.
+   Uses outline so the element's own border/ring isn't disturbed. */
+.persona-ctx-flash {
+  position: relative;
+}
+
+.persona-ctx-flash::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  outline: 2px solid transparent;
+  outline-offset: 0;
+  transition: outline-color 80ms ease, background-color 80ms ease;
+}
+
+.persona-ctx-flash--ok::after {
+  outline-color: #34d399;       /* emerald-400 */
+  background-color: rgba(16, 185, 129, 0.12);
+}
+
+.persona-ctx-flash--err::after {
+  outline-color: #f43f5e;       /* rose-500 */
+  background-color: rgba(244, 63, 94, 0.12);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .persona-ctx-menu {
+    animation: none;
+  }
+  .persona-ctx-flash::after {
+    transition: none;
+  }
+}
+
+@keyframes persona-ctx-fade-in {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}

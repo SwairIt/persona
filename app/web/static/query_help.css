@@ -1,0 +1,197 @@
+/*
+ * Persona — query syntax help popover styles (v0.43).
+ *
+ * Companion to query_help.js. Kept minimal on purpose: dark/light theme
+ * follows the rest of the app via the `dark` class on <html>; the
+ * default rules below target the light theme and the `.dark` selectors
+ * override for the (default) dark theme. Tailwind utilities aren't used
+ * here so the popover renders correctly even if Tailwind is still
+ * loading from the CDN.
+ */
+
+.persona-query-help {
+  position: absolute;
+  z-index: 50;
+  max-width: calc(100vw - 16px);
+  background-color: #ffffff;
+  color: #18181b;
+  border: 1px solid #e4e4e7;
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 12.5px;
+  line-height: 1.45;
+  animation: persona-query-help-in 110ms ease-out;
+}
+
+.dark .persona-query-help,
+html.dark .persona-query-help {
+  background-color: #1a1a1f;
+  color: #f4f4f5;
+  border-color: #26262e;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
+}
+
+.persona-query-help__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid #e4e4e7;
+}
+
+.dark .persona-query-help__header {
+  border-bottom-color: #26262e;
+}
+
+.persona-query-help__title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #71717a;
+}
+
+.persona-query-help__close {
+  background: transparent;
+  border: 0;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  color: #71717a;
+  padding: 0 4px;
+}
+
+.persona-query-help__close:hover {
+  color: #18181b;
+}
+
+.dark .persona-query-help__close:hover {
+  color: #f4f4f5;
+}
+
+.persona-query-help__body {
+  padding: 10px 12px 12px;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.persona-query-help__body section + section {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed #e4e4e7;
+}
+
+.dark .persona-query-help__body section + section {
+  border-top-color: #26262e;
+}
+
+.persona-query-help__body h4 {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #a78bfa;
+  margin: 0 0 6px;
+}
+
+.persona-query-help__body dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px 0;
+}
+
+.persona-query-help__body dt {
+  font-family: "JetBrains Mono", "Cascadia Code", Consolas, ui-monospace, monospace;
+  font-size: 12px;
+}
+
+.persona-query-help__body dd {
+  margin: 0 0 6px;
+  color: #52525b;
+}
+
+.dark .persona-query-help__body dd {
+  color: #a1a1aa;
+}
+
+.persona-query-help__body code {
+  font-family: "JetBrains Mono", "Cascadia Code", Consolas, ui-monospace, monospace;
+  font-size: 11.5px;
+  background-color: #f4f4f5;
+  border: 1px solid #e4e4e7;
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+
+.dark .persona-query-help__body code {
+  background-color: #111114;
+  border-color: #26262e;
+  color: #e4e4e7;
+}
+
+.persona-query-help__body ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.persona-query-help__body li {
+  margin-bottom: 4px;
+}
+
+/* Trigger button — tiny circular "?" sized to sit next to a search input. */
+.persona-query-help-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: 1px solid #e4e4e7;
+  background-color: #ffffff;
+  color: #71717a;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 120ms ease, border-color 120ms ease, background-color 120ms ease;
+}
+
+.persona-query-help-trigger:hover {
+  color: #18181b;
+  border-color: #a78bfa;
+}
+
+.dark .persona-query-help-trigger {
+  background-color: #1a1a1f;
+  border-color: #26262e;
+  color: #a1a1aa;
+}
+
+.dark .persona-query-help-trigger:hover {
+  color: #f4f4f5;
+  border-color: #a78bfa;
+}
+
+.persona-query-help-trigger[aria-expanded="true"] {
+  color: #a78bfa;
+  border-color: #a78bfa;
+}
+
+@keyframes persona-query-help-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .persona-query-help {
+    animation: none;
+  }
+}

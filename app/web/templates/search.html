@@ -17,6 +17,12 @@
            class="flex-1 px-4 py-2.5 bg-ink-800 border border-ink-700 rounded-lg
                   placeholder:text-zinc-600 focus:outline-none focus:border-accent-500
                   font-mono text-sm">
+    <button type="button"
+            class="persona-query-help-trigger"
+            data-query-help-toggle
+            aria-haspopup="dialog"
+            aria-expanded="false"
+            title="Query syntax help">?</button>
     <select name="mode"
             class="px-3 py-2.5 bg-ink-800 border border-ink-700 rounded-lg text-sm">
       <option value="hybrid" {% if mode == 'hybrid' %}selected{% endif %}>Hybrid</option>
