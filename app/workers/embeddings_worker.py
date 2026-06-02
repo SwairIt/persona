@@ -15,6 +15,7 @@ from app.logging_setup import get_logger
 from app.settings import get_settings
 from app.storage.db import get_connection
 from app.workers.control import CaptureController, get_controller
+from app.workers.heartbeat import beat
 
 log = get_logger("persona.embeddings_worker")
 
@@ -42,6 +43,7 @@ async def run_embeddings_worker(controller: CaptureController | None = None) -> 
     log.info("embeddings_worker.started", model=settings.embeddings_model)
 
     while not ctrl.stop_event.is_set():
+        await beat("embeddings-worker")
         try:
             await _drain_once()
         except asyncio.CancelledError:

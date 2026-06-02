@@ -14,12 +14,15 @@ Subcommands:
     tag                Bulk-apply a tag to every screenshot matching an FTS5 query.
     untag              Bulk-remove a tag from every screenshot matching an FTS5 query.
     delete             Bulk-delete screenshots matching an FTS5 query (defaults to dry-run).
+    export-settings    Dump every preference table to a JSON file (--out FILE).
+    import-settings    Insert rows from a settings JSON file (--in FILE [--replace]).
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import os
 import sys
 from datetime import date, datetime, timedelta, timezone
@@ -43,6 +46,7 @@ from app.logging_setup import configure_logging
 from app.pdf_export import export_day_pdf
 from app.search import search as fts_search
 from app.settings import get_settings
+from app.settings_backup import export_settings_json, import_settings_json
 from app.storage.db import get_connection, init_database
 from app.storage.ocr_admin import (
     reset_all_to_pending,
@@ -538,6 +542,48 @@ async def _cmd_restore(src: Path, password: str | None, assume_yes: bool) -> int
     return 0
 
 
+async def _cmd_export_settings(out: Path) -> int:
+    """Write a JSON dump of every preference table to ``out``."""
+    payload = await export_settings_json()
+    body = json.dumps(payload, ensure_ascii=False, indent=2)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(body, encoding="utf-8")
+    total = sum(len(rows) for rows in payload["tables"].values())
+    print(f"Path:   {out}")
+    print(f"Schema: {payload['schema']}")
+    print(f"Tables: {len(payload['tables'])}")
+    print(f"Rows:   {total}")
+    return 0
+
+
+async def _cmd_import_settings(src: Path, replace: bool) -> int:
+    """Insert rows from ``src`` into the local DB (merge by default)."""
+    if not src.exists():
+        print(f"error: file not found: {src}", file=sys.stderr)
+        return 1
+    try:
+        payload = json.loads(src.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        print(f"error: invalid JSON: {exc}", file=sys.stderr)
+        return 2
+
+    try:
+        summary = await import_settings_json(payload, merge=not replace)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    mode = "replace" if replace else "merge"
+    total = sum(summary.values())
+    print(f"Path:   {src}")
+    print(f"Mode:   {mode}")
+    print(f"Tables: {len(summary)}")
+    print(f"Rows:   {total}")
+    for table, written in sorted(summary.items()):
+        print(f"  - {table}: {written}")
+    return 0
+
+
 def _use_colour(no_color: bool) -> bool:
     """Return True only when stdout is a TTY and ``--no-color`` was not passed."""
     if no_color:
@@ -897,6 +943,39 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Actually delete (without this flag the command is a dry-run).",
     )
 
+    export_settings_parser = sub.add_parser(
+        "export-settings",
+        help="Dump every preference table (kv, redaction, webhooks, …) to a JSON file.",
+    )
+    export_settings_parser.add_argument(
+        "--out",
+        dest="out",
+        type=Path,
+        required=True,
+        help="Destination JSON path (parent dirs are created).",
+    )
+
+    import_settings_parser = sub.add_parser(
+        "import-settings",
+        help="Insert preference rows from a JSON file produced by export-settings.",
+    )
+    import_settings_parser.add_argument(
+        "--in",
+        dest="src",
+        type=Path,
+        required=True,
+        help="Source JSON path.",
+    )
+    import_settings_parser.add_argument(
+        "--replace",
+        dest="replace",
+        action="store_true",
+        help=(
+            "Truncate each preference table before inserting "
+            "(destructive; default behaviour merges via INSERT OR IGNORE)."
+        ),
+    )
+
     return parser
 
 
@@ -934,6 +1013,10 @@ async def _run(args: argparse.Namespace) -> int:  # noqa: PLR0911, PLR0912 — d
         return await _cmd_untag(args.tag_name, args.query, args.limit)
     if args.command == "delete":
         return await _cmd_delete(args.query, args.limit, args.confirm)
+    if args.command == "export-settings":
+        return await _cmd_export_settings(args.out)
+    if args.command == "import-settings":
+        return await _cmd_import_settings(args.src, args.replace)
 
     print(f"error: unknown command {args.command!r}", file=sys.stderr)
     return 2

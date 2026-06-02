@@ -49,12 +49,14 @@ from app.web.routes import (
     focus as focus_routes,
     full_export as full_export_routes,
     health,
+    health_dashboard as health_dashboard_routes,
     heatmap as heatmap_routes,
     hour_histogram as hour_histogram_routes,
     help as help_routes,
     ics_export as ics_export_routes,
     icons as icons_routes,
     idle_stats as idle_stats_routes,
+    inbox as inbox_routes,
     journal as journal_routes,
     journal_export as journal_export_routes,
     keywords as keywords_routes,
@@ -88,6 +90,7 @@ from app.web.routes import (
     shot_of_day as shot_of_day_routes,
     share_collection as share_collection_routes,
     settings as settings_routes,
+    settings_backup as settings_backup_routes,
     smtp_settings as smtp_settings_routes,
     stats,
     storage_report as storage_report_routes,
@@ -112,6 +115,7 @@ from app.workers import (
     get_controller,
     run_capture_loop,
     run_clipboard_worker,
+    run_inbox_worker,
     run_digest_scheduler,
     run_embeddings_worker,
     run_ocr_worker,
@@ -145,7 +149,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.36.0",
+        version="0.37.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -243,6 +247,9 @@ def create_app() -> FastAPI:
     app.include_router(ics_export_routes.router)
     app.include_router(audit_routes.router)
     app.include_router(day_tldr_routes.router)
+    app.include_router(settings_backup_routes.router)
+    app.include_router(health_dashboard_routes.router)
+    app.include_router(inbox_routes.router)
 
     return app
 
@@ -261,6 +268,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         asyncio.create_task(run_digest_scheduler(controller), name="digest-scheduler"),
         asyncio.create_task(run_weekly_digest_scheduler(controller), name="weekly-digest-scheduler"),
         asyncio.create_task(run_clipboard_worker(controller), name="clipboard-worker"),
+        asyncio.create_task(run_inbox_worker(controller), name="inbox-worker"),
     ]
 
     controller.pause()

@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="flex items-start justify-between mb-6 gap-4 flex-wrap">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Worker health</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Heartbeat of every background loop. A worker is
+      <span class="text-emerald-400 font-mono">fresh</span> when it ticked in the last
+      {{ green_threshold | int }}s,
+      <span class="text-amber-400 font-mono">stale</span> after {{ amber_threshold | int }}s,
+      <span class="text-rose-400 font-mono">stopped</span> beyond that.
+    </p>
+  </div>
+  <div class="flex items-center gap-2">
+    <a href="/api/health.json"
+       class="px-3 py-1.5 rounded-md text-sm bg-ink-800 hover:bg-ink-700 text-zinc-300 font-mono">
+      JSON
+    </a>
+    <a href="/doctor"
+       class="px-3 py-1.5 rounded-md text-sm bg-ink-800 hover:bg-ink-700 text-zinc-300">
+      Doctor
+    </a>
+    <button onclick="window.location.reload()"
+            class="px-3 py-1.5 rounded-md text-sm bg-accent-600 hover:bg-accent-500 text-white">
+      Refresh
+    </button>
+  </div>
+</div>
+
+<div class="grid sm:grid-cols-3 gap-4 mb-6">
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Fresh</div>
+    <div class="text-3xl font-bold mt-1 text-emerald-400">{{ summary.green }}</div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Stale</div>
+    <div class="text-3xl font-bold mt-1 text-amber-400">{{ summary.amber }}</div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Stopped</div>
+    <div class="text-3xl font-bold mt-1 text-rose-400">{{ summary.red }}</div>
+  </div>
+</div>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
+  <h2 class="text-lg font-semibold mb-4">Workers</h2>
+  {% if rows %}
+    <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+      {% for row in rows %}
+        {% if row.freshness == 'green' %}
+          {% set dot_classes = 'bg-emerald-400 shadow-emerald-400/50' %}
+          {% set badge_classes = 'bg-emerald-400/15 text-emerald-400 ring-1 ring-emerald-400/30' %}
+          {% set freshness_label = 'fresh' %}
+        {% elif row.freshness == 'amber' %}
+          {% set dot_classes = 'bg-amber-400 shadow-amber-400/50' %}
+          {% set badge_classes = 'bg-amber-400/15 text-amber-400 ring-1 ring-amber-400/30' %}
+          {% set freshness_label = 'stale' %}
+        {% else %}
+          {% set dot_classes = 'bg-rose-400 shadow-rose-400/50' %}
+          {% set badge_classes = 'bg-rose-400/15 text-rose-400 ring-1 ring-rose-400/30' %}
+          {% set freshness_label = 'stopped' %}
+        {% endif %}
+        <article class="rounded-md border border-ink-700/80 bg-ink-900/60 p-4">
+          <header class="flex items-center justify-between gap-3 mb-3">
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="inline-block w-2.5 h-2.5 rounded-full shadow {{ dot_classes }}"></span>
+              <span class="font-mono text-sm text-zinc-200 truncate" title="{{ row.name }}">{{ row.name }}</span>
+            </div>
+            <span class="inline-flex items-center justify-center rounded px-2 py-0.5 text-[10px] font-mono font-bold uppercase tracking-wider {{ badge_classes }}">
+              {{ freshness_label }}
+            </span>
+          </header>
+          <dl class="text-xs text-zinc-400 space-y-1.5">
+            <div class="flex items-baseline justify-between gap-2">
+              <dt class="text-zinc-500">Last run</dt>
+              <dd class="font-mono text-zinc-300 truncate" title="{{ row.last_run_at }}">{{ row.last_run_at }}</dd>
+            </div>
+            <div class="flex items-baseline justify-between gap-2">
+              <dt class="text-zinc-500">Age</dt>
+              <dd class="font-mono text-zinc-300">
+                {% if row.seconds_since < 0 %}—{% else %}{{ '%.1f'|format(row.seconds_since) }}s{% endif %}
+              </dd>
+            </div>
+            <div class="flex items-baseline justify-between gap-2">
+              <dt class="text-zinc-500">Status</dt>
+              <dd class="font-mono text-zinc-300">{{ row.last_status or '—' }}</dd>
+            </div>
+            <div class="flex items-baseline justify-between gap-2">
+              <dt class="text-zinc-500">Ticks</dt>
+              <dd class="font-mono text-zinc-300">{{ row.ticks }}</dd>
+            </div>
+          </dl>
+        </article>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="text-sm text-zinc-500">
+      No heartbeats recorded yet. Workers report on their next tick — check back in a moment.
+    </p>
+  {% endif %}
+</section>
+
+<p class="text-xs text-zinc-600 font-mono">snapshot: {{ now_iso }}</p>
+{% endblock %}

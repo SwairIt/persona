@@ -1,6 +1,6 @@
 # 🌅 Morning report — Persona
 
-Thirty-six autonomous sessions: …v0.33 → v0.34 → v0.35 → **v0.36** without stopping. Self-pacing /loop continues until you cancel. **Live on GitHub:** https://github.com/SwairIt/persona
+Thirty-seven autonomous sessions: …v0.34 → v0.35 → v0.36 → **v0.37** without stopping. Self-pacing /loop continues until you cancel. **Live on GitHub:** https://github.com/SwairIt/persona
 
 ## By the numbers (current)
 
@@ -11,6 +11,14 @@ Thirty-six autonomous sessions: …v0.33 → v0.34 → v0.35 → **v0.36** witho
 - **20+ test files**
 - **0 git commits** — entirely up to you
 - **0 network calls at runtime** (only optional outgoing call: BYO-LLM keys to your chosen provider)
+
+## What landed in v0.37 (settings backup JSON + heartbeat dashboard + markdown inbox)
+
+Built via 3 parallel Workflow agents → sequential wire-up. 20th milestone tick.
+
+- 💾 **Settings backup as JSON** — `/settings/backup` exports your full configuration (kv_setting, redaction rules, auto-collections, OCR skip-list, phrase tags, saved searches, note templates, webhook configs, quiet hours, etc.) as a single JSON file. Import on another machine with merge or replace. Secrets (webhook secret, vault ciphertext) are deliberately excluded. CLI: `persona-cli export-settings --out` / `import-settings --in [--replace]`.
+- ❤️ **Worker heartbeat dashboard** — `/admin/health` shows every background worker's last tick + status with colour-coded freshness (green <2 min, amber <10 min, red older). Every worker (capture, OCR, retention, embeddings, digest schedulers, clipboard) calls `beat(name)` once per loop iteration. JSON API at `/api/health.json` — easy to wire to an external uptime monitor.
+- 📥 **Markdown inbox** — drop a `*.md` file with optional YAML-ish frontmatter (`title:`, `tags: a, b`) into `data/inbox/` and Persona auto-imports it as a note. Successful files move to `data/inbox/processed/`, parse failures to `data/inbox/failed/` with a sibling `.error.txt`. Toggle with `PERSONA_INBOX_ENABLED=false`.
 
 ## What landed in v0.36 (Pomodoro focus mode + audit log + per-day TL;DR)
 

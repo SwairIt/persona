@@ -28,6 +28,7 @@ from app.storage.repository import log_capture_event
 from app.storage.size_log import sample_today
 from app.storage.time import iso
 from app.workers.control import CaptureController, get_controller
+from app.workers.heartbeat import beat
 
 log = get_logger("persona.retention")
 
@@ -39,6 +40,7 @@ async def run_retention_worker(controller: CaptureController | None = None) -> N
     ctrl = controller or get_controller()
 
     while not ctrl.stop_event.is_set():
+        await beat("retention-worker")
         try:
             stats = await _sweep_once()
             if any(stats.values()):

@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Settings backup</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Export every preference table (kv settings, redaction rules, auto-collections, OCR
+    skip-list, phrase tags, saved searches, note templates, app capture overrides,
+    webhooks, quiet hours) as a single JSON file you can re-import on another machine.
+    Screenshots, OCR text, audit logs, and the encrypted vault are <em>not</em>
+    included — this is preferences-only.
+  </p>
+  <p class="text-zinc-600 text-xs mt-2 font-mono">schema: {{ schema_version }}</p>
+</div>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
+  <h2 class="text-lg font-semibold mb-2">Download backup</h2>
+  <p class="text-zinc-400 text-sm mb-4">
+    Streams a <code class="text-zinc-300">persona-settings-YYYY-MM-DD.json</code>
+    attachment. Webhook signing secrets are stripped from the export — you will
+    need to regenerate them on the destination machine.
+  </p>
+  <a href="/settings/backup"
+     class="inline-block px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
+    Download backup
+  </a>
+</section>
+
+<section class="rounded-lg border border-amber-700/40 bg-amber-900/10 p-4 mb-6">
+  <div class="flex items-start gap-3">
+    <span class="text-amber-400 text-lg leading-none mt-0.5">&#9888;</span>
+    <div class="text-sm">
+      <p class="text-amber-300 font-medium mb-1">Replace mode is destructive</p>
+      <p class="text-zinc-400">
+        Choosing <strong>Replace</strong> below truncates every preference table on
+        this machine before inserting the rows from the uploaded file. Local tweaks
+        that aren't in the backup will be lost. Pick <strong>Merge</strong> if you're
+        unsure — it keeps existing rows and only fills in what's missing.
+      </p>
+    </div>
+  </div>
+</section>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+  <h2 class="text-lg font-semibold mb-3">Upload</h2>
+  <form action="/settings/backup/import" method="post" enctype="multipart/form-data"
+        class="space-y-4">
+    <label class="block">
+      <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">
+        Backup file
+      </span>
+      <input type="file" name="file" accept="application/json,.json" required
+             class="block w-full text-sm text-zinc-300
+                    file:mr-3 file:px-3 file:py-2 file:rounded file:border-0
+                    file:text-sm file:font-medium
+                    file:bg-ink-900 file:text-zinc-200 hover:file:bg-ink-700">
+    </label>
+
+    <fieldset class="space-y-2">
+      <legend class="text-xs uppercase tracking-wider text-zinc-500 mb-1">
+        Import mode
+      </legend>
+      <label class="flex items-start gap-2 text-sm cursor-pointer">
+        <input type="radio" name="merge" value="merge" checked
+               class="mt-1 accent-accent-500">
+        <span>
+          <span class="text-zinc-200 font-medium">Merge</span>
+          <span class="block text-zinc-500 text-xs">
+            INSERT OR IGNORE — keeps existing rows, only fills in what's missing.
+            Safe to re-run.
+          </span>
+        </span>
+      </label>
+      <label class="flex items-start gap-2 text-sm cursor-pointer">
+        <input type="radio" name="merge" value="replace"
+               class="mt-1 accent-rose-500">
+        <span>
+          <span class="text-rose-300 font-medium">Replace</span>
+          <span class="block text-zinc-500 text-xs">
+            Truncate each table first, then insert. Destructive &mdash; overwrites
+            local preferences.
+          </span>
+        </span>
+      </label>
+    </fieldset>
+
+    <button type="submit"
+            onclick="return confirm('Import settings into this machine?\nReplace mode will overwrite local preferences.');"
+            class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
+      Import
+    </button>
+  </form>
+</section>
+{% endblock %}

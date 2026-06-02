@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-start justify-between gap-4 flex-wrap">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Markdown inbox</h1>
+    <p class="text-zinc-500 text-sm mt-1 max-w-2xl">
+      Drop <span class="font-mono text-accent-400">*.md</span> files into
+      <span class="font-mono text-zinc-300">{{ inbox_dir }}</span> and Persona
+      will import them as notes every 30 seconds. Files with a
+      <span class="font-mono">--- title: … tags: a, b ---</span> front-matter
+      block get the title and tags applied automatically.
+    </p>
+  </div>
+  <div class="text-xs text-zinc-500 font-mono flex-shrink-0">
+    {% if inbox_enabled %}
+      <span class="text-emerald-400">&#9679; enabled</span>
+    {% else %}
+      <span class="text-zinc-500">&#9711; disabled</span>
+    {% endif %}
+  </div>
+</div>
+
+<section class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+  <div class="rounded-lg border border-ink-700 bg-ink-900/40 p-5">
+    <div class="text-xs uppercase tracking-wider text-zinc-500 mb-2">Pending</div>
+    <div class="text-3xl font-mono text-zinc-100">{{ pending }}</div>
+    <div class="text-xs text-zinc-500 mt-2">Files waiting to be imported.</div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-900/40 p-5">
+    <div class="text-xs uppercase tracking-wider text-zinc-500 mb-2">Processed</div>
+    <div class="text-3xl font-mono text-emerald-400">{{ processed | length }}</div>
+    <div class="text-xs text-zinc-500 mt-2">Recently imported (last 20).</div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-900/40 p-5">
+    <div class="text-xs uppercase tracking-wider text-zinc-500 mb-2">Failed</div>
+    <div class="text-3xl font-mono text-rose-400">{{ failed | length }}</div>
+    <div class="text-xs text-zinc-500 mt-2">See sibling <span class="font-mono">.error.txt</span>.</div>
+  </div>
+</section>
+
+<form method="post" action="/inbox/import-now" class="mb-8">
+  <button type="submit"
+          {% if not inbox_enabled %}disabled{% endif %}
+          class="px-4 py-2 rounded-md bg-accent-600 hover:bg-accent-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium transition">
+    Import now
+  </button>
+  <span class="ml-3 text-xs text-zinc-500">
+    Runs one scan immediately instead of waiting up to 30&nbsp;seconds.
+  </span>
+</form>
+
+<section class="mb-10">
+  <h2 class="text-sm font-mono text-zinc-500 uppercase tracking-widest mb-4">
+    Recently processed
+  </h2>
+  {% if processed %}
+    <ul class="rounded-lg border border-ink-700 bg-ink-900/40 divide-y divide-ink-700">
+      {% for entry in processed %}
+        <li class="px-4 py-2 flex items-center justify-between gap-4 text-sm">
+          <span class="font-mono text-zinc-200 truncate">{{ entry.name }}</span>
+          <span class="text-xs font-mono text-zinc-500 flex-shrink-0">{{ entry.mtime }}</span>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="text-sm text-zinc-500">No files imported yet.</p>
+  {% endif %}
+</section>
+
+<section>
+  <h2 class="text-sm font-mono text-zinc-500 uppercase tracking-widest mb-4">
+    Recently failed
+  </h2>
+  {% if failed %}
+    <ul class="rounded-lg border border-ink-700 bg-ink-900/40 divide-y divide-ink-700">
+      {% for entry in failed %}
+        <li class="px-4 py-3 text-sm">
+          <div class="flex items-center justify-between gap-4 mb-1">
+            <span class="font-mono text-zinc-200 truncate">{{ entry.name }}</span>
+            <span class="text-xs font-mono text-zinc-500 flex-shrink-0">{{ entry.mtime }}</span>
+          </div>
+          {% if entry.reason %}
+            <pre class="text-xs text-rose-300 font-mono whitespace-pre-wrap break-words mt-1">{{ entry.reason }}</pre>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="text-sm text-zinc-500">No failures &mdash; every file imported cleanly.</p>
+  {% endif %}
+</section>
+{% endblock %}

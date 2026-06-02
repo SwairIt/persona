@@ -36,6 +36,7 @@ from app.redaction import apply_redaction
 from app.settings import get_settings
 from app.storage.db import get_connection
 from app.workers.control import CaptureController, get_controller
+from app.workers.heartbeat import beat
 
 log = get_logger("persona.clipboard")
 
@@ -63,6 +64,7 @@ async def run_clipboard_worker(controller: CaptureController | None = None) -> N
     last_hash: str | None = await _load_last_hash()
 
     while not ctrl.stop_event.is_set():
+        await beat("clipboard-worker")
         try:
             last_hash = await _poll_once(ctrl, last_hash)
         except asyncio.CancelledError:

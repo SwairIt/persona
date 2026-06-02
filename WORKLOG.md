@@ -463,6 +463,17 @@ Three feature agents in parallel via Workflow (204k tokens, 7.2 min), then seque
 - 08:42Z — wired audit + day_tldr routers (focus already wired earlier)
 - 08:44Z — tests/test_v036.py — focus page + start/current/end roundtrip + audit page + log records + secret-leak smoke check + tldr API missing_config tolerant + module returns status
 
+## 2026-06-02 — v0.37 continuation (autonomous, Ultracode workflow tick #20)
+
+Three feature agents in parallel via Workflow (293k tokens, 14.5 min — the chunkiest tick yet), then sequential wire-up. 20th milestone in this loop.
+
+- 09:15Z — version bump 0.36→0.37
+- 09:18Z — **Settings backup JSON** (agent A): `app/settings_backup.py` dumps kv_setting, redaction_rule, auto_collection, ocr_skip_app, ocr_phrase_tag, saved_search, note_template, app_overrides, webhook (sans secret), quiet_hours. Routes `/settings/backup` (page + download) + POST import (multipart + merge/replace flag). CLI: `persona-cli export-settings --out FILE` and `import-settings --in FILE [--replace]`. NEVER exports webhook.secret or vault ciphertext.
+- 09:25Z — **Worker heartbeat dashboard** (agent B): migration 039 + `app/workers/heartbeat.py` (beat / get_all). Every worker (capture, ocr, retention, embeddings, digest, weekly-digest, clipboard) now calls `await beat(name)` at the top of each loop iteration. Routes `/admin/health` (page) + `/api/health.json`. Colour-coded freshness (green <120s, amber <600s, red older).
+- 09:33Z — **Markdown inbox** (agent C): `app/workers/inbox_worker.py` watches `data/inbox/`, parses YAML-ish frontmatter (--- ... ---), INSERT INTO notes, applies tags via existing add_tag, moves to `processed/` on success or `failed/{name}.error.txt` on parse error. New worker wired into lifespan. Settings `inbox_enabled` (default True), `inbox_path` (default data/inbox).
+- 09:38Z — wired settings_backup + health_dashboard + inbox routers + run_inbox_worker in lifespan
+- 09:42Z — tests/test_v037.py — export shape + secret-omission check + backup page + heartbeat beat+read + health page + API + inbox page + settings defaults
+
 ## How to run
 
 ```powershell

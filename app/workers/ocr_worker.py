@@ -24,6 +24,7 @@ from app.storage.repository import (
 )
 from app.storage.tags import create_tag, tag_screenshot
 from app.workers.control import CaptureController, get_controller
+from app.workers.heartbeat import beat
 
 log = get_logger("persona.ocr_worker")
 
@@ -61,6 +62,7 @@ async def run_ocr_worker(controller: CaptureController | None = None) -> None:
     log.info("ocr_worker.started", tesseract_path=str(settings.tesseract_path))
 
     while not ctrl.stop_event.is_set():
+        await beat("ocr-worker")
         try:
             await _drain_once()
         except asyncio.CancelledError:

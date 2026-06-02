@@ -80,6 +80,15 @@ class Settings(BaseSettings):
     # user must explicitly turn it on.
     clipboard_history_enabled: bool = Field(default=False)
 
+    # v0.37 — markdown notes inbox. When ``inbox_enabled`` (default
+    # True) a background worker scans ``inbox_path`` every ~30s for
+    # ``*.md`` files, imports each into the ``notes`` table, and moves
+    # the file into ``processed/`` (or ``failed/`` with a sibling
+    # ``.error.txt`` on parse failure). Default location is
+    # ``./data/inbox`` so the inbox lives under the existing data tree.
+    inbox_enabled: bool = Field(default=True)
+    inbox_path: Path = Field(default=Path("./data/inbox"))
+
     # v0.34 — when False (default) ``/api/*`` endpoints stay open to the
     # local UI exactly as before; bearer auth only kicks in for requests
     # that carry an ``Authorization: Bearer …`` header. Flip to True to
@@ -96,7 +105,7 @@ class Settings(BaseSettings):
             raise ValueError(msg)
         return self
 
-    @field_validator("data_dir", "db_path", "thumbnails_dir", mode="after")
+    @field_validator("data_dir", "db_path", "thumbnails_dir", "inbox_path", mode="after")
     @classmethod
     def _resolve_path(cls, value: Path) -> Path:
         return value.expanduser().resolve()
@@ -122,6 +131,8 @@ class Settings(BaseSettings):
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.thumbnails_dir.mkdir(parents=True, exist_ok=True)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        if self.inbox_enabled:
+            self.inbox_path.mkdir(parents=True, exist_ok=True)
 
 
 @lru_cache(maxsize=1)

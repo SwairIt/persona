@@ -31,6 +31,7 @@ from app.storage.size_log import sample_today, today_bytes
 from app.storage.thumbnails import save_thumbnail
 from app.webhooks import dispatch_event
 from app.workers.control import CaptureController, get_controller
+from app.workers.heartbeat import beat
 
 log = get_logger("persona.capture_loop")
 
@@ -46,6 +47,7 @@ async def run_capture_loop(controller: CaptureController | None = None) -> None:
     log.info("capture_loop.started", interval=settings.capture_interval_seconds)
 
     while not ctrl.stop_event.is_set():
+        await beat("capture-loop")
         battery_pause = False
         battery_slowdown = False
         if settings.battery_aware_enabled:

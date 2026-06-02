@@ -15,6 +15,7 @@ from app.logging_setup import get_logger
 from app.settings import get_settings
 from app.storage.db import get_connection
 from app.workers.control import CaptureController, get_controller
+from app.workers.heartbeat import beat
 
 log = get_logger("persona.digest_scheduler")
 
@@ -33,6 +34,7 @@ async def run_digest_scheduler(controller: CaptureController | None = None) -> N
     log.info("digest_scheduler.started", hour=settings.auto_digest_hour_local)
 
     while not ctrl.stop_event.is_set():
+        await beat("digest-scheduler")
         try:
             await _maybe_generate()
         except asyncio.CancelledError:
