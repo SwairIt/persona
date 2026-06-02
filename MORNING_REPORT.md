@@ -1,6 +1,6 @@
 # 🌅 Morning report — Persona
 
-Thirty-seven autonomous sessions: …v0.34 → v0.35 → v0.36 → **v0.37** without stopping. Self-pacing /loop continues until you cancel. **Live on GitHub:** https://github.com/SwairIt/persona
+Thirty-eight autonomous sessions: …v0.35 → v0.36 → v0.37 → **v0.38** without stopping. Self-pacing /loop continues until you cancel. **Live on GitHub:** https://github.com/SwairIt/persona
 
 ## By the numbers (current)
 
@@ -11,6 +11,14 @@ Thirty-seven autonomous sessions: …v0.34 → v0.35 → v0.36 → **v0.37** wit
 - **20+ test files**
 - **0 git commits** — entirely up to you
 - **0 network calls at runtime** (only optional outgoing call: BYO-LLM keys to your chosen provider)
+
+## What landed in v0.38 (Cmd+K palette + shot of the week + stats CSV)
+
+Built via 3 parallel Workflow agents → sequential wire-up.
+
+- ⌨️ **Cmd+K command palette** — hit Cmd+K (or Ctrl+K on Windows/Linux) from any page to open a fuzzy launcher with ~30 top routes plus your saved searches and auto-collections. Arrow keys + Enter to navigate, Esc closes. Recent routes persist in localStorage. Pure vanilla JS, no framework — opens instantly.
+- 🏆 **Screenshot of the week** — `/shot-of-the-week` picks a curated highlight from last week. Score = pinned×5 + favourited×3 + tag_count + annotation_count. Shows the score breakdown so you understand why this shot won. Falls back to shot-of-the-day if the past week had no signals.
+- 📑 **Stats CSV export** — `/export/stats.csv?days=90` produces a one-row-per-(date, app) CSV with shot count, active seconds, idle seconds, OCR character total, and TL;DR-cached flag. Drop into pandas / Excel for offline analysis. CLI also: `persona-cli export-stats-csv --days N`.
 
 ## What landed in v0.37 (settings backup JSON + heartbeat dashboard + markdown inbox)
 

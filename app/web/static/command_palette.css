@@ -1,0 +1,60 @@
+/*
+ * Persona — command palette overlay styles.
+ *
+ * Tailwind classes in command_palette.js cover the bulk of styling; this
+ * file adds the bits Tailwind can't express cleanly (animated entrance,
+ * the backdrop-filter blur with a sensible fallback).
+ */
+
+.persona-palette-overlay {
+  background-color: rgba(0, 0, 0, 0.55);
+  animation: persona-palette-fade-in 120ms ease-out;
+}
+
+/* Progressive-enhancement: blur only on browsers that support it. The
+   solid rgba() fallback above keeps the modal readable elsewhere. */
+@supports ((backdrop-filter: blur(6px)) or (-webkit-backdrop-filter: blur(6px))) {
+  .persona-palette-overlay {
+    background-color: rgba(0, 0, 0, 0.35);
+    -webkit-backdrop-filter: blur(6px) saturate(140%);
+    backdrop-filter: blur(6px) saturate(140%);
+  }
+}
+
+.persona-palette-card {
+  animation: persona-palette-slide-in 140ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+@keyframes persona-palette-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes persona-palette-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Make the focused item visually unambiguous even when the user is
+   keyboard-driving and never hovers anything. */
+.persona-palette-overlay .palette-item:focus {
+  outline: none;
+}
+
+.persona-palette-overlay .palette-item kbd {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* Honour the user's reduced-motion preference. */
+@media (prefers-reduced-motion: reduce) {
+  .persona-palette-overlay,
+  .persona-palette-card {
+    animation: none;
+  }
+}

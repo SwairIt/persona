@@ -474,6 +474,17 @@ Three feature agents in parallel via Workflow (293k tokens, 14.5 min — the chu
 - 09:38Z — wired settings_backup + health_dashboard + inbox routers + run_inbox_worker in lifespan
 - 09:42Z — tests/test_v037.py — export shape + secret-omission check + backup page + heartbeat beat+read + health page + API + inbox page + settings defaults
 
+## 2026-06-02 — v0.38 continuation (autonomous, Ultracode workflow tick #21)
+
+Three feature agents in parallel via Workflow (203k tokens, 13.7 min), then sequential wire-up.
+
+- 10:05Z — version bump 0.37→0.38
+- 10:09Z — **Cmd+K command palette** (agent A): `app/web/static/command_palette.js` (vanilla) + CSS. Modal overlay opens on Cmd/Ctrl+K, fuzzy-matches against ~30 hard-coded top routes + dynamic items from saved_search and auto_collection. Arrow/Enter/Esc navigation. Recent routes from localStorage. Route data via GET `/api/palette.json`. base.html includes script+css and pushes current path on each render.
+- 10:14Z — **Screenshot of the week** (agent B): `app/shot_of_week.py` with `shot_of_this_week()`. Algorithm: candidates from last Mon-Sun, score = pinned*5 + favourited*3 + tags + annotations, top-1 by score then recency; falls back to `shot_of_today()` if no candidates. Route `/shot-of-the-week` (big thumbnail + score breakdown) + `/api/shot-of-the-week.json`.
+- 10:18Z — **Stats CSV export** (agent C): `app/stats_csv.py` with `export_stats_csv(days_back=90)` returning CSV string. Per (date, app_name) rollup: shots, total_idle_seconds, total_active_seconds, ocr_chars_total, has_tldr. stdlib csv.writer, StringIO. Route `/export/stats.csv?days=N`. CLI `persona-cli export-stats-csv --days N --out FILE`.
+- 10:22Z — wired palette + shot_of_week + stats_csv routers
+- 10:24Z — tests/test_v038.py — palette API items + shot-of-week page + API + empty-DB fallback + stats CSV streams + module headers + injection-safe
+
 ## How to run
 
 ```powershell

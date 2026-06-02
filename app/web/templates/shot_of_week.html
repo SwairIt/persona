@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-8">
+  <h1 class="text-2xl font-bold tracking-tight">Shot of the week</h1>
+  {% if shot %}
+    {% if shot.fallback %}
+      <p class="text-zinc-500 text-sm mt-1">
+        No signals yet for
+        <span class="font-mono">{{ shot.week_start }}</span>
+        →
+        <span class="font-mono">{{ shot.week_end }}</span>.
+        Showing today's pick instead — pin, star, tag or annotate a frame and it'll show up here.
+      </p>
+    {% else %}
+      <p class="text-zinc-500 text-sm mt-1">
+        Curated from this week's signals
+        (<span class="font-mono">{{ shot.week_start }}</span>
+        →
+        <span class="font-mono">{{ shot.week_end }}</span>).
+        Whatever you cared about most wins.
+      </p>
+    {% endif %}
+  {% else %}
+    <p class="text-zinc-500 text-sm mt-1">
+      A curated weekly highlight — picked by what you pin, star, tag and annotate.
+    </p>
+  {% endif %}
+</div>
+
+{% if shot %}
+  {% set thumb_src = thumbnail_path | thumbnail_url %}
+  <article class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden">
+    {% if thumb_src %}
+      <a href="/screenshot/{{ shot.id }}"
+         class="block bg-ink-900 cursor-zoom-in"
+         title="Open full screenshot detail">
+        <img src="{{ thumb_src }}"
+             alt="Shot of the week #{{ shot.id }}"
+             class="w-full max-h-[70vh] object-contain mx-auto">
+      </a>
+    {% else %}
+      <a href="/screenshot/{{ shot.id }}"
+         class="aspect-video flex items-center justify-center text-zinc-500 bg-ink-900">
+        Thumbnail no longer on disk — open detail page →
+      </a>
+    {% endif %}
+
+    <div class="p-5 space-y-4">
+      <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <span class="font-semibold text-lg">
+          {{ shot.app_name or "Unknown app" }}
+        </span>
+        <span class="text-sm text-zinc-500"
+              data-relative-time="{{ shot.captured_at }}"
+              title="{{ shot.captured_at }}">
+          {{ shot.captured_at }}
+        </span>
+        <a href="/screenshot/{{ shot.id }}"
+           class="ml-auto text-sm text-accent-400 hover:underline">
+          Open detail →
+        </a>
+      </div>
+
+      {% if not shot.fallback %}
+        {# Score breakdown — only shown for "real" weekly picks. The fallback
+           (daily shot when the week had no signals) has an all-zeros
+           breakdown that would be confusing to render. #}
+        <div class="rounded-md bg-ink-900/60 border border-ink-700 p-3">
+          <div class="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-sm">
+            <span class="font-semibold text-zinc-300">
+              Score: <span class="font-mono text-accent-400">{{ shot.score }}</span>
+            </span>
+            <span class="text-zinc-500">
+              {% if shot.breakdown.pinned %}
+                <span class="text-emerald-400" title="Pinned tier">Pinned ✓ +{{ score_pinned }}</span>
+              {% else %}
+                <span class="text-zinc-600 line-through">Pinned +{{ score_pinned }}</span>
+              {% endif %}
+            </span>
+            <span class="text-zinc-500">
+              {% if shot.breakdown.favourited %}
+                <span class="text-amber-400" title="Favourited">Starred ✓ +{{ score_favourited }}</span>
+              {% else %}
+                <span class="text-zinc-600 line-through">Starred +{{ score_favourited }}</span>
+              {% endif %}
+            </span>
+            <span class="text-zinc-500">
+              {% if shot.breakdown.tag_count > 0 %}
+                <span class="text-sky-400" title="{{ shot.breakdown.tag_count }} tag(s)">
+                  Tags {{ shot.breakdown.tag_count }} +{{ shot.breakdown.tag_count * score_per_tag }}
+                </span>
+              {% else %}
+                <span class="text-zinc-600 line-through">Tags 0</span>
+              {% endif %}
+            </span>
+            <span class="text-zinc-500">
+              {% if shot.breakdown.annotation_count > 0 %}
+                <span class="text-fuchsia-400" title="{{ shot.breakdown.annotation_count }} annotation(s)">
+                  Notes {{ shot.breakdown.annotation_count }} +{{ shot.breakdown.annotation_count * score_per_annotation }}
+                </span>
+              {% else %}
+                <span class="text-zinc-600 line-through">Notes 0</span>
+              {% endif %}
+            </span>
+          </div>
+        </div>
+      {% endif %}
+
+      {% if shot.ocr_preview %}
+        <p class="text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap break-words">
+          {{ shot.ocr_preview }}{% if shot.ocr_preview|length >= 200 %}…{% endif %}
+        </p>
+      {% else %}
+        <p class="text-sm text-zinc-500 italic">
+          No OCR text on this frame.
+        </p>
+      {% endif %}
+    </div>
+  </article>
+
+  <p class="text-xs text-zinc-500 mt-4">
+    Machine-readable counterpart at
+    <a href="/api/shot-of-the-week.json" class="font-mono text-accent-400 hover:underline">/api/shot-of-the-week.json</a>.
+  </p>
+
+  <script>
+    // Convert the ISO-ish ``captured_at`` string into a relative
+    // "5 minutes ago" label. Kept tiny + dependency-free; falls back
+    // gracefully to the raw string on parse failure.
+    (function () {
+      function relative(iso) {
+        const parsed = Date.parse(iso.replace(' ', 'T'));
+        if (Number.isNaN(parsed)) return iso;
+        const deltaSec = Math.round((Date.now() - parsed) / 1000);
+        const abs = Math.abs(deltaSec);
+        const suffix = deltaSec >= 0 ? 'ago' : 'from now';
+        const units = [
+          [60, 'second'], [60, 'minute'], [24, 'hour'],
+          [7, 'day'], [4.345, 'week'], [12, 'month']
+        ];
+        let value = abs, label = 'second';
+        for (const [step, name] of units) {
+          if (value < step) { label = name; break; }
+          value = value / step;
+          label = name;
+        }
+        if (value > 24 && label === 'month') { value = value / 12; label = 'year'; }
+        const rounded = Math.max(1, Math.round(value));
+        return `${rounded} ${label}${rounded === 1 ? '' : 's'} ${suffix}`;
+      }
+      document.querySelectorAll('[data-relative-time]').forEach((el) => {
+        const iso = el.getAttribute('data-relative-time');
+        if (iso) el.textContent = relative(iso);
+      });
+    })();
+  </script>
+{% else %}
+  <section class="rounded-lg border border-dashed border-ink-700 bg-ink-900/40 p-12 text-center">
+    <div class="text-5xl mb-3">🗓️</div>
+    <h2 class="text-lg font-semibold">Nothing to highlight yet</h2>
+    <p class="text-zinc-500 text-sm mt-2 max-w-md mx-auto">
+      No screenshots have been captured. Once Persona has some frames to look
+      at — and you start pinning, starring, tagging or annotating the
+      memorable ones — your weekly highlight will appear here.
+    </p>
+  </section>
+{% endif %}
+{% endblock %}

@@ -27,6 +27,8 @@
   <script src="https://unpkg.com/htmx.org@2.0.4" defer></script>
   <script defer src="https://unpkg.com/alpinejs@3.14.7/dist/cdn.min.js"></script>
   <link rel="stylesheet" href="/static/css/app.css">
+  <link rel="stylesheet" href="/static/command_palette.css">
+  <script src="/static/command_palette.js" defer></script>
   <script defer src="/static/js/keyboard.js"></script>
   <script defer src="/static/js/palette.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/markdown-it@14.1.0/dist/markdown-it.min.js"></script>
@@ -120,6 +122,24 @@
   <main class="max-w-7xl mx-auto px-6 py-8">
     {% block content %}{% endblock %}
   </main>
+
+  <div id="palette-root"></div>
+  <script>
+    // Track the last 20 visited routes for the Cmd+K palette's "recent" list.
+    (function () {
+      try {
+        var KEY = 'persona.recent';
+        var raw = window.localStorage.getItem(KEY);
+        var trail = [];
+        if (raw) { try { trail = JSON.parse(raw) || []; } catch (e) { trail = []; } }
+        if (!Array.isArray(trail)) trail = [];
+        var path = window.location.pathname;
+        trail = trail.filter(function (x) { return x && x.url !== path; });
+        trail.unshift({ url: path, title: document.title || path, kind: 'recent' });
+        window.localStorage.setItem(KEY, JSON.stringify(trail.slice(0, 20)));
+      } catch (e) { /* localStorage may be disabled — ignore. */ }
+    })();
+  </script>
 
   <footer class="border-t border-ink-700 mt-16 py-6 text-center text-xs text-zinc-500">
     <a href="https://github.com/SwairIt/persona" class="hover:text-zinc-300">github.com/SwairIt/persona</a>

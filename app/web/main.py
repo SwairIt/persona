@@ -66,6 +66,7 @@ from app.web.routes import (
     notes as notes_routes,
     notes_search as notes_search_routes,
     ocr_status,
+    palette as palette_routes,
     pdf_export as pdf_export_routes,
     pin as pin_routes,
     process_remap as process_remap_routes,
@@ -88,11 +89,13 @@ from app.web.routes import (
     search as search_routes,
     share as share_routes,
     shot_of_day as shot_of_day_routes,
+    shot_of_week as shot_of_week_routes,
     share_collection as share_collection_routes,
     settings as settings_routes,
     settings_backup as settings_backup_routes,
     smtp_settings as smtp_settings_routes,
     stats,
+    stats_csv as stats_csv_routes,
     storage_report as storage_report_routes,
     streak as streak_routes,
     summary as summary_routes,
@@ -149,7 +152,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.37.0",
+        version="0.38.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -250,6 +253,9 @@ def create_app() -> FastAPI:
     app.include_router(settings_backup_routes.router)
     app.include_router(health_dashboard_routes.router)
     app.include_router(inbox_routes.router)
+    app.include_router(palette_routes.router)
+    app.include_router(shot_of_week_routes.router)
+    app.include_router(stats_csv_routes.router)
 
     return app
 

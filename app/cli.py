@@ -16,6 +16,7 @@ Subcommands:
     delete             Bulk-delete screenshots matching an FTS5 query (defaults to dry-run).
     export-settings    Dump every preference table to a JSON file (--out FILE).
     import-settings    Insert rows from a settings JSON file (--in FILE [--replace]).
+    export-stats-csv   Per-day-per-app rollup CSV (--days N, --out FILE).
 """
 
 from __future__ import annotations
@@ -47,6 +48,7 @@ from app.pdf_export import export_day_pdf
 from app.search import search as fts_search
 from app.settings import get_settings
 from app.settings_backup import export_settings_json, import_settings_json
+from app.stats_csv import export_stats_csv
 from app.storage.db import get_connection, init_database
 from app.storage.ocr_admin import (
     reset_all_to_pending,
@@ -715,7 +717,33 @@ async def _cmd_delete(query: str, limit: int, confirm: bool) -> int:
     return 0
 
 
-def _build_parser() -> argparse.ArgumentParser:
+async def _cmd_export_stats_csv(days: int, out: Path) -> int:
+    """Write the per-day-per-app stats CSV produced by :func:`export_stats_csv`."""
+    if days < 1:
+        print(f"error: --days must be >= 1, got {days}", file=sys.stderr)
+        return 2
+
+    body = await export_stats_csv(days_back=days)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    # ``newline=""`` keeps the stdlib csv-writer line endings (already
+    # ``\n``) intact instead of letting the platform layer rewrite them
+    # to CRLF on Windows, which would double-up to ``\r\r\n``.
+    with out.open("w", encoding="utf-8", newline="") as fh:
+        fh.write(body)
+
+    # Subtract the header line for the user-facing row count.
+    line_count = body.count("\n")
+    data_rows = max(line_count - 1, 0)
+    size_bytes = len(body.encode("utf-8"))
+
+    print(f"Path:   {out}")
+    print(f"Days:   {days}")
+    print(f"Rows:   {data_rows}")
+    print(f"Bytes:  {size_bytes}")
+    return 0
+
+
+def _build_parser() -> argparse.ArgumentParser:  # noqa: PLR0915 — flat subparser table
     parser = argparse.ArgumentParser(
         prog="persona",
         description="Persona — terminal access to your captured memory.",
@@ -976,6 +1004,28 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    stats_csv_parser = sub.add_parser(
+        "export-stats-csv",
+        help=(
+            "Per-day-per-app stats rollup CSV "
+            "(date, app, shots, idle/active seconds, ocr chars, has_tldr)."
+        ),
+    )
+    stats_csv_parser.add_argument(
+        "--days",
+        dest="days",
+        type=int,
+        default=90,
+        help="Lookback window in days (default: 90).",
+    )
+    stats_csv_parser.add_argument(
+        "--out",
+        dest="out",
+        type=Path,
+        required=True,
+        help="Destination CSV path (parent dirs are created).",
+    )
+
     return parser
 
 
@@ -1017,6 +1067,8 @@ async def _run(args: argparse.Namespace) -> int:  # noqa: PLR0911, PLR0912 — d
         return await _cmd_export_settings(args.out)
     if args.command == "import-settings":
         return await _cmd_import_settings(args.src, args.replace)
+    if args.command == "export-stats-csv":
+        return await _cmd_export_stats_csv(args.days, args.out)
 
     print(f"error: unknown command {args.command!r}", file=sys.stderr)
     return 2
