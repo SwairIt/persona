@@ -1,6 +1,6 @@
 # 🌅 Morning report — Persona
 
-Thirty-eight autonomous sessions: …v0.35 → v0.36 → v0.37 → **v0.38** without stopping. Self-pacing /loop continues until you cancel. **Live on GitHub:** https://github.com/SwairIt/persona
+Thirty-nine autonomous sessions: …v0.36 → v0.37 → v0.38 → **v0.39** without stopping. Self-pacing /loop continues until you cancel. **Live on GitHub:** https://github.com/SwairIt/persona
 
 ## By the numbers (current)
 
@@ -11,6 +11,14 @@ Thirty-eight autonomous sessions: …v0.35 → v0.36 → v0.37 → **v0.38** wit
 - **20+ test files**
 - **0 git commits** — entirely up to you
 - **0 network calls at runtime** (only optional outgoing call: BYO-LLM keys to your chosen provider)
+
+## What landed in v0.39 (keyboard cheatsheet + OCR language stats + archive ZIP)
+
+Built via 3 parallel Workflow agents → sequential wire-up.
+
+- ⌨️ **Keyboard shortcut cheatsheet** — press `?` from any page (when not typing in a field) to see all available shortcuts: `?` for help, Cmd/Ctrl+K for palette (v0.38), `/` to focus the search box on /search, and `g`+letter sequences for go-to navigation (`g t` → timeline, `g s` → search, `g h` → heatmap, `g f` → focus mode). Multi-key sequences time out after 1.5s.
+- 🔤 **OCR language statistics** — `/stats/ocr-languages` measures the actual mix of writing systems in your captured text (Cyrillic vs Latin vs CJK vs digits vs other). Per-language top apps so you can see e.g. "Russian comes from Telegram, English from VS Code". JSON API at `/api/ocr-languages.json`.
+- 📦 **Archive ZIP bundle** — `/export/archive.zip?days=7&thumbs=1` packages your settings (no secrets, via v0.37's exporter), screenshots + notes JSON, and last N days of thumbnails into a single deflated zip with a README manifest. CLI: `persona-cli archive --days 7 --out FILE`. Perfect for "I want everything on a stick".
 
 ## What landed in v0.38 (Cmd+K palette + shot of the week + stats CSV)
 

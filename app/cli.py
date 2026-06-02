@@ -17,6 +17,7 @@ Subcommands:
     export-settings    Dump every preference table to a JSON file (--out FILE).
     import-settings    Insert rows from a settings JSON file (--in FILE [--replace]).
     export-stats-csv   Per-day-per-app rollup CSV (--days N, --out FILE).
+    archive            Build a ZIP bundle of recent state (--days N --out FILE [--no-thumbnails]).
 """
 
 from __future__ import annotations
@@ -32,6 +33,7 @@ from pathlib import Path
 import aiosqlite
 
 from app.analysis import compute_streaks
+from app.archive_bundle import build_archive
 from app.backup.snapshot import (
     BackupError,
     BackupNotAvailable,
@@ -586,6 +588,30 @@ async def _cmd_import_settings(src: Path, replace: bool) -> int:
     return 0
 
 
+async def _cmd_archive(days: int, out: Path, include_thumbnails: bool) -> int:
+    """Build a portable ZIP bundle via :func:`app.archive_bundle.build_archive`."""
+    if days < 1:
+        print(f"error: --days must be >= 1, got {days}", file=sys.stderr)
+        return 2
+
+    try:
+        result = await build_archive(
+            days=days,
+            output_path=out,
+            include_thumbnails=include_thumbnails,
+        )
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    print(f"Path:        {result['path']}")
+    print(f"Days:        {days}")
+    print(f"Thumbnails:  {'yes' if include_thumbnails else 'no'}")
+    print(f"Files:       {result['files_count']}")
+    print(f"Size bytes:  {result['size_bytes']}")
+    return 0
+
+
 def _use_colour(no_color: bool) -> bool:
     """Return True only when stdout is a TTY and ``--no-color`` was not passed."""
     if no_color:
@@ -1026,6 +1052,34 @@ def _build_parser() -> argparse.ArgumentParser:  # noqa: PLR0915 — flat subpar
         help="Destination CSV path (parent dirs are created).",
     )
 
+    archive_parser = sub.add_parser(
+        "archive",
+        help=(
+            "Build a portable ZIP bundle: settings + last N days of "
+            "screenshots/notes + optional thumbnails."
+        ),
+    )
+    archive_parser.add_argument(
+        "--days",
+        dest="days",
+        type=int,
+        default=7,
+        help="Lookback window in days (default: 7).",
+    )
+    archive_parser.add_argument(
+        "--out",
+        dest="out",
+        type=Path,
+        required=True,
+        help="Destination .zip path (parent dirs are created).",
+    )
+    archive_parser.add_argument(
+        "--no-thumbnails",
+        dest="include_thumbnails",
+        action="store_false",
+        help="Skip the thumbnails/ folder (settings + JSON only).",
+    )
+
     return parser
 
 
@@ -1069,6 +1123,8 @@ async def _run(args: argparse.Namespace) -> int:  # noqa: PLR0911, PLR0912 — d
         return await _cmd_import_settings(args.src, args.replace)
     if args.command == "export-stats-csv":
         return await _cmd_export_stats_csv(args.days, args.out)
+    if args.command == "archive":
+        return await _cmd_archive(args.days, args.out, args.include_thumbnails)
 
     print(f"error: unknown command {args.command!r}", file=sys.stderr)
     return 2

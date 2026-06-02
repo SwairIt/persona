@@ -485,6 +485,17 @@ Three feature agents in parallel via Workflow (203k tokens, 13.7 min), then sequ
 - 10:22Z — wired palette + shot_of_week + stats_csv routers
 - 10:24Z — tests/test_v038.py — palette API items + shot-of-week page + API + empty-DB fallback + stats CSV streams + module headers + injection-safe
 
+## 2026-06-02 — v0.39 continuation (autonomous, Ultracode workflow tick #22)
+
+Three feature agents in parallel via Workflow (183k tokens, 7.2 min), then sequential wire-up.
+
+- 10:50Z — version bump 0.38→0.39
+- 10:53Z — **Keyboard shortcut cheatsheet** (agent A): `app/web/static/keyboard_shortcuts.js` + css. Press `?` (when not in input/textarea/contenteditable) → modal overlay listing all shortcuts: ?, Cmd/Ctrl+K, /, g+t/s/h/f. Multi-key g+letter sequences with 1.5s timeout. base.html includes script + css alongside v0.38 palette.
+- 10:57Z — **OCR language statistics** (agent B): `app/ocr/language_stats.py` with `language_breakdown(days=30)` returning {cyrillic_chars, latin_chars, cjk_chars, digit_chars, other_chars, total_chars, top_apps_by_language}. Char classification via Unicode ranges (U+0400-04FF cyrillic, U+0041-007A latin, U+4E00-9FFF CJK). Routes `/stats/ocr-languages` (page) + `/api/ocr-languages.json`.
+- 11:02Z — **Archive ZIP bundle** (agent C): `app/archive_bundle.py` with `build_archive(days, output_path, include_thumbnails)`. Stdlib zipfile.ZIP_DEFLATED. Layout: settings.json (via v0.37 settings_backup, no secrets) + screenshots.json + notes.json + thumbnails/{id}.webp + README.txt. Route `/export/archive.zip?days=N&thumbs=1`. CLI `persona-cli archive --days N --out FILE [--no-thumbnails]`.
+- 11:06Z — wired ocr_language_stats + archive_bundle routers (keyboard shortcuts is JS-only)
+- 11:08Z — tests/test_v039.py — lang-stats page + API + module shape + zero-state + archive endpoint + build_archive module to tmp_path + JS static file exists
+
 ## How to run
 
 ```powershell
