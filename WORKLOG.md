@@ -441,6 +441,17 @@ Three feature agents in parallel via Workflow (199k tokens, 5.2 min), then seque
 - 07:02Z — wired api_tokens + ocr_diff + weekly_pdf routers + ApiAuthMiddleware in app middleware stack (before GZip)
 - 07:05Z — tests/test_v034.py — weekly PDF route + OCR diff 404 + diff module + api-tokens page + create/verify/revoke round-trip + bad token rejected
 
+## 2026-06-02 — v0.35 continuation (autonomous, Ultracode workflow tick #18)
+
+Three feature agents in parallel via Workflow (199k tokens, 6.7 min), then sequential wire-up.
+
+- 07:35Z — version bump 0.34→0.35
+- 07:38Z — **Clipboard history capture** (agent A): migration 034 + `app/capture/clipboard.py` (Windows ctypes OpenClipboard / CF_UNICODETEXT) + `app/workers/clipboard_worker.py` (2s poll, SHA-256 dedup, applies redaction patterns from v0.24 before storing). Setting `clipboard_history_enabled` default False (opt-in). Routes `/clipboard` (history + LIKE search) + `/api/clipboard.json`. New worker wired into lifespan.
+- 07:43Z — **OCR per-word confidence overlay** (agent B): migration 035 (table `ocr_word` with conf + box coords) + OCR worker writes per-word rows via `image_to_data(Output.DICT)`. Route `/screenshot/{id}/overlay` renders the image with absolutely-positioned <span> overlays colour-coded by conf (green ≥80, amber 50-79, red <50). Click a word to /search?q=word.
+- 07:48Z — **iCalendar (.ics) export** (agent C): `app/ics_export.py` builds iCal 2.0 string via stdlib only (no icalendar package). One VEVENT per day-with-shots, top 3 apps in DESCRIPTION, all-day events, RFC-5545-compliant escaping + CRLF. Route `/export/calendar.ics?days=90` with attachment Content-Disposition.
+- 07:53Z — wired clipboard + ocr_overlay + ics_export routers + run_clipboard_worker in lifespan tasks
+- 07:55Z — tests/test_v035.py — clipboard page + API + setting default off + overlay renders or 404 + words API + ICS returns BEGIN/END:VCALENDAR + zero-state module + RFC-5545 escaping check
+
 ## How to run
 
 ```powershell

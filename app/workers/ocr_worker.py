@@ -135,6 +135,12 @@ async def _drain_once() -> None:
                 )
 
         await _apply_phrase_tags(shot.id, redacted)
+        await _store_word_confidences(
+            screenshot_id=shot.id,
+            thumbnail_path=Path(shot.thumbnail_path),
+            langs=configured_langs,
+            tesseract_path=settings.tesseract_path,
+        )
 
         if settings.image_blur_enabled:
             try:
@@ -219,3 +225,127 @@ def _extract(path: Path, langs: str, tesseract_path: Path | None) -> str:
     with Image.open(path) as image:
         image.load()
         return extract_text(image, langs=langs, tesseract_path=tesseract_path)
+
+
+def _extract_word_data(
+    path: Path,
+    langs: str,
+    tesseract_path: Path | None,
+) -> list[tuple[str, int, int | None, int | None, int | None, int | None]]:
+    """Run ``pytesseract.image_to_data`` and return ``(word, conf, l, t, w, h)``.
+
+    Sync (CPU-bound) — call via ``asyncio.to_thread``. Rows with an empty
+    ``text`` or ``conf < 0`` are filtered here so the caller can blindly
+    insert what comes back. Returns ``[]`` if Tesseract is unavailable or
+    raises — the worker pipeline must keep moving even when the per-word
+    side-channel breaks.
+    """
+    try:
+        import pytesseract  # noqa: PLC0415 — optional dep, lazy import
+        from pytesseract import Output  # noqa: PLC0415
+    except ImportError:
+        return []
+
+    if tesseract_path is not None:
+        pytesseract.pytesseract.tesseract_cmd = str(tesseract_path)
+
+    with Image.open(path) as image:
+        image.load()
+        raw_data = pytesseract.image_to_data(
+            image,
+            lang=langs,
+            output_type=Output.DICT,
+        )
+    data: dict[str, list[object]] = dict(raw_data)
+
+    words_raw = data.get("text", [])
+    confs_raw = data.get("conf", [])
+    lefts = data.get("left", [])
+    tops = data.get("top", [])
+    widths = data.get("width", [])
+    heights = data.get("height", [])
+
+    rows: list[tuple[str, int, int | None, int | None, int | None, int | None]] = []
+    for idx, raw_word in enumerate(words_raw):
+        word = str(raw_word).strip()
+        if not word:
+            continue
+        conf = _safe_int(confs_raw[idx] if idx < len(confs_raw) else None)
+        if conf is None or conf < 0:
+            continue
+        rows.append(
+            (
+                word,
+                conf,
+                _safe_int(lefts[idx] if idx < len(lefts) else None),
+                _safe_int(tops[idx] if idx < len(tops) else None),
+                _safe_int(widths[idx] if idx < len(widths) else None),
+                _safe_int(heights[idx] if idx < len(heights) else None),
+            )
+        )
+    return rows
+
+
+def _safe_int(value: object) -> int | None:
+    """Coerce a Tesseract bbox / conf cell to ``int``; return ``None`` on garbage."""
+    if isinstance(value, bool | int | float):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(float(value))
+        except ValueError:
+            return None
+    return None
+
+
+async def _store_word_confidences(
+    *,
+    screenshot_id: int,
+    thumbnail_path: Path,
+    langs: str,
+    tesseract_path: Path | None,
+) -> None:
+    """Persist per-word ``conf`` rows for the v0.35 overlay.
+
+    Wrapped end-to-end in ``try/except`` because this is a UI-only
+    side-channel — the main OCR pipeline (text, redaction, tags) has
+    already committed by the time we reach this point, so we must never
+    let an ``image_to_data`` hiccup poison the worker loop.
+    """
+    try:
+        rows = await asyncio.to_thread(
+            _extract_word_data,
+            thumbnail_path,
+            langs,
+            tesseract_path,
+        )
+    except Exception as exc:
+        log.warning(
+            "ocr_worker.words_extract_failed",
+            screenshot_id=screenshot_id,
+            error=str(exc),
+        )
+        return
+
+    if not rows:
+        log.info("ocr.words_stored", screenshot_id=screenshot_id, count=0)
+        return
+
+    try:
+        async with get_connection() as conn:
+            await conn.executemany(
+                "INSERT INTO ocr_word "
+                "(screenshot_id, word, conf, left, top, width, height) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                [(screenshot_id, *row) for row in rows],
+            )
+            await conn.commit()
+    except Exception as exc:
+        log.warning(
+            "ocr_worker.words_insert_failed",
+            screenshot_id=screenshot_id,
+            error=str(exc),
+        )
+        return
+
+    log.info("ocr.words_stored", screenshot_id=screenshot_id, count=len(rows))

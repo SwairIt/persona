@@ -1,6 +1,6 @@
 # 🌅 Morning report — Persona
 
-Thirty-four autonomous sessions: …v0.31 → v0.32 → v0.33 → **v0.34** without stopping. Self-pacing /loop continues until you cancel. **Live on GitHub:** https://github.com/SwairIt/persona
+Thirty-five autonomous sessions: …v0.32 → v0.33 → v0.34 → **v0.35** without stopping. Self-pacing /loop continues until you cancel. **Live on GitHub:** https://github.com/SwairIt/persona
 
 ## By the numbers (current)
 
@@ -11,6 +11,14 @@ Thirty-four autonomous sessions: …v0.31 → v0.32 → v0.33 → **v0.34** with
 - **20+ test files**
 - **0 git commits** — entirely up to you
 - **0 network calls at runtime** (only optional outgoing call: BYO-LLM keys to your chosen provider)
+
+## What landed in v0.35 (clipboard history + OCR confidence overlay + .ics export)
+
+Built via 3 parallel Workflow agents → sequential wire-up.
+
+- 📋 **Clipboard history capture** — opt-in (`PERSONA_CLIPBOARD_HISTORY_ENABLED=true`). A background worker polls `CF_UNICODETEXT` every 2s on Windows; new (SHA-256 deduped) text snippets get stored alongside screenshots and pass through your v0.24 redaction rules so secrets get masked. `/clipboard` lists history with a LIKE search.
+- 🎯 **OCR per-word confidence overlay** — `/screenshot/{id}/overlay` shows the screenshot with every OCR word as a coloured box: green ≥ 80, amber 50–79, red < 50 confidence. Click any word to jump to `/search?q=word`. The OCR worker writes `image_to_data` boxes alongside the text so you can see exactly where Tesseract was unsure.
+- 📅 **iCalendar (.ics) export** — `/export/calendar.ics?days=90` produces a stdlib-only iCal 2.0 feed with one all-day event per active day (shot count + top 3 apps). Drop into Google / Apple Calendar to get a retrospective view of when you were heads-down on what.
 
 ## What landed in v0.34 (weekly stats PDF + OCR diff viewer + API tokens)
 

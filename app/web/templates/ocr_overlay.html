@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+
+{#
+  v0.35 — OCR per-word confidence overlay.
+
+  Tesseract emits a ``conf`` score (0-100) plus a bounding box for every
+  recognised word. We position absolute ``<span>`` tags over the rendered
+  thumbnail, colour-coded:
+
+      conf >= 80  ->  green   (confident)
+      50 - 79     ->  amber   (worth a glance)
+      conf < 50   ->  red     (likely garbage)
+
+  Coordinates returned by ``image_to_data`` are in the thumbnail's native
+  pixel space. The wrapper uses ``position: relative`` and the spans use
+  percentage-based ``left``/``top``/``width``/``height`` so the overlay
+  scales with the rendered ``<img>`` regardless of viewport size — the
+  inline ``style="--left: ...%"`` carries the values, and the small
+  inline script in the page just makes them visible.
+#}
+
+{% block content %}
+<div class="mb-4 flex items-center justify-between text-sm">
+  <a href="/screenshot/{{ shot.id }}"
+     class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700">← back to screenshot</a>
+  <div class="flex items-center gap-3 text-xs">
+    <span class="flex items-center gap-1.5">
+      <span class="inline-block w-3 h-3 rounded bg-emerald-500/30 border border-emerald-500"></span>
+      <span class="text-zinc-400">&ge; 80</span>
+    </span>
+    <span class="flex items-center gap-1.5">
+      <span class="inline-block w-3 h-3 rounded bg-amber-500/30 border border-amber-500"></span>
+      <span class="text-zinc-400">50 – 79</span>
+    </span>
+    <span class="flex items-center gap-1.5">
+      <span class="inline-block w-3 h-3 rounded bg-rose-500/30 border border-rose-500"></span>
+      <span class="text-zinc-400">&lt; 50</span>
+    </span>
+    <span class="text-zinc-500">· {{ words|length }} word(s)</span>
+  </div>
+</div>
+
+<div class="grid lg:grid-cols-4 gap-6">
+  <div class="lg:col-span-3">
+    {% if shot.thumbnail_path %}
+      {% set thumb_src = shot.thumbnail_path | thumbnail_url %}
+      <div id="ocr-overlay-wrapper"
+           class="relative rounded-lg overflow-hidden border border-ink-700 bg-ink-900 inline-block max-w-full">
+        <img id="ocr-overlay-img"
+             src="{{ thumb_src }}"
+             alt="Screenshot #{{ shot.id }}"
+             class="block max-w-full h-auto select-none">
+        <div id="ocr-overlay-layer"
+             class="absolute inset-0 pointer-events-none"
+             data-img-natural-width=""
+             data-img-natural-height="">
+          {% for w in words %}
+            {% if w.left is not none and w.top is not none and w.width is not none and w.height is not none %}
+              {% if w.conf >= 80 %}
+                {% set cls = "bg-emerald-500/30 border-emerald-500 hover:bg-emerald-500/60" %}
+              {% elif w.conf >= 50 %}
+                {% set cls = "bg-amber-500/30 border-amber-500 hover:bg-amber-500/60" %}
+              {% else %}
+                {% set cls = "bg-rose-500/30 border-rose-500 hover:bg-rose-500/60" %}
+              {% endif %}
+              <a class="ocr-word absolute border opacity-30 hover:opacity-90 pointer-events-auto transition-opacity cursor-pointer {{ cls }}"
+                 href="/search?q={{ w.word | urlencode }}"
+                 title="{{ w.word }} · conf={{ w.conf }}"
+                 data-left="{{ w.left }}"
+                 data-top="{{ w.top }}"
+                 data-width="{{ w.width }}"
+                 data-height="{{ w.height }}"></a>
+            {% endif %}
+          {% endfor %}
+        </div>
+      </div>
+    {% else %}
+      <div class="aspect-video flex items-center justify-center text-zinc-500 bg-ink-900 rounded-lg border border-ink-700">
+        Thumbnail deleted by retention policy — no overlay to draw.
+      </div>
+    {% endif %}
+  </div>
+
+  <aside class="lg:col-span-1 space-y-3">
+    <section class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+      <h3 class="text-xs uppercase tracking-widest text-zinc-500 mb-2">Summary</h3>
+      <dl class="text-sm space-y-1">
+        <div class="flex justify-between"><dt class="text-zinc-400">Words</dt><dd>{{ words|length }}</dd></div>
+        <div class="flex justify-between">
+          <dt class="text-zinc-400">High conf</dt>
+          <dd class="text-emerald-300">{{ words | selectattr('conf', '>=', 80) | list | length }}</dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-zinc-400">Medium</dt>
+          <dd class="text-amber-300">
+            {{ words | selectattr('conf', '>=', 50) | rejectattr('conf', '>=', 80) | list | length }}
+          </dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-zinc-400">Low conf</dt>
+          <dd class="text-rose-300">{{ words | rejectattr('conf', '>=', 50) | list | length }}</dd>
+        </div>
+      </dl>
+    </section>
+    <p class="text-xs text-zinc-500">
+      Click any word to launch a full-text search across every screenshot.
+      Coordinates and confidence come straight from Tesseract's
+      <code class="font-mono">image_to_data</code>.
+    </p>
+  </aside>
+</div>
+
+<script>
+  // Position word boxes once the image has reported its natural size.
+  // Tesseract bbox values are pixel coordinates in the thumbnail's native
+  // space, so percentage = (px / natural_dimension * 100) keeps the
+  // overlay aligned at any rendered size.
+  (function () {
+    var img = document.getElementById('ocr-overlay-img');
+    var layer = document.getElementById('ocr-overlay-layer');
+    if (!img || !layer) return;
+
+    function place() {
+      var nw = img.naturalWidth;
+      var nh = img.naturalHeight;
+      if (!nw || !nh) return;
+      layer.dataset.imgNaturalWidth = String(nw);
+      layer.dataset.imgNaturalHeight = String(nh);
+      var spans = layer.querySelectorAll('.ocr-word');
+      for (var i = 0; i < spans.length; i++) {
+        var s = spans[i];
+        var l = parseFloat(s.dataset.left);
+        var t = parseFloat(s.dataset.top);
+        var w = parseFloat(s.dataset.width);
+        var h = parseFloat(s.dataset.height);
+        if (isNaN(l) || isNaN(t) || isNaN(w) || isNaN(h)) continue;
+        s.style.left = (l / nw * 100).toFixed(3) + '%';
+        s.style.top = (t / nh * 100).toFixed(3) + '%';
+        s.style.width = (w / nw * 100).toFixed(3) + '%';
+        s.style.height = (h / nh * 100).toFixed(3) + '%';
+      }
+    }
+
+    if (img.complete && img.naturalWidth) {
+      place();
+    } else {
+      img.addEventListener('load', place, { once: true });
+    }
+  })();
+</script>
+{% endblock %}

@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-start justify-between gap-4 flex-wrap">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Clipboard history</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Text you copied while capture was on. Opt-in feature &mdash; enable
+      <span class="text-accent-400">clipboard_history_enabled</span> in
+      settings to start recording. Secrets matching your redaction rules
+      are masked as <span class="font-mono">***</span> before being stored.
+    </p>
+  </div>
+  <div class="text-xs text-zinc-500 font-mono flex-shrink-0">
+    {{ total }} entries &middot; page {{ page }} / {{ total_pages }}
+  </div>
+</div>
+
+<form method="get" action="/clipboard" class="mb-6 flex items-center gap-2">
+  <input type="search"
+         name="q"
+         value="{{ query }}"
+         placeholder="Search clipboard text…"
+         autocomplete="off"
+         class="flex-1 px-3 py-2 rounded-md bg-ink-900 border border-ink-700 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-accent-500">
+  <button type="submit"
+          class="px-4 py-2 rounded-md bg-accent-600 hover:bg-accent-500 text-white text-sm font-medium transition">
+    Search
+  </button>
+  {% if query %}
+    <a href="/clipboard"
+       class="px-3 py-2 rounded-md bg-ink-800 hover:bg-ink-700 text-zinc-300 text-sm">
+      Clear
+    </a>
+  {% endif %}
+</form>
+
+{% if items %}
+  <div class="rounded-lg border border-ink-700 bg-ink-900/40 overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-ink-900 border-b border-ink-700 text-xs uppercase tracking-wider text-zinc-500">
+        <tr>
+          <th class="px-3 py-2 text-left font-medium w-44">Captured</th>
+          <th class="px-3 py-2 text-left font-medium w-40">App</th>
+          <th class="px-3 py-2 text-left font-medium">Preview</th>
+          <th class="px-3 py-2 text-right font-medium w-20">Length</th>
+          <th class="px-3 py-2 text-right font-medium w-16"></th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-ink-700">
+        {% for entry in items %}
+          <tr class="hover:bg-ink-800/40 transition">
+            <td class="px-3 py-2 align-top font-mono text-[11px] text-zinc-500 whitespace-nowrap">
+              {{ entry.captured_at }}
+            </td>
+            <td class="px-3 py-2 align-top text-zinc-300 truncate max-w-[10rem]"
+                title="{{ entry.app_name or '' }}">
+              {{ entry.app_name or '&mdash;' | safe }}
+            </td>
+            <td class="px-3 py-2 align-top text-zinc-200 font-mono text-xs whitespace-pre-wrap break-words">{{ entry.preview }}</td>
+            <td class="px-3 py-2 align-top text-right font-mono text-[11px] text-zinc-500 whitespace-nowrap">
+              {{ entry.length }}
+            </td>
+            <td class="px-3 py-2 align-top text-right">
+              <form method="post"
+                    action="/clipboard/{{ entry.id }}/delete"
+                    onsubmit="return confirm('Delete this clipboard entry?');">
+                <input type="hidden" name="page" value="{{ page }}">
+                <input type="hidden" name="q" value="{{ query }}">
+                <button type="submit"
+                        title="Delete entry {{ entry.id }}"
+                        aria-label="Delete clipboard entry {{ entry.id }}"
+                        class="px-2 py-1 rounded text-rose-400 hover:bg-rose-500/10 transition text-xs">
+                  &#10005;
+                </button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if has_prev or has_next %}
+    <nav class="mt-6 flex items-center justify-between text-sm">
+      {% if has_prev %}
+        <a href="/clipboard?page={{ page - 1 }}{% if query %}&q={{ query | urlencode }}{% endif %}"
+           class="px-4 py-2 rounded-md bg-ink-800 hover:bg-ink-700 text-zinc-300">
+          &larr; Newer
+        </a>
+      {% else %}
+        <span></span>
+      {% endif %}
+      <span class="text-xs text-zinc-500 font-mono">page {{ page }} / {{ total_pages }}</span>
+      {% if has_next %}
+        <a href="/clipboard?page={{ page + 1 }}{% if query %}&q={{ query | urlencode }}{% endif %}"
+           class="px-4 py-2 rounded-md bg-ink-800 hover:bg-ink-700 text-zinc-300">
+          Older &rarr;
+        </a>
+      {% else %}
+        <span></span>
+      {% endif %}
+    </nav>
+  {% endif %}
+{% else %}
+  <div class="text-center py-20 px-6 rounded-lg border border-dashed border-ink-700 bg-ink-900/40">
+    <div class="text-5xl text-zinc-700 mb-4">&#9112;</div>
+    <h2 class="text-lg font-semibold text-zinc-300">
+      {% if query %}No matches for &ldquo;{{ query }}&rdquo;{% else %}No clipboard history yet{% endif %}
+    </h2>
+    <p class="text-sm text-zinc-500 mt-2 max-w-md mx-auto">
+      {% if query %}
+        Try a shorter or different search term. The search runs against the
+        redacted text, so masked secrets won&rsquo;t match their original value.
+      {% else %}
+        Enable <span class="text-accent-400">clipboard_history_enabled</span>
+        in your <a href="/settings" class="underline hover:text-zinc-300">settings</a>
+        and restart Persona. The worker polls every 2&nbsp;seconds and stores
+        each new text snippet here.
+      {% endif %}
+    </p>
+  </div>
+{% endif %}
+{% endblock %}

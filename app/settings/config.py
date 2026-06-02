@@ -74,6 +74,12 @@ class Settings(BaseSettings):
     adaptive_min_seconds: int = Field(default=30, ge=5, le=300)
     adaptive_max_seconds: int = Field(default=600, ge=60, le=3600)
 
+    # v0.35 — opt-in clipboard history capture. When True, a background
+    # worker polls the OS clipboard every ~2s and stores each new text
+    # snippet in ``clipboard_event``. Default False for privacy — the
+    # user must explicitly turn it on.
+    clipboard_history_enabled: bool = Field(default=False)
+
     # v0.34 — when False (default) ``/api/*`` endpoints stay open to the
     # local UI exactly as before; bearer auth only kicks in for requests
     # that carry an ``Authorization: Bearer …`` header. Flip to True to

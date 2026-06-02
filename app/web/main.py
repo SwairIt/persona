@@ -33,6 +33,7 @@ from app.web.routes import (
     bulk_delete as bulk_delete_routes,
     calendar as calendar_routes,
     capture_api,
+    clipboard as clipboard_routes,
     companion as companion_routes,
     csv_export,
     daily_digests as daily_digests_routes,
@@ -49,6 +50,7 @@ from app.web.routes import (
     heatmap as heatmap_routes,
     hour_histogram as hour_histogram_routes,
     help as help_routes,
+    ics_export as ics_export_routes,
     icons as icons_routes,
     idle_stats as idle_stats_routes,
     journal as journal_routes,
@@ -73,6 +75,7 @@ from app.web.routes import (
     ocr_admin as ocr_admin_routes,
     ocr_languages as ocr_languages_routes,
     ocr_diff as ocr_diff_routes,
+    ocr_overlay as ocr_overlay_routes,
     ocr_phrase_tags as ocr_phrase_tags_routes,
     ocr_skip as ocr_skip_routes,
     rss as rss_routes,
@@ -106,6 +109,7 @@ from app.web.routes import (
 from app.workers import (
     get_controller,
     run_capture_loop,
+    run_clipboard_worker,
     run_digest_scheduler,
     run_embeddings_worker,
     run_ocr_worker,
@@ -139,7 +143,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.34.0",
+        version="0.35.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -232,6 +236,9 @@ def create_app() -> FastAPI:
     app.include_router(weekly_pdf_routes.router)
     app.include_router(ocr_diff_routes.router)
     app.include_router(api_tokens_routes.router)
+    app.include_router(clipboard_routes.router)
+    app.include_router(ocr_overlay_routes.router)
+    app.include_router(ics_export_routes.router)
 
     return app
 
@@ -249,6 +256,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         asyncio.create_task(run_embeddings_worker(controller), name="embeddings-worker"),
         asyncio.create_task(run_digest_scheduler(controller), name="digest-scheduler"),
         asyncio.create_task(run_weekly_digest_scheduler(controller), name="weekly-digest-scheduler"),
+        asyncio.create_task(run_clipboard_worker(controller), name="clipboard-worker"),
     ]
 
     controller.pause()
