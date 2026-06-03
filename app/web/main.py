@@ -80,6 +80,7 @@ from app.web.routes import (
     encrypted_notes as encrypted_notes_routes,
     export,
     external_ping as external_ping_routes,
+    facet_sets as facet_sets_routes,
     favourites as favourites_routes,
     feature_index as feature_index_routes,
     feed_tokens as feed_tokens_routes,
@@ -280,7 +281,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.94.0",
+        version="0.95.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -503,6 +504,7 @@ def create_app() -> FastAPI:
     app.include_router(words_csv_routes.router)
     app.include_router(import_screenshot_routes.router)
     app.include_router(ocr_edit_routes.router)
+    app.include_router(facet_sets_routes.router)
 
     return app
 

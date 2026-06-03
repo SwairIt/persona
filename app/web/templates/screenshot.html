@@ -42,6 +42,18 @@
             class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700 text-xs">
       Copy zoom link
     </button>
+    {# v0.95 — Fullscreen toggle. Calls element.requestFullscreen on the
+       [data-zoomable] image (the same target the zoom deep-link uses).
+       Pressing `F` anywhere on the page does the same thing; `Esc` exits
+       via the browser default. The button hides itself when there's no
+       zoomable image OR the browser lacks the Fullscreen API (older
+       Safari in iframes, etc.). All wiring lives in image_viewer.js. #}
+    <button type="button"
+            data-fullscreen
+            title="Fullscreen (F)"
+            class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700 text-xs">
+      Fullscreen
+    </button>
   </div>
   <a href="/?date={{ shot.captured_at.strftime('%Y-%m-%d') }}"
      class="text-xs text-accent-400 hover:underline">back to {{ shot.captured_at.strftime('%Y-%m-%d') }} →</a>

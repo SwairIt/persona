@@ -31,6 +31,17 @@
  *   hidden <textarea> + execCommand when the async Clipboard API is
  *   unavailable (e.g. non-HTTPS contexts). Brief visual feedback is
  *   given by swapping the button label for ~1.2s.
+ *
+ * v0.95 fullscreen:
+ *   Press `F` (when not typing into an input) or click any
+ *   `[data-fullscreen]` button to call `requestFullscreen()` on the
+ *   *first* zoomable element — the page chrome disappears and the
+ *   image fills the screen. `Esc` exits via the browser default; we
+ *   also no-op gracefully when the Fullscreen API is unavailable
+ *   (older browsers, sandboxed iframes), in which case the button
+ *   hides itself so we don't advertise a control that does nothing.
+ *   The `F` key is intentionally a global capture so it works while
+ *   the cursor is anywhere on the page, not just over the image.
  */
 (function () {
   'use strict';
@@ -393,11 +404,93 @@
     }
   }
 
+  /**
+   * v0.95 — detect Fullscreen API support across vendor prefixes. Returns
+   * a tiny adapter exposing `request(el)` and `isSupported()`. We probe
+   * the element rather than `document` because Safari historically only
+   * exposed `webkitRequestFullscreen` on elements. Returns `null` when
+   * no implementation is found at all.
+   */
+  function fullscreenAdapter(el) {
+    const fn =
+      el.requestFullscreen ||
+      el.webkitRequestFullscreen ||
+      el.mozRequestFullScreen ||
+      el.msRequestFullscreen;
+    if (typeof fn !== 'function') return null;
+    return {
+      request() {
+        try {
+          const result = fn.call(el);
+          // Standard returns a Promise; the prefixed variants don't.
+          // Swallow rejections (e.g. "must be called from user gesture"
+          // raced with a stale click) so a failure doesn't bubble to
+          // the global unhandled-rejection handler.
+          if (result && typeof result.catch === 'function') {
+            result.catch(() => { /* silently ignore */ });
+          }
+        } catch (_) {
+          /* legacy synchronous throw — also ignore */
+        }
+      },
+    };
+  }
+
+  /**
+   * v0.95 — bind every [data-fullscreen] button + the global `F` key to
+   * fullscreen the first zoomable element. The button hides itself when
+   * either there's no zoomable image on the page or the Fullscreen API
+   * isn't available; the keyboard shortcut becomes a no-op in the same
+   * conditions. The `F` listener guards against typing contexts so it
+   * doesn't hijack the letter in textareas / inputs / contenteditable.
+   */
+  function bindFullscreen() {
+    const target = document.querySelector('[data-zoomable]');
+    const adapter = target ? fullscreenAdapter(target) : null;
+    const enabled = !!adapter;
+
+    const buttons = document.querySelectorAll('[data-fullscreen]');
+    for (const btn of buttons) {
+      if (btn.dataset.fullscreenBound === '1') continue;
+      btn.dataset.fullscreenBound = '1';
+      if (!enabled) {
+        btn.hidden = true;
+        continue;
+      }
+      btn.addEventListener('click', function (ev) {
+        ev.preventDefault();
+        adapter.request();
+      });
+    }
+
+    // Bind the global key once per page even if init() runs again
+    // (e.g. via SPA-style re-entry). The flag lives on <html> because
+    // `document` itself doesn't carry a dataset.
+    if (document.documentElement.dataset.fullscreenKeyBound === '1') return;
+    document.documentElement.dataset.fullscreenKeyBound = '1';
+    if (!enabled) return;
+    document.addEventListener('keydown', function (ev) {
+      if (ev.key !== 'f' && ev.key !== 'F') return;
+      // Don't hijack the letter in any text-entry context.
+      const t = ev.target;
+      if (t && (
+        ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName) ||
+        t.isContentEditable
+      )) return;
+      // Ignore modifier combos so Ctrl+F (find) and Cmd+F still work.
+      if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+      ev.preventDefault();
+      adapter.request();
+    });
+  }
+
   function init() {
     const nodes = document.querySelectorAll('[data-zoomable]');
     if (!nodes.length) {
-      // Still bind copy buttons so they can hide themselves gracefully.
+      // Still bind copy + fullscreen buttons so they can hide
+      // themselves gracefully on pages without a zoomable image.
       bindCopyButtons();
+      bindFullscreen();
       return;
     }
     let firstViewer = null;
@@ -409,6 +502,7 @@
     }
     if (firstViewer) applyDeepLink(firstViewer);
     bindCopyButtons();
+    bindFullscreen();
   }
 
   if (document.readyState === 'loading') {

@@ -24,11 +24,63 @@
     <p class="text-zinc-500 text-xs mt-1 font-mono">{{ provider or '—' }} · generated {{ generated_at[:19] }}</p>
   </div>
   <article class="rounded-lg border border-ink-700 bg-ink-800 p-5">
-    <pre class="whitespace-pre-wrap font-sans text-zinc-200 leading-relaxed">{{ body }}</pre>
+    <pre id="digest-body" class="whitespace-pre-wrap font-sans text-zinc-200 leading-relaxed">{{ body }}</pre>
   </article>
+  <div class="mt-4 flex items-center gap-2">
+    <button type="button"
+            id="copy-text-btn"
+            class="rounded-md border border-ink-700 bg-ink-800 px-3 py-1.5 text-xs font-mono text-zinc-200 hover:bg-ink-700 transition-colors">
+      Copy text
+    </button>
+    <button type="button"
+            id="copy-md-btn"
+            class="rounded-md border border-ink-700 bg-ink-800 px-3 py-1.5 text-xs font-mono text-zinc-200 hover:bg-ink-700 transition-colors">
+      Copy markdown
+    </button>
+    <span id="copy-status" class="text-xs text-zinc-500 font-mono" aria-live="polite"></span>
+  </div>
   <div class="mt-4 text-xs text-zinc-500">
     <a href="/digest/weekly-archive/{{ week_start }}/card.png"
        class="hover:underline text-accent-400">share-card PNG</a>
   </div>
 </div>
+<script>
+  (() => {
+    const bodyEl = document.getElementById('digest-body');
+    const statusEl = document.getElementById('copy-status');
+    const textBtn = document.getElementById('copy-text-btn');
+    const mdBtn = document.getElementById('copy-md-btn');
+    if (!bodyEl || !textBtn || !mdBtn) return;
+
+    const weekStart = {{ week_start | tojson }};
+    const weekEnd = {{ week_end | tojson }};
+    const rawBody = bodyEl.textContent ?? '';
+
+    let statusTimer = null;
+    const flash = (msg) => {
+      if (!statusEl) return;
+      statusEl.textContent = msg;
+      if (statusTimer) clearTimeout(statusTimer);
+      statusTimer = setTimeout(() => { statusEl.textContent = ''; }, 2000);
+    };
+
+    const copy = async (payload, okMsg) => {
+      try {
+        await navigator.clipboard.writeText(payload);
+        flash(okMsg);
+      } catch (err) {
+        flash('copy failed');
+      }
+    };
+
+    textBtn.addEventListener('click', () => {
+      copy(rawBody, 'copied as text');
+    });
+
+    mdBtn.addEventListener('click', () => {
+      const md = `# Persona — week of ${weekStart}\n\n_${weekStart} → ${weekEnd}_\n\n${rawBody}\n`;
+      copy(md, 'copied as markdown');
+    });
+  })();
+</script>
 {% endblock %}

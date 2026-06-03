@@ -148,13 +148,73 @@
           <input type="datetime-local" name="until" value="{{ (until or '')[:16] }}"
                  class="px-2 py-1 bg-ink-900 border border-ink-700 rounded font-mono text-[11px]">
         </span>
-        {% if _facets_active %}
-          <a href="/search?q={{ query | urlencode }}&mode={{ mode | urlencode }}"
-             class="text-accent-400 hover:text-accent-300">clear filters</a>
-        {% endif %}
+        <span class="flex items-center gap-3">
+          {# v0.95 — Save the current filter combination as a named facet set.
+             Posts to /searches/facets via fetch() (not the outer form) so
+             submitting it doesn't re-run the search; the slug + title are
+             collected via prompt() to avoid wedging another nested <form>
+             inside the htmx-driven search form. The params payload is
+             rebuilt from the live DOM on click so whatever the user just
+             tweaked is captured, not the stale server-rendered values. #}
+          <button type="button"
+                  onclick="personaSaveFacetSet(this.form)"
+                  class="text-accent-400 hover:text-accent-300">save filters</button>
+          {% if _facets_active %}
+            <a href="/search?q={{ query | urlencode }}&mode={{ mode | urlencode }}"
+               class="text-accent-400 hover:text-accent-300">clear filters</a>
+          {% endif %}
+        </span>
       </div>
     </div>
   </details>
+
+  <script>
+    /* personaSaveFacetSet — read the current /search <form>, ask the user
+       for a slug + title, then POST the bundle to /searches/facets. The
+       params payload is a flat object: scalar fields land as strings,
+       repeatable ``tag`` accumulates into an array, empty inputs are
+       skipped so the saved blob mirrors what /search would actually
+       receive on the next reload. */
+    function personaSaveFacetSet(form) {
+      if (!form) { return; }
+      var slug = (window.prompt('Slug for this facet set (lowercase, digits, hyphen; 1-40 chars):') || '').trim();
+      if (!slug) { return; }
+      if (!/^[a-z0-9-]{1,40}$/.test(slug)) {
+        window.alert('Slug must match ^[a-z0-9-]{1,40}$');
+        return;
+      }
+      var title = (window.prompt('Title (1-120 chars):', slug) || '').trim();
+      if (!title) { return; }
+      var fd = new FormData(form);
+      var listKeys = { tag: true };
+      var payload = {};
+      fd.forEach(function (value, key) {
+        var text = (value || '').toString();
+        if (!text) { return; }
+        if (listKeys[key]) {
+          if (!payload[key]) { payload[key] = []; }
+          payload[key].push(text);
+        } else {
+          payload[key] = text;
+        }
+      });
+      var body = new FormData();
+      body.append('slug', slug);
+      body.append('title', title);
+      body.append('params_json', JSON.stringify(payload));
+      fetch('/searches/facets', { method: 'POST', body: body, redirect: 'follow' })
+        .then(function (r) {
+          if (r.ok || r.redirected) {
+            window.alert('Saved facet set "' + slug + '".');
+          } else {
+            r.text().then(function (msg) {
+              window.alert('Save failed (' + r.status + '): ' + msg);
+            });
+          }
+        })
+        .catch(function () { window.alert('Save failed: network error'); });
+    }
+  </script>
 
   {# v0.88 — Tag-all-results: apply one tag to every shot the current
      filter set matches. Sits next to the Filters panel so the user can
