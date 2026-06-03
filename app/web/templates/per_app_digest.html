@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-end justify-between gap-4 flex-wrap">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Per-app digest</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      One sentence per app describing what you did in it on
+      <span class="font-mono text-zinc-300">{{ day }}</span>.
+      Cached after the first generate &mdash; nothing is regenerated until
+      you ask for it.
+    </p>
+  </div>
+  <form method="get" action="/digest/apps" class="flex items-center gap-2">
+    <label for="day-input" class="text-xs uppercase tracking-widest text-zinc-500">Day</label>
+    <input id="day-input" type="date" name="day" value="{{ day }}"
+           class="px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
+    <button type="submit"
+            class="px-4 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
+      Load
+    </button>
+  </form>
+</div>
+
+{% if not apps %}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-8 text-center text-zinc-400">
+    No captures recorded on this day. Pick another date above.
+  </div>
+{% else %}
+  <div
+    x-data="perAppDigest({{ {'day': day, 'apps': apps} | tojson }})"
+    x-init="init()"
+    class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-ink-900 text-zinc-500 text-xs uppercase tracking-wider">
+        <tr>
+          <th class="text-left py-2 px-4 w-1/4">App</th>
+          <th class="text-right py-2 px-4 w-20">Captures</th>
+          <th class="text-left py-2 px-4">Summary</th>
+          <th class="text-right py-2 px-4 w-32">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        <template x-for="row in rows" :key="row.app_name">
+          <tr class="border-t border-ink-700 hover:bg-ink-900/40 align-top">
+            <td class="py-3 px-4">
+              <a :href="'/apps/' + encodeURIComponent(row.app_name)"
+                 class="text-zinc-200 hover:text-accent-400 flex items-center gap-2">
+                <img :src="'/icons/' + row.app_name.replaceAll(' ', '_') + '.png'"
+                     alt=""
+                     onerror="this.style.display='none'"
+                     class="w-5 h-5 rounded">
+                <span x-text="row.app_name"></span>
+              </a>
+            </td>
+            <td class="py-3 px-4 text-right font-mono text-zinc-300" x-text="row.count"></td>
+            <td class="py-3 px-4">
+              <template x-if="row.status === 'ok' && row.tldr">
+                <p class="text-zinc-200 leading-relaxed" x-text="row.tldr"></p>
+              </template>
+              <template x-if="row.status !== 'ok' && !row.pending && !row.error">
+                <p class="text-zinc-500 italic">Not generated yet.</p>
+              </template>
+              <template x-if="row.pending">
+                <p class="text-accent-400 italic">Generating&hellip;</p>
+              </template>
+              <template x-if="row.error">
+                <p class="text-rose-300 text-xs leading-relaxed" x-text="row.error"></p>
+              </template>
+            </td>
+            <td class="py-3 px-4 text-right">
+              <button type="button"
+                      @click="regenerate(row)"
+                      :disabled="row.pending"
+                      class="px-3 py-1.5 border border-ink-700 hover:border-accent-500 hover:text-accent-300
+                             disabled:opacity-50 disabled:cursor-not-allowed rounded text-xs">
+                <span x-show="row.status === 'ok'">Regenerate</span>
+                <span x-show="row.status !== 'ok'">Generate</span>
+              </button>
+            </td>
+          </tr>
+        </template>
+      </tbody>
+    </table>
+  </div>
+
+  <p class="mt-4 text-xs text-zinc-500">
+    Cached rows live in <code class="font-mono">app_day_digest</code>.
+    Generation hits the BYO LLM configured under
+    <a href="/settings" class="hover:text-accent-400 underline">Settings</a>.
+  </p>
+{% endif %}
+
+<script>
+  /*
+   * perAppDigest — v0.57
+   *
+   * Drives the per-app summary table client-side so a regenerate (or a
+   * first-time generate) updates a single row in place rather than
+   * forcing a full-page reload. The server-rendered HTML ships with
+   * cached rows already filled in; everything else is filled on demand
+   * via /api/per-app-digest/.../regenerate.
+   *
+   * The handler degrades gracefully — a 400 (LLM not configured) or a
+   * network failure surfaces an inline per-row error message without
+   * leaking the rest of the table's state.
+   */
+  function perAppDigest(initial) {
+    return {
+      day: initial.day,
+      rows: [],
+      init() {
+        this.rows = initial.apps.map(function (a) {
+          return {
+            app_name: a.app_name,
+            count: a.count,
+            tldr: a.tldr,
+            status: a.status,
+            pending: false,
+            error: '',
+          };
+        });
+      },
+      async regenerate(row) {
+        if (row.pending) return;
+        row.pending = true;
+        row.error = '';
+        try {
+          const url = '/api/per-app-digest/'
+            + encodeURIComponent(this.day) + '/'
+            + encodeURIComponent(row.app_name) + '/regenerate';
+          const response = await fetch(url, { method: 'POST' });
+          if (!response.ok) {
+            let detail = 'Request failed (' + response.status + ').';
+            try {
+              const data = await response.json();
+              if (data && data.detail) detail = String(data.detail);
+            } catch (_) { /* ignore non-JSON error bodies */ }
+            row.error = detail;
+            return;
+          }
+          const data = await response.json();
+          row.tldr = data.tldr || '';
+          row.status = data.status || 'empty';
+          if (row.status === 'empty' && !row.tldr) {
+            row.error = 'No OCR text available for this app on this day.';
+          }
+        } catch (err) {
+          row.error = 'Network error: ' + (err && err.message ? err.message : err);
+        } finally {
+          row.pending = false;
+        }
+      },
+    };
+  }
+</script>
+{% endblock %}

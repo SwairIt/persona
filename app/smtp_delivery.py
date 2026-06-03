@@ -86,8 +86,16 @@ def _build_message(
     subject: str,
     body_markdown: str,
     body_html: str | None,
+    attachments: list[tuple[str, bytes, str]] | None = None,
 ) -> EmailMessage:
-    """Compose a single multipart message from the rendered digest body."""
+    """Compose a single multipart message from the rendered digest body.
+
+    ``attachments`` is a list of ``(filename, content_bytes, mime_type)``
+    triples. Each entry is added via :meth:`EmailMessage.add_attachment`
+    with the MIME type split into ``maintype/subtype``. Bogus MIME types
+    fall back to ``application/octet-stream`` so a malformed caller does
+    not blow up the whole send.
+    """
     message = EmailMessage()
     message["From"] = sender
     message["To"] = recipient
@@ -95,6 +103,16 @@ def _build_message(
     message.set_content(body_markdown)
     if body_html:
         message.add_alternative(body_html, subtype="html")
+    for filename, content, mime in attachments or []:
+        maintype, _, subtype = mime.partition("/")
+        if not maintype or not subtype:
+            maintype, subtype = "application", "octet-stream"
+        message.add_attachment(
+            content,
+            maintype=maintype,
+            subtype=subtype,
+            filename=filename,
+        )
     return message
 
 
@@ -102,6 +120,7 @@ async def send_digest_email(
     subject: str,
     body_markdown: str,
     body_html: str | None = None,
+    attachments: list[tuple[str, bytes, str]] | None = None,
 ) -> dict[str, Any]:
     """Send a digest via the user-configured SMTP relay.
 
@@ -113,6 +132,12 @@ async def send_digest_email(
     * ``{"status": "misconfigured", "missing": [...]}`` — required rows blank.
     * ``{"status": "error", "error": "..."}`` — SMTP rejected the message.
     * ``{"status": "sent", "to": "..."}`` — relay accepted the envelope.
+
+    ``attachments`` is an optional list of ``(filename, content_bytes,
+    mime_type)`` triples (added v0.57 for the weekly stats CSV worker).
+    Callers that do not need attachments can omit the argument entirely
+    — the parameter is keyword-defaulted so existing call sites stay
+    binary-compatible.
     """
     settings = await _load_settings()
 
@@ -145,6 +170,7 @@ async def send_digest_email(
         subject=subject,
         body_markdown=body_markdown,
         body_html=body_html,
+        attachments=attachments,
     )
 
     log.info(
@@ -154,6 +180,7 @@ async def send_digest_email(
         to=recipient,
         starttls=use_tls,
         authenticated=bool(user),
+        attachments=len(attachments or []),
     )
 
     try:

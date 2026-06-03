@@ -56,6 +56,7 @@ from app.web.routes import (
     digest as digest_routes,
     digest_prompts as digest_prompts_routes,
     doctor as doctor_routes,
+    embeddings_reindex as embeddings_reindex_routes,
     embeddings_status,
     encrypted_notes as encrypted_notes_routes,
     export,
@@ -85,6 +86,7 @@ from app.web.routes import (
     ocr_status,
     palette as palette_routes,
     pdf_export as pdf_export_routes,
+    per_app_digest as per_app_digest_routes,
     permalinks as permalinks_routes,
     pin as pin_routes,
     process_remap as process_remap_routes,
@@ -161,6 +163,7 @@ from app.workers import (
     run_clipboard_worker,
     run_daily_email_scheduler,
     run_saved_search_alert_worker,
+    run_weekly_stats_email_scheduler,
     run_inbox_worker,
     run_digest_scheduler,
     run_embeddings_worker,
@@ -196,7 +199,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.56.0",
+        version="0.57.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -340,6 +343,8 @@ def create_app() -> FastAPI:
     app.include_router(digest_prompts_routes.router)
     app.include_router(shot_embed_routes.router)
     app.include_router(diag_bundle_routes.router)
+    app.include_router(embeddings_reindex_routes.router)
+    app.include_router(per_app_digest_routes.router)
 
     return app
 
@@ -361,6 +366,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         asyncio.create_task(run_inbox_worker(controller), name="inbox-worker"),
         asyncio.create_task(run_daily_email_scheduler(controller), name="daily-email-scheduler"),
         asyncio.create_task(run_saved_search_alert_worker(controller), name="saved-search-alert"),
+        asyncio.create_task(run_weekly_stats_email_scheduler(controller), name="weekly-stats-email"),
     ]
 
     controller.pause()
