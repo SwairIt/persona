@@ -42,6 +42,13 @@ _COMPACT_DEFAULT = "0"
 _GRAYSCALE_VALUES: frozenset[str] = frozenset({"0", "1"})
 _GRAYSCALE_DEFAULT = "0"
 
+# Whitelist for the ``reduce_motion`` kv_settings row (v0.93). Same
+# shape as ``compact_mode`` / ``grayscale_mode`` above — anything outside
+# ``{"0", "1"}`` collapses to the safe default so a manual kv edit can
+# never inject a malformed value into ``<body data-reduce-motion="…">``.
+_REDUCE_MOTION_VALUES: frozenset[str] = frozenset({"0", "1"})
+_REDUCE_MOTION_DEFAULT = "0"
+
 # Per-request cache. Templates can call ``get_theme()`` multiple times
 # (header, body class, inline script) and we don't want to hit SQLite
 # once per call. The contextvar resets implicitly between requests
@@ -50,9 +57,13 @@ _GRAYSCALE_DEFAULT = "0"
 _theme_cache: ContextVar[str | None] = ContextVar("persona_theme_cache", default=None)
 _compact_cache: ContextVar[str | None] = ContextVar("persona_compact_cache", default=None)
 _grayscale_cache: ContextVar[str | None] = ContextVar("persona_grayscale_cache", default=None)
+_reduce_motion_cache: ContextVar[str | None] = ContextVar(
+    "persona_reduce_motion_cache", default=None
+)
 
 _compact_log = get_logger("persona.compact")
 _grayscale_log = get_logger("persona.grayscale")
+_reduce_motion_log = get_logger("persona.reduce_motion")
 _linkify_log = get_logger("persona.linkify")
 
 # v0.83 feature 2/3 — OCR URL detection.
@@ -346,6 +357,62 @@ def invalidate_grayscale_cache() -> None:
     _grayscale_cache.set(None)
 
 
+def _read_reduce_motion_from_db() -> str:
+    """Synchronous read of the ``reduce_motion`` row from ``kv_settings``.
+
+    Mirrors :func:`_read_grayscale_from_db` — Jinja globals run
+    synchronously so the aiosqlite pool is off-limits; a short stdlib
+    ``sqlite3`` reader against the WAL-mode database is safe alongside
+    the async writers. Any failure (missing DB / row / bogus value)
+    falls back to ``"0"`` so a template render never 500s because of
+    this lookup.
+    """
+    db_path = get_settings().db_path
+    try:
+        with sqlite3.connect(str(db_path)) as conn:
+            cursor = conn.execute(
+                "SELECT value FROM kv_settings WHERE key = ?",
+                ("reduce_motion",),
+            )
+            row = cursor.fetchone()
+    except sqlite3.Error as exc:
+        _reduce_motion_log.debug("reduce_motion.read.error", error=str(exc))
+        return _REDUCE_MOTION_DEFAULT
+    if row is None:
+        return _REDUCE_MOTION_DEFAULT
+    value = str(row[0]).strip()
+    if value not in _REDUCE_MOTION_VALUES:
+        return _REDUCE_MOTION_DEFAULT
+    return value
+
+
+def get_reduce_motion() -> str:
+    """Return ``"1"`` when reduce-motion is on, ``"0"`` otherwise.
+
+    Registered as a Jinja global so :file:`base.html` can stamp the
+    value straight onto ``<body data-reduce-motion="...">``. The first
+    call inside a request hits SQLite; later calls in the same request
+    reuse the per-request :class:`~contextvars.ContextVar` cache.
+    """
+    cached = _reduce_motion_cache.get()
+    if cached is not None:
+        return cached
+    value = _read_reduce_motion_from_db()
+    _reduce_motion_cache.set(value)
+    return value
+
+
+def invalidate_reduce_motion_cache() -> None:
+    """Drop the per-request reduce-motion cache after the kv row is rewritten.
+
+    Called from the POST handler in :mod:`app.web.routes.settings` so
+    the redirect-then-render that follows a save reflects the new value
+    rather than the just-overwritten one cached earlier in the same
+    request.
+    """
+    _reduce_motion_cache.set(None)
+
+
 templates.env.filters["humantime"] = _format_human_time
 templates.env.filters["humandate"] = _format_human_date
 templates.env.filters["clock"] = _format_clock
@@ -357,3 +424,4 @@ templates.env.filters["linkify_urls"] = _linkify_urls
 templates.env.globals["get_theme"] = get_theme
 templates.env.globals["get_compact_mode"] = get_compact_mode
 templates.env.globals["get_grayscale_mode"] = get_grayscale_mode
+templates.env.globals["get_reduce_motion"] = get_reduce_motion

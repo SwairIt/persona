@@ -1,6 +1,7 @@
 {% set _persona_theme = get_theme() %}
 {% set _persona_compact = get_compact_mode() %}
 {% set _persona_grayscale = get_grayscale_mode() %}
+{% set _persona_reduce_motion = get_reduce_motion() %}
 <!DOCTYPE html>
 <html lang="en"{% if _persona_theme == 'dark' %} class="dark"{% elif _persona_theme == 'light' %} class=""{% endif %}>
 <head>
@@ -31,6 +32,7 @@
   <link rel="stylesheet" href="/static/css/app.css">
   <link rel="stylesheet" href="/static/compact_mode.css">
   <link rel="stylesheet" href="/static/grayscale.css">
+  <link rel="stylesheet" href="/static/reduce_motion.css">
   <link rel="stylesheet" href="/static/command_palette.css">
   <link rel="stylesheet" href="/static/keyboard_shortcuts.css">
   <link rel="stylesheet" href="/static/query_help.css">
@@ -68,7 +70,7 @@
     }
   </script>
 </head>
-<body data-compact="{{ _persona_compact }}" data-grayscale="{{ _persona_grayscale }}" class="bg-zinc-50 text-zinc-900 dark:bg-ink-950 dark:text-zinc-100 min-h-screen font-sans antialiased transition-colors">
+<body data-compact="{{ _persona_compact }}" data-grayscale="{{ _persona_grayscale }}" data-reduce-motion="{{ _persona_reduce_motion }}" class="bg-zinc-50 text-zinc-900 dark:bg-ink-950 dark:text-zinc-100 min-h-screen font-sans antialiased transition-colors">
   <header class="border-b border-ink-700 bg-ink-900/80 backdrop-blur sticky top-0 z-10">
     <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
       <a href="/" class="flex items-center gap-2 hover:opacity-90">

@@ -13,6 +13,7 @@ from app.storage.repository import get_kv, list_kv, set_kv
 from app.web.templates_engine import (
     invalidate_compact_cache,
     invalidate_grayscale_cache,
+    invalidate_reduce_motion_cache,
     templates,
 )
 
@@ -21,6 +22,7 @@ router = APIRouter(tags=["settings"])
 _fomo_log = get_logger("persona.digest.fomo")
 _compact_log = get_logger("persona.compact")
 _grayscale_log = get_logger("persona.grayscale")
+_reduce_motion_log = get_logger("persona.reduce_motion")
 
 # kv key shared with ``app.llm.summariser`` and ``app.llm.weekly_summariser``.
 # Kept as a route-level constant so the checkbox form-field name and the
@@ -36,6 +38,11 @@ _COMPACT_MODE_KV_KEY = "compact_mode"
 # ``get_grayscale_mode`` Jinja global) — single source of truth so a
 # rename can't drift the writer and reader out of sync. v0.78.
 _GRAYSCALE_MODE_KV_KEY = "grayscale_mode"
+
+# kv key shared with :mod:`app.web.templates_engine` (the
+# ``get_reduce_motion`` Jinja global) — single source of truth so a
+# rename can't drift the writer and reader out of sync. v0.93.
+_REDUCE_MOTION_KV_KEY = "reduce_motion"
 
 
 def _parse_anti_fomo_kv(raw: str | None) -> bool | None:
@@ -63,6 +70,7 @@ async def settings_page(request: Request) -> HTMLResponse:
         anti_fomo_kv = _parse_anti_fomo_kv(await get_kv(conn, _ANTI_FOMO_KV_KEY))
         compact_raw = await get_kv(conn, _COMPACT_MODE_KV_KEY)
         grayscale_raw = await get_kv(conn, _GRAYSCALE_MODE_KV_KEY)
+        reduce_motion_raw = await get_kv(conn, _REDUCE_MOTION_KV_KEY)
 
     # Effective state for the checkbox: kv override wins, env flag is the
     # fallback. Surfacing the env baseline separately lets the template
@@ -77,6 +85,10 @@ async def settings_page(request: Request) -> HTMLResponse:
     # Grayscale mode follows the same kv-only ``"1"`` / ``"0"`` shape as
     # compact mode — keeps the checkbox and the body attribute in sync.
     grayscale_enabled = (grayscale_raw or "").strip() == "1"
+    # Reduce-motion follows the same kv-only ``"1"`` / ``"0"`` shape —
+    # keeps the checkbox state aligned with the body attribute that
+    # gates ``reduce_motion.css``.
+    reduce_motion_enabled = (reduce_motion_raw or "").strip() == "1"
 
     return templates.TemplateResponse(
         request,
@@ -92,6 +104,7 @@ async def settings_page(request: Request) -> HTMLResponse:
             "anti_fomo_kv_set": anti_fomo_kv is not None,
             "compact_mode_enabled": compact_enabled,
             "grayscale_mode_enabled": grayscale_enabled,
+            "reduce_motion_enabled": reduce_motion_enabled,
         },
     )
 
@@ -184,6 +197,36 @@ async def update_grayscale_mode(
     invalidate_grayscale_cache()
     _grayscale_log.info(
         "grayscale.toggle",
+        enabled=new_value,
+        source="settings_ui",
+    )
+    return RedirectResponse(url="/settings", status_code=303)
+
+
+@router.post("/settings/reduce-motion", response_class=HTMLResponse)
+async def update_reduce_motion(
+    request: Request,
+    enabled: str = Form(default=""),
+) -> RedirectResponse:
+    """Persist the reduce-motion checkbox to ``kv_settings`` (v0.93).
+
+    Disables every CSS transition and animation globally for users
+    sensitive to motion. HTML checkboxes only POST a value when ticked,
+    so an empty ``enabled`` field is treated as "off". The kv row is
+    normalised to the literal ``"1"`` / ``"0"`` strings the Jinja global
+    + ``reduce_motion.css`` selector consume — anything else would
+    silently fall back to "off" on the next render.
+
+    Invalidates the per-request cache so the redirect-target render
+    reflects the new value rather than the value cached earlier in this
+    same request when the GET form was rendered.
+    """
+    new_value = enabled.strip().lower() in {"1", "true", "yes", "on"}
+    async with get_connection() as conn:
+        await set_kv(conn, _REDUCE_MOTION_KV_KEY, "1" if new_value else "0")
+    invalidate_reduce_motion_cache()
+    _reduce_motion_log.info(
+        "reduce_motion.toggle",
         enabled=new_value,
         source="settings_ui",
     )

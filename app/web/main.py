@@ -60,6 +60,7 @@ from app.web.routes import (
     dashboard_tiles as dashboard_tiles_routes,
     dashboard_widgets as dashboard_widgets_routes,
     day_collage as day_collage_routes,
+    day_json as day_json_routes,
     day_kanban as day_kanban_routes,
     day_ocr_diff as day_ocr_diff_routes,
     day_scrubber as day_scrubber_routes,
@@ -225,6 +226,7 @@ from app.web.routes import (
     vault as vault_routes,
     visual_diff as visual_diff_routes,
     webhooks_routes,
+    words_csv as words_csv_routes,
     weekly_digests as weekly_digests_routes,
     weekly_pdf as weekly_pdf_routes,
     weekly_stats_card as weekly_stats_card_routes,
@@ -276,7 +278,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.92.0",
+        version="0.93.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -495,6 +497,8 @@ def create_app() -> FastAPI:
     app.include_router(app_calendar_routes.router)
     app.include_router(ocr_history_routes.router)
     app.include_router(tag_ocr_export_routes.router)
+    app.include_router(day_json_routes.router)
+    app.include_router(words_csv_routes.router)
 
     return app
 

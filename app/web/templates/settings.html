@@ -131,6 +131,30 @@
         Save
       </button>
     </form>
+
+    <p class="text-zinc-500 text-xs mt-6 mb-4">
+      Reduce motion disables every CSS transition and animation across
+      the UI — hover fades, status-pill pulses, htmx swap animations,
+      Alpine transitions. Useful if you are sensitive to motion
+      (vestibular disorders, post-concussion, migraine) or simply prefer
+      a static interface. Stored in <code>kv_settings</code> and applied
+      via a <code>data-reduce-motion</code> attribute on
+      <code>&lt;body&gt;</code>.
+    </p>
+    <form action="/settings/reduce-motion" method="post" class="flex items-center gap-3">
+      <label class="flex items-center gap-2 text-sm cursor-pointer">
+        <input
+          type="checkbox"
+          name="enabled"
+          value="true"
+          {% if reduce_motion_enabled %}checked{% endif %}
+          class="w-4 h-4 accent-accent-500 bg-ink-900 border-ink-700 rounded">
+        <span>Reduce motion (disable all transitions and animations)</span>
+      </label>
+      <button type="submit" class="px-3 py-1.5 bg-accent-600 hover:bg-accent-500 rounded text-xs font-medium">
+        Save
+      </button>
+    </form>
   </section>
 
   <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 lg:col-span-2">

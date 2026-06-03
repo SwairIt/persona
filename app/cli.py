@@ -24,6 +24,7 @@ Subcommands:
     export-stats-csv   Per-day-per-app rollup CSV (--days N, --out FILE).
     export-monthly-stats-csv  Per-month-per-app rollup CSV (--months N, --out FILE).
     export-share-visits  v0.55 share_visit rows as CSV (--days N, --out FILE).
+    export-words-csv   Corpus-wide top-words CSV (--days N --n N, --out FILE).
     export-ocr-txt     Per-day OCR text dump for grep/fzf (--day YYYY-MM-DD, --out FILE).
     export-tag-ocr     Per-tag OCR text dump — every shot carrying a tag (--tag T, --out FILE).
     slack-summary      Compact Slack-style daily summary (--day YYYY-MM-DD, --out FILE).
@@ -94,6 +95,7 @@ from app.web.routes.annotations_ndjson import _iter_annotations_ndjson
 from app.web.routes.share_visits_csv import _render_share_visits_csv
 from app.web.routes.sticky_export import _fetch_all_stickies
 from app.web.routes.tag_ocr_export import _build_tag_ocr_dump
+from app.web.routes.words_csv import _render_words_csv
 from app.weekly_pdf import export_week_pdf
 
 _ANSI_GREEN = "\033[32m"
@@ -1140,6 +1142,42 @@ async def _cmd_export_share_visits(days: int, out: Path) -> int:
     return 0
 
 
+async def _cmd_export_words_csv(days: int, n: int, out: Path) -> int:
+    """Write the corpus-wide top-words CSV via the shared renderer.
+
+    Reuses :func:`app.web.routes.words_csv._render_words_csv` so the
+    CLI and the HTTP route always agree on tokenisation, the STOPWORDS
+    filter, and the look-back window — there is exactly one query in
+    the codebase that materialises top words for offline analysis.
+    """
+    if days < 1:
+        print(f"error: --days must be >= 1, got {days}", file=sys.stderr)
+        return 2
+    if n < 1:
+        print(f"error: --n must be >= 1, got {n}", file=sys.stderr)
+        return 2
+
+    body = await _render_words_csv(days=days, top_n=n)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    # ``newline=""`` keeps the stdlib csv-writer line endings (already
+    # ``\n``) intact instead of letting the platform layer rewrite them
+    # to CRLF on Windows, which would double-up to ``\r\r\n``.
+    with out.open("w", encoding="utf-8", newline="") as fh:
+        fh.write(body)
+
+    # Subtract the header line for the user-facing row count.
+    line_count = body.count("\n")
+    data_rows = max(line_count - 1, 0)
+    size_bytes = len(body.encode("utf-8"))
+
+    print(f"Path:   {out}")
+    print(f"Days:   {days}")
+    print(f"TopN:   {n}")
+    print(f"Rows:   {data_rows}")
+    print(f"Bytes:  {size_bytes}")
+    return 0
+
+
 async def _cmd_export_sticky(out: Path) -> int:
     """Write every sticky-note row as a JSON array to ``out``.
 
@@ -1830,6 +1868,35 @@ def _build_parser() -> argparse.ArgumentParser:  # noqa: PLR0915 — flat subpar
         help="Destination CSV path (parent dirs are created).",
     )
 
+    words_csv_parser = sub.add_parser(
+        "export-words-csv",
+        help=(
+            "Corpus-wide top-words CSV across OCR + notes "
+            "(word, count, percent); STOPWORDS filtered."
+        ),
+    )
+    words_csv_parser.add_argument(
+        "--days",
+        dest="days",
+        type=int,
+        default=30,
+        help="Lookback window in days (default: 30).",
+    )
+    words_csv_parser.add_argument(
+        "--n",
+        dest="n",
+        type=int,
+        default=200,
+        help="Maximum number of words to emit (default: 200).",
+    )
+    words_csv_parser.add_argument(
+        "--out",
+        dest="out",
+        type=Path,
+        required=True,
+        help="Destination CSV path (parent dirs are created).",
+    )
+
     sticky_parser = sub.add_parser(
         "export-sticky",
         help=(
@@ -2101,6 +2168,8 @@ async def _run(args: argparse.Namespace) -> int:  # noqa: PLR0911, PLR0912 — d
         return await _cmd_export_monthly_stats_csv(args.months, args.out)
     if args.command == "export-share-visits":
         return await _cmd_export_share_visits(args.days, args.out)
+    if args.command == "export-words-csv":
+        return await _cmd_export_words_csv(args.days, args.n, args.out)
     if args.command == "export-ocr-txt":
         return await _cmd_export_ocr_txt(args.day, args.out)
     if args.command == "export-tag-ocr":

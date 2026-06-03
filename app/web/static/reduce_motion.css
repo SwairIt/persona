@@ -1,0 +1,30 @@
+/*
+ * Persona v0.93 — global reduce-motion toggle.
+ *
+ * Activated by the ``data-reduce-motion="1"`` attribute that ``base.html``
+ * stamps onto ``<body>`` whenever the ``reduce_motion`` kv_settings row
+ * is ``"1"``. The rule below disables every CSS transition and animation
+ * across the entire document — accent fades, hover lifts, Alpine
+ * x-transition, htmx swap animations, status-pill pulses, theme-toggle
+ * colour transitions — for users sensitive to motion (vestibular
+ * disorders, post-concussion syndrome, migraine sufferers, or anyone
+ * who simply prefers a static UI).
+ *
+ * Selector matches the whole subtree (``*, *::before, *::after``) so
+ * pseudo-elements that animate (think loading spinners drawn with
+ * ``::before``) also stop. ``!important`` is required because Tailwind
+ * utility classes set ``transition`` inline-equivalent and would
+ * otherwise win the cascade.
+ *
+ * The default (``data-reduce-motion="0"`` or absent) keeps every
+ * animation untouched: this sheet ships zero rules outside the
+ * ``body[data-reduce-motion="1"]`` selector so it is safe to include
+ * on every page regardless of the stored setting.
+ */
+
+body[data-reduce-motion="1"] *,
+body[data-reduce-motion="1"] *::before,
+body[data-reduce-motion="1"] *::after {
+  transition: none !important;
+  animation: none !important;
+}
