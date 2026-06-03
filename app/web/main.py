@@ -101,6 +101,7 @@ from app.web.routes import (
     pinmap as pinmap_routes,
     process_remap as process_remap_routes,
     public_day as public_day_routes,
+    push_notif as push_notif_routes,
     qa as qa_routes,
     qr as qr_routes,
     query_collections as query_collections_routes,
@@ -133,6 +134,7 @@ from app.web.routes import (
     saved_searches as saved_searches_routes,
     screenshot,
     search as search_routes,
+    search_autocomplete as search_autocomplete_routes,
     search_facets as search_facets_routes,
     share as share_routes,
     share_visits_csv as share_visits_csv_routes,
@@ -153,6 +155,7 @@ from app.web.routes import (
     stats_csv as stats_csv_routes,
     storage_report as storage_report_routes,
     storage_savings as storage_savings_routes,
+    sticky_export as sticky_export_routes,
     sticky_notes as sticky_notes_routes,
     streak as streak_routes,
     summary as summary_routes,
@@ -218,7 +221,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.65.0",
+        version="0.66.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -382,6 +385,9 @@ def create_app() -> FastAPI:
     app.include_router(sticky_notes_routes.router)
     app.include_router(dashboard_routes.router)
     app.include_router(ocr_length_chart_routes.router)
+    app.include_router(search_autocomplete_routes.router)
+    app.include_router(sticky_export_routes.router)
+    app.include_router(push_notif_routes.router)
 
     return app
 

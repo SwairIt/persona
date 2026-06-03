@@ -1,5 +1,9 @@
 {% extends "base.html" %}
 
+{% block head_extra %}
+  <script src="/static/push_notif.js" defer></script>
+{% endblock %}
+
 {% block content %}
 <div class="mb-6">
   <h1 class="text-2xl font-bold tracking-tight">Settings</h1>
@@ -134,6 +138,24 @@
         </span>
       {% endif %}
     </form>
+  </section>
+
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 lg:col-span-2">
+    <h2 class="text-lg font-semibold mb-2">Browser notifications</h2>
+    <p class="text-zinc-500 text-xs mb-4">
+      Opt in to desktop notifications for reminders that come due while
+      this tab is open. The permission prompt only appears after you
+      click the button below — required by browsers, which reject
+      permission requests that aren't tied to a user gesture. Once
+      granted, this tab polls <code>/api/push-notif/pending</code>
+      every five minutes.
+    </p>
+    <button
+      type="button"
+      onclick="personaEnableNotif()"
+      class="px-3 py-1.5 bg-accent-600 hover:bg-accent-500 rounded text-xs font-medium">
+      Enable browser notifications
+    </button>
   </section>
 </div>
 

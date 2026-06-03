@@ -22,6 +22,7 @@ Subcommands:
     export-stats-csv   Per-day-per-app rollup CSV (--days N, --out FILE).
     export-share-visits  v0.55 share_visit rows as CSV (--days N, --out FILE).
     export-ocr-txt     Per-day OCR text dump for grep/fzf (--day YYYY-MM-DD, --out FILE).
+    export-sticky      Dump every sticky_note row as a JSON array (--out FILE).
     archive            Build a ZIP bundle of recent state (--days N --out FILE [--no-thumbnails]).
     diagnostics-bundle Build a diagnostics ZIP for bug reports (--out FILE; no user data).
     export-collage     Render a 4xN per-day collage PNG (--day YYYY-MM-DD --out FILE).
@@ -78,6 +79,7 @@ from app.storage.thumbnails import save_thumbnail
 from app.storage.time import iso, parse_iso
 from app.tag_cleanup import find_orphan_tags, purge_orphan_tags, untag_older_than
 from app.web.routes.share_visits_csv import _render_share_visits_csv
+from app.web.routes.sticky_export import _fetch_all_stickies
 from app.weekly_pdf import export_week_pdf
 
 _ANSI_GREEN = "\033[32m"
@@ -986,6 +988,25 @@ async def _cmd_export_share_visits(days: int, out: Path) -> int:
     return 0
 
 
+async def _cmd_export_sticky(out: Path) -> int:
+    """Write every sticky-note row as a JSON array to ``out``.
+
+    Shares :func:`app.web.routes.sticky_export._fetch_all_stickies` with
+    the HTTP route so the CLI and the download endpoint always emit the
+    same column order and serialisation.
+    """
+    items = await _fetch_all_stickies()
+    body = json.dumps(items, ensure_ascii=False, indent=2)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(body, encoding="utf-8")
+    size_bytes = len(body.encode("utf-8"))
+
+    print(f"Path:   {out}")
+    print(f"Rows:   {len(items)}")
+    print(f"Bytes:  {size_bytes}")
+    return 0
+
+
 async def _cmd_export_ocr_txt(day: str | None, out: Path) -> int:
     """Write the per-day OCR text dump via :func:`export_day_ocr_txt`."""
     target = _parse_day(day)
@@ -1436,6 +1457,21 @@ def _build_parser() -> argparse.ArgumentParser:  # noqa: PLR0915 — flat subpar
         help="Destination CSV path (parent dirs are created).",
     )
 
+    sticky_parser = sub.add_parser(
+        "export-sticky",
+        help=(
+            "Dump every sticky_note row (id, shot_id, x_pct, y_pct, body, "
+            "color, created_at) as a JSON array for offline analysis."
+        ),
+    )
+    sticky_parser.add_argument(
+        "--out",
+        dest="out",
+        type=Path,
+        required=True,
+        help="Destination JSON path (parent dirs are created).",
+    )
+
     ocr_txt_parser = sub.add_parser(
         "export-ocr-txt",
         help=(
@@ -1613,6 +1649,8 @@ async def _run(args: argparse.Namespace) -> int:  # noqa: PLR0911, PLR0912 — d
         return await _cmd_export_share_visits(args.days, args.out)
     if args.command == "export-ocr-txt":
         return await _cmd_export_ocr_txt(args.day, args.out)
+    if args.command == "export-sticky":
+        return await _cmd_export_sticky(args.out)
     if args.command == "archive":
         return await _cmd_archive(args.days, args.out, args.include_thumbnails)
     if args.command == "diagnostics-bundle":
