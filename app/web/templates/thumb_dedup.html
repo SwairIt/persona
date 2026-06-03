@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Thumbnail dedup</h1>
+  <p class="text-zinc-500 text-sm mt-1 max-w-2xl">
+    Hashes each <code class="font-mono text-xs">thumbnail_path</code> with SHA-256 and
+    collapses byte-identical files onto a single canonical copy — the duplicate
+    <code class="font-mono text-xs">screenshots</code> rows are redirected to the canonical
+    path and the redundant files are unlinked from disk. Safe to run repeatedly;
+    each batch processes up to 500 rows.
+  </p>
+</div>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5 max-w-2xl"
+         x-data="{ running: false, result: null, error: null,
+                    fmtBytes: function (n) {
+                      if (n === null || n === undefined) { return ''; }
+                      var units = ['B', 'KB', 'MB', 'GB', 'TB'];
+                      var value = Number(n);
+                      var idx = 0;
+                      while (value >= 1024 && idx < units.length - 1) {
+                        value = value / 1024;
+                        idx = idx + 1;
+                      }
+                      return value.toFixed(1) + ' ' + units[idx];
+                    } }">
+  <h2 class="text-lg font-semibold text-accent-400">Run one batch</h2>
+  <p class="text-zinc-400 text-sm mt-2">
+    Click below to hash the next 500 thumbnails and collapse any duplicates.
+    Re-click until the result reports <code class="font-mono text-xs">dedups: 0</code>
+    across a full <code class="font-mono text-xs">scanned: 500</code> sweep.
+  </p>
+
+  <button type="button"
+          x-bind:disabled="running"
+          x-on:click="
+            running = true;
+            error = null;
+            fetch('/admin/thumb-dedup/scan', { method: 'POST' })
+              .then(function (r) { if (!r.ok) { throw new Error('HTTP ' + r.status); } return r.json(); })
+              .then(function (data) { result = data; })
+              .catch(function (err) { error = String(err); })
+              .finally(function () { running = false; });
+          "
+          class="mt-4 px-5 py-2 rounded text-sm font-medium bg-accent-600 hover:bg-accent-500 text-white disabled:bg-ink-700 disabled:text-zinc-500 disabled:cursor-not-allowed">
+    <span x-show="!running">Run dedup batch</span>
+    <span x-show="running">Running…</span>
+  </button>
+
+  <div x-show="result" x-cloak class="mt-5 grid grid-cols-3 gap-3 text-sm">
+    <div class="rounded border border-ink-700 bg-ink-900 p-3">
+      <div class="text-xs uppercase tracking-widest text-zinc-500">Scanned</div>
+      <div class="text-xl font-semibold mt-1" x-text="result ? result.scanned : ''"></div>
+    </div>
+    <div class="rounded border border-ink-700 bg-ink-900 p-3">
+      <div class="text-xs uppercase tracking-widest text-emerald-400">Dedups</div>
+      <div class="text-xl font-semibold mt-1 text-emerald-300" x-text="result ? result.dedups : ''"></div>
+    </div>
+    <div class="rounded border border-ink-700 bg-ink-900 p-3">
+      <div class="text-xs uppercase tracking-widest text-sky-400">Freed</div>
+      <div class="text-xl font-semibold mt-1 text-sky-300"
+           x-text="result ? fmtBytes(result.bytes_freed) : ''"></div>
+    </div>
+  </div>
+
+  <div x-show="error" x-cloak class="mt-4 rounded border border-rose-700 bg-rose-900/40 p-3 text-sm text-rose-200" x-text="error"></div>
+</section>
+
+<p class="text-zinc-500 text-xs mt-8 max-w-2xl">
+  Catalogue lives in the <code class="font-mono">thumb_content</code> table —
+  one row per distinct SHA-256, with <code class="font-mono">ref_count</code> tracking
+  how many <code class="font-mono">screenshots</code> rows resolve to the canonical
+  path. A future eviction pass can prune <code class="font-mono">ref_count == 1</code>
+  rows together with their owning screenshot.
+</p>
+{% endblock %}

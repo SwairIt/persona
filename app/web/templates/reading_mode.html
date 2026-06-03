@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en" data-mode="{{ mode }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
+  <title>{{ title }}</title>
+  <style>
+    /* ---- minimal reset ---- */
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: Georgia, "Iowan Old Style", "Times New Roman", serif;
+      font-size: 18px;
+      line-height: 1.7;
+      -webkit-text-size-adjust: 100%;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+
+    /* ---- palettes ---- */
+    /* Default = auto: follow OS via prefers-color-scheme.            */
+    /* The data-mode attribute on <html> overrides when explicit.      */
+    :root {
+      --bg: #fafaf7;
+      --fg: #1d1d1f;
+      --muted: #6b6b70;
+      --rule: #e6e6e0;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #14141a;
+        --fg: #e8e8ea;
+        --muted: #8b8b92;
+        --rule: #2a2a32;
+      }
+    }
+    html[data-mode="light"] {
+      --bg: #fafaf7;
+      --fg: #1d1d1f;
+      --muted: #6b6b70;
+      --rule: #e6e6e0;
+    }
+    html[data-mode="dark"] {
+      --bg: #14141a;
+      --fg: #e8e8ea;
+      --muted: #8b8b92;
+      --rule: #2a2a32;
+    }
+
+    body { background: var(--bg); color: var(--fg); }
+
+    /* ---- layout ---- */
+    main {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 2.5rem 1.25rem 4rem;
+    }
+    header {
+      margin-bottom: 2rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid var(--rule);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 0.8125rem;
+      color: var(--muted);
+      letter-spacing: 0.02em;
+    }
+    header .app-name {
+      font-weight: 600;
+      color: var(--fg);
+    }
+    header .sep {
+      margin: 0 0.5rem;
+      opacity: 0.5;
+    }
+    header time {
+      font-variant-numeric: tabular-nums;
+    }
+
+    article {
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      overflow-wrap: anywhere;
+      hyphens: auto;
+    }
+
+    .empty {
+      color: var(--muted);
+      font-style: italic;
+      text-align: center;
+      padding: 3rem 0;
+    }
+
+    /* ---- comfortable reading on phones ---- */
+    @media (max-width: 480px) {
+      body { font-size: 17px; line-height: 1.65; }
+      main { padding: 1.75rem 1rem 3rem; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <span class="app-name">{{ app_name or "Unknown app" }}</span>
+      <span class="sep">·</span>
+      <time datetime="{{ captured_at.isoformat() }}">{{ captured_at | humantime }}</time>
+    </header>
+
+    {% if ocr_text and ocr_text.strip() %}
+      <article>{{ ocr_text }}</article>
+    {% else %}
+      <p class="empty">
+        {% if ocr_status == "pending" %}
+          OCR is still pending for this screenshot.
+        {% elif ocr_status == "skipped" %}
+          OCR was skipped for this screenshot.
+        {% elif ocr_status == "failed" %}
+          OCR failed for this screenshot.
+        {% else %}
+          No readable text was extracted from this screenshot.
+        {% endif %}
+      </p>
+    {% endif %}
+  </main>
+</body>
+</html>

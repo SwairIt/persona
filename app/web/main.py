@@ -93,6 +93,7 @@ from app.web.routes import (
     regex_rules as regex_rules_routes,
     range_timeline as range_timeline_routes,
     reading as reading_routes,
+    reading_mode as reading_mode_routes,
     reading_time as reading_time_routes,
     recycle as recycle_routes,
     redaction as redaction_routes,
@@ -135,6 +136,7 @@ from app.web.routes import (
     tags as tags_routes,
     theme as theme_routes,
     topics as topics_routes,
+    thumb_dedup as thumb_dedup_routes,
     thumbnails as thumbnails_routes,
     time_on_app as time_on_app_routes,
     timeline,
@@ -152,6 +154,7 @@ from app.workers import (
     run_capture_loop,
     run_clipboard_worker,
     run_daily_email_scheduler,
+    run_saved_search_alert_worker,
     run_inbox_worker,
     run_digest_scheduler,
     run_embeddings_worker,
@@ -187,7 +190,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.52.0",
+        version="0.53.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -323,6 +326,8 @@ def create_app() -> FastAPI:
     app.include_router(query_api_routes.router)
     app.include_router(setup_routes.router)
     app.include_router(shot_dimensions_routes.router)
+    app.include_router(reading_mode_routes.router)
+    app.include_router(thumb_dedup_routes.router)
 
     return app
 
@@ -343,6 +348,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         asyncio.create_task(run_clipboard_worker(controller), name="clipboard-worker"),
         asyncio.create_task(run_inbox_worker(controller), name="inbox-worker"),
         asyncio.create_task(run_daily_email_scheduler(controller), name="daily-email-scheduler"),
+        asyncio.create_task(run_saved_search_alert_worker(controller), name="saved-search-alert"),
     ]
 
     controller.pause()

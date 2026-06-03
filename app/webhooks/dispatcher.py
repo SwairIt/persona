@@ -52,6 +52,9 @@ VALID_EVENTS = frozenset(
         "ocr.completed",
         "tier.demoted",
         "streak.broken",
+        # v0.53 — emitted by ``app.workers.saved_search_alert`` when a
+        # bookmarked FTS query produces new hits between two polls.
+        "saved_search.matched",
     ]
 )
 

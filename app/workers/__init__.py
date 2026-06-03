@@ -9,6 +9,7 @@ from app.workers.embeddings_worker import run_embeddings_worker
 from app.workers.inbox_worker import run_inbox_worker
 from app.workers.ocr_worker import run_ocr_worker
 from app.workers.retention import run_retention_worker
+from app.workers.saved_search_alert import run_saved_search_alert_worker
 from app.workers.weekly_digest_scheduler import run_weekly_digest_scheduler
 
 __all__ = [
@@ -22,5 +23,6 @@ __all__ = [
     "run_inbox_worker",
     "run_ocr_worker",
     "run_retention_worker",
+    "run_saved_search_alert_worker",
     "run_weekly_digest_scheduler",
 ]
