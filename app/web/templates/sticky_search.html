@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-start justify-between gap-4 flex-wrap">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Search stickers</h1>
+    <p class="text-zinc-500 text-sm mt-1 max-w-2xl">
+      Find every sticky note whose body contains a given phrase. The
+      match is case-insensitive and shows up to {{ max_results }} hits,
+      newest first. Click a row to jump to the screenshot the note is
+      pinned to.
+    </p>
+  </div>
+  {% if query %}
+    <div class="text-xs text-zinc-500 font-mono flex-shrink-0">
+      {{ total }} match{{ '' if total == 1 else 'es' }}
+      {% if total >= max_results %}
+        &middot; capped at {{ max_results }}
+      {% endif %}
+    </div>
+  {% endif %}
+</div>
+
+<form action="/stickers/search" method="get"
+      class="mb-8 flex items-center gap-3">
+  <input type="text" name="q" value="{{ query | e }}"
+         placeholder="grocery list &middot; bug repro &middot; phone number..."
+         autofocus
+         class="flex-1 px-4 py-2.5 bg-ink-800 border border-ink-700 rounded-lg
+                placeholder:text-zinc-600 focus:outline-none focus:border-accent-500
+                font-mono text-sm">
+  <button type="submit"
+          class="px-5 py-2.5 bg-accent-600 hover:bg-accent-500 rounded-lg font-medium transition">
+    Search
+  </button>
+</form>
+
+{% if not query %}
+  <div class="rounded-lg border border-dashed border-ink-700 bg-ink-900/40 p-8 text-center">
+    <p class="text-zinc-400 text-sm">
+      Type a word or phrase above to search the bodies of every sticky
+      note you've pinned.
+    </p>
+    <p class="text-zinc-600 text-xs mt-2">
+      Substring match &middot; case-insensitive &middot; capped at {{ max_results }}
+    </p>
+  </div>
+{% elif not results %}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-6 text-center">
+    <p class="text-zinc-300 text-sm">
+      No stickers contain
+      <code class="text-accent-400 font-mono">{{ query | e }}</code>.
+    </p>
+    <p class="text-zinc-500 text-xs mt-2">
+      Try a shorter phrase, drop punctuation, or check the
+      <a href="/stickers" class="text-accent-400 hover:underline">full gallery</a>.
+    </p>
+  </div>
+{% else %}
+  {# Same colour map as the gallery so the swatch behind each excerpt
+     matches what the user sees over the screenshot itself. Unknown
+     freeform colours fall back to yellow rather than leaking into the
+     CSS class set. #}
+  {% set _swatch = {
+    'yellow': 'bg-yellow-200/90 dark:bg-yellow-200/80',
+    'pink':   'bg-pink-200/90 dark:bg-pink-200/80',
+    'blue':   'bg-sky-200/90 dark:bg-sky-200/80',
+    'green':  'bg-emerald-200/90 dark:bg-emerald-200/80',
+    'orange': 'bg-orange-200/90 dark:bg-orange-200/80',
+    'purple': 'bg-violet-200/90 dark:bg-violet-200/80',
+  } %}
+  <ul class="space-y-3">
+    {% for hit in results %}
+      {% set _color_key = (hit.color or 'yellow') | lower %}
+      {% set _bg_class = _swatch.get(_color_key, _swatch['yellow']) %}
+      <li id="hit-{{ hit.sticky_id }}"
+          data-sticky-id="{{ hit.sticky_id }}"
+          data-shot-id="{{ hit.shot_id }}"
+          data-color="{{ hit.color }}"
+          class="rounded-lg border border-ink-700 bg-ink-800 hover:border-accent-500/60 shadow-sm hover:shadow-md transition">
+        <a href="/screenshot/{{ hit.shot_id }}#sticky-{{ hit.sticky_id }}"
+           class="flex items-stretch gap-4 p-3 sm:p-4">
+          <div class="flex-shrink-0 w-32 sm:w-48 aspect-video rounded-md overflow-hidden bg-ink-900 border border-ink-700">
+            {% if hit.thumbnail_path %}
+              <img src="{{ hit.thumbnail_path | thumbnail_url }}"
+                   alt="Screenshot #{{ hit.shot_id }}"
+                   loading="lazy"
+                   width="192"
+                   class="w-full h-full object-cover">
+            {% else %}
+              <div class="w-full h-full flex items-center justify-center text-[10px] text-zinc-600">
+                shot #{{ hit.shot_id }}
+              </div>
+            {% endif %}
+          </div>
+          <div class="flex-1 min-w-0 flex flex-col justify-between gap-2">
+            <header class="flex items-center justify-between gap-2 text-xs font-mono text-zinc-500">
+              <span class="truncate" title="{{ hit.window_title or '' }}">
+                {{ hit.app_name or 'shot #' ~ hit.shot_id }}
+              </span>
+              <span class="flex-shrink-0" title="created {{ hit.created_at }}">
+                {{ hit.captured_at or hit.created_at }}
+              </span>
+            </header>
+            {# The excerpt was already HTML-escaped server-side; the
+               only HTML inside is the literal <mark> tags emitted by
+               _build_excerpt. Rendering with | safe is therefore
+               injection-safe — see the docstring of that function. #}
+            <p class="{{ _bg_class }} text-zinc-900 text-sm leading-snug rounded-md px-3 py-2 whitespace-pre-wrap break-words"
+               title="{{ hit.body_full }}">
+              {{ hit.excerpt | safe }}
+            </p>
+            <footer class="text-[10px] font-mono text-zinc-600">
+              sticker #{{ hit.sticky_id }} &middot; shot #{{ hit.shot_id }}
+            </footer>
+          </div>
+        </a>
+      </li>
+    {% endfor %}
+  </ul>
+{% endif %}
+{% endblock %}

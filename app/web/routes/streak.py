@@ -7,6 +7,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 from app.logging_setup import get_logger
 from app.streak import current_streak
+from app.streak_badges import badges_earned, next_threshold
 from app.web.templates_engine import templates
 
 log = get_logger("persona.streak")
@@ -18,6 +19,8 @@ router = APIRouter(tags=["streak"])
 async def streak_page(request: Request) -> HTMLResponse:
     payload = await current_streak()
     captured_today = payload["today_count"] > 0
+    earned = badges_earned(payload["longest"])
+    upcoming = next_threshold(payload["longest"])
     return templates.TemplateResponse(
         request,
         "streak.html",
@@ -29,6 +32,8 @@ async def streak_page(request: Request) -> HTMLResponse:
             "last_capture_date": payload["last_capture_date"],
             "today_count": payload["today_count"],
             "captured_today": captured_today,
+            "badges": earned,
+            "next_badge_threshold": upcoming,
         },
     )
 

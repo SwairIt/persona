@@ -200,6 +200,7 @@ from app.web.routes import (
     stickers_gallery as stickers_gallery_routes,
     sticky_export as sticky_export_routes,
     sticky_notes as sticky_notes_routes,
+    sticky_search as sticky_search_routes,
     streak as streak_routes,
     summary as summary_routes,
     tag_colour as tag_colour_routes,
@@ -220,6 +221,7 @@ from app.web.routes import (
     webhooks_routes,
     weekly_digests as weekly_digests_routes,
     weekly_pdf as weekly_pdf_routes,
+    weekly_stats_card as weekly_stats_card_routes,
     whitelist,
 )
 from app.workers import (
@@ -268,7 +270,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.88.0",
+        version="0.89.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -479,6 +481,8 @@ def create_app() -> FastAPI:
     app.include_router(ocr_phones_routes.router)
     app.include_router(search_tag_all_routes.router)
     app.include_router(retention_trend_routes.router)
+    app.include_router(weekly_stats_card_routes.router)
+    app.include_router(sticky_search_routes.router)
 
     return app
 
