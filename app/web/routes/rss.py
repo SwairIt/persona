@@ -72,6 +72,11 @@ _OCR_SNIPPET_LEN = 240
 _collection_log = get_logger("persona.rss.collection")
 _tag_log = get_logger("persona.rss.tag")
 _weekly_log = get_logger("persona.rss.weekly")
+_annotations_log = get_logger("persona.rss.annotations")
+
+# Annotations feed caps: 50 newest scribbles, matching the spec ceiling
+# used by the other shot-derived feeds in this module.
+_MAX_ANNOTATION_ITEMS = 50
 
 # Weekly-digest feed caps: 20 most-recent rows, 400-char body snippets.
 # Keeping these named constants documents the spec at the call site and
@@ -426,6 +431,75 @@ async def weekly_digest_rss(request: Request) -> Response:
     <link>{channel_link}</link>
     <atom:link href="{self_link}" rel="self" type="application/rss+xml" />
     <description>Most-recent weekly LLM retrospectives, newest first.</description>
+    <lastBuildDate>{last_build}</lastBuildDate>
+{joined_items}
+  </channel>
+</rss>
+"""
+    return Response(content=body, media_type="application/rss+xml; charset=utf-8")
+
+
+@router.get("/annotations.rss")
+async def annotations_rss(request: Request) -> Response:
+    """RSS 2.0 feed of the most-recent ``screenshot_annotation`` rows.
+
+    Annotations are the append-only "margin scribbles" tied to a shot
+    (see migrations/024_annotations.sql); this feed surfaces the newest
+    ``_MAX_ANNOTATION_ITEMS`` of them so a reader can follow along as
+    new notes are dropped. Body text is XML-escaped via
+    :func:`xml.sax.saxutils.escape` rather than wrapped in CDATA — the
+    payload is plain prose, escaping keeps it audit-safe even if a
+    stray ``<`` or ``&`` sneaks in from a paste.
+    """
+    await _enforce_feed_token(request)
+    settings = get_settings()
+    base = f"http://{settings.host}:{settings.port}"
+
+    async with get_connection() as conn:
+        # Parametrised LIMIT so the cap lives in one place (the constant)
+        # and no integer interpolation hits the SQL string.
+        cursor = await conn.execute(
+            "SELECT id, screenshot_id, body, created_at "
+            "FROM screenshot_annotation "
+            "ORDER BY created_at DESC, id DESC "
+            "LIMIT ?",
+            (_MAX_ANNOTATION_ITEMS,),
+        )
+        rows = await cursor.fetchall()
+
+    items_xml: list[str] = []
+    for row in rows:
+        ann_id = int(row["id"])
+        sid = int(row["screenshot_id"])
+        body_text = str(row["body"]).strip()
+        created_raw = str(row["created_at"])
+        pub = parse_iso(created_raw)
+        item_title = f"Shot #{sid} — {created_raw}"
+        item_link = f"{base}/screenshot/{sid}"
+        guid_url = f"{item_link}#annotation-{ann_id}"
+        items_xml.append(
+            f"""    <item>
+      <title>{xml_escape(item_title)}</title>
+      <link>{xml_escape(item_link)}</link>
+      <guid isPermaLink="false">{xml_escape(guid_url)}</guid>
+      <pubDate>{format_datetime(pub)}</pubDate>
+      <description>{xml_escape(body_text)}</description>
+    </item>"""
+        )
+
+    _annotations_log.info("annotations_rss_served", items=len(items_xml))
+
+    last_build = format_datetime(datetime.now(UTC))
+    joined_items = "\n".join(items_xml)
+    self_link = xml_escape(f"{base}/feeds/annotations.rss")
+    channel_link = xml_escape(f"{base}/journal")
+    body = f"""<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Persona — Annotations</title>
+    <link>{channel_link}</link>
+    <atom:link href="{self_link}" rel="self" type="application/rss+xml" />
+    <description>Most-recent margin scribbles across all screenshots, newest first.</description>
     <lastBuildDate>{last_build}</lastBuildDate>
 {joined_items}
   </channel>

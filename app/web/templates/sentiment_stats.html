@@ -1,0 +1,250 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-8 flex flex-wrap items-end justify-between gap-4">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">OCR sentiment per day</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Mean polarity of OCR text across each day's screenshots, scored
+      against a small built-in lexicon (~80 positive vs ~80 negative
+      tokens, no external NLP). Values live in
+      <span class="font-mono">[-1, +1]</span>; zero is the neutral
+      baseline. Days with no scored shots show as gaps in the line,
+      not zeros. Window: last {{ days }} day{{ '' if days == 1 else 's' }}.
+    </p>
+  </div>
+
+  <form method="get" action="/stats/sentiment"
+        class="flex flex-wrap items-end gap-3 text-sm">
+    <label class="flex flex-col gap-1">
+      <span class="text-xs uppercase tracking-widest text-zinc-500">Window</span>
+      <input type="number" name="days" value="{{ days }}"
+             min="{{ min_days }}" max="{{ max_days }}"
+             class="bg-ink-800 border border-ink-700 rounded-md px-2 py-1.5 w-24 text-zinc-100
+                    focus:outline-none focus:ring-2 focus:ring-accent-500 tabular-nums">
+    </label>
+    <button type="submit"
+            class="px-3 py-1.5 rounded-md bg-accent-600/20 text-accent-400 hover:bg-accent-600/30
+                   border border-accent-600/40 transition">
+      Refresh
+    </button>
+  </form>
+</div>
+
+{# Quick window switcher — pure links, mirrors /stats/ocr-length. #}
+<div class="flex flex-wrap items-center gap-2 mb-6">
+  <span class="text-xs uppercase tracking-widest text-zinc-500 mr-1">Quick</span>
+  {% for choice in window_choices %}
+    <a href="/stats/sentiment?days={{ choice }}"
+       class="px-3 py-1.5 rounded-md text-sm font-mono transition
+              {% if choice == days %}bg-accent-600/20 text-accent-400 border border-accent-600/40{% else %}text-zinc-400 hover:text-zinc-100 hover:bg-ink-800 border border-ink-700{% endif %}">
+      {{ choice }}d
+    </a>
+  {% endfor %}
+</div>
+
+<section class="grid sm:grid-cols-4 gap-4 mb-8">
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Overall avg</div>
+    <div class="text-2xl font-bold mt-1 tabular-nums
+                {% if summary.overall_avg > 0.05 %}text-emerald-400
+                {% elif summary.overall_avg < -0.05 %}text-rose-400
+                {% else %}text-zinc-200{% endif %}">
+      {{ "{:+.3f}".format(summary.overall_avg) }}
+    </div>
+    <div class="text-xs text-zinc-500 mt-1">weighted by shot count</div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Scored shots</div>
+    <div class="text-2xl font-bold mt-1 tabular-nums">
+      {{ "{:,}".format(summary.total_scored) }}
+    </div>
+    <div class="text-xs text-zinc-500 mt-1">
+      across {{ summary.non_empty_days }} day{{ '' if summary.non_empty_days == 1 else 's' }}
+    </div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Best day</div>
+    {% if summary.best %}
+      <div class="text-2xl font-bold mt-1 tabular-nums text-emerald-400">
+        {{ "{:+.3f}".format(summary.best.avg) }}
+      </div>
+      <div class="text-xs text-zinc-500 mt-1 font-mono">{{ summary.best.date }}</div>
+    {% else %}
+      <div class="text-2xl font-bold mt-1 tabular-nums text-zinc-600">—</div>
+      <div class="text-xs text-zinc-500 mt-1">no scored shots yet</div>
+    {% endif %}
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Worst day</div>
+    {% if summary.worst %}
+      <div class="text-2xl font-bold mt-1 tabular-nums text-rose-400">
+        {{ "{:+.3f}".format(summary.worst.avg) }}
+      </div>
+      <div class="text-xs text-zinc-500 mt-1 font-mono">{{ summary.worst.date }}</div>
+    {% else %}
+      <div class="text-2xl font-bold mt-1 tabular-nums text-zinc-600">—</div>
+      <div class="text-xs text-zinc-500 mt-1">no scored shots yet</div>
+    {% endif %}
+  </div>
+</section>
+
+<div class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-8 overflow-x-auto">
+  <h2 class="text-xs uppercase tracking-widest text-zinc-500 mb-3">
+    Daily sentiment average ({{ chart.width }} × {{ chart.height }})
+  </h2>
+  <svg xmlns="http://www.w3.org/2000/svg"
+       width="{{ chart.width }}"
+       height="{{ chart.height }}"
+       viewBox="0 0 {{ chart.width }} {{ chart.height }}"
+       role="img"
+       aria-label="Daily OCR sentiment average over the last {{ days }} days"
+       class="block">
+
+    {# Y-axis gridlines + labels. #}
+    {% for tick in chart.y_ticks %}
+      <line x1="{{ chart.plot_left }}"
+            y1="{{ "%.2f"|format(tick.y) }}"
+            x2="{{ chart.plot_right }}"
+            y2="{{ "%.2f"|format(tick.y) }}"
+            stroke="{{ chart.baseline_colour }}"
+            stroke-width="1"
+            stroke-dasharray="2,4"
+            opacity="0.5" />
+      <text x="{{ chart.plot_left - 5 }}"
+            y="{{ "%.2f"|format(tick.y + 3) }}"
+            fill="{{ chart.axis_text }}"
+            font-size="10"
+            text-anchor="end"
+            font-family="JetBrains Mono, Cascadia Code, Consolas, monospace">
+        {{ tick.label }}
+      </text>
+    {% endfor %}
+
+    {# Explicit zero baseline — slightly heavier than the gridlines so #}
+    {# it visually anchors the chart. #}
+    <line x1="{{ chart.plot_left }}"
+          y1="{{ "%.2f"|format(chart.zero_y) }}"
+          x2="{{ chart.plot_right }}"
+          y2="{{ "%.2f"|format(chart.zero_y) }}"
+          stroke="{{ chart.zero_line_colour }}"
+          stroke-width="1.25"
+          opacity="0.85" />
+
+    {# Polylines — one per contiguous stretch of scored days. Empty #}
+    {# days break the line so a gap reads as "no datum", not "neutral". #}
+    {% for polyline in chart.polylines %}
+      <polyline points="{{ polyline }}"
+                fill="none"
+                stroke="{{ chart.stroke_line }}"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round" />
+    {% endfor %}
+
+    {# Per-day dots carry the tooltip. #}
+    {% for p in chart.rendered_points %}
+      <circle cx="{{ "%.2f"|format(p.x) }}"
+              cy="{{ "%.2f"|format(p.y) }}"
+              r="2.0"
+              fill="{{ p.fill }}"
+              stroke="#0a0a0c"
+              stroke-width="0.75">
+        <title>{{ p.tooltip }}</title>
+      </circle>
+    {% endfor %}
+
+    {# X-axis labels — short MM-DD form, every Nth point. #}
+    {% for label in chart.x_labels %}
+      <text x="{{ "%.2f"|format(label.x) }}"
+            y="{{ chart.height - 8 }}"
+            fill="{{ chart.axis_text }}"
+            font-size="10"
+            text-anchor="middle"
+            font-family="JetBrains Mono, Cascadia Code, Consolas, monospace">
+        {{ label.label }}
+      </text>
+    {% endfor %}
+
+    {% if summary.total_scored == 0 %}
+      <text x="{{ chart.width // 2 }}"
+            y="{{ chart.height // 2 + 4 }}"
+            text-anchor="middle"
+            fill="#52525b"
+            font-size="11"
+            font-family="JetBrains Mono, Cascadia Code, Consolas, monospace">
+        no scored OCR in window
+      </text>
+    {% endif %}
+  </svg>
+
+  <div class="flex items-center justify-between gap-4 mt-3 text-xs text-zinc-500 font-mono">
+    <span class="flex items-center gap-1.5">
+      <span class="inline-block rounded-sm"
+            style="width: 12px; height: 3px; background-color: {{ chart.stroke_line }};"></span>
+      <span>Mean polarity / day</span>
+    </span>
+    <span class="text-zinc-600">
+      range: −1.0 (negative) … +1.0 (positive)
+    </span>
+  </div>
+</div>
+
+<details class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
+  <summary class="cursor-pointer text-sm text-zinc-300 hover:text-zinc-100">
+    Day-by-day table ({{ buckets | length }} row{{ '' if buckets | length == 1 else 's' }})
+  </summary>
+  <table class="mt-4 w-full text-sm font-mono tabular-nums">
+    <thead>
+      <tr class="text-xs uppercase tracking-widest text-zinc-500 border-b border-ink-700">
+        <th class="text-left  py-1.5 pr-4 font-normal">Date</th>
+        <th class="text-right py-1.5 px-4 font-normal">Avg</th>
+        <th class="text-right py-1.5 px-4 font-normal">Scored</th>
+        <th class="text-left  py-1.5 pl-4 font-normal w-full">Bar</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for bucket in buckets %}
+        <tr class="border-b border-ink-700/50 last:border-0">
+          <td class="py-1 pr-4 text-zinc-400">{{ bucket.date }}</td>
+          <td class="py-1 px-4 text-right
+                     {% if bucket.scored_count == 0 %}text-zinc-600
+                     {% elif bucket.avg > 0.05 %}text-emerald-400
+                     {% elif bucket.avg < -0.05 %}text-rose-400
+                     {% else %}text-zinc-200{% endif %}">
+            {% if bucket.scored_count > 0 %}
+              {{ "{:+.3f}".format(bucket.avg) }}
+            {% else %}—{% endif %}
+          </td>
+          <td class="py-1 px-4 text-right
+                     {% if bucket.scored_count == 0 %}text-zinc-600{% else %}text-zinc-300{% endif %}">
+            {{ bucket.scored_count }}
+          </td>
+          <td class="py-1 pl-4">
+            <div class="relative bg-ink-900 rounded h-2 overflow-hidden">
+              {# Zero-anchored bar — left half for negative, right half for positive. #}
+              <div class="absolute top-0 bottom-0"
+                   style="left: 50%; width: 1px; background-color: {{ chart.zero_line_colour }};"></div>
+              {% if bucket.scored_count > 0 %}
+                {% if bucket.avg >= 0 %}
+                  <div class="absolute top-0 bottom-0 bg-emerald-400"
+                       style="left: 50%; width: {{ (bucket.avg * 50) }}%;"></div>
+                {% else %}
+                  <div class="absolute top-0 bottom-0 bg-rose-400"
+                       style="right: 50%; width: {{ (-bucket.avg * 50) }}%;"></div>
+                {% endif %}
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</details>
+
+<p class="text-xs text-zinc-500">
+  Machine-readable counterpart at
+  <a href="/api/sentiment.json?days={{ days }}"
+     class="font-mono text-accent-400 hover:underline">/api/sentiment.json?days={{ days }}</a>.
+</p>
+{% endblock %}

@@ -15,6 +15,7 @@ from app.ocr.colour_sample import sample_colours
 from app.ocr.language_stats import _BUCKETS, _classify
 from app.ocr.languages import refresh_ocr_lang_string
 from app.ocr_phrase_tags import apply_phrase_rules
+from app.ocr_sentiment import score as score_sentiment
 from app.redaction import apply_redaction
 from app.settings import get_settings
 from app.storage.db import get_connection
@@ -33,6 +34,7 @@ from app.workers.heartbeat import beat
 log = get_logger("persona.ocr_worker")
 colour_log = get_logger("persona.ocr.colour")
 lang_log = get_logger("persona.lang_autodetect_insert")
+sentiment_log = get_logger("persona.ocr.sentiment")
 
 POLL_INTERVAL_SECONDS = 2.0
 BATCH_SIZE = 5
@@ -99,7 +101,7 @@ async def run_ocr_worker(controller: CaptureController | None = None) -> None:
             continue
 
 
-async def _drain_once() -> None:
+async def _drain_once() -> None:  # noqa: PLR0915 — pipeline orchestration, each step is a single dispatch
     settings = get_settings()
     async with get_connection() as conn:
         pending = await list_pending_ocr(conn, limit=BATCH_SIZE)
@@ -160,6 +162,8 @@ async def _drain_once() -> None:
                 )
 
         await _store_dominant_script(screenshot_id=shot.id, ocr_text=redacted)
+
+        await _store_sentiment(screenshot_id=shot.id, ocr_text=redacted)
 
         await _apply_phrase_tags(shot.id, redacted)
         await _store_word_confidences(
@@ -261,6 +265,56 @@ async def _store_dominant_script(*, screenshot_id: int, ocr_text: str | None) ->
         "lang_autodetect_insert.stored",
         screenshot_id=screenshot_id,
         dominant_script=script,
+        chars=len(ocr_text),
+    )
+
+
+async def _store_sentiment(*, screenshot_id: int, ocr_text: str | None) -> None:
+    """Score the OCR text against the bundled lexicon and persist the polarity.
+
+    Best-effort side-channel: the OCR text + status have already been
+    committed by the time this runs, so any failure here must not
+    poison the worker loop. Empty / unscorable text leaves the column
+    ``NULL`` (the route's "no signal" semantic — see migration 087)
+    rather than coercing it to ``0.0``, so the dashboard can
+    distinguish a *truly* neutral shot from one that simply had no
+    text to score.
+
+    :func:`app.ocr_sentiment.score` clamps its return value to
+    ``[-1.0, +1.0]`` already; this wrapper only handles persistence
+    and the empty-text early-out.
+    """
+    if not ocr_text:
+        return
+    try:
+        polarity = score_sentiment(ocr_text)
+    except Exception as exc:
+        sentiment_log.warning(
+            "ocr.sentiment.score_failed",
+            screenshot_id=screenshot_id,
+            error=str(exc),
+        )
+        return
+
+    try:
+        async with get_connection() as conn:
+            await conn.execute(
+                "UPDATE screenshots SET sentiment = ? WHERE id = ?",
+                (polarity, screenshot_id),
+            )
+            await conn.commit()
+    except Exception as exc:
+        sentiment_log.warning(
+            "ocr.sentiment.update_failed",
+            screenshot_id=screenshot_id,
+            error=str(exc),
+        )
+        return
+
+    sentiment_log.info(
+        "ocr.sentiment.stored",
+        screenshot_id=screenshot_id,
+        polarity=polarity,
         chars=len(ocr_text),
     )
 

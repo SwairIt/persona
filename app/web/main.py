@@ -212,6 +212,7 @@ from app.web.routes import (
     settings as settings_routes,
     settings_api as settings_api_routes,
     settings_backup as settings_backup_routes,
+    sentiment_stats as sentiment_stats_routes,
     settings_diff as settings_diff_routes,
     setup as setup_routes,
     smtp_settings as smtp_settings_routes,
@@ -231,6 +232,7 @@ from app.web.routes import (
     tag_merge as tag_merge_routes,
     tag_merge_wizard as tag_merge_wizard_routes,
     tag_ocr_export as tag_ocr_export_routes,
+    tag_tree as tag_tree_routes,
     tag_trends as tag_trends_routes,
     tags as tags_routes,
     theme as theme_routes,
@@ -300,7 +302,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.5.0",
+        version="1.6.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -543,6 +545,8 @@ def create_app() -> FastAPI:
     app.include_router(word_search_routes.router)
     app.include_router(bulk_favourite_routes.router)
     app.include_router(personal_metrics_routes.router)
+    app.include_router(tag_tree_routes.router)
+    app.include_router(sentiment_stats_routes.router)
 
     return app
 

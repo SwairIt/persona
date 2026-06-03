@@ -1,0 +1,45 @@
+-- v1.6 feature 3/3 — naive sentiment score on every OCR-completed shot.
+--
+-- Background
+-- ----------
+-- The OCR worker (:mod:`app.workers.ocr_worker`) already extracts the
+-- text content of every screenshot and persists it to
+-- ``screenshots.ocr_text``. That gives downstream code a corpus to
+-- search against (FTS, phrase-rule tags, length-chart), but nothing
+-- *quantitative* about the affect of what was on the screen — a day
+-- of ``"bug crash fail"`` reads identically to ``"ship done win"``
+-- by every existing aggregate.
+--
+-- This migration adds a single column on ``screenshots`` that holds a
+-- naive polarity score in ``[-1.0, +1.0]``. The score is computed by
+-- :mod:`app.ocr_sentiment` against a bundled, hand-curated lexicon
+-- (no external NLP dependency — see the module docstring for the
+-- exact recipe). The worker writes the value as a best-effort
+-- side-channel after the OCR text has already been committed, so a
+-- sentiment failure can never poison the primary OCR pipeline.
+--
+-- Schema
+-- ------
+--   * ``sentiment``  — nullable ``REAL``. ``NULL`` means "not scored
+--                      yet" or "scored but the text was empty / had no
+--                      lexicon hits"; a stored value is always in
+--                      ``[-1.0, +1.0]`` (clamped at the application
+--                      layer). Nullable rather than ``DEFAULT 0`` so
+--                      the ``/stats/sentiment`` page can distinguish a
+--                      truly neutral shot (score == 0.0) from a shot
+--                      that was never scored (NULL).
+--
+-- No index. The dashboard query (:mod:`app.web.routes.sentiment_stats`)
+-- already filters by ``captured_at >= ?`` which uses an existing
+-- index on that column; a secondary index on a noisy floating-point
+-- field would only bloat the write-amp on the hot insert path.
+--
+-- Tolerant duplicate
+-- ------------------
+-- SQLite has no ``ALTER TABLE ... ADD COLUMN IF NOT EXISTS``. The
+-- migration runner (:func:`app.storage.db.init_database`) swallows the
+-- ``duplicate column name`` error per-statement, so re-running this
+-- migration on an already-upgraded DB silently no-ops while a fresh
+-- install picks the column up cleanly.
+
+ALTER TABLE screenshots ADD COLUMN sentiment REAL;

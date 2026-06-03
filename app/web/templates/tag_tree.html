@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-start justify-between gap-4">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Tag tree</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Tags containing <code>/</code> are grouped as a 3-level hierarchy:
+      <code>work/projects/foo</code> sits under <code>work → projects → foo</code>.
+      Click a branch to expand it. The number on each row is the count of
+      screenshots tagged at that path (a branch sums its descendants).
+    </p>
+    <p class="text-zinc-500 text-xs mt-2">
+      {{ leaf_count }} tag{{ '' if leaf_count == 1 else 's' }} ·
+      {{ total_count }} tagged shot{{ '' if total_count == 1 else 's' }}
+    </p>
+  </div>
+  <a href="{{ json_url }}"
+     class="text-xs px-3 py-1.5 bg-ink-800 hover:bg-ink-700 border border-ink-700 rounded text-zinc-400 hover:text-zinc-200">
+    JSON
+  </a>
+</div>
+
+{% if tree %}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <ul class="space-y-1">
+      {%- for node in tree.values() recursive %}
+        <li>
+          {%- if node.children %}
+            <details class="group">
+              <summary class="cursor-pointer select-none flex items-center gap-2 py-1 px-2 rounded hover:bg-ink-700">
+                <span class="text-zinc-500 text-xs transition-transform group-open:rotate-90">&#9656;</span>
+                <span class="font-medium text-zinc-200">{{ node.name }}</span>
+                {%- if node.is_leaf %}
+                  <a href="/search?q=tag:{{ node.full_path }}"
+                     class="text-xs px-1.5 py-0.5 bg-accent-900/40 text-accent-300 rounded font-mono"
+                     title="Tag exists at this exact path">leaf</a>
+                {%- endif %}
+                <span class="ml-auto text-xs text-zinc-500 font-mono">{{ node.count }}</span>
+              </summary>
+              <ul class="pl-6 mt-1 space-y-1 border-l border-ink-700 ml-3">
+                {{ loop(node.children.values()) }}
+              </ul>
+            </details>
+          {%- else %}
+            <a href="/search?q=tag:{{ node.full_path }}"
+               class="flex items-center gap-2 py-1 px-2 rounded hover:bg-ink-700 text-zinc-300">
+              <span class="text-zinc-600 text-xs">&bull;</span>
+              <span>{{ node.name }}</span>
+              <span class="ml-auto text-xs text-zinc-500 font-mono">{{ node.count }}</span>
+            </a>
+          {%- endif %}
+        </li>
+      {%- endfor %}
+    </ul>
+  </div>
+{% else %}
+  <p class="text-zinc-500 text-sm">
+    No tags yet. Tag a few screenshots — slash-separated names like
+    <code>work/projects/foo</code> will show up here as a tree.
+  </p>
+{% endif %}
+{% endblock %}
