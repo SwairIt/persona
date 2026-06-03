@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-end justify-between flex-wrap gap-3">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Settings diff</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Recent <code class="font-mono text-accent-400">kv_settings</code>
+      changes derived from the audit log (actions matching
+      <code class="font-mono">settings.%</code>). Each row pairs the
+      previous value for that key with the value that replaced it.
+      Newest changes first.
+    </p>
+  </div>
+  <a href="/api/settings-diff.json?days={{ days }}"
+     class="text-xs text-zinc-500 hover:text-accent-400 underline font-mono">
+    json &rarr;
+  </a>
+</div>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-4 mb-5">
+  <form action="/admin/settings-diff" method="get" class="flex flex-wrap items-end gap-3">
+    <label class="flex flex-col gap-1">
+      <span class="text-xs uppercase tracking-widest text-zinc-500">
+        Window (days)
+      </span>
+      <input type="number" name="days" value="{{ days }}"
+             min="{{ days_min }}" max="{{ days_max }}" step="1"
+             class="px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono w-32 focus:outline-none focus:border-accent-500">
+    </label>
+    <div class="flex gap-2">
+      <button type="submit"
+              class="px-4 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
+        Apply
+      </button>
+      {% if days != 30 %}
+        <a href="/admin/settings-diff"
+           class="px-4 py-2 bg-ink-900 hover:bg-ink-700 border border-ink-700 rounded text-sm">
+          Reset
+        </a>
+      {% endif %}
+    </div>
+  </form>
+  <div class="text-xs text-zinc-500 mt-3">
+    {{ "{:,}".format(total_rows) }} change{{ "" if total_rows == 1 else "s" }}
+    in the last {{ days }} day{{ "" if days == 1 else "s" }}
+  </div>
+</section>
+
+{% if rows %}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="bg-ink-900 text-zinc-500 text-xs uppercase tracking-wider">
+        <tr>
+          <th class="text-left py-2 px-3">Timestamp</th>
+          <th class="text-left py-2 px-3">Key</th>
+          <th class="text-left py-2 px-3">Old value</th>
+          <th class="text-left py-2 px-3">New value</th>
+          <th class="text-left py-2 px-3">Actor</th>
+          <th class="text-left py-2 px-3">Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          <tr class="border-t border-ink-700">
+            <td class="py-2 px-3 text-xs text-zinc-500 font-mono whitespace-nowrap">{{ row.ts }}</td>
+            <td class="py-2 px-3 font-mono text-xs text-accent-400 whitespace-nowrap">{{ row.key }}</td>
+            <td class="py-2 px-3 text-xs font-mono text-rose-300 break-all">
+              {% if row.old_value is none %}
+                <span class="text-zinc-600">&mdash;</span>
+              {% else %}
+                {{ row.old_value }}
+              {% endif %}
+            </td>
+            <td class="py-2 px-3 text-xs font-mono text-emerald-300 break-all">
+              {% if row.new_value is none %}
+                <span class="text-zinc-600">&mdash;</span>
+              {% else %}
+                {{ row.new_value }}
+              {% endif %}
+            </td>
+            <td class="py-2 px-3 text-xs">
+              {% if row.actor %}
+                <span class="font-mono text-zinc-300">{{ row.actor }}</span>
+              {% else %}
+                <span class="text-zinc-600">&mdash;</span>
+              {% endif %}
+            </td>
+            <td class="py-2 px-3 text-xs font-mono text-zinc-400 whitespace-nowrap">{{ row.action }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  <p class="text-zinc-500 text-sm">
+    No <code class="font-mono text-accent-400">settings.%</code> events
+    recorded in the last {{ days }} day{{ "" if days == 1 else "s" }}.
+  </p>
+{% endif %}
+{% endblock %}

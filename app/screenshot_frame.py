@@ -42,9 +42,15 @@ from PIL import Image, ImageDraw, ImageFont
 
 from app.logging_setup import get_logger
 from app.storage.db import get_connection
-from app.storage.repository import get_screenshot
+from app.storage.repository import get_kv, get_screenshot
 
 log = get_logger("persona.frame")
+log_watermark = get_logger("persona.frame.watermark")
+
+# kv_settings key holding the operator-wide default watermark text.
+# Empty / unset means "no watermark", matching the build_framed_png
+# default. Per-request overrides come from the route layer.
+_KV_WATERMARK: Final[str] = "framed_watermark"
 
 # ---------------------------------------------------------------------------
 # Style registry. Today there's only one entry; the dispatcher exists so
@@ -116,6 +122,21 @@ _INNER_BG: Final[tuple[int, int, int]] = (250, 250, 252)
 # with an ellipsis so a 200-character window title doesn't blow out the
 # header.
 _URL_LABEL_MAX: Final[int] = 64
+
+# Watermark geometry. The watermark sits inside the screenshot area,
+# anchored to the bottom-right corner with a small inset so it doesn't
+# kiss the chrome edge. The fill is semi-transparent white on a faint
+# dark backdrop so it stays legible on both light and dark screenshots
+# without dominating the composition.
+_WATERMARK_FONT_SIZE: Final[int] = 14
+_WATERMARK_INSET: Final[int] = 10
+_WATERMARK_PADDING_X: Final[int] = 6
+_WATERMARK_PADDING_Y: Final[int] = 3
+_WATERMARK_TEXT_FILL: Final[tuple[int, int, int, int]] = (255, 255, 255, 200)
+_WATERMARK_BG_FILL: Final[tuple[int, int, int, int]] = (0, 0, 0, 90)
+# Hard cap on watermark length so a runaway kv value can't blow out the
+# image — anything past this is trimmed with an ellipsis before render.
+_WATERMARK_MAX_CHARS: Final[int] = 80
 
 
 class FrameResult(TypedDict):
@@ -235,12 +256,107 @@ def _draw_mac_header(
     )
 
 
+def _clip_watermark(text: str) -> str:
+    """Trim ``text`` to :data:`_WATERMARK_MAX_CHARS` with an ellipsis.
+
+    Watermarks are operator input, so a stray 500-character paste must
+    not push us into an unbounded canvas resize — we clip before render.
+    """
+    cleaned = text.strip()
+    if len(cleaned) <= _WATERMARK_MAX_CHARS:
+        return cleaned
+    return cleaned[: _WATERMARK_MAX_CHARS - 1] + "…"
+
+
+def _draw_watermark(
+    canvas: Image.Image,
+    *,
+    inner_left: int,
+    inner_top: int,
+    inner_width: int,
+    inner_height: int,
+    text: str,
+) -> None:
+    """Stamp a semi-transparent watermark on the bottom-right of the shot.
+
+    The watermark is drawn onto a dedicated RGBA overlay and then
+    alpha-composited onto ``canvas`` so the translucent background pill
+    blends cleanly with whatever pixels happen to live underneath it
+    (dark terminal, light document, photo, etc.). When the requested
+    text doesn't fit inside ``inner_width``/``inner_height`` we silently
+    skip the stamp instead of clipping a half-painted glyph — better no
+    mark than a broken one.
+    """
+    clipped = _clip_watermark(text)
+    if not clipped:
+        return
+
+    font = _load_font(size=_WATERMARK_FONT_SIZE)
+    # Use textbbox for both TrueType and bitmap fonts — Pillow normalises
+    # the return shape so the same arithmetic works for either branch.
+    measure_draw = ImageDraw.Draw(canvas)
+    bbox = measure_draw.textbbox((0, 0), clipped, font=font)
+    text_w = bbox[2] - bbox[0]
+    text_h = bbox[3] - bbox[1]
+
+    pill_w = text_w + 2 * _WATERMARK_PADDING_X
+    pill_h = text_h + 2 * _WATERMARK_PADDING_Y
+
+    # Bail out when the screenshot is too small to host the watermark
+    # without overlapping the chrome — a tiny 320-px thumbnail simply
+    # won't carry a 14-px stamp legibly.
+    if pill_w + 2 * _WATERMARK_INSET > inner_width:
+        log_watermark.info(
+            "frame.watermark.skipped_too_narrow",
+            inner_width=inner_width,
+            pill_width=pill_w,
+        )
+        return
+    if pill_h + 2 * _WATERMARK_INSET > inner_height:
+        log_watermark.info(
+            "frame.watermark.skipped_too_short",
+            inner_height=inner_height,
+            pill_height=pill_h,
+        )
+        return
+
+    pill_right = inner_left + inner_width - _WATERMARK_INSET
+    pill_bottom = inner_top + inner_height - _WATERMARK_INSET
+    pill_left = pill_right - pill_w
+    pill_top = pill_bottom - pill_h
+
+    overlay = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    overlay_draw = ImageDraw.Draw(overlay)
+    overlay_draw.rounded_rectangle(
+        (pill_left, pill_top, pill_right, pill_bottom),
+        radius=max(2, pill_h // 3),
+        fill=_WATERMARK_BG_FILL,
+    )
+    # Subtract the bbox origin so the visible glyphs sit flush with the
+    # padding — Pillow's textbbox can return negative top offsets for
+    # fonts with ascender metrics.
+    text_x = pill_left + _WATERMARK_PADDING_X - bbox[0]
+    text_y = pill_top + _WATERMARK_PADDING_Y - bbox[1]
+    overlay_draw.text((text_x, text_y), clipped, fill=_WATERMARK_TEXT_FILL, font=font)
+
+    composited = Image.alpha_composite(canvas.convert("RGBA"), overlay)
+    canvas.paste(composited, (0, 0))
+
+    log_watermark.info(
+        "frame.watermark.drawn",
+        chars=len(clipped),
+        pill_width=pill_w,
+        pill_height=pill_h,
+    )
+
+
 def _render_frame(
     *,
     source_path: Path,
     output_path: Path,
     url_label: str,
     style: FrameStyle,
+    watermark: str,
 ) -> int:
     """Synchronous worker — composes the frame and writes the PNG.
 
@@ -307,10 +423,22 @@ def _render_frame(
     )
 
     # Paste the screenshot inside the border.
+    inner_left = chrome_left + _BORDER
+    inner_top = chrome_top + _HEADER_HEIGHT + _BORDER
     canvas.paste(
         source,
-        (chrome_left + _BORDER, chrome_top + _HEADER_HEIGHT + _BORDER),
+        (inner_left, inner_top),
     )
+
+    if watermark:
+        _draw_watermark(
+            canvas,
+            inner_left=inner_left,
+            inner_top=inner_top,
+            inner_width=inner_width,
+            inner_height=inner_height,
+            text=watermark,
+        )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     canvas.save(output_path, format="PNG", optimize=True)
@@ -322,6 +450,7 @@ async def build_framed_png(
     output_path: Path | str,
     *,
     style: FrameStyle = _DEFAULT_STYLE,
+    watermark: str | None = None,
 ) -> FrameResult:
     """Render a stylised window-chrome frame around screenshot ``shot_id``.
 
@@ -331,6 +460,11 @@ async def build_framed_png(
             created on demand.
         style: Chrome style. ``"mac"`` is the only value implemented in
             v0.72; anything else returns ``status="bad_style"``.
+        watermark: Optional bottom-right watermark text. ``None`` (the
+            default) means "use whatever the operator stored in
+            ``kv_settings`` under ``framed_watermark``"; an explicit
+            empty string disables the watermark even when a kv default
+            exists, so per-request overrides can fully suppress it.
 
     Returns:
         :class:`FrameResult`. On ``status="ok"`` the file at
@@ -349,6 +483,14 @@ async def build_framed_png(
 
     async with get_connection() as conn:
         shot = await get_screenshot(conn, shot_id)
+        # Only consult the kv default when the caller didn't pass an
+        # explicit value (even an empty string counts as explicit — see
+        # docstring) so the route layer can force "no watermark".
+        if watermark is None:
+            kv_value = await get_kv(conn, _KV_WATERMARK)
+            watermark_text = (kv_value or "").strip()
+        else:
+            watermark_text = watermark.strip()
 
     if shot is None:
         log.info("frame.shot_not_found", shot_id=shot_id)
@@ -391,6 +533,7 @@ async def build_framed_png(
             output_path=out_path,
             url_label=url_label,
             style=style,
+            watermark=watermark_text,
         )
     )
 
@@ -401,6 +544,7 @@ async def build_framed_png(
         path=str(out_path),
         url_label=url_label,
         size_bytes=size_bytes,
+        watermark_chars=len(watermark_text),
     )
 
     return FrameResult(

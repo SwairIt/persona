@@ -27,6 +27,13 @@ _OCR_SNIPPET_LEN = 240
 
 _collection_log = get_logger("persona.rss.collection")
 _tag_log = get_logger("persona.rss.tag")
+_weekly_log = get_logger("persona.rss.weekly")
+
+# Weekly-digest feed caps: 20 most-recent rows, 400-char body snippets.
+# Keeping these named constants documents the spec at the call site and
+# makes future tuning (e.g. raising to 25 items) a one-line change.
+_MAX_WEEKLY_ITEMS = 20
+_WEEKLY_SNIPPET_LEN = 400
 
 
 @router.get("/journal.rss")
@@ -305,6 +312,70 @@ async def tag_rss(tag_name: str) -> Response:
     <link>{xml_escape(f"{base}/search?q=tag:{canonical_name}")}</link>
     <atom:link href="{self_link}" rel="self" type="application/rss+xml" />
     <description>{xml_escape(feed_desc)}</description>
+    <lastBuildDate>{last_build}</lastBuildDate>
+{joined_items}
+  </channel>
+</rss>
+"""
+    return Response(content=body, media_type="application/rss+xml; charset=utf-8")
+
+
+@router.get("/digest/weekly.rss")
+async def weekly_digest_rss() -> Response:
+    """RSS 2.0 feed of the most-recent weekly LLM digests.
+
+    Surfaces the same archive served at ``/digest/weekly-archive`` so any
+    feed reader can subscribe to the Monday-Sunday retrospectives. Body
+    text is XML-escaped via :func:`xml.sax.saxutils.escape` rather than
+    wrapped in CDATA — digests are plain prose, not HTML, and escaping
+    keeps the payload audit-safe even if a future provider sneaks ``<``
+    or ``&`` into the output.
+    """
+    settings = get_settings()
+    base = f"http://{settings.host}:{settings.port}"
+
+    async with get_connection() as conn:
+        cursor = await conn.execute(
+            "SELECT week_start, body, generated_at "
+            "FROM weekly_digest "
+            "ORDER BY week_start DESC "
+            "LIMIT ?",
+            (_MAX_WEEKLY_ITEMS,),
+        )
+        rows = await cursor.fetchall()
+
+    items_xml: list[str] = []
+    for row in rows:
+        week_start = str(row["week_start"])
+        body_text = str(row["body"]).strip()
+        snippet = body_text[:_WEEKLY_SNIPPET_LEN]
+        item_title = f"Persona — week of {week_start}"
+        item_link = f"{base}/digest/weekly-archive/{week_start}"
+        pub = parse_iso(str(row["generated_at"]))
+        guid_url = f"{item_link}#digest-{week_start}"
+        items_xml.append(
+            f"""    <item>
+      <title>{xml_escape(item_title)}</title>
+      <link>{xml_escape(item_link)}</link>
+      <guid isPermaLink="false">{xml_escape(guid_url)}</guid>
+      <pubDate>{format_datetime(pub)}</pubDate>
+      <description>{xml_escape(snippet)}</description>
+    </item>"""
+        )
+
+    _weekly_log.info("weekly_rss_served", items=len(items_xml))
+
+    last_build = format_datetime(datetime.now(UTC))
+    joined_items = "\n".join(items_xml)
+    self_link = xml_escape(f"{base}/feeds/digest/weekly.rss")
+    channel_link = xml_escape(f"{base}/digest/weekly-archive")
+    body = f"""<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Persona — Weekly Digests</title>
+    <link>{channel_link}</link>
+    <atom:link href="{self_link}" rel="self" type="application/rss+xml" />
+    <description>Most-recent weekly LLM retrospectives, newest first.</description>
     <lastBuildDate>{last_build}</lastBuildDate>
 {joined_items}
   </channel>

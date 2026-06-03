@@ -161,6 +161,7 @@ from app.web.routes import (
     share_collection as share_collection_routes,
     settings as settings_routes,
     settings_backup as settings_backup_routes,
+    settings_diff as settings_diff_routes,
     setup as setup_routes,
     smtp_settings as smtp_settings_routes,
     stats,
@@ -235,7 +236,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.72.0",
+        version="0.73.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -414,6 +415,7 @@ def create_app() -> FastAPI:
     app.include_router(llm_switcher_routes.router)
     app.include_router(multi_day_diff_routes.router)
     app.include_router(screenshot_frame_routes.router)
+    app.include_router(settings_diff_routes.router)
 
     return app
 
