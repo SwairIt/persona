@@ -20,6 +20,7 @@ Subcommands:
     export-settings    Dump every preference table to a JSON file (--out FILE).
     import-settings    Insert rows from a settings JSON file (--in FILE [--replace]).
     export-stats-csv   Per-day-per-app rollup CSV (--days N, --out FILE).
+    export-monthly-stats-csv  Per-month-per-app rollup CSV (--months N, --out FILE).
     export-share-visits  v0.55 share_visit rows as CSV (--days N, --out FILE).
     export-ocr-txt     Per-day OCR text dump for grep/fzf (--day YYYY-MM-DD, --out FILE).
     export-sticky      Dump every sticky_note row as a JSON array (--out FILE).
@@ -61,6 +62,7 @@ from app.dedup import compute_phash, find_or_create_dedup_group
 from app.diagnostics import run_doctor
 from app.diagnostics_bundle import build_diag_bundle
 from app.logging_setup import configure_logging
+from app.monthly_stats_csv import export_monthly_stats_csv
 from app.ocr_force_reindex import count_candidates, wipe_and_requeue
 from app.ocr_txt_export import export_day_ocr_txt
 from app.pdf_export import export_day_pdf
@@ -958,6 +960,32 @@ async def _cmd_export_stats_csv(days: int, out: Path) -> int:
     return 0
 
 
+async def _cmd_export_monthly_stats_csv(months: int, out: Path) -> int:
+    """Write the per-month-per-app stats CSV produced by ``export_monthly_stats_csv``."""
+    if months < 1:
+        print(f"error: --months must be >= 1, got {months}", file=sys.stderr)
+        return 2
+
+    body = await export_monthly_stats_csv(months_back=months)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    # ``newline=""`` keeps the stdlib csv-writer line endings (already
+    # ``\n``) intact instead of letting the platform layer rewrite them
+    # to CRLF on Windows, which would double-up to ``\r\r\n``.
+    with out.open("w", encoding="utf-8", newline="") as fh:
+        fh.write(body)
+
+    # Subtract the header line for the user-facing row count.
+    line_count = body.count("\n")
+    data_rows = max(line_count - 1, 0)
+    size_bytes = len(body.encode("utf-8"))
+
+    print(f"Path:   {out}")
+    print(f"Months: {months}")
+    print(f"Rows:   {data_rows}")
+    print(f"Bytes:  {size_bytes}")
+    return 0
+
+
 async def _cmd_export_share_visits(days: int, out: Path) -> int:
     """Write the v0.55 ``share_visit`` rows as a CSV via the shared renderer.
 
@@ -1465,6 +1493,28 @@ def _build_parser() -> argparse.ArgumentParser:  # noqa: PLR0915 — flat subpar
         help="Destination CSV path (parent dirs are created).",
     )
 
+    monthly_stats_csv_parser = sub.add_parser(
+        "export-monthly-stats-csv",
+        help=(
+            "Per-month-per-app stats rollup CSV "
+            "(month, app, shots, active seconds, ocr chars)."
+        ),
+    )
+    monthly_stats_csv_parser.add_argument(
+        "--months",
+        dest="months",
+        type=int,
+        default=12,
+        help="Lookback window in months (default: 12).",
+    )
+    monthly_stats_csv_parser.add_argument(
+        "--out",
+        dest="out",
+        type=Path,
+        required=True,
+        help="Destination CSV path (parent dirs are created).",
+    )
+
     share_visits_parser = sub.add_parser(
         "export-share-visits",
         help=(
@@ -1691,6 +1741,8 @@ async def _run(args: argparse.Namespace) -> int:  # noqa: PLR0911, PLR0912 — d
         return await _cmd_import_settings(args.src, args.replace)
     if args.command == "export-stats-csv":
         return await _cmd_export_stats_csv(args.days, args.out)
+    if args.command == "export-monthly-stats-csv":
+        return await _cmd_export_monthly_stats_csv(args.months, args.out)
     if args.command == "export-share-visits":
         return await _cmd_export_share_visits(args.days, args.out)
     if args.command == "export-ocr-txt":

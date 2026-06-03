@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+
+{# Persona v0.78 — day-vs-day concatenated OCR diff.
+
+   Renders two views over the same diff:
+     * Unified text  — colourised <pre>, mirrors `git diff` output.
+     * Side-by-side  — difflib.HtmlDiff table (.diff_add / .diff_sub
+                       styled green/red, same palette as ocr_diff.html).
+
+   The view-switcher is pure CSS (hidden radios + :checked sibling
+   selectors) — no JS, no Alpine. Keeps the page printable. #}
+
+{% block content %}
+<style>
+  /* ----- view toggle (CSS-only radio tabs) ----- */
+  .view-toggle { display: none; }
+  #daydiff-panels .panel-unified,
+  #daydiff-panels .panel-side { display: none; }
+  #view-unified:checked ~ #daydiff-panels .panel-unified { display: block; }
+  #view-side:checked    ~ #daydiff-panels .panel-side    { display: block; }
+  #view-unified:checked ~ #daydiff-tabs label[for="view-unified"],
+  #view-side:checked    ~ #daydiff-tabs label[for="view-side"] {
+    background-color: rgb(124 58 237 / 0.2);  /* accent-600/20 */
+    color: rgb(167 139 250);                   /* accent-400 */
+  }
+
+  /* ----- HtmlDiff table styling (dark + light) ----- */
+  table.diff {
+    font-family: 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
+    font-size: 12px;
+    border-collapse: collapse;
+    width: 100%;
+    table-layout: fixed;
+  }
+  table.diff td { padding: 2px 6px; vertical-align: top; word-break: break-word; }
+  table.diff .diff_header {
+    background-color: rgb(38 38 46);
+    color: rgb(161 161 170);
+    text-align: right;
+    width: 3em;
+    user-select: none;
+  }
+  table.diff td.diff_header { border-right: 1px solid rgb(38 38 46); }
+  table.diff .diff_next { display: none; }
+  table.diff thead th {
+    background-color: rgb(26 26 31);
+    color: rgb(244 244 245);
+    padding: 6px 8px;
+    text-align: left;
+    border-bottom: 1px solid rgb(38 38 46);
+  }
+  .diff_add { background-color: rgb(16 185 129 / 0.25); color: rgb(167 243 208); }
+  .diff_sub { background-color: rgb(244 63 94 / 0.25);  color: rgb(254 205 211); }
+  .diff_chg { background-color: rgb(245 158 11 / 0.20); color: rgb(253 230 138); }
+  html:not(.dark) table.diff .diff_header { background-color: rgb(244 244 245); color: rgb(82 82 91); }
+  html:not(.dark) table.diff thead th     { background-color: rgb(228 228 231); color: rgb(24 24 27); }
+  html:not(.dark) .diff_add { background-color: rgb(16 185 129 / 0.18); color: rgb(6 78 59); }
+  html:not(.dark) .diff_sub { background-color: rgb(244 63 94 / 0.18);  color: rgb(127 29 29); }
+  html:not(.dark) .diff_chg { background-color: rgb(245 158 11 / 0.18); color: rgb(120 53 15); }
+</style>
+
+<div class="mb-6 flex items-end justify-between gap-4 flex-wrap">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Day OCR diff</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Unified diff of every OCR snippet concatenated for
+      <span class="font-mono text-zinc-300">{{ day_a }}</span>
+      vs
+      <span class="font-mono text-zinc-300">{{ day_b }}</span>.
+    </p>
+  </div>
+
+  <form method="get" action="/stats/day-ocr-diff"
+        class="flex items-end gap-2 text-sm bg-ink-800/60 border border-ink-700 rounded-lg p-3">
+    <label class="flex flex-col gap-1">
+      <span class="text-xs uppercase tracking-widest text-zinc-500">Day A</span>
+      <input type="date" name="a" value="{{ day_a }}"
+             class="bg-ink-900 border border-ink-700 rounded px-2 py-1 text-zinc-100
+                    focus:outline-none focus:ring-2 focus:ring-accent-500/50">
+    </label>
+    <label class="flex flex-col gap-1">
+      <span class="text-xs uppercase tracking-widest text-zinc-500">Day B</span>
+      <input type="date" name="b" value="{{ day_b }}"
+             class="bg-ink-900 border border-ink-700 rounded px-2 py-1 text-zinc-100
+                    focus:outline-none focus:ring-2 focus:ring-accent-500/50">
+    </label>
+    <button type="submit"
+            class="px-3 py-1.5 rounded bg-accent-600/30 hover:bg-accent-600/50 text-accent-300
+                   border border-accent-600/40 transition">
+      Compare
+    </button>
+  </form>
+</div>
+
+{% if identical %}
+  <div class="rounded-lg border border-emerald-700/40 bg-emerald-900/10 p-5 text-emerald-300">
+    Concatenated OCR text is identical for both days — nothing to diff.
+  </div>
+{% else %}
+
+  {# Radios + tabs + panels are siblings of the radios so the
+     :checked sibling-selector trick works without any JS. #}
+  <input class="view-toggle" type="radio" name="daydiff-view" id="view-unified" checked>
+  <input class="view-toggle" type="radio" name="daydiff-view" id="view-side">
+
+  <div id="daydiff-tabs"
+       class="inline-flex items-center gap-1 rounded-md bg-ink-800 border border-ink-700 p-1 mb-4 text-sm">
+    <label for="view-unified"
+           class="cursor-pointer px-3 py-1.5 rounded transition text-zinc-400 hover:text-zinc-100">
+      Unified
+    </label>
+    <label for="view-side"
+           class="cursor-pointer px-3 py-1.5 rounded transition text-zinc-400 hover:text-zinc-100">
+      Side-by-side
+    </label>
+  </div>
+
+  <div id="daydiff-panels">
+    <section class="panel-unified rounded-lg border border-ink-700 bg-ink-900 overflow-hidden">
+      <header class="px-4 py-2 border-b border-ink-700 text-xs uppercase tracking-widest text-zinc-500">
+        Unified diff — {{ unified_lines | length }} line{{ '' if unified_lines | length == 1 else 's' }}
+      </header>
+      {% if unified_lines %}
+        <pre class="font-mono text-xs p-4 overflow-x-auto leading-relaxed">
+{%- for line in unified_lines -%}
+{%- if line.startswith('+++') or line.startswith('---') -%}
+<span class="text-zinc-400">{{ line }}</span>
+{%- elif line.startswith('@@') -%}
+<span class="text-accent-400">{{ line }}</span>
+{%- elif line.startswith('+') -%}
+<span class="text-emerald-300">{{ line }}</span>
+{%- elif line.startswith('-') -%}
+<span class="text-rose-300">{{ line }}</span>
+{%- else -%}
+<span class="text-zinc-300">{{ line }}</span>
+{%- endif %}
+{% endfor -%}
+        </pre>
+      {% else %}
+        <p class="text-zinc-500 text-sm p-4">No unified-diff hunks emitted.</p>
+      {% endif %}
+    </section>
+
+    <section class="panel-side rounded-lg border border-ink-700 bg-ink-900 overflow-x-auto">
+      <header class="px-4 py-2 border-b border-ink-700 text-xs uppercase tracking-widest text-zinc-500">
+        Side-by-side
+      </header>
+      <div class="p-2">
+        {{ html_table | safe }}
+      </div>
+    </section>
+  </div>
+{% endif %}
+{% endblock %}

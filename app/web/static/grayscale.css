@@ -1,0 +1,19 @@
+/*
+ * Persona v0.78 — global grayscale mode.
+ *
+ * Activated by the ``data-grayscale="1"`` attribute that ``base.html``
+ * stamps onto ``<body>`` whenever the ``grayscale_mode`` kv_settings
+ * row is ``"1"``. The rule below wraps the entire document in a CSS
+ * ``grayscale(1)`` filter — accent colours, thumbnails, tag pills, and
+ * every other rendered pixel collapse to neutral tones for
+ * distraction-light reading.
+ *
+ * The default (``data-grayscale="0"`` or absent) keeps full colour
+ * untouched: this sheet ships zero rules outside the
+ * ``body[data-grayscale="1"]`` selector so it is safe to include on
+ * every page regardless of the stored setting.
+ */
+
+body[data-grayscale="1"] {
+  filter: grayscale(1);
+}
