@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Query collections</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Bundle several
+    <a href="/searches" class="text-accent-400 hover:underline">saved searches</a>
+    under one shareable slug. Each collection has a public read-only page
+    that re-runs every member query and shows its current result count.
+  </p>
+</div>
+
+<form action="/collections/queries" method="post"
+      class="mb-8 rounded-lg border border-ink-700 bg-ink-800 p-5">
+  <h2 class="text-lg font-semibold mb-3">Create a collection</h2>
+  <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
+    <label class="md:col-span-3 block text-sm">
+      <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">Slug</span>
+      <input name="slug" required pattern="^[a-z0-9-]{1,40}$" maxlength="40"
+             placeholder="ops-dashboards"
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
+      <span class="block text-[11px] text-zinc-500 mt-1">lowercase, digits, hyphen; 1&ndash;40 chars</span>
+    </label>
+    <label class="md:col-span-9 block text-sm">
+      <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">Title</span>
+      <input name="title" required minlength="1" maxlength="100"
+             placeholder="Ops dashboards"
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
+    </label>
+    <label class="md:col-span-12 block text-sm">
+      <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">Blurb <span class="text-zinc-600">(optional)</span></span>
+      <textarea name="blurb" maxlength="500" rows="2"
+                placeholder="Short description of what this collection is for"
+                class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500"></textarea>
+      <span class="block text-[11px] text-zinc-500 mt-1">up to 500 chars; shown on the public page</span>
+    </label>
+  </div>
+  <button type="submit"
+          class="mt-4 px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
+    Create collection
+  </button>
+</form>
+
+{% if collections %}
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-10">
+    {% for c in collections %}
+      <article class="rounded-lg border border-ink-700 bg-ink-800 p-4 flex flex-col">
+        <header class="flex items-start justify-between gap-3 mb-2">
+          <div class="min-w-0">
+            <h3 class="text-base font-semibold text-zinc-100 truncate">
+              <a href="/collections/queries/{{ c.slug }}" class="hover:underline">
+                {{ c.title }}
+              </a>
+            </h3>
+            <code class="text-xs text-accent-400">{{ c.slug }}</code>
+          </div>
+          <form action="/collections/queries/{{ c.slug }}/delete" method="post"
+                onsubmit="return confirm('Delete collection {{ c.slug }}?');">
+            <button class="text-xs px-2 py-1 rounded bg-rose-900/40 hover:bg-rose-900 text-rose-300">
+              delete
+            </button>
+          </form>
+        </header>
+        {% if c.blurb %}
+          <p class="text-xs text-zinc-400 mb-3">{{ c.blurb }}</p>
+        {% endif %}
+        <footer class="mt-auto flex items-center justify-between text-[11px] text-zinc-500">
+          <span>
+            {{ c.member_count }} quer{{ "y" if c.member_count == 1 else "ies" }}
+            &middot; created {{ c.created_at }}
+          </span>
+          <a href="/collections/queries/{{ c.slug }}"
+             class="px-3 py-1.5 rounded bg-accent-600 hover:bg-accent-500 text-white text-xs font-medium transition">
+            Open &rarr;
+          </a>
+        </footer>
+
+        {% if saved_searches %}
+          <details class="mt-3 border-t border-ink-700 pt-3">
+            <summary class="cursor-pointer text-xs text-zinc-400 hover:text-zinc-200">
+              Add a saved search to this collection
+            </summary>
+            <form action="/collections/queries/{{ c.slug }}/add-query" method="post"
+                  class="mt-3 grid grid-cols-1 sm:grid-cols-12 gap-2">
+              <label class="sm:col-span-8 block text-xs">
+                <span class="block text-[11px] uppercase tracking-wider text-zinc-500 mb-1">Saved search</span>
+                <select name="search_slug" required
+                        class="w-full px-2 py-1.5 bg-ink-900 border border-ink-700 rounded text-xs focus:outline-none focus:border-accent-500">
+                  {% for s in saved_searches %}
+                    <option value="{{ s.slug }}">{{ s.title }} ({{ s.slug }})</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <label class="sm:col-span-2 block text-xs">
+                <span class="block text-[11px] uppercase tracking-wider text-zinc-500 mb-1">Position</span>
+                <input name="position" type="number" min="0" value="0"
+                       class="w-full px-2 py-1.5 bg-ink-900 border border-ink-700 rounded text-xs font-mono focus:outline-none focus:border-accent-500">
+              </label>
+              <div class="sm:col-span-2 flex items-end">
+                <button class="w-full px-3 py-1.5 rounded bg-accent-600 hover:bg-accent-500 text-white text-xs font-medium transition">
+                  Add
+                </button>
+              </div>
+            </form>
+          </details>
+        {% endif %}
+      </article>
+    {% endfor %}
+  </div>
+{% else %}
+  <p class="text-zinc-500 text-sm">
+    No collections yet. Create one above, then attach saved searches to it.
+  </p>
+{% endif %}
+
+{% if not saved_searches %}
+  <div class="mt-6 rounded-md border border-amber-700/40 bg-amber-900/20 px-4 py-3 text-sm text-amber-200">
+    You have no saved searches yet &mdash; add a few on
+    <a href="/searches" class="underline">/searches</a> so they can be bundled
+    into a collection.
+  </div>
+{% endif %}
+{% endblock %}

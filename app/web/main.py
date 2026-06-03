@@ -24,6 +24,7 @@ from app.web.routes import (
     annotations as annotations_routes,
     api_tokens as api_tokens_routes,
     app_icons as app_icons_routes,
+    app_icons_admin as app_icons_admin_routes,
     app_overrides as app_overrides_routes,
     app_retention as app_retention_routes,
     app_stats as app_stats_routes,
@@ -89,10 +90,12 @@ from app.web.routes import (
     per_app_digest as per_app_digest_routes,
     permalinks as permalinks_routes,
     pin as pin_routes,
+    pinmap as pinmap_routes,
     process_remap as process_remap_routes,
     public_day as public_day_routes,
     qa as qa_routes,
     qr as qr_routes,
+    query_collections as query_collections_routes,
     query_api as query_api_routes,
     quiet_hours as quiet_hours_routes,
     regex_rules as regex_rules_routes,
@@ -199,7 +202,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.57.0",
+        version="0.58.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -345,6 +348,9 @@ def create_app() -> FastAPI:
     app.include_router(diag_bundle_routes.router)
     app.include_router(embeddings_reindex_routes.router)
     app.include_router(per_app_digest_routes.router)
+    app.include_router(query_collections_routes.router)
+    app.include_router(app_icons_admin_routes.router)
+    app.include_router(pinmap_routes.router)
 
     return app
 

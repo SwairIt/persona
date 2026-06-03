@@ -60,8 +60,16 @@ _LUM: Final[float] = 0.42
 # Valid ``source`` column values — kept in sync with the migration's
 # docstring so a future "select rows by source" maintenance query has a
 # single source of truth.
+#
+# ``user`` was added in v0.58 to let an operator override the
+# auto-generated tile with a hand-picked PNG (see
+# :mod:`app.web.routes.app_icons` upload endpoint). The lookup path in
+# :func:`get_icon_png` treats it like any other cached row — the only
+# place ``source`` matters is the admin UI which renders a "custom"
+# badge so the operator can tell which rows survive a regenerate.
 _SOURCE_SHELL32: Final[str] = "shell32"
 _SOURCE_INITIALS: Final[str] = "initials"
+_SOURCE_USER: Final[str] = "user"
 
 # Observability budget for the Win32 Shell32 extraction path.
 # ``psutil.process_iter`` can walk thousands of processes on a busy
@@ -86,6 +94,19 @@ _SHELL32_OPT_IN_TRUTHY: Final[frozenset[str]] = frozenset({"1", "true", "yes", "
 async def get_icon_png(app_name: str) -> bytes:
     """Return PNG bytes for ``app_name`` — cached, or generated and cached.
 
+    Lookup order:
+
+    1. ``app_icon`` row keyed by the normalised ``app_name``. The row may
+       have ``source='user'`` (an operator-uploaded override — v0.58),
+       ``source='shell32'`` (Windows real-exe extraction) or
+       ``source='initials'`` (deterministic fallback). All three are
+       returned as-is — *the user override takes precedence simply by
+       virtue of being the row that's there*, because the upload path
+       writes it with ``ON CONFLICT DO UPDATE`` and the reset path
+       deletes the row so the next read falls through to (2).
+    2. On miss, generate (Shell32 attempt → initials fallback) and
+       persist with the appropriate non-user ``source``.
+
     Never raises for empty / unusable input: an empty name yields the
     same deterministic "??" tile as any other unrecognised string, so
     the route never has to special-case it.
@@ -102,16 +123,73 @@ async def get_icon_png(app_name: str) -> bytes:
     return png_bytes
 
 
+async def store_user_icon(app_name: str, png_bytes: bytes) -> None:
+    """Persist ``png_bytes`` as the operator-chosen icon for ``app_name``.
+
+    Writes with ``source='user'`` so :func:`get_icon_png` returns it on
+    every subsequent call until :func:`invalidate` (or the admin reset
+    endpoint) drops the row. Validation of the bytes (PNG magic, decoded
+    dimensions, byte ceiling) is the *caller's* responsibility — this
+    helper is the storage primitive, not the policy boundary.
+    """
+    key = _normalise_key(app_name)
+    await _store(key, png_bytes, _SOURCE_USER)
+    log.info(
+        "app_icons.user_stored",
+        app_name=key,
+        bytes=len(png_bytes),
+    )
+
+
 async def invalidate(app_name: str) -> None:
     """Drop the cached row for ``app_name`` so the next call regenerates.
 
-    Idempotent — deleting a missing row is not an error.
+    Idempotent — deleting a missing row is not an error. Used by both
+    the reset endpoint (admin-triggered "go back to the auto-generated
+    tile") and any future maintenance job that wants to force a
+    re-extract.
     """
     key = _normalise_key(app_name)
     async with get_connection() as conn:
         await conn.execute("DELETE FROM app_icon WHERE app_name = ?", (key,))
         await conn.commit()
     log.info("app_icons.invalidated", app_name=key)
+
+
+async def list_known_icons() -> list[dict[str, str]]:
+    """Return one row per cached app icon, oldest-first by app_name.
+
+    Used by the v0.58 admin page to render the table of known apps with
+    their current icon source. Each item exposes ``app_name`` and
+    ``source`` (one of ``shell32`` / ``initials`` / ``user``) so the
+    template can flag custom overrides without a second query.
+    """
+    async with get_connection() as conn:
+        cursor = await conn.execute(
+            "SELECT app_name, source FROM app_icon ORDER BY app_name ASC",
+        )
+        rows = await cursor.fetchall()
+    return [{"app_name": str(row["app_name"]), "source": str(row["source"])} for row in rows]
+
+
+async def get_icon_source(app_name: str) -> str | None:
+    """Return the cached ``source`` for ``app_name`` or ``None`` if absent.
+
+    Cheap metadata-only lookup — does not load the PNG blob. The admin
+    page uses it to render the "auto / custom" badge next to apps that
+    have never had their icon viewed (no row yet) without paying the
+    cost of fetching the BLOB column.
+    """
+    key = _normalise_key(app_name)
+    async with get_connection() as conn:
+        cursor = await conn.execute(
+            "SELECT source FROM app_icon WHERE app_name = ?",
+            (key,),
+        )
+        row = await cursor.fetchone()
+    if row is None:
+        return None
+    return str(row["source"])
 
 
 # ---------------------------------------------------------------------------
@@ -360,5 +438,8 @@ def _hue_to_channel(p: float, q: float, t: float) -> float:
 
 __all__ = [
     "get_icon_png",
+    "get_icon_source",
     "invalidate",
+    "list_known_icons",
+    "store_user_icon",
 ]

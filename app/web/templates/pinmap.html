@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-start justify-between gap-4 flex-wrap">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Pin map</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Every screenshot you've pinned, grouped by the month it was captured.
+      Pinned shots are <span class="text-amber-400">never demoted</span> by the
+      tier sweep &mdash; this page is the safety-net overview.
+    </p>
+  </div>
+  <div class="text-xs text-zinc-500 font-mono flex-shrink-0">
+    {{ total }} pinned &middot; {{ clusters | length }} month{{ '' if clusters | length == 1 else 's' }}
+  </div>
+</div>
+
+{% if clusters %}
+  {% for cluster in clusters %}
+    <section class="mb-10" aria-label="Month {{ cluster.month }}">
+      <header class="flex items-baseline justify-between gap-3 mb-3 border-b border-ink-700 pb-2">
+        <h2 class="text-lg font-semibold text-zinc-200 font-mono tracking-tight">
+          {{ cluster.month }}
+        </h2>
+        <span class="text-[11px] text-zinc-500 font-mono">
+          {{ cluster.shots | length }} shot{{ '' if cluster.shots | length == 1 else 's' }}
+        </span>
+      </header>
+
+      <div class="grid gap-4"
+           style="grid-template-columns: repeat(4, minmax(0, 1fr));">
+        {% for shot in cluster.shots %}
+          <article id="pinmap-shot-{{ shot.id }}"
+                   class="group rounded-lg overflow-hidden bg-ink-800 border border-ink-700 hover:border-accent-500 transition flex flex-col">
+            <a href="/screenshot/{{ shot.id }}" class="block relative">
+              {% if shot.thumbnail_url %}
+                <div class="bg-ink-900 overflow-hidden" style="width: 240px; max-width: 100%; aspect-ratio: 16 / 9;">
+                  <img src="{{ shot.thumbnail_url }}"
+                       alt=""
+                       loading="lazy"
+                       width="240"
+                       class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300">
+                </div>
+              {% else %}
+                <div class="bg-ink-900 flex items-center justify-center text-zinc-600 text-xs"
+                     style="width: 240px; max-width: 100%; aspect-ratio: 16 / 9;">
+                  metadata only
+                </div>
+              {% endif %}
+              <span class="absolute top-1.5 left-1.5 text-[11px] text-amber-400 bg-ink-900/80 rounded px-1.5 py-0.5"
+                    title="Pinned">&#128204;</span>
+            </a>
+
+            <div class="px-3 py-2 min-w-0">
+              <div class="text-sm text-zinc-200 font-medium truncate"
+                   title="{{ shot.app_name or '' }}">
+                {{ shot.app_name or '&mdash;' }}
+              </div>
+              <div class="text-[11px] text-zinc-500 font-mono mt-0.5">
+                {{ shot.captured_at }}
+              </div>
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    </section>
+  {% endfor %}
+{% else %}
+  <div class="text-center py-20 px-6 rounded-lg border border-dashed border-ink-700 bg-ink-900/40">
+    <div class="text-5xl text-zinc-700 mb-4">&#128204;</div>
+    <h2 class="text-lg font-semibold text-zinc-300">No pinned screenshots yet</h2>
+    <p class="text-sm text-zinc-500 mt-2 max-w-md mx-auto">
+      Open any screenshot and pin it to protect it from the tier sweep. Pinned
+      shots stay full-resolution forever and show up here, grouped by the month
+      they were captured.
+    </p>
+    <a href="/"
+       class="inline-block mt-5 px-4 py-2 rounded-md bg-accent-600 hover:bg-accent-500 text-white text-sm font-medium transition">
+      Browse the timeline &rarr;
+    </a>
+  </div>
+{% endif %}
+{% endblock %}

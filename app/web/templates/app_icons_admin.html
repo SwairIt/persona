@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">App icons</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Override the auto-generated tile for any app — handy for Electron wrappers, in-house tools and
+    remote-desktop windows where the Win32 extractor can't see a real exe icon. Uploaded PNGs are
+    stored inside the SQLite file so they travel with your backups.
+  </p>
+  <p class="text-zinc-500 text-xs mt-2">
+    Limits: PNG only, max <code>256&nbsp;KB</code>, max <code>256x256</code>. Anything smaller is
+    upscaled to the 64x64 timeline tile on the fly. Hit <em>Reset</em> to drop the row and let the
+    auto-generator pick the icon on the next request.
+  </p>
+</div>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden mb-8">
+  <header class="px-4 py-3 bg-ink-900 text-xs uppercase tracking-widest text-zinc-500 flex items-center justify-between">
+    <span>Cached icons</span>
+    <span class="text-zinc-600 normal-case tracking-normal">{{ items|length }} row{% if items|length != 1 %}s{% endif %}</span>
+  </header>
+
+  {% if items %}
+    <table class="w-full text-sm">
+      <thead class="bg-ink-900/60 text-zinc-500 text-xs uppercase tracking-wider">
+        <tr>
+          <th class="text-left py-2 px-4 w-20">Icon</th>
+          <th class="text-left py-2 px-4">App name</th>
+          <th class="text-left py-2 px-4 w-32">Source</th>
+          <th class="text-left py-2 px-4">Upload override</th>
+          <th class="text-right py-2 px-4 w-32"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in items %}
+          <tr class="border-t border-ink-700 align-middle">
+            <td class="py-2 px-4">
+              <img src="/app-icon/{{ item.app_name|urlencode }}.png?_v={{ item.source }}"
+                   alt="{{ item.app_name }} icon"
+                   width="48" height="48"
+                   class="w-12 h-12 rounded border border-ink-700 bg-ink-900">
+            </td>
+            <td class="py-2 px-4 text-zinc-200 font-mono text-xs break-all">{{ item.app_name }}</td>
+            <td class="py-2 px-4">
+              {% if item.source == 'user' %}
+                <span class="px-2 py-0.5 rounded bg-accent-600/20 text-accent-400 text-xs">custom</span>
+              {% elif item.source == 'shell32' %}
+                <span class="px-2 py-0.5 rounded bg-emerald-900/40 text-emerald-300 text-xs">shell32</span>
+              {% else %}
+                <span class="px-2 py-0.5 rounded bg-ink-700 text-zinc-400 text-xs">{{ item.source }}</span>
+              {% endif %}
+            </td>
+            <td class="py-2 px-4">
+              <form action="/app-icon/{{ item.app_name|urlencode }}/upload"
+                    method="post"
+                    enctype="multipart/form-data"
+                    class="flex items-center gap-2">
+                <input type="file"
+                       name="file"
+                       accept="image/png"
+                       required
+                       class="text-xs text-zinc-400 file:mr-2 file:px-3 file:py-1.5 file:rounded
+                              file:border-0 file:bg-ink-700 file:text-zinc-200 hover:file:bg-ink-600
+                              file:cursor-pointer">
+                <button type="submit"
+                        class="px-3 py-1.5 bg-accent-600 hover:bg-accent-500 rounded text-xs font-medium">
+                  Upload
+                </button>
+              </form>
+            </td>
+            <td class="py-2 px-4 text-right">
+              <form action="/app-icon/{{ item.app_name|urlencode }}/reset" method="post" class="inline">
+                <button type="submit"
+                        class="text-xs px-2 py-1 rounded bg-rose-900/40 hover:bg-rose-900 text-rose-300">
+                  Reset
+                </button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="p-6 text-zinc-500 text-sm">
+      No cached icons yet — the cache fills lazily as the timeline renders. Use the
+      <em>Suggested</em> section below to seed an override for an app you haven't viewed yet.
+    </div>
+  {% endif %}
+</section>
+
+{% if suggested %}
+  <section class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden">
+    <header class="px-4 py-3 bg-ink-900 text-xs uppercase tracking-widest text-zinc-500">
+      Suggested (top-captured apps without a cached icon)
+    </header>
+    <table class="w-full text-sm">
+      <thead class="bg-ink-900/60 text-zinc-500 text-xs uppercase tracking-wider">
+        <tr>
+          <th class="text-left py-2 px-4">App name</th>
+          <th class="text-right py-2 px-4 w-24">Captures</th>
+          <th class="text-left py-2 px-4">Upload override</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in suggested %}
+          <tr class="border-t border-ink-700 align-middle">
+            <td class="py-2 px-4 text-zinc-200 font-mono text-xs break-all">{{ s.app_name }}</td>
+            <td class="py-2 px-4 text-right text-zinc-400 font-mono text-xs">{{ s.count }}</td>
+            <td class="py-2 px-4">
+              <form action="/app-icon/{{ s.app_name|urlencode }}/upload"
+                    method="post"
+                    enctype="multipart/form-data"
+                    class="flex items-center gap-2">
+                <input type="file"
+                       name="file"
+                       accept="image/png"
+                       required
+                       class="text-xs text-zinc-400 file:mr-2 file:px-3 file:py-1.5 file:rounded
+                              file:border-0 file:bg-ink-700 file:text-zinc-200 hover:file:bg-ink-600
+                              file:cursor-pointer">
+                <button type="submit"
+                        class="px-3 py-1.5 bg-accent-600 hover:bg-accent-500 rounded text-xs font-medium">
+                  Upload
+                </button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+{% endif %}
+{% endblock %}
