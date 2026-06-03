@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">LLM provider</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Pick which Bring-Your-Own-Key provider Persona should call for AI
+    features (daily TL;DR, /ask, auto-tagging). Each provider has its
+    own key slot, so rotating one credential never affects the others.
+    Choose <strong>none</strong> to disable AI features without wiping
+    any stored key.
+  </p>
+</div>
+
+<div class="rounded-lg border border-amber-700/40 bg-amber-900/20 text-amber-200 px-4 py-3 mb-6 text-xs">
+  Keys are stored in the v0.33 encrypted vault when
+  <code class="font-mono">cryptography</code> is installed and you
+  supply a master password &mdash; otherwise they fall back to a plain
+  <code class="font-mono">kv_settings</code> row. The master password
+  itself is <strong>never</strong> stored or logged.
+</div>
+
+{% if error %}
+  <div class="rounded-lg border border-rose-700/40 bg-rose-900/20 text-rose-200 px-4 py-3 mb-6 text-sm">
+    {{ error }}
+  </div>
+{% endif %}
+
+{% if notice %}
+  <div class="rounded-lg border border-emerald-700/40 bg-emerald-900/20 text-emerald-200 px-4 py-3 mb-6 text-sm">
+    {{ notice }}
+  </div>
+{% endif %}
+
+{% if test_result %}
+  <div class="rounded-lg border border-accent-700/40 bg-accent-900/20 text-accent-200 px-4 py-3 mb-6 text-sm">
+    <span class="text-xs uppercase tracking-widest text-accent-300 mr-2">Test:</span>
+    <span class="font-mono">{{ test_result }}</span>
+  </div>
+{% endif %}
+
+<form action="/settings/llm" method="post"
+      class="rounded-lg border border-ink-700 bg-ink-800 p-5 flex flex-col gap-5 mb-6">
+
+  <fieldset class="flex flex-col gap-2">
+    <legend class="text-sm font-semibold tracking-wider uppercase text-zinc-400 mb-2">
+      Provider
+    </legend>
+
+    <label class="flex items-start gap-3 p-3 rounded border border-ink-700 hover:border-accent-500 cursor-pointer transition">
+      <input type="radio" name="provider" value="anthropic"
+             class="mt-1"
+             {% if current_provider == 'anthropic' %}checked{% endif %}>
+      <div>
+        <div class="text-sm font-medium">Anthropic (Claude)</div>
+        <div class="text-xs text-zinc-500">claude-haiku-4-5 by default. Get a key at console.anthropic.com.</div>
+      </div>
+    </label>
+
+    <label class="flex items-start gap-3 p-3 rounded border border-ink-700 hover:border-accent-500 cursor-pointer transition">
+      <input type="radio" name="provider" value="openai"
+             class="mt-1"
+             {% if current_provider == 'openai' %}checked{% endif %}>
+      <div>
+        <div class="text-sm font-medium">OpenAI (GPT-4o family)</div>
+        <div class="text-xs text-zinc-500">gpt-4o-mini by default. Get a key at platform.openai.com.</div>
+      </div>
+    </label>
+
+    <label class="flex items-start gap-3 p-3 rounded border border-ink-700 hover:border-accent-500 cursor-pointer transition">
+      <input type="radio" name="provider" value="groq"
+             class="mt-1"
+             {% if current_provider == 'groq' %}checked{% endif %}>
+      <div>
+        <div class="text-sm font-medium">Groq (Llama 3 family)</div>
+        <div class="text-xs text-zinc-500">llama-3.3-70b-versatile by default. Get a key at console.groq.com.</div>
+      </div>
+    </label>
+
+    <label class="flex items-start gap-3 p-3 rounded border border-ink-700 hover:border-accent-500 cursor-pointer transition">
+      <input type="radio" name="provider" value="none"
+             class="mt-1"
+             {% if current_provider == 'none' %}checked{% endif %}>
+      <div>
+        <div class="text-sm font-medium">None (disable AI features)</div>
+        <div class="text-xs text-zinc-500">Stored keys are kept but unused. Daily TL;DR / /ask / auto-tag will return <code class="font-mono">missing_config</code>.</div>
+      </div>
+    </label>
+  </fieldset>
+
+  <fieldset class="flex flex-col gap-3 pt-2 border-t border-ink-700">
+    <legend class="text-sm font-semibold tracking-wider uppercase text-zinc-400 mb-2 mt-2">
+      API keys (per provider)
+    </legend>
+
+    {% for slug, label, placeholder in providers %}
+      {% set info = keys.get(slug, {}) %}
+      <label class="flex flex-col gap-1">
+        <span class="text-xs uppercase tracking-widest text-zinc-500 flex items-center gap-2">
+          <span>{{ label }} key</span>
+          {% if info.get('configured') == 'true' %}
+            <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-900/40 border border-emerald-700/50 text-emerald-300">
+              configured ({{ info.get('source', '?') }})
+            </span>
+          {% else %}
+            <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 border border-ink-700 text-zinc-500">
+              not set
+            </span>
+          {% endif %}
+        </span>
+        <input type="password" name="{{ slug }}_api_key"
+               placeholder="{{ placeholder }}"
+               value="{{ info.get('value', '') }}"
+               autocomplete="off"
+               class="px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm">
+      </label>
+    {% endfor %}
+
+    <p class="text-xs text-zinc-500">
+      Leave a field blank to keep the existing key on file unchanged.
+    </p>
+  </fieldset>
+
+  <fieldset class="flex flex-col gap-2 pt-2 border-t border-ink-700">
+    <legend class="text-sm font-semibold tracking-wider uppercase text-zinc-400 mb-2 mt-2">
+      Master password (optional)
+    </legend>
+    <label class="flex flex-col gap-1">
+      <span class="text-xs text-zinc-500">
+        Provide your vault master password to encrypt new keys with the
+        v0.33 vault. Leave blank to fall back to plain
+        <code class="font-mono">kv_settings</code>.
+      </span>
+      <input type="password" name="master_password"
+             autocomplete="new-password"
+             class="px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm">
+    </label>
+  </fieldset>
+
+  <div class="flex items-center gap-3 pt-2 border-t border-ink-700">
+    <button type="submit"
+            class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
+      Save
+    </button>
+    <button type="submit" formaction="/settings/llm/test"
+            class="px-5 py-2 border border-ink-700 hover:border-accent-500 rounded text-sm font-medium transition">
+      Test current provider
+    </button>
+    <a href="/vault" class="ml-auto text-xs text-zinc-500 hover:text-zinc-200">Manage vault &rarr;</a>
+  </div>
+</form>
+
+<div class="text-xs text-zinc-500">
+  Looking for the legacy single-key wizard? See <a href="/setup" class="underline hover:text-zinc-200">/setup</a>.
+</div>
+{% endblock %}

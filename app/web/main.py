@@ -88,9 +88,11 @@ from app.web.routes import (
     keywords as keywords_routes,
     lang_autodetect as lang_autodetect_routes,
     live_sse as live_sse_routes,
+    llm_switcher as llm_switcher_routes,
     mobile as mobile_routes,
     monthly_digest_card as monthly_digest_card_routes,
     monthly_digests as monthly_digests_routes,
+    multi_day_diff as multi_day_diff_routes,
     multi_shot_zip as multi_shot_zip_routes,
     note_assist as note_assist_routes,
     note_templates as note_templates_routes,
@@ -231,7 +233,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.70.0",
+        version="0.71.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -407,6 +409,8 @@ def create_app() -> FastAPI:
     app.include_router(monthly_digest_card_routes.router)
     app.include_router(shot_lock_routes.router)
     app.include_router(rss_index_routes.router)
+    app.include_router(llm_switcher_routes.router)
+    app.include_router(multi_day_diff_routes.router)
 
     return app
 

@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+
+{# Persona v0.71 — multi-day diff: two columns showing what changed
+   between day A (left) and day B (right). Pure Tailwind + a tiny
+   inline <form> for the date pickers; no Alpine / htmx needed because
+   the page is a one-shot render driven by ?a=&b= query params. #}
+
+{% block content %}
+<div class="mb-6 flex items-end justify-between gap-4 flex-wrap">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Multi-day diff</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      What changed between
+      <span class="font-mono text-zinc-300">{{ diff.day_a }}</span>
+      and
+      <span class="font-mono text-zinc-300">{{ diff.day_b }}</span>?
+    </p>
+  </div>
+
+  <form method="get" action="/stats/diff"
+        class="flex items-end gap-2 text-sm bg-ink-800/60 border border-ink-700 rounded-lg p-3">
+    <label class="flex flex-col gap-1">
+      <span class="text-xs uppercase tracking-widest text-zinc-500">Day A</span>
+      <input type="date" name="a" value="{{ diff.day_a }}"
+             class="bg-ink-900 border border-ink-700 rounded px-2 py-1 text-zinc-100
+                    focus:outline-none focus:ring-2 focus:ring-accent-500/50">
+    </label>
+    <label class="flex flex-col gap-1">
+      <span class="text-xs uppercase tracking-widest text-zinc-500">Day B</span>
+      <input type="date" name="b" value="{{ diff.day_b }}"
+             class="bg-ink-900 border border-ink-700 rounded px-2 py-1 text-zinc-100
+                    focus:outline-none focus:ring-2 focus:ring-accent-500/50">
+    </label>
+    <button type="submit"
+            class="px-3 py-1.5 rounded bg-accent-600/30 hover:bg-accent-600/50 text-accent-300
+                   border border-accent-600/40 transition">
+      Compare
+    </button>
+    <a href="/api/diff-days.json?a={{ diff.day_a }}&b={{ diff.day_b }}"
+       class="px-3 py-1.5 rounded border border-ink-700 hover:bg-ink-800 text-zinc-400 hover:text-zinc-100 transition"
+       title="Open the raw JSON payload">
+      JSON
+    </a>
+  </form>
+</div>
+
+{# ---------- Day-summary header cards ---------- #}
+<div class="grid sm:grid-cols-2 gap-4 mb-6">
+  <div class="rounded-lg border border-ink-700 bg-ink-800/60 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Day A</div>
+    <div class="text-lg font-semibold mt-1 font-mono">{{ diff.day_a }}</div>
+    <div class="text-zinc-400 text-sm mt-1">
+      {{ diff.shots_a }} screenshot{{ '' if diff.shots_a == 1 else 's' }}
+    </div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800/60 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Day B</div>
+    <div class="text-lg font-semibold mt-1 font-mono">{{ diff.day_b }}</div>
+    <div class="text-zinc-400 text-sm mt-1">
+      {{ diff.shots_b }} screenshot{{ '' if diff.shots_b == 1 else 's' }}
+    </div>
+  </div>
+</div>
+
+{% macro pill_list(items, tone) %}
+  {# tone ∈ {'add', 'remove'} — picks green vs rose palette without a JS dep. #}
+  {% if items %}
+    <ul class="flex flex-wrap gap-2">
+      {% for name in items %}
+        <li>
+          <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-mono
+                       {% if tone == 'add' %}
+                         bg-emerald-500/15 text-emerald-300 border border-emerald-600/30
+                       {% else %}
+                         bg-rose-500/15 text-rose-300 border border-rose-600/30
+                       {% endif %}">
+            {% if tone == 'add' %}+{% else %}−{% endif %}&nbsp;{{ name }}
+          </span>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="text-zinc-500 text-sm italic">— nothing —</p>
+  {% endif %}
+{% endmacro %}
+
+{% macro keyword_table(items, tone) %}
+  {% if items %}
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="text-xs uppercase tracking-widest text-zinc-500">
+          <th class="text-left py-1 px-2 font-medium">Word</th>
+          <th class="text-right py-1 px-2 font-medium">Count</th>
+          <th class="text-right py-1 px-2 font-medium">Δ</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in items %}
+          <tr class="border-t border-ink-700/60">
+            <td class="py-1 px-2 font-mono text-zinc-200">{{ item.word }}</td>
+            <td class="py-1 px-2 text-right text-zinc-400">{{ item.count }}</td>
+            <td class="py-1 px-2 text-right font-mono
+                       {% if tone == 'add' %}text-emerald-300{% else %}text-rose-300{% endif %}">
+              {% if tone == 'add' %}+{% else %}−{% endif %}{{ item.delta }}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="text-zinc-500 text-sm italic">— no keyword shifts —</p>
+  {% endif %}
+{% endmacro %}
+
+{# ---------- Apps row ---------- #}
+<section class="grid sm:grid-cols-2 gap-4 mb-6">
+  <div class="rounded-lg border border-rose-700/30 bg-rose-900/10 p-4">
+    <div class="flex items-baseline justify-between mb-3">
+      <h2 class="text-sm font-semibold text-rose-300">Gone apps</h2>
+      <span class="text-xs text-zinc-500">on A, not on B · {{ diff.gone_apps | length }}</span>
+    </div>
+    {{ pill_list(diff.gone_apps, 'remove') }}
+  </div>
+  <div class="rounded-lg border border-emerald-700/30 bg-emerald-900/10 p-4">
+    <div class="flex items-baseline justify-between mb-3">
+      <h2 class="text-sm font-semibold text-emerald-300">New apps</h2>
+      <span class="text-xs text-zinc-500">on B, not on A · {{ diff.new_apps | length }}</span>
+    </div>
+    {{ pill_list(diff.new_apps, 'add') }}
+  </div>
+</section>
+
+{# ---------- Tags row ---------- #}
+<section class="grid sm:grid-cols-2 gap-4 mb-6">
+  <div class="rounded-lg border border-rose-700/30 bg-rose-900/10 p-4">
+    <div class="flex items-baseline justify-between mb-3">
+      <h2 class="text-sm font-semibold text-rose-300">Gone tags</h2>
+      <span class="text-xs text-zinc-500">on A, not on B · {{ diff.gone_tags | length }}</span>
+    </div>
+    {{ pill_list(diff.gone_tags, 'remove') }}
+  </div>
+  <div class="rounded-lg border border-emerald-700/30 bg-emerald-900/10 p-4">
+    <div class="flex items-baseline justify-between mb-3">
+      <h2 class="text-sm font-semibold text-emerald-300">New tags</h2>
+      <span class="text-xs text-zinc-500">on B, not on A · {{ diff.new_tags | length }}</span>
+    </div>
+    {{ pill_list(diff.new_tags, 'add') }}
+  </div>
+</section>
+
+{# ---------- Keywords row ---------- #}
+<section class="grid sm:grid-cols-2 gap-4">
+  <div class="rounded-lg border border-ink-700 bg-ink-800/40 p-4">
+    <div class="flex items-baseline justify-between mb-3">
+      <h2 class="text-sm font-semibold text-rose-300">Top gone keywords</h2>
+      <span class="text-xs text-zinc-500">heavier on A · {{ diff.top_gone_keywords | length }}</span>
+    </div>
+    {{ keyword_table(diff.top_gone_keywords, 'remove') }}
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800/40 p-4">
+    <div class="flex items-baseline justify-between mb-3">
+      <h2 class="text-sm font-semibold text-emerald-300">Top new keywords</h2>
+      <span class="text-xs text-zinc-500">heavier on B · {{ diff.top_new_keywords | length }}</span>
+    </div>
+    {{ keyword_table(diff.top_new_keywords, 'add') }}
+  </div>
+</section>
+{% endblock %}

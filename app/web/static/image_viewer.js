@@ -1,5 +1,5 @@
 /*
- * image_viewer.js — Persona v0.46
+ * image_viewer.js — Persona v0.46 + v0.71 zoom deep-link
  *
  * Vanilla-JS pinch / wheel zoom + click-drag pan for any element
  * marked with [data-zoomable]. Pure ES2020, no framework.
@@ -16,6 +16,21 @@
  *
  * If no [data-zoomable] elements exist on the page (e.g. the screenshot
  * has no thumbnail), this script is a no-op — no errors, no listeners.
+ *
+ * v0.71 zoom deep-link:
+ *   On page load we sniff ?zoom=&x=&y= from the URL and, if all three
+ *   parse as finite numbers with zoom in [MIN_SCALE, MAX_SCALE], apply
+ *   them to the *first* zoomable element immediately. This lets links
+ *   like /screenshot/42?zoom=3.5&x=-180&y=-220 reopen at a specific
+ *   pan/zoom for sharing. The values are the same `tx`/`ty`/`scale`
+ *   we already write into the CSS transform — no coordinate mapping.
+ *
+ *   A companion "Copy zoom link" button (selector [data-copy-zoom-link])
+ *   reads the current state from the same zoomable element and copies
+ *   `location.pathname?zoom=&x=&y=` to the clipboard. Falls back to a
+ *   hidden <textarea> + execCommand when the async Clipboard API is
+ *   unavailable (e.g. non-HTTPS contexts). Brief visual feedback is
+ *   given by swapping the button label for ~1.2s.
  */
 (function () {
   'use strict';
@@ -27,6 +42,20 @@
   /** Clamp `n` into [lo, hi]. */
   function clamp(n, lo, hi) {
     return Math.min(hi, Math.max(lo, n));
+  }
+
+  /**
+   * Parse a finite number from a URL query string. Returns `null` when the
+   * param is missing, empty, or not a finite number. We deliberately do
+   * NOT coerce things like "1e9999" or "NaN" — `Number.isFinite` rejects
+   * both, which is what we want for an externally-supplied link.
+   */
+  function parseFiniteParam(params, key) {
+    if (!params.has(key)) return null;
+    const raw = params.get(key);
+    if (raw === '' || raw === null) return null;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
   }
 
   /**
@@ -254,18 +283,132 @@
     el.addEventListener('touchend', touchEnd);
     el.addEventListener('touchcancel', touchEnd);
 
+    // v0.71 — expose a tiny accessor for the deep-link button. We attach a
+    // function (not the raw state) so the closure stays the single source
+    // of truth and outside code can't mutate scale/tx/ty by accident.
+    // Returns a fresh snapshot each call; values match what's in the CSS
+    // transform at the moment the call is made.
+    el.__zoomState = function () {
+      return { scale: state.scale, tx: state.tx, ty: state.ty };
+    };
+
     // Initial paint so the transform string exists even before interaction.
     apply();
+    return { state, apply };
+  }
+
+  /**
+   * v0.71 — apply ?zoom=&x=&y= from the URL to the first viewer.
+   *
+   * All three params must be present and finite numbers, with zoom inside
+   * [MIN_SCALE, MAX_SCALE], otherwise we leave the viewer at its identity
+   * defaults. `x`/`y` are not clamped — they're the same `tx`/`ty` that
+   * panning produces, and the natural range depends on image size we
+   * don't know here. The CSS overflow-clip on `.zoom-wrapper` keeps even
+   * pathological values visually contained.
+   */
+  function applyDeepLink(viewer) {
+    const params = new URLSearchParams(window.location.search);
+    const zoom = parseFiniteParam(params, 'zoom');
+    const x = parseFiniteParam(params, 'x');
+    const y = parseFiniteParam(params, 'y');
+    if (zoom === null || x === null || y === null) return;
+    if (zoom < MIN_SCALE || zoom > MAX_SCALE) return;
+    viewer.state.scale = zoom;
+    viewer.state.tx = x;
+    viewer.state.ty = y;
+    viewer.apply();
+  }
+
+  /**
+   * v0.71 — write `text` to the system clipboard. Prefers the async
+   * Clipboard API; falls back to a hidden <textarea> + execCommand for
+   * non-HTTPS pages where navigator.clipboard is undefined. Returns a
+   * Promise that resolves true on success, false on any failure. We
+   * never throw — the caller just shows or hides a "copied" hint.
+   */
+  function copyToClipboard(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      return navigator.clipboard.writeText(text).then(() => true, () => false);
+    }
+    return new Promise((resolve) => {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.top = '0';
+      ta.style.left = '0';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      let ok = false;
+      try { ok = document.execCommand('copy'); } catch (_) { ok = false; }
+      document.body.removeChild(ta);
+      resolve(ok);
+    });
+  }
+
+  /**
+   * v0.71 — bind every [data-copy-zoom-link] button on the page. The
+   * button reads the *first* zoomable element's current state (matching
+   * applyDeepLink's "first viewer" semantics) and copies
+   * `location.pathname?zoom=&x=&y=`. Query is intentionally rebuilt from
+   * scratch so we don't carry over stale ?zoom from the current URL or
+   * leak unrelated params. The button label flips for ~1.2s to confirm.
+   *
+   * If there's no zoomable element on the page, the button hides itself
+   * so we don't show a control that does nothing useful.
+   */
+  function bindCopyButtons() {
+    const buttons = document.querySelectorAll('[data-copy-zoom-link]');
+    if (!buttons.length) return;
+    const target = document.querySelector('[data-zoomable]');
+    for (const btn of buttons) {
+      if (btn.dataset.copyZoomBound === '1') continue;
+      btn.dataset.copyZoomBound = '1';
+      if (!target || typeof target.__zoomState !== 'function') {
+        btn.hidden = true;
+        continue;
+      }
+      const original = btn.textContent;
+      btn.addEventListener('click', async function (ev) {
+        ev.preventDefault();
+        const s = target.__zoomState();
+        // Round to 4 decimals — anything finer is below subpixel anyway
+        // and just makes the URL noisy. parseFloat strips trailing zeros.
+        const fmt = (n) => parseFloat(n.toFixed(4)).toString();
+        const params = new URLSearchParams();
+        params.set('zoom', fmt(s.scale));
+        params.set('x', fmt(s.tx));
+        params.set('y', fmt(s.ty));
+        const url = window.location.origin + window.location.pathname + '?' + params.toString();
+        const ok = await copyToClipboard(url);
+        btn.textContent = ok ? 'Copied!' : 'Copy failed';
+        btn.disabled = true;
+        setTimeout(() => {
+          btn.textContent = original;
+          btn.disabled = false;
+        }, 1200);
+      });
+    }
   }
 
   function init() {
     const nodes = document.querySelectorAll('[data-zoomable]');
-    if (!nodes.length) return; // graceful no-op when no zoomable image present
+    if (!nodes.length) {
+      // Still bind copy buttons so they can hide themselves gracefully.
+      bindCopyButtons();
+      return;
+    }
+    let firstViewer = null;
     for (const el of nodes) {
       if (el.dataset.zoomBound === '1') continue;
       el.dataset.zoomBound = '1';
-      createViewer(el);
+      const viewer = createViewer(el);
+      if (firstViewer === null) firstViewer = viewer;
     }
+    if (firstViewer) applyDeepLink(firstViewer);
+    bindCopyButtons();
   }
 
   if (document.readyState === 'loading') {
