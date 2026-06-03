@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+
+{#
+  Unified dashboard — Persona v0.65.
+
+  Three-column grid of cards rolling up the most-useful at-a-glance stats:
+  Today, Streak, Top apps, Latest digest, Capture status. Each card is
+  intentionally low-chrome — thin borders, no shadows — so the SVG
+  sparklines (Today + Streak) are the visual focus, not the chrome.
+#}
+
+{% macro sparkline(series, stroke='#a78bfa', fill='rgba(167,139,250,0.18)', width=240, height=56) -%}
+  {%- set max_v = (series | max) or 1 -%}
+  {%- set step = (width / ([series | length, 1] | max - 1)) if (series | length) > 1 else 0 -%}
+  {%- set points = [] -%}
+  {%- for v in series -%}
+    {%- set x = (loop.index0 * step) | round(2) -%}
+    {%- set y = (height - (v / max_v) * (height - 6) - 3) | round(2) -%}
+    {%- set _ = points.append(x ~ ',' ~ y) -%}
+  {%- endfor -%}
+  {%- set polyline = points | join(' ') -%}
+  {%- set fill_path = '0,' ~ height ~ ' ' ~ polyline ~ ' ' ~ width ~ ',' ~ height -%}
+  <svg viewBox="0 0 {{ width }} {{ height }}" preserveAspectRatio="none"
+       class="w-full h-14" role="img" aria-label="sparkline">
+    <polygon points="{{ fill_path }}" fill="{{ fill }}" stroke="none"/>
+    <polyline points="{{ polyline }}" fill="none" stroke="{{ stroke }}"
+              stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+  </svg>
+{%- endmacro %}
+
+{% block content %}
+<div class="mb-6 flex items-end justify-between">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Dashboard</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Last {{ today.axis | length }} days at a glance. Machine-readable mirror at
+      <a href="/api/dashboard.json" class="font-mono text-accent-400 hover:underline">/api/dashboard.json</a>.
+    </p>
+  </div>
+</div>
+
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+
+  {# ── Today ───────────────────────────────────────────────────────────── #}
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Today</div>
+    <div class="mt-1 flex items-baseline gap-2">
+      <span class="text-5xl font-bold tabular-nums {% if today.count > 0 %}text-accent-400{% else %}text-zinc-600{% endif %}">
+        {{ today.count }}
+      </span>
+      <span class="text-sm text-zinc-500">
+        frame{{ '' if today.count == 1 else 's' }}
+      </span>
+    </div>
+    <div class="mt-3 text-xs text-zinc-500 flex items-center justify-between">
+      <span>Last {{ today.axis | length }} days</span>
+      <span class="font-mono">{{ today.week_total }} total</span>
+    </div>
+    <div class="mt-1">
+      {{ sparkline(today.series) }}
+    </div>
+  </section>
+
+  {# ── Streak ──────────────────────────────────────────────────────────── #}
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Streak</div>
+    <div class="mt-1 flex items-baseline gap-2">
+      <span class="text-5xl font-bold tabular-nums {% if streak.days > 0 %}text-emerald-400{% else %}text-zinc-600{% endif %}">
+        {{ streak.days }}
+      </span>
+      <span class="text-sm text-zinc-500">
+        day{{ '' if streak.days == 1 else 's' }} in a row
+      </span>
+      {% if streak.days >= 3 %}
+        <span class="ml-1" title="3+ day streak">🔥</span>
+      {% endif %}
+    </div>
+    <div class="mt-3 text-xs text-zinc-500 flex items-center justify-between">
+      <span>Longest <span class="font-mono text-zinc-300">{{ streak.longest }}</span></span>
+      <span class="font-mono">
+        {% if streak.last_capture_date %}{{ streak.last_capture_date }}{% else %}—{% endif %}
+      </span>
+    </div>
+    <div class="mt-1">
+      {{ sparkline(today.series, stroke='#34d399', fill='rgba(52,211,153,0.18)') }}
+    </div>
+    <div class="mt-2">
+      <a href="/streak" class="text-xs text-accent-400 hover:underline">Open streak →</a>
+    </div>
+  </section>
+
+  {# ── Top apps (7d) ───────────────────────────────────────────────────── #}
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Top apps · 7d</div>
+    {% if not top_apps %}
+      <p class="text-sm text-zinc-500 mt-3">No app data in the last week.</p>
+    {% else %}
+      {% set apps_max = (top_apps | map(attribute='count') | max) or 1 %}
+      <ul class="mt-3 space-y-2">
+        {% for a in top_apps %}
+          <li>
+            <div class="flex items-baseline justify-between gap-3 text-sm">
+              <a href="/apps/{{ a.app }}"
+                 class="truncate text-zinc-200 hover:text-accent-400">
+                {{ a.app | app_alias }}
+              </a>
+              <span class="font-mono tabular-nums text-zinc-400">{{ a.count }}</span>
+            </div>
+            <div class="mt-1 h-1.5 rounded-full bg-ink-700 overflow-hidden">
+              <div class="h-full bg-accent-500"
+                   style="width: {{ ((a.count / apps_max) * 100) | round(1) }}%"></div>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+  </section>
+
+  {# ── Latest weekly digest ────────────────────────────────────────────── #}
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Latest digest</div>
+    {% if latest_digest %}
+      <div class="mt-2 text-base font-semibold text-zinc-100">
+        {{ latest_digest.title }}
+      </div>
+      <div class="mt-1 text-xs text-zinc-500 font-mono">
+        generated {{ latest_digest.generated_at[:19] }}
+        {% if latest_digest.provider %}
+          · {{ latest_digest.provider }}
+        {% endif %}
+      </div>
+      <div class="mt-3 flex gap-3 text-xs">
+        <a href="/digest/weekly-archive/{{ latest_digest.week_start }}"
+           class="text-accent-400 hover:underline">Read →</a>
+        <a href="/digest/weekly-archive" class="text-zinc-500 hover:text-zinc-300">All digests</a>
+      </div>
+    {% else %}
+      <p class="text-sm text-zinc-500 mt-3">No weekly digest generated yet.</p>
+      <a href="/digest/weekly" class="mt-3 inline-block text-xs text-accent-400 hover:underline">
+        Open weekly digest →
+      </a>
+    {% endif %}
+  </section>
+
+  {# ── Capture status ──────────────────────────────────────────────────── #}
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 sm:col-span-2 lg:col-span-1">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Capture status</div>
+    <div class="mt-2 flex items-center gap-2 text-sm">
+      {% if capture.stopped %}
+        <span class="w-1.5 h-1.5 rounded-full bg-rose-400"></span>
+        <span class="text-rose-400">Stopped</span>
+      {% elif capture.paused %}
+        <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+        <span class="text-amber-400">Paused</span>
+      {% else %}
+        <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+        <span class="text-emerald-400">Capturing</span>
+      {% endif %}
+    </div>
+    <dl class="mt-3 grid grid-cols-2 gap-y-1 text-xs">
+      <dt class="text-zinc-500">Session total</dt>
+      <dd class="text-right font-mono tabular-nums text-zinc-300">{{ capture.captures_total }}</dd>
+      <dt class="text-zinc-500">Failed</dt>
+      <dd class="text-right font-mono tabular-nums {% if capture.captures_failed > 0 %}text-rose-400{% else %}text-zinc-300{% endif %}">
+        {{ capture.captures_failed }}
+      </dd>
+      <dt class="text-zinc-500">Last capture</dt>
+      <dd class="text-right font-mono text-zinc-400">
+        {% if capture.last_capture_at %}{{ capture.last_capture_at[:19] }}{% else %}—{% endif %}
+      </dd>
+    </dl>
+  </section>
+
+</div>
+{% endblock %}

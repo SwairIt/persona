@@ -34,6 +34,7 @@
   <link rel="stylesheet" href="/static/query_help.css">
   <link rel="stylesheet" href="/static/context_menu.css">
   <link rel="stylesheet" href="/static/cal_nav.css">
+  <link rel="stylesheet" href="/static/bulk_select.css">
   <script src="/static/command_palette.js" defer></script>
   <script src="/static/keyboard_shortcuts.js" defer></script>
   <script src="/static/query_help.js" defer></script>
@@ -45,6 +46,7 @@
   <script defer src="/static/js/notes.js"></script>
   <script src="/static/live_status.js" defer></script>
   <script src="/static/drag_to_tag.js" defer></script>
+  <script src="/static/bulk_select.js" defer></script>
   {% block head_extra %}{% endblock %}
   <script>
     tailwind.config = {
@@ -144,6 +146,7 @@
   </main>
 
   <div id="palette-root"></div>
+  <div id="bulk-toolbar"></div>
   <script>
     // Track the last 20 visited routes for the Cmd+K palette's "recent" list.
     (function () {
