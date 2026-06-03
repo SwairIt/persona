@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
-from app.api_tokens import verify_token
+from app.api_tokens import has_scope, verify_token
 from app.logging_setup import get_logger
 from app.settings import get_settings
 
@@ -43,6 +43,7 @@ if TYPE_CHECKING:
     from starlette.responses import Response
 
 log = get_logger("persona.api_tokens")
+_scope_log = get_logger("persona.api_tokens.scopes")
 
 _API_PREFIX = "/api/"
 _BEARER_PREFIX = "Bearer "
@@ -107,7 +108,38 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
 
         # Stash the resolved scopes + token id on ``request.state`` so
         # downstream route handlers can authorise individual operations
-        # without re-parsing the header.
+        # without re-parsing the header. ``scopes`` is always a list
+        # (post v0.87 — the v0.34 string form is parsed inside
+        # :func:`verify_token` so middleware consumers see one shape).
         request.state.api_token_id = result.get("id")
-        request.state.scopes = result.get("scopes", "read")
+        scopes_value = result.get("scopes", ["read"])
+        request.state.scopes = (
+            list(scopes_value) if isinstance(scopes_value, list) else ["read"]
+        )
         return await call_next(request)
+
+
+def check_scope(request: Request, required: str) -> bool:
+    """Return True if the request's bearer token covers ``required``.
+
+    Intended for direct use inside route handlers — pair it with a
+    ``raise HTTPException(status_code=403, detail="scope_required")``
+    when the answer is False. Treats an unauthenticated request (no
+    ``request.state.scopes``) as having no scopes at all, so the
+    middleware's "permissive by default" mode still lets individual
+    routes opt into strict scope enforcement.
+    """
+    scopes_list = getattr(request.state, "scopes", None)
+    if not isinstance(scopes_list, list):
+        scopes_list = []
+    allowed = has_scope(scopes_list, required)
+    if not allowed:
+        token_id = getattr(request.state, "api_token_id", None)
+        _scope_log.info(
+            "api_token.scope_denied",
+            token_id=token_id,
+            required=required,
+            held=scopes_list,
+            path=request.url.path,
+        )
+    return allowed

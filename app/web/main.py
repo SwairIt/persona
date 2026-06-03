@@ -144,6 +144,7 @@ from app.web.routes import (
     ocr_language_stats as ocr_language_stats_routes,
     ocr_languages as ocr_languages_routes,
     ocr_diff as ocr_diff_routes,
+    ocr_emails as ocr_emails_routes,
     ocr_error_rate as ocr_error_rate_routes,
     ocr_find_replace as ocr_find_replace_routes,
     ocr_length_chart as ocr_length_chart_routes,
@@ -264,7 +265,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.86.0",
+        version="0.87.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -471,6 +472,7 @@ def create_app() -> FastAPI:
     app.include_router(settings_api_routes.router)
     app.include_router(phrase_frequency_routes.router)
     app.include_router(dashboard_widgets_routes.router)
+    app.include_router(ocr_emails_routes.router)
 
     return app
 

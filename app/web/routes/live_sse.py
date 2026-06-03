@@ -56,6 +56,7 @@ except ImportError:  # pragma: no cover
     EventSourceResponse = None
 
 log = get_logger("persona.sse")
+live_count_log = get_logger("persona.live_count")
 
 router = APIRouter(prefix="", tags=["live-sse"])
 
@@ -158,10 +159,31 @@ async def _ocr_pending_count() -> int:
     return int(row["n"]) if row else 0
 
 
+async def _total_shots_count() -> int:
+    """All-time screenshot count powering the dashboard live-count widget.
+
+    The widget (v0.87) shows the running total of every shot ever
+    captured, refreshed on the same two-second status tick as the
+    header pill. A failed read returns ``0`` so the dashboard tile
+    never goes blank on a transient hiccup — the next tick will
+    correct it.
+    """
+    try:
+        async with get_connection() as conn:
+            cursor = await conn.execute("SELECT COUNT(*) AS n FROM screenshots")
+            row = await cursor.fetchone()
+    except Exception as exc:  # pragma: no cover — best-effort read
+        live_count_log.warning("total_shots_failed", error=str(exc))
+        return 0
+    return int(row["n"]) if row else 0
+
+
 async def _build_status_snapshot() -> dict[str, Any]:
     controller = get_controller()
     today_shots = await _today_shots_count()
     ocr_pending = await _ocr_pending_count()
+    total_shots = await _total_shots_count()
+    live_count_log.debug("status_snapshot", total_shots=total_shots)
     return {
         "type": "status",
         "payload": {
@@ -171,6 +193,7 @@ async def _build_status_snapshot() -> dict[str, Any]:
                 iso(controller.last_capture_at) if controller.last_capture_at else None
             ),
             "today_shots": today_shots,
+            "total_shots": total_shots,
         },
     }
 

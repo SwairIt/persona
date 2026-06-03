@@ -52,23 +52,33 @@
 
 <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
   <h2 class="text-lg font-semibold mb-3">Issue a new token</h2>
-  <form action="/settings/api-tokens" method="post" class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
-    <label class="flex flex-col gap-1 md:col-span-2">
+  <form action="/settings/api-tokens" method="post" class="space-y-4">
+    <label class="flex flex-col gap-1">
       <span class="text-xs uppercase tracking-widest text-zinc-500">Name</span>
       <input type="text" name="name" required
              placeholder="e.g. macbook-cli, browser-extension, dashboards"
              class="px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
     </label>
-    <label class="flex flex-col gap-1">
-      <span class="text-xs uppercase tracking-widest text-zinc-500">Scopes</span>
-      <select name="scopes"
-              class="px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono">
+    <fieldset class="flex flex-col gap-2">
+      <legend class="text-xs uppercase tracking-widest text-zinc-500 mb-1">Scopes</legend>
+      <p class="text-xs text-zinc-500">
+        Pick what this token may do. <code class="font-mono">admin:bulk</code> implies every
+        <code class="font-mono">write:*</code>, and any <code class="font-mono">write:*</code>
+        implies <code class="font-mono">read</code> &mdash; you don&rsquo;t need to tick those
+        manually. If you tick nothing, the token defaults to <code class="font-mono">read</code>.
+      </p>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
         {% for scope in allowed_scopes %}
-          <option value="{{ scope }}">{{ scope }}</option>
+          <label class="flex items-center gap-2 px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono cursor-pointer hover:border-accent-500">
+            <input type="checkbox" name="scopes" value="{{ scope }}"
+                   {% if scope == 'read' %}checked{% endif %}
+                   class="accent-accent-500">
+            <span>{{ scope }}</span>
+          </label>
         {% endfor %}
-      </select>
-    </label>
-    <div class="md:col-span-3 flex justify-end">
+      </div>
+    </fieldset>
+    <div class="flex justify-end">
       <button type="submit"
               class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
         Issue token
@@ -134,9 +144,11 @@
   <pre class="font-mono bg-ink-900 border border-ink-700 rounded p-3 overflow-x-auto"><code>curl -H "Authorization: Bearer &lt;your-token&gt;" \
      http://127.0.0.1:8765/api/screenshots/recent</code></pre>
   <p>
-    The <code class="font-mono">scopes</code> string is currently advisory &mdash; individual
-    routes will start enforcing it in future versions. Issue read-only tokens by default
-    and only upgrade to <code class="font-mono">read,write</code> when a specific client needs it.
+    Scopes are enforced per-route via <code class="font-mono">check_scope</code>. Issue
+    read-only tokens by default; add narrow <code class="font-mono">write:*</code> scopes
+    only for the resources a client actually needs, and keep
+    <code class="font-mono">admin:bulk</code> for trusted automation that mutates many
+    records in one shot.
   </p>
 </section>
 

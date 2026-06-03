@@ -109,6 +109,51 @@
            Jinja's autoescape leaves it alone — no ``|safe`` needed and
            non-URL segments stay safely escaped. #}
         <pre class="text-sm font-mono text-zinc-200 whitespace-pre-wrap leading-relaxed">{{ shot.ocr_text | linkify_urls }}</pre>
+        {# v0.87 feature 2/3 — lazy-loaded email chip list.
+           HTMX fires a GET on page load; a tiny inline script parses the
+           JSON, materialises one chip per address, then reveals the host
+           element. The element stays invisible (no border, no padding)
+           until at least one email is rendered, so OCR text without any
+           addresses doesn't leave a dangling "Emails:" label behind. #}
+        <div id="ocr-emails-{{ shot.id }}"
+             class="mt-3 hidden text-xs"
+             data-shot-id="{{ shot.id }}"
+             hx-get="/api/screenshot/{{ shot.id }}/emails.json"
+             hx-trigger="load"
+             hx-swap="none"
+             aria-live="polite"></div>
+        <script>
+          (function () {
+            const host = document.getElementById('ocr-emails-{{ shot.id }}');
+            if (!host || host.dataset.bound === '1') return;
+            host.dataset.bound = '1';
+            function escapeHtml(s) {
+              return String(s).replace(/[&<>"']/g, c => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+              }[c]));
+            }
+            host.addEventListener('htmx:afterRequest', (e) => {
+              if (!e.detail.successful) return;
+              let payload = {};
+              try { payload = JSON.parse(e.detail.xhr.responseText); } catch (_) { payload = {}; }
+              const emails = Array.isArray(payload.emails) ? payload.emails : [];
+              if (!emails.length) return;
+              const chips = emails.map(addr =>
+                '<a href="/search?q=' + encodeURIComponent(addr) + '" ' +
+                  'class="px-2 py-0.5 rounded-full bg-accent-600/15 text-accent-300 ' +
+                  'hover:bg-accent-600/25 border border-accent-600/30 font-mono break-all">' +
+                  escapeHtml(addr) +
+                '</a>'
+              ).join('');
+              host.innerHTML =
+                '<div class="flex flex-wrap items-center gap-1.5">' +
+                  '<span class="text-zinc-500 uppercase tracking-widest">Emails:</span>' +
+                  chips +
+                '</div>';
+              host.classList.remove('hidden');
+            });
+          })();
+        </script>
       </section>
     {% endif %}
 

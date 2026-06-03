@@ -4,13 +4,16 @@
  * with a single Server-Sent Events connection at /events.
  *
  * Server contract (see app/web/routes/live_sse.py):
- *   - "status"    -> {capture_running, ocr_pending, last_capture_at, today_shots}
+ *   - "status"    -> {capture_running, ocr_pending, last_capture_at,
+ *                     today_shots, total_shots}
  *   - "heartbeat" -> {worker_name, last_run_at}
  *
  * DOM contract:
  *   #status-pill              — root element, gets data-state="capturing|paused"
  *   #status-pill-shots        — text count of today's screenshots
  *   #status-pill-heartbeat-dot — pulses green for ~600ms when a worker beats
+ *   #total-shots-count        — v0.87 dashboard live-count widget; updated
+ *                                from payload.total_shots when present
  *
  * The script is a no-op in browsers without EventSource (very old IE /
  * locked-down embeds). It reconnects with exponential backoff after an
@@ -57,6 +60,12 @@
     var shots = $("status-pill-shots");
     if (shots && typeof payload.today_shots === "number") {
       shots.textContent = String(payload.today_shots);
+    }
+    // v0.87 — dashboard live-count widget. Element is optional; only the
+    // dashboard renders it, but the SSE payload is shared by every page.
+    var total = $("total-shots-count");
+    if (total && typeof payload.total_shots === "number") {
+      total.textContent = String(payload.total_shots);
     }
   }
 

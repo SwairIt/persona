@@ -35,10 +35,32 @@ if TYPE_CHECKING:
     import aiosqlite
 
 log = get_logger("persona.api_tokens")
+_scope_log = get_logger("persona.api_tokens.scopes")
 
 # 32 bytes of entropy → ~43-char urlsafe string. Comfortably above the
 # 128-bit threshold and short enough to paste into a curl one-liner.
 _TOKEN_BYTES = 32
+
+# Canonical whitelist of scope strings v0.87 routes know about. The DB
+# column itself stays free-form TEXT so older rows (plain ``read`` or
+# ``read,write``) keep validating, but new tokens minted via the UI are
+# constrained to this set. Order matters only for display.
+ALLOWED_SCOPES: tuple[str, ...] = (
+    "read",
+    "write:tags",
+    "write:notes",
+    "write:annotations",
+    "admin:bulk",
+)
+
+# Legacy tokens stored ``read,write`` before v0.87 split write into
+# resource-scoped variants. We expand it on read so old tokens keep
+# behaving like full-write tokens without a migration.
+_LEGACY_WRITE_EXPANSION: tuple[str, ...] = (
+    "write:tags",
+    "write:notes",
+    "write:annotations",
+)
 
 
 class TokenInfo(TypedDict):
@@ -56,15 +78,72 @@ class VerifyResult(TypedDict, total=False):
     """Return shape of :func:`verify_token`.
 
     ``ok`` is always present. When ``True`` the caller also receives
-    ``scopes`` and ``id``; when ``False`` it receives ``reason`` so the
-    middleware can tag the 401 response without leaking *which* check
-    failed to the client.
+    ``scopes`` (parsed list) and ``id``; when ``False`` it receives
+    ``reason`` so the middleware can tag the 401 response without
+    leaking *which* check failed to the client.
     """
 
     ok: bool
-    scopes: str
+    scopes: list[str]
     id: int
     reason: str
+
+
+def parse_scopes(raw: str) -> list[str]:
+    """Split a comma-separated scope string into a deduped, ordered list.
+
+    Whitespace around items is tolerated; blanks are dropped. We *do
+    not* validate against :data:`ALLOWED_SCOPES` here — that's the
+    route layer's job. ``parse_scopes`` is intentionally lenient so the
+    middleware can carry forward whatever the DB already holds, even if
+    a future scope name predates this code.
+    """
+    seen: set[str] = set()
+    out: list[str] = []
+    for part in raw.split(","):
+        item = part.strip()
+        if not item or item in seen:
+            continue
+        # Expand the v0.34 ``write`` alias to its v0.87 components so
+        # ``has_scope(..., "write:tags")`` keeps returning True for old
+        # tokens minted before the split.
+        if item == "write":
+            for expanded in _LEGACY_WRITE_EXPANSION:
+                if expanded not in seen:
+                    seen.add(expanded)
+                    out.append(expanded)
+            continue
+        seen.add(item)
+        out.append(item)
+    return out
+
+
+def has_scope(scopes_list: list[str], required: str) -> bool:
+    """Return True if ``scopes_list`` satisfies ``required``.
+
+    Hierarchy (broadest first):
+
+    * ``admin:bulk`` implies every ``write:*`` and ``read``
+    * any ``write:*`` implies ``read``
+    * an exact match always satisfies itself
+
+    The check is deliberately string-based; we don't grow a class
+    hierarchy because the rules fit in five lines and the cost of a
+    misclassified scope (refuse a legit request) is recoverable, while
+    the cost of an over-broad implication (grant a forbidden request)
+    is not.
+    """
+    if not required:
+        return True
+    if required in scopes_list:
+        return True
+    # admin:bulk is the super-scope — implies any write:* and read.
+    if "admin:bulk" in scopes_list and (
+        required == "read" or required.startswith("write:")
+    ):
+        return True
+    # Any write:* implies read.
+    return required == "read" and any(s.startswith("write:") for s in scopes_list)
 
 
 def generate_raw_token() -> str:
@@ -89,6 +168,12 @@ def hash_token(raw: str) -> str:
 async def create_token(name: str, scopes: str = "read") -> str:
     """Mint a new token row and return the **raw** value exactly once.
 
+    ``scopes`` is a comma-separated string (e.g. ``"read,write:tags"``).
+    Unknown items are silently dropped against :data:`ALLOWED_SCOPES`
+    and we always force at least ``read`` so the resulting token can
+    actually do something — minting a token with zero scopes would be
+    a guaranteed footgun for the operator.
+
     The caller is responsible for showing the raw string to the user
     immediately and then discarding it — Persona itself only ever sees
     the hash again after this function returns.
@@ -97,7 +182,21 @@ async def create_token(name: str, scopes: str = "read") -> str:
     if not cleaned_name:
         msg = "token name must not be empty"
         raise ValueError(msg)
-    cleaned_scopes = scopes.strip() or "read"
+
+    requested = parse_scopes(scopes)
+    accepted = [s for s in requested if s in ALLOWED_SCOPES]
+    dropped = [s for s in requested if s not in ALLOWED_SCOPES]
+    if not accepted:
+        accepted = ["read"]
+    cleaned_scopes = ",".join(accepted)
+
+    if dropped:
+        _scope_log.info(
+            "api_token.scope_dropped",
+            name=cleaned_name,
+            dropped=dropped,
+            kept=accepted,
+        )
 
     raw = generate_raw_token()
     digest = hash_token(raw)
@@ -191,14 +290,14 @@ async def verify_token(raw: str) -> VerifyResult:
             return VerifyResult(ok=False, reason="revoked")
 
         token_id = int(row["id"])
-        scopes = str(row["scopes"])
+        scopes_list = parse_scopes(str(row["scopes"]))
         await conn.execute(
             "UPDATE api_token SET last_used_at = datetime('now') WHERE id = ?",
             (token_id,),
         )
         await conn.commit()
 
-    return VerifyResult(ok=True, scopes=scopes, id=token_id)
+    return VerifyResult(ok=True, scopes=scopes_list, id=token_id)
 
 
 async def _fetch_by_hash(

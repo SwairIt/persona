@@ -18,7 +18,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from app.api_tokens import create_token, list_tokens, revoke_token
+from app.api_tokens import ALLOWED_SCOPES, create_token, list_tokens, revoke_token
 from app.audit import log_action
 from app.logging_setup import get_logger
 from app.settings import get_settings
@@ -26,23 +26,32 @@ from app.web.templates_engine import templates
 
 router = APIRouter(tags=["settings"])
 log = get_logger("persona.api_tokens")
+_scope_log = get_logger("persona.api_tokens.scopes")
 
-# Whitelist of scope strings the UI offers. The DB column is free-form
-# TEXT so other writers (CLI scripts, future migrations) can store
-# anything, but the form here keeps the surface area predictable.
-_ALLOWED_SCOPES: tuple[str, ...] = ("read", "read,write")
+# Re-exported so the template / tests can refer to a single source of
+# truth. The actual whitelist lives in :mod:`app.api_tokens`.
+_ALLOWED_SCOPES: tuple[str, ...] = ALLOWED_SCOPES
 
 
 def _normalise_scopes(raw: str) -> str:
-    """Map user input to one of the whitelisted scope strings.
+    """Filter a comma-separated scope string against :data:`ALLOWED_SCOPES`.
 
-    Anything unrecognised falls back to ``read`` — failing closed is the
-    right default for a permissions field.
+    Unknown items are dropped (logged at the model layer); if the
+    whole input ends up empty we fall back to ``read`` so failing closed
+    is the default. The result is itself comma-separated, ready to hand
+    to :func:`create_token`.
     """
-    candidate = raw.strip().lower().replace(" ", "")
-    if candidate in _ALLOWED_SCOPES:
-        return candidate
-    return "read"
+    candidates = [s.strip() for s in raw.split(",")]
+    kept = [s for s in candidates if s in ALLOWED_SCOPES]
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for s in kept:
+        if s not in seen:
+            seen.add(s)
+            deduped.append(s)
+    if not deduped:
+        return "read"
+    return ",".join(deduped)
 
 
 @router.get("/settings/api-tokens", response_class=HTMLResponse)
@@ -75,7 +84,6 @@ async def api_tokens_page(request: Request, new_token: str | None = None) -> HTM
 async def api_tokens_create(
     request: Request,
     name: str = Form(...),
-    scopes: str = Form(default="read"),
 ) -> RedirectResponse:
     """Mint a new token and bounce back with the raw value in the URL.
 
@@ -83,6 +91,12 @@ async def api_tokens_create(
     (no second token will be minted). The raw value is deliberately
     *not* stored in any server-side flash — it lives only on the user's
     screen until they navigate away.
+
+    Scopes arrive either as repeated ``scopes`` checkbox fields (the
+    template's preferred shape) or as a single comma-separated ``scopes``
+    value (kept for curl users and the legacy v0.34 form). Both shapes
+    are funnelled through :func:`_normalise_scopes` so the DB only ever
+    sees whitelisted strings.
     """
     cleaned_name = name.strip()
     if not cleaned_name:
@@ -97,7 +111,14 @@ async def api_tokens_create(
         )
         return RedirectResponse(url="/settings/api-tokens", status_code=303)
 
-    scope_string = _normalise_scopes(scopes)
+    # Read the raw form so we can pick up the *list* of checkbox values
+    # under the same ``scopes`` key — ``Form(default=...)`` would only
+    # surface the last one.
+    form = await request.form()
+    scope_items_raw = form.getlist("scopes")
+    scope_items = [str(item) for item in scope_items_raw]
+    scopes_csv = ",".join(scope_items) if scope_items else "read"
+    scope_string = _normalise_scopes(scopes_csv)
     raw = await create_token(name=cleaned_name, scopes=scope_string)
     # Never log the raw token value — only the name + scopes survive
     # in the audit trail. The raw string lives on the user's screen

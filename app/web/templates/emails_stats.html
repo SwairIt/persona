@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-8 flex flex-wrap items-end justify-between gap-4">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Email mentions</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Email addresses pulled out of OCR text over the last {{ days }} day{{ '' if days == 1 else 's' }}.
+      Counts reflect the number of screenshots each address appears in. Click any
+      address to jump straight into search.
+    </p>
+  </div>
+</div>
+
+{% if items %}
+  <section class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden mb-6">
+    <table class="w-full text-sm">
+      <thead class="bg-ink-900 text-zinc-500 text-xs uppercase tracking-widest">
+        <tr>
+          <th class="text-left px-4 py-2.5 font-medium">Email</th>
+          <th class="text-right px-4 py-2.5 font-medium w-28">Mentions</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-ink-700">
+        {% for item in items %}
+          <tr class="hover:bg-ink-900/60 transition">
+            <td class="px-4 py-2.5">
+              <a href="/search?q={{ item.email | urlencode }}"
+                 class="font-mono text-accent-400 hover:text-accent-300 hover:underline break-all">
+                {{ item.email }}
+              </a>
+            </td>
+            <td class="px-4 py-2.5 text-right tabular-nums text-zinc-300">
+              {{ item.count }}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <div class="grid sm:grid-cols-3 gap-4 mb-8">
+    <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+      <div class="text-xs uppercase tracking-widest text-zinc-500">Unique addresses</div>
+      <div class="text-2xl font-bold mt-1 tabular-nums">{{ items | length }}</div>
+    </div>
+    <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+      <div class="text-xs uppercase tracking-widest text-zinc-500">Most-mentioned</div>
+      <div class="text-2xl font-bold mt-1 truncate font-mono" title="{{ items[0].email }}">
+        {{ items[0].email }}
+        <span class="text-base font-normal text-zinc-500 ml-1">×{{ items[0].count }}</span>
+      </div>
+    </div>
+    <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+      <div class="text-xs uppercase tracking-widest text-zinc-500">Window</div>
+      <div class="text-2xl font-bold mt-1 tabular-nums">{{ days }}
+        <span class="text-base font-normal text-zinc-500">days</span>
+      </div>
+    </div>
+  </div>
+{% else %}
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-10 text-center text-zinc-500">
+    <div class="text-4xl mb-3">@</div>
+    <p>No emails detected in OCR text over the last {{ days }} day{{ '' if days == 1 else 's' }}.</p>
+    <p class="mt-1 text-xs">Capture some screens that show inboxes, signatures, or contact pages — they'll surface here automatically.</p>
+  </section>
+{% endif %}
+{% endblock %}
