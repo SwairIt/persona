@@ -15,6 +15,21 @@
   </div>
 </div>
 
+<form method="get" action="/favourites" class="mb-4 flex items-center gap-2 text-xs">
+  <label for="favourites-sort" class="text-zinc-500 uppercase tracking-wider">Sort by</label>
+  <select id="favourites-sort" name="sort_by"
+          onchange="this.form.submit()"
+          class="px-2 py-1.5 bg-ink-800 border border-ink-700 rounded font-mono text-xs">
+    <option value="captured_at" {% if sort_by == 'captured_at' %}selected{% endif %}>Most recently starred</option>
+    <option value="captured_at_asc" {% if sort_by == 'captured_at_asc' %}selected{% endif %}>Oldest captured first</option>
+    <option value="app_name" {% if sort_by == 'app_name' %}selected{% endif %}>App name (A&ndash;Z)</option>
+    <option value="ocr_length" {% if sort_by == 'ocr_length' %}selected{% endif %}>OCR text length</option>
+  </select>
+  <noscript>
+    <button type="submit" class="px-2 py-1.5 bg-ink-800 border border-ink-700 rounded">apply</button>
+  </noscript>
+</form>
+
 {% if items %}
   <div class="grid gap-4"
        style="grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));">
@@ -69,7 +84,7 @@
   {% if has_prev or has_next %}
     <nav class="mt-8 flex items-center justify-between text-sm">
       {% if has_prev %}
-        <a href="/favourites?page={{ page - 1 }}"
+        <a href="/favourites?page={{ page - 1 }}&amp;sort_by={{ sort_by | urlencode }}"
            class="px-4 py-2 rounded-md bg-ink-800 hover:bg-ink-700 text-zinc-300">
           &larr; Newer stars
         </a>
@@ -78,7 +93,7 @@
       {% endif %}
       <span class="text-xs text-zinc-500 font-mono">page {{ page }} / {{ total_pages }}</span>
       {% if has_next %}
-        <a href="/favourites?page={{ page + 1 }}"
+        <a href="/favourites?page={{ page + 1 }}&amp;sort_by={{ sort_by | urlencode }}"
            class="px-4 py-2 rounded-md bg-ink-800 hover:bg-ink-700 text-zinc-300">
           Older stars &rarr;
         </a>

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timedelta, timezone
 
+from app.app_capture_skip import is_skipped as is_capture_skipped
 from app.capture import (
     capture_all_monitors,
     capture_primary_monitor,
@@ -144,6 +145,11 @@ async def _single_iteration(ctrl: CaptureController) -> float | None:  # noqa: P
 
     window = await asyncio.to_thread(get_active_window)
     if window is not None and not should_capture(window.process_name):
+        ctrl.mark_idle_skip()
+        return idle_seconds
+
+    if window is not None and await is_capture_skipped(window.app_name):
+        log.debug("capture.app_skipped", app=window.app_name)
         ctrl.mark_idle_skip()
         return idle_seconds
 

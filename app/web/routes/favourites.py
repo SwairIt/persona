@@ -21,10 +21,31 @@ if TYPE_CHECKING:
     import aiosqlite
 
 log = get_logger("persona.favourites")
+log_sort = get_logger("persona.grid_sort")
 
 router = APIRouter(tags=["favourites"])
 
 _PAGE_SIZE = 50
+
+# Map whitelisted ``sort_by`` query values to the literal ORDER BY clause
+# they expand into. Keys are validated against this dict before any SQL
+# is built — the resulting clause is a constant string, so no user input
+# is ever interpolated into the query.
+_SORT_CLAUSES: dict[str, str] = {
+    # Default keeps historical behaviour: most recently *starred* first.
+    "captured_at": "f.starred_at DESC",
+    "captured_at_asc": "s.captured_at ASC",
+    "app_name": "(s.app_name IS NULL), s.app_name ASC, s.captured_at DESC",
+    "ocr_length": "COALESCE(LENGTH(s.ocr_text), 0) DESC, s.captured_at DESC",
+}
+_DEFAULT_SORT = "captured_at"
+
+
+def _coerce_sort(value: str | None) -> str:
+    """Reduce arbitrary user input to a whitelisted sort key."""
+    if value and value in _SORT_CLAUSES:
+        return value
+    return _DEFAULT_SORT
 
 
 async def _is_favourited(conn: aiosqlite.Connection, screenshot_id: int) -> bool:
@@ -49,14 +70,23 @@ async def _list_favourites_page(
     *,
     limit: int,
     offset: int,
+    sort_by: str = _DEFAULT_SORT,
 ) -> list[dict[str, Any]]:
     """Return one page of favourites joined to their screenshot row.
 
-    Ordered by starred_at DESC (most recently starred first). Parametrised
-    LIMIT/OFFSET — no string interpolation on user input.
+    The default order is ``starred_at DESC`` (most recently starred
+    first). When ``sort_by`` is supplied the clause is taken verbatim
+    from the :data:`_SORT_CLAUSES` whitelist — unknown values fall back
+    silently. Parametrised LIMIT/OFFSET — no string interpolation on
+    user input ever touches SQL.
     """
+    order_clause = _SORT_CLAUSES.get(sort_by, _SORT_CLAUSES[_DEFAULT_SORT])
+
+    # The ``order_clause`` value is a constant string from the
+    # whitelist above — never user-supplied text — so the literal-
+    # concatenation here is safe by construction.
     cursor = await conn.execute(
-        """
+        f"""
         SELECT
             s.id            AS id,
             s.captured_at   AS captured_at,
@@ -67,9 +97,9 @@ async def _list_favourites_page(
             f.starred_at    AS starred_at
         FROM favourite AS f
         JOIN screenshots AS s ON s.id = f.screenshot_id
-        ORDER BY f.starred_at DESC
+        ORDER BY {order_clause}
         LIMIT ? OFFSET ?
-        """,
+        """,  # noqa: S608
         (limit, offset),
     )
     rows = await cursor.fetchall()
@@ -122,14 +152,17 @@ async def toggle_favourite(screenshot_id: int) -> JSONResponse:
 async def favourites_page(
     request: Request,
     page: int = Query(default=1, ge=1, le=10_000),
+    sort_by: str = Query(default=_DEFAULT_SORT),
 ) -> HTMLResponse:
     """Render the favourites page — 50 most recently starred shots per page."""
     offset = (page - 1) * _PAGE_SIZE
+    sort_key = _coerce_sort(sort_by)
     async with get_connection() as conn:
         items = await _list_favourites_page(
             conn,
             limit=_PAGE_SIZE,
             offset=offset,
+            sort_by=sort_key,
         )
         total = await _count_favourites(conn)
 
@@ -140,6 +173,8 @@ async def favourites_page(
         item_count=len(items),
         total=total,
     )
+    if sort_key != _DEFAULT_SORT:
+        log_sort.info("grid_sort.favourites", sort_by=sort_key, count=len(items))
     return templates.TemplateResponse(
         request,
         "favourites.html",
@@ -153,6 +188,8 @@ async def favourites_page(
             "total_pages": total_pages,
             "has_prev": page > 1,
             "has_next": page < total_pages,
+            "sort_by": sort_key,
+            "sort_options": list(_SORT_CLAUSES.keys()),
         },
     )
 
@@ -160,14 +197,17 @@ async def favourites_page(
 @router.get("/api/favourites.json", response_class=JSONResponse)
 async def favourites_json(
     page: int = Query(default=1, ge=1, le=10_000),
+    sort_by: str = Query(default=_DEFAULT_SORT),
 ) -> JSONResponse:
     """Paginated JSON view of favourites (50/page)."""
     offset = (page - 1) * _PAGE_SIZE
+    sort_key = _coerce_sort(sort_by)
     async with get_connection() as conn:
         items = await _list_favourites_page(
             conn,
             limit=_PAGE_SIZE,
             offset=offset,
+            sort_by=sort_key,
         )
         total = await _count_favourites(conn)
 
@@ -184,6 +224,7 @@ async def favourites_json(
             "page_size": _PAGE_SIZE,
             "total": total,
             "total_pages": total_pages,
+            "sort_by": sort_key,
             "items": items,
         }
     )

@@ -18,7 +18,7 @@
   </p>
 </div>
 
-<form hx-get="/search" hx-target="#results" hx-push-url="true" hx-trigger="submit, keyup changed delay:400ms from:input[name=q], change from:select[name=mode]"
+<form hx-get="/search" hx-target="#results" hx-push-url="true" hx-trigger="submit, keyup changed delay:400ms from:input[name=q], change from:select[name=mode], change from:select[name=sort_by]"
       class="mb-6 space-y-3">
   <div class="flex items-center gap-3">
     <input type="text" name="q" value="{{ query }}"
@@ -54,6 +54,16 @@
         <span class="text-zinc-300">{{ t or 'any' }}</span>
       </label>
     {% endfor %}
+    <span class="ml-auto flex items-center gap-2">
+      <label for="search-sort" class="text-zinc-500 uppercase tracking-wider">Sort by</label>
+      <select id="search-sort" name="sort_by"
+              class="px-2 py-1.5 bg-ink-800 border border-ink-700 rounded font-mono text-xs">
+        <option value="captured_at" {% if sort_by == 'captured_at' %}selected{% endif %}>Newest first</option>
+        <option value="captured_at_asc" {% if sort_by == 'captured_at_asc' %}selected{% endif %}>Oldest first</option>
+        <option value="app_name" {% if sort_by == 'app_name' %}selected{% endif %}>App name (A–Z)</option>
+        <option value="ocr_length" {% if sort_by == 'ocr_length' %}selected{% endif %}>OCR text length</option>
+      </select>
+    </span>
   </div>
 
   {# Facets panel — collapsible <details> so it stays out of the way until needed.

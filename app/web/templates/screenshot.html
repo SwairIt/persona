@@ -4,6 +4,7 @@
 <link rel="stylesheet" href="/static/image_viewer.css">
 <script src="/static/image_viewer.js" defer></script>
 <script src="/static/sticky_notes.js" defer></script>
+<script src="/static/ocr_copy.js" defer></script>
 
 <div class="mb-4 flex items-center justify-between text-sm">
   <div class="flex items-center gap-2">
@@ -58,7 +59,15 @@
 
     {% if shot.ocr_text %}
       <section class="rounded-lg border border-ink-700 bg-ink-800 p-4">
-        <h3 class="text-xs uppercase tracking-widest text-zinc-500 mb-3">OCR text</h3>
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="text-xs uppercase tracking-widest text-zinc-500">OCR text</h3>
+          <button type="button"
+                  data-copy-ocr
+                  data-ocr-text="{{ shot.ocr_text or '' }}"
+                  class="px-3 py-1 text-xs bg-ink-700 hover:bg-ink-600 rounded text-zinc-200">
+            Copy OCR text
+          </button>
+        </div>
         <pre class="text-sm font-mono text-zinc-200 whitespace-pre-wrap leading-relaxed">{{ shot.ocr_text }}</pre>
       </section>
     {% endif %}

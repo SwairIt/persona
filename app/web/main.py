@@ -24,6 +24,7 @@ from app.web.routes import (
     annotations as annotations_routes,
     api_tokens as api_tokens_routes,
     app_aliases as app_aliases_routes,
+    app_capture_skip as app_capture_skip_routes,
     app_groups as app_groups_routes,
     app_icons as app_icons_routes,
     app_icons_admin as app_icons_admin_routes,
@@ -221,7 +222,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.66.0",
+        version="0.67.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -388,6 +389,7 @@ def create_app() -> FastAPI:
     app.include_router(search_autocomplete_routes.router)
     app.include_router(sticky_export_routes.router)
     app.include_router(push_notif_routes.router)
+    app.include_router(app_capture_skip_routes.router)
 
     return app
 

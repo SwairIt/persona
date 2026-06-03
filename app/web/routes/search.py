@@ -26,8 +26,60 @@ from app.storage.search_history import clear_history, list_recent, record_query
 from app.web.templates_engine import templates
 
 log = get_logger("persona.search.facets")
+log_sort = get_logger("persona.grid_sort")
 
 router = APIRouter(tags=["search"])
+
+# Whitelist of allowed ``sort_by`` query values. Hits come back from the
+# merge step as in-memory dicts, so we sort in Python — no SQL involved,
+# which means the whitelist is the only guard we need against bogus
+# values (e.g., URL fuzzing).
+_SORT_OPTIONS: tuple[str, ...] = (
+    "captured_at",
+    "captured_at_asc",
+    "app_name",
+    "ocr_length",
+)
+_DEFAULT_SORT = "captured_at"
+
+
+def _coerce_sort(value: str | None) -> str:
+    """Reduce arbitrary user input to a whitelisted sort key."""
+    if value and value in _SORT_OPTIONS:
+        return value
+    return _DEFAULT_SORT
+
+
+def _sort_hits(hits: list[dict[str, Any]], sort_key: str) -> list[dict[str, Any]]:
+    """Re-order merged search hits by a whitelisted field."""
+    if sort_key == _DEFAULT_SORT:
+        return hits
+
+    def captured_key(h: dict[str, Any]) -> str:
+        raw = h.get("captured_at")
+        return str(raw) if raw is not None else ""
+
+    if sort_key == "captured_at_asc":
+        return sorted(hits, key=captured_key)
+    if sort_key == "app_name":
+        return sorted(
+            hits,
+            key=lambda h: (
+                # NULL/missing app_name sinks to the bottom of an ASC sort.
+                h.get("app_name") is None,
+                str(h.get("app_name") or ""),
+                captured_key(h),
+            ),
+        )
+    if sort_key == "ocr_length":
+        # ``snippet`` is the only OCR-derived text we keep on the hit
+        # dict; fall back to 0 when it's missing. Sort longest-first.
+        return sorted(
+            hits,
+            key=lambda h: (len(str(h.get("snippet") or "")), captured_key(h)),
+            reverse=True,
+        )
+    return hits
 
 
 @router.get("/search", response_class=HTMLResponse)
@@ -44,10 +96,12 @@ async def search_page(
     tag: Annotated[list[str] | None, Query()] = None,
     min_w: int | None = Query(default=None, ge=1),
     min_h: int | None = Query(default=None, ge=1),
+    sort_by: str = Query(default=_DEFAULT_SORT),
 ) -> HTMLResponse:
     """Render search page with optional tier / tag / app / date / size post-filters."""
     since_dt = _parse_iso_or_none(since)
     until_dt = _parse_iso_or_none(until)
+    sort_key = _coerce_sort(sort_by)
 
     # Normalise repeatable ``?tag=`` query params: drop blanks, dedupe,
     # preserve order so the template can faithfully echo what the user
@@ -128,6 +182,10 @@ async def search_page(
             remaining=len(hits),
         )
 
+    if hits and sort_key != _DEFAULT_SORT:
+        hits = _sort_hits(hits, sort_key)
+        log_sort.info("grid_sort.search", sort_by=sort_key, count=len(hits))
+
     is_htmx = request.headers.get("HX-Request") == "true"
     template_name = "_search_results.html" if is_htmx else "search.html"
 
@@ -149,6 +207,8 @@ async def search_page(
             "tags": tags,
             "min_w": min_w,
             "min_h": min_h,
+            "sort_by": sort_key,
+            "sort_options": _SORT_OPTIONS,
             "hits": hits,
             "total": len(hits),
             "embeddings_enabled": settings.embeddings_enabled,
