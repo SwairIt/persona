@@ -34,6 +34,7 @@ Subcommands:
     tag-orphans        List tag names with zero linked screenshots.
     tag-prune-orphans  Delete every tag with zero linked screenshots.
     tag-untag-old      Remove a tag from shots captured before now-Ndays (--tag NAME --days N).
+    thumb-regen        Clear dangling thumbnail_path entries (--limit N).
 """
 
 from __future__ import annotations
@@ -86,6 +87,7 @@ from app.storage.size_log import sample_today, today_bytes
 from app.storage.thumbnails import save_thumbnail
 from app.storage.time import iso, parse_iso
 from app.tag_cleanup import find_orphan_tags, purge_orphan_tags, untag_older_than
+from app.thumb_regen import regen_missing
 from app.web.routes.annotations_ndjson import _iter_annotations_ndjson
 from app.web.routes.share_visits_csv import _render_share_visits_csv
 from app.web.routes.sticky_export import _fetch_all_stickies
@@ -1252,6 +1254,26 @@ async def _cmd_tag_untag_old(tag_name: str, days: int) -> int:
     return 0
 
 
+async def _cmd_thumb_regen(limit: int) -> int:
+    """Scan up to ``limit`` rows and clear dangling ``thumbnail_path`` entries.
+
+    Thin wrapper over :func:`app.thumb_regen.regen_missing` that prints the
+    tally the admin route also returns as JSON. ``--limit`` is validated up
+    front so a negative or zero value bails before we touch SQLite — the
+    underlying helper clamps to 1 defensively, but the operator deserves a
+    clearer error than a silent floor-clamp.
+    """
+    if limit < 1:
+        print(f"error: --limit must be >= 1, got {limit}", file=sys.stderr)
+        return 2
+
+    result = await regen_missing(limit=limit)
+    print(f"Scanned:     {result['scanned']}")
+    print(f"Regenerated: {result['regenerated']}")
+    print(f"Failed:      {result['failed']}")
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:  # noqa: PLR0915 — flat subparser table
     parser = argparse.ArgumentParser(
         prog="persona",
@@ -1884,6 +1906,21 @@ def _build_parser() -> argparse.ArgumentParser:  # noqa: PLR0915 — flat subpar
         help="Cutoff window in days; shots older than this lose the tag.",
     )
 
+    thumb_regen_parser = sub.add_parser(
+        "thumb-regen",
+        help=(
+            "Scan screenshots whose thumbnail_path no longer resolves to a "
+            "file on disk and clear the dangling pointer."
+        ),
+    )
+    thumb_regen_parser.add_argument(
+        "--limit",
+        dest="limit",
+        type=int,
+        default=500,
+        help="Maximum number of rows to scan in one batch (default: 500).",
+    )
+
     return parser
 
 
@@ -1963,6 +2000,8 @@ async def _run(args: argparse.Namespace) -> int:  # noqa: PLR0911, PLR0912 — d
         return await _cmd_tag_prune_orphans()
     if args.command == "tag-untag-old":
         return await _cmd_tag_untag_old(args.tag_name, args.days)
+    if args.command == "thumb-regen":
+        return await _cmd_thumb_regen(args.limit)
 
     print(f"error: unknown command {args.command!r}", file=sys.stderr)
     return 2

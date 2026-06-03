@@ -22,6 +22,55 @@
 </div>
 
 {% if entries %}
+  <div class="flex items-center justify-end gap-2 mb-4">
+    <button type="button"
+            id="recycle-restore-all"
+            class="px-3 py-1.5 bg-rose-700 hover:bg-rose-600 rounded text-xs font-medium transition">
+      Restore all
+    </button>
+    <button type="button"
+            id="recycle-purge-all"
+            class="px-3 py-1.5 bg-rose-700 hover:bg-rose-600 rounded text-xs font-medium transition">
+      Purge all
+    </button>
+  </div>
+  <script>
+    (function () {
+      // Vanilla JS confirm() — both endpoints require ?confirm=1, so a
+      // click that survives the dialog POSTs a tiny form. We build the
+      // form inline rather than rendering hidden ones in the DOM so the
+      // page stays plain a11y-wise (just two buttons + a table).
+      function postWithConfirm(url, message) {
+        if (!window.confirm(message)) {
+          return;
+        }
+        var form = document.createElement('form');
+        form.method = 'POST';
+        form.action = url;
+        document.body.appendChild(form);
+        form.submit();
+      }
+      var restoreBtn = document.getElementById('recycle-restore-all');
+      if (restoreBtn) {
+        restoreBtn.addEventListener('click', function () {
+          postWithConfirm(
+            '/recycle/restore-all?confirm=1',
+            'Restore every item in the recycle bin? This cannot be undone.'
+          );
+        });
+      }
+      var purgeBtn = document.getElementById('recycle-purge-all');
+      if (purgeBtn) {
+        purgeBtn.addEventListener('click', function () {
+          postWithConfirm(
+            '/recycle/purge-all?confirm=1',
+            'Permanently purge every item in the recycle bin? This cannot be undone.'
+          );
+        });
+      }
+    })();
+  </script>
+
   <div class="rounded-lg border border-ink-700 bg-ink-800 overflow-x-auto">
     <table class="w-full text-sm">
       <thead class="bg-ink-900 text-zinc-500 text-xs uppercase tracking-wider">

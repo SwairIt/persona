@@ -199,6 +199,7 @@ from app.web.routes import (
     theme as theme_routes,
     topics as topics_routes,
     thumb_dedup as thumb_dedup_routes,
+    thumb_regen as thumb_regen_routes,
     thumbnails as thumbnails_routes,
     time_on_app as time_on_app_routes,
     timeline,
@@ -257,7 +258,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.83.0",
+        version="0.84.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -457,6 +458,7 @@ def create_app() -> FastAPI:
     app.include_router(stickers_gallery_routes.router)
     app.include_router(share_collection_zip_routes.router)
     app.include_router(slack_summary_routes.router)
+    app.include_router(thumb_regen_routes.router)
 
     return app
 

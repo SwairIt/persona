@@ -42,10 +42,22 @@ from app.web.templates_engine import templates
 router = APIRouter(tags=["recycle"])
 log = get_logger("persona.web.recycle")
 share_log = get_logger("persona.recycle.share")
+batch_log = get_logger("persona.recycle.batch")
 
 # Bin listing cap — high enough to expose a reasonable backlog without
 # letting a request page through tens of thousands of rows at once.
 _LIST_LIMIT = 200
+
+# Per-batch ceiling for restore-all. We iterate ``list_bin`` in pages
+# rather than yanking every row into memory at once: this keeps a giant
+# backlog (post-bulk-delete) from blowing the request's working set, and
+# matches the listing cap so behaviour stays uniform with the UI.
+_BATCH_PAGE = 200
+
+# Hard ceiling on a single batch request to keep a single click from
+# walking a runaway backlog. Anything beyond this needs another click —
+# we deliberately do not loop until ``list_bin`` is empty.
+_BATCH_MAX_ROWS = 5000
 
 # Restore-share token tunables. The TTL is intentionally short — a
 # share-restore link is meant to be forwarded once and used immediately;
@@ -225,6 +237,124 @@ async def recycle_purge(recycle_id: int) -> RedirectResponse:
         "recycle.purge",
         target=str(recycle_id),
         detail=f"purged_in_batch={purged}",
+    )
+    return RedirectResponse(url="/recycle", status_code=303)
+
+
+@router.post("/recycle/restore-all")
+async def recycle_restore_all(confirm: int = 0) -> RedirectResponse:
+    """Pull every row in the bin back into its original table.
+
+    Requires ``?confirm=1`` so a stray fetch (browser prefetch, link
+    follower) cannot empty the bin by accident — the template wires the
+    flag through a vanilla JS ``confirm()`` dialog.
+
+    Walks the bin in pages of ``_BATCH_PAGE`` rather than loading every
+    row at once, and stops at ``_BATCH_MAX_ROWS`` so a single click
+    cannot consume an unbounded amount of work. Individual restore
+    failures are counted but do not abort the batch — one corrupt row
+    should not strand the rest in the bin.
+    """
+    if confirm != 1:
+        batch_log.warning("restore_all.unconfirmed")
+        await log_action(
+            "recycle.restore_all",
+            detail="missing confirm",
+            success=False,
+        )
+        raise HTTPException(status_code=400, detail="confirm=1 query param required")
+
+    restored = 0
+    failed = 0
+    while restored + failed < _BATCH_MAX_ROWS:
+        entries = await list_bin(limit=_BATCH_PAGE)
+        if not entries:
+            break
+        progressed = False
+        for entry in entries:
+            if restored + failed >= _BATCH_MAX_ROWS:
+                break
+            try:
+                ok = await restore(entry["id"])
+            except Exception:
+                # Keep the batch alive on per-row failure — one corrupt
+                # row should not strand the rest of the bin.
+                batch_log.exception("restore_all.row_failed", recycle_id=entry["id"])
+                failed += 1
+                progressed = True
+                continue
+            if ok:
+                restored += 1
+                progressed = True
+            else:
+                # Row vanished between the listing and the restore call
+                # (concurrent purge / share-restore). Skip it and move on.
+                failed += 1
+                progressed = True
+        if not progressed:
+            # Defensive: every row in the page refused to advance, which
+            # should be impossible given the branches above. Bail out
+            # rather than spin forever.
+            break
+
+    batch_log.info("restore_all", restored=restored, failed=failed)
+    await log_action(
+        "recycle.restore_all",
+        target="*",
+        detail=f"restored={restored} failed={failed}",
+        success=failed == 0,
+    )
+    return RedirectResponse(url="/recycle", status_code=303)
+
+
+@router.post("/recycle/purge-all")
+async def recycle_purge_all(confirm: int = 0) -> RedirectResponse:
+    """Hard-delete every row currently in the bin.
+
+    Requires ``?confirm=1`` for the same reason as ``restore-all`` — a
+    stray request must not nuke the bin. Implementation reuses
+    :func:`app.recycle.purge_expired` exactly like the per-row purge
+    endpoint: backdate every row's ``deleted_at`` so the existing
+    retention path treats the entire bin as expired, then call
+    ``purge_expired(retention_days=1)`` once. That keeps the on-disk
+    thumbnail unlink + storage-savings credit in a single place.
+    """
+    if confirm != 1:
+        batch_log.warning("purge_all.unconfirmed")
+        await log_action(
+            "recycle.purge_all",
+            detail="missing confirm",
+            success=False,
+        )
+        raise HTTPException(status_code=400, detail="confirm=1 query param required")
+
+    async with get_connection() as conn:
+        cursor = await conn.execute("SELECT COUNT(*) AS n FROM recycle_bin")
+        count_row = await cursor.fetchone()
+        total = int(count_row["n"]) if count_row is not None else 0
+        if total == 0:
+            batch_log.info("purge_all.empty")
+            await log_action(
+                "recycle.purge_all",
+                target="*",
+                detail="empty bin",
+            )
+            return RedirectResponse(url="/recycle", status_code=303)
+        ancient = (datetime.now(UTC) - timedelta(days=3650)).strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
+        await conn.execute(
+            "UPDATE recycle_bin SET deleted_at = ?",
+            (ancient,),
+        )
+        await conn.commit()
+
+    bytes_freed = await purge_expired(retention_days=1)
+    batch_log.info("purge_all", rows=total, bytes_freed=bytes_freed)
+    await log_action(
+        "recycle.purge_all",
+        target="*",
+        detail=f"rows={total} bytes_freed={bytes_freed}",
     )
     return RedirectResponse(url="/recycle", status_code=303)
 
