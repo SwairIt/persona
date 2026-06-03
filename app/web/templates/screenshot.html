@@ -3,6 +3,7 @@
 {% block content %}
 <link rel="stylesheet" href="/static/image_viewer.css">
 <script src="/static/image_viewer.js" defer></script>
+<script src="/static/sticky_notes.js" defer></script>
 
 <div class="mb-4 flex items-center justify-between text-sm">
   <div class="flex items-center gap-2">
@@ -36,13 +37,18 @@
   <div class="lg:col-span-2 space-y-4">
     {% if shot.thumbnail_path %}
       {% set thumb_src = shot.thumbnail_path | thumbnail_url %}
-      <div class="zoom-wrapper rounded-lg border border-ink-700 bg-ink-900"
-           data-lightbox-src="{{ thumb_src }}">
-        <img src="{{ thumb_src }}"
-             alt="Screenshot #{{ shot.id }}"
-             data-zoomable
-             draggable="false"
-             class="w-full object-contain block">
+      <div class="sticky-host relative"
+           data-sticky-host="1"
+           data-shot-id="{{ shot.id }}"
+           style="position: relative;">
+        <div class="zoom-wrapper rounded-lg border border-ink-700 bg-ink-900"
+             data-lightbox-src="{{ thumb_src }}">
+          <img src="{{ thumb_src }}"
+               alt="Screenshot #{{ shot.id }}"
+               data-zoomable
+               draggable="false"
+               class="w-full object-contain block">
+        </div>
       </div>
     {% else %}
       <div class="aspect-video flex items-center justify-center text-zinc-500 bg-ink-900 rounded-lg border border-ink-700">

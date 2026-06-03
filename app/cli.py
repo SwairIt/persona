@@ -9,6 +9,7 @@ Subcommands:
     vacuum-db          Run SQLite VACUUM and report the freed bytes.
     ocr-status         OCR pipeline counts (pending / done / skipped / failed).
     reset-ocr          Mass-reset OCR statuses back to pending (--scope skipped|failed|all).
+    ocr-reindex        Force every shot back to pending (optional --app NAME, --days N).
     capture            Take a single screenshot now (optional --app NAME, --quiet).
     doctor             Run a diagnostic battery (PASS / WARN / FAIL) for triage.
     tag                Bulk-apply a tag to every screenshot matching an FTS5 query.
@@ -58,6 +59,7 @@ from app.dedup import compute_phash, find_or_create_dedup_group
 from app.diagnostics import run_doctor
 from app.diagnostics_bundle import build_diag_bundle
 from app.logging_setup import configure_logging
+from app.ocr_force_reindex import count_candidates, wipe_and_requeue
 from app.ocr_txt_export import export_day_ocr_txt
 from app.pdf_export import export_day_pdf
 from app.search import search as fts_search
@@ -425,6 +427,45 @@ async def _cmd_reset_ocr(scope: str) -> int:
 
     print(f"Scope:    {label}")
     print(f"Reset:    {affected} row(s) → pending")
+    return 0
+
+
+async def _cmd_ocr_reindex(
+    app_filter: str | None,
+    days_back: int | None,
+    confirm: bool,
+) -> int:
+    """Force-reset OCR rows back to pending; dry-run unless ``confirm``.
+
+    The dry-run path prints the candidate count and the filter summary so
+    the operator can sanity-check the blast radius before re-running with
+    ``--confirm``. The destructive path delegates to
+    :func:`app.ocr_force_reindex.wipe_and_requeue` and the existing OCR
+    worker takes it from there.
+    """
+    if days_back is not None and days_back < 1:
+        print(f"error: --days must be >= 1, got {days_back}", file=sys.stderr)
+        return 2
+    if app_filter is not None and not app_filter.strip():
+        print("error: --app must not be empty", file=sys.stderr)
+        return 2
+
+    cleaned_app = app_filter.strip() if app_filter is not None else None
+    filter_label = cleaned_app if cleaned_app else "(all apps)"
+    window_label = f"last {days_back} day(s)" if days_back is not None else "(all time)"
+
+    if not confirm:
+        candidates = await count_candidates(cleaned_app, days_back)
+        print(f"App:        {filter_label}")
+        print(f"Window:     {window_label}")
+        print(f"Candidates: {candidates}")
+        print("Re-run with --confirm to wipe OCR status and re-queue.")
+        return 0
+
+    affected = await wipe_and_requeue(cleaned_app, days_back)
+    print(f"App:      {filter_label}")
+    print(f"Window:   {window_label}")
+    print(f"Requeued: {affected} row(s) → pending")
     return 0
 
 
@@ -1087,6 +1128,33 @@ def _build_parser() -> argparse.ArgumentParser:  # noqa: PLR0915 — flat subpar
         help="Which bucket to flip back to pending (default: all).",
     )
 
+    ocr_reindex_parser = sub.add_parser(
+        "ocr-reindex",
+        help=(
+            "Force every matching screenshot back to pending so the OCR worker "
+            "re-reads it from scratch (dry-run unless --confirm)."
+        ),
+    )
+    ocr_reindex_parser.add_argument(
+        "--app",
+        dest="app_filter",
+        default=None,
+        help="Restrict the reset to one app_name (exact match).",
+    )
+    ocr_reindex_parser.add_argument(
+        "--days",
+        dest="days_back",
+        type=int,
+        default=None,
+        help="Lookback window in days (default: no time bound).",
+    )
+    ocr_reindex_parser.add_argument(
+        "--confirm",
+        dest="confirm",
+        action="store_true",
+        help="Actually reset (without this flag the command is a dry-run).",
+    )
+
     capture_parser = sub.add_parser(
         "capture",
         help="Take a single screenshot now (bypasses the capture loop schedule).",
@@ -1515,6 +1583,8 @@ async def _run(args: argparse.Namespace) -> int:  # noqa: PLR0911, PLR0912 — d
         return await _cmd_ocr_status()
     if args.command == "reset-ocr":
         return await _cmd_reset_ocr(args.scope)
+    if args.command == "ocr-reindex":
+        return await _cmd_ocr_reindex(args.app_filter, args.days_back, args.confirm)
     if args.command == "capture":
         return await _cmd_capture(args.app, args.quiet)
     if args.command == "doctor":

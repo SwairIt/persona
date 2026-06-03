@@ -37,6 +37,7 @@ from app.logging_setup import get_logger
 from app.storage.db import get_connection
 from app.storage.webhooks import list_webhooks, record_delivery
 from app.webhook_filters import should_fire
+from app.webhook_retry import enqueue as enqueue_retry
 from app.webhook_signing import ensure_secret, sign_payload
 
 log = get_logger("persona.webhook.sign")
@@ -104,7 +105,7 @@ async def _do_dispatch(event_type: str, payload: dict[str, Any]) -> None:
     body_bytes = json.dumps(body_obj, ensure_ascii=False).encode("utf-8")
 
     async with httpx.AsyncClient(timeout=10.0) as client:
-        tasks = [_post_one(client, sub, body_bytes, ts) for sub in subs]
+        tasks = [_post_one(client, sub, body_bytes, ts, event_type) for sub in subs]
         await asyncio.gather(*tasks, return_exceptions=True)
 
 
@@ -127,6 +128,7 @@ async def _post_one(
     sub: dict[str, Any],
     body: bytes,
     ts: str,
+    event_type: str,
 ) -> None:
     sub_id = int(sub["id"])
     url = str(sub["url"])
@@ -140,12 +142,29 @@ async def _post_one(
 
     try:
         response = await client.post(url, content=body, headers=headers)
-        async with get_connection() as conn:
-            await record_delivery(conn, sub_id, status_code=response.status_code)
     except (httpx.HTTPError, TimeoutError) as exc:
+        # Transport-layer failure (DNS, TCP reset, TLS handshake,
+        # read timeout). The receiver never got a chance to answer —
+        # queue the envelope so the retry worker can replay it.
         async with get_connection() as conn:
             await record_delivery(conn, sub_id, status_code=0, error=str(exc)[:200])
         log.warning("webhook.sign.delivery_failed", url=url, error=str(exc))
+        await enqueue_retry(sub_id, event_type, body)
+        return
+
+    async with get_connection() as conn:
+        await record_delivery(conn, sub_id, status_code=response.status_code)
+
+    if 500 <= response.status_code < 600:
+        # Receiver answered but is broken (overloaded, deploy in
+        # progress, etc.). Replaying is reasonable; 4xx is terminal
+        # so we deliberately don't queue those.
+        log.warning(
+            "webhook.sign.server_error",
+            url=url,
+            status=response.status_code,
+        )
+        await enqueue_retry(sub_id, event_type, body)
 
 
 async def dispatch_test(webhook_id: int, event_type: str | None = None) -> dict[str, Any]:

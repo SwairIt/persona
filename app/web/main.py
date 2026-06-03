@@ -151,6 +151,7 @@ from app.web.routes import (
     stats_csv as stats_csv_routes,
     storage_report as storage_report_routes,
     storage_savings as storage_savings_routes,
+    sticky_notes as sticky_notes_routes,
     streak as streak_routes,
     summary as summary_routes,
     tag_colour as tag_colour_routes,
@@ -178,6 +179,7 @@ from app.workers import (
     run_clipboard_worker,
     run_daily_email_scheduler,
     run_saved_search_alert_worker,
+    run_webhook_retry_worker,
     run_weekly_stats_email_scheduler,
     run_inbox_worker,
     run_digest_scheduler,
@@ -214,7 +216,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.63.0",
+        version="0.64.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -375,6 +377,7 @@ def create_app() -> FastAPI:
     app.include_router(bulk_pin_routes.router)
     app.include_router(ocr_error_rate_routes.router)
     app.include_router(app_groups_routes.router)
+    app.include_router(sticky_notes_routes.router)
 
     return app
 
@@ -397,6 +400,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         asyncio.create_task(run_daily_email_scheduler(controller), name="daily-email-scheduler"),
         asyncio.create_task(run_saved_search_alert_worker(controller), name="saved-search-alert"),
         asyncio.create_task(run_weekly_stats_email_scheduler(controller), name="weekly-stats-email"),
+        asyncio.create_task(run_webhook_retry_worker(controller), name="webhook-retry"),
     ]
 
     controller.pause()
