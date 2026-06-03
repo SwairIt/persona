@@ -69,6 +69,29 @@
   </section>
 
   <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
+    <div class="mb-3 flex items-start justify-between gap-4">
+      <div>
+        <h2 class="text-lg font-semibold">Framed image</h2>
+        <p class="text-xs text-zinc-500 mt-1">
+          Download this screenshot wrapped in a macOS-style window
+          chrome (traffic lights + URL bar) &mdash; ideal for posting
+          to Telegram, Slack, or X without leaking Persona&rsquo;s
+          admin chrome. The image is a regular PNG, no signed URL
+          required.
+        </p>
+      </div>
+      <a href="/api/screenshot/{{ shot.id }}/frame.png?style=mac"
+         target="_blank" rel="noopener"
+         class="shrink-0 px-3 py-2 bg-accent-700 hover:bg-accent-600 rounded text-xs font-medium whitespace-nowrap">
+        Download framed PNG
+      </a>
+    </div>
+    <p class="text-[11px] text-zinc-600 mt-2 font-mono break-all">
+      Endpoint: /api/screenshot/{{ shot.id }}/frame.png?style=mac
+    </p>
+  </section>
+
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
     <div class="mb-3">
       <h2 class="text-lg font-semibold">Embed code</h2>
       <p class="text-xs text-zinc-500 mt-1">

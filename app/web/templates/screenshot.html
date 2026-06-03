@@ -5,6 +5,10 @@
 <script src="/static/image_viewer.js" defer></script>
 <script src="/static/sticky_notes.js" defer></script>
 <script src="/static/ocr_copy.js" defer></script>
+{# v0.72 feature 1/3 — ?highlight=keyword draws translucent yellow boxes
+   over OCR word bboxes whose text matches. Self-contained, silent no-op
+   when the param is missing or words.json has no rows. #}
+<script src="/static/ocr_highlight.js" defer></script>
 
 <div class="mb-4 flex items-center justify-between text-sm">
   <div class="flex items-center gap-2">

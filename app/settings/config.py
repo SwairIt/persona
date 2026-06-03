@@ -55,6 +55,17 @@ class Settings(BaseSettings):
     weekly_stats_email_enabled: bool = Field(default=False)
     weekly_stats_email_hour_local: int = Field(default=9, ge=0, le=23)
 
+    # v0.72 — day-end auto-summary. When True, a 30-min polling worker
+    # generates today's ``day_tldr`` row a bit before midnight so the
+    # next morning's ``/timeline/{day}`` and ``/digest`` loads do not
+    # have to wait on a synchronous LLM call. ``hour_local`` is the
+    # local hour after which (specifically: at HH:30) the worker may
+    # fire — default 23, i.e. the TL;DR is primed after 23:30 local.
+    # The underlying ``summarise_day_tldr`` is idempotent so duplicate
+    # ticks within the window are no-ops.
+    day_end_summary_enabled: bool = Field(default=False)
+    day_end_summary_hour_local: int = Field(default=23, ge=0, le=23)
+
     # v0.59 — anti-FOMO digest mode. When True, the daily and weekly
     # LLM digests instruct the model to produce a qualitative,
     # theme-only retrospective without mentioning shot counts,

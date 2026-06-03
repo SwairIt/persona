@@ -142,6 +142,7 @@ from app.web.routes import (
     rss_index as rss_index_routes,
     saved_searches as saved_searches_routes,
     screenshot,
+    screenshot_frame as screenshot_frame_routes,
     search as search_routes,
     search_autocomplete as search_autocomplete_routes,
     search_facets as search_facets_routes,
@@ -194,6 +195,7 @@ from app.workers import (
     run_capture_loop,
     run_clipboard_worker,
     run_daily_email_scheduler,
+    run_day_end_summary_scheduler,
     run_saved_search_alert_worker,
     run_webhook_retry_worker,
     run_weekly_stats_email_scheduler,
@@ -233,7 +235,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.71.0",
+        version="0.72.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -411,6 +413,7 @@ def create_app() -> FastAPI:
     app.include_router(rss_index_routes.router)
     app.include_router(llm_switcher_routes.router)
     app.include_router(multi_day_diff_routes.router)
+    app.include_router(screenshot_frame_routes.router)
 
     return app
 
@@ -435,6 +438,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         asyncio.create_task(run_weekly_stats_email_scheduler(controller), name="weekly-stats-email"),
         asyncio.create_task(run_webhook_retry_worker(controller), name="webhook-retry"),
         asyncio.create_task(run_monthly_digest_scheduler(controller), name="monthly-digest-scheduler"),
+        asyncio.create_task(run_day_end_summary_scheduler(controller), name="day-end-summary"),
     ]
 
     controller.pause()
