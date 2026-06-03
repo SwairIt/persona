@@ -154,6 +154,51 @@
             });
           })();
         </script>
+        {# v0.88 feature 1/3 — lazy-loaded phone-number chip list.
+           Same HTMX pattern as the v0.87 emails strip above: fire a GET on
+           load, parse JSON, materialise one chip per number, then reveal
+           the host. Stays invisible (no border, no padding) until at least
+           one number is rendered, so OCR text without any phones doesn't
+           leave a dangling "Phones:" label behind. #}
+        <div id="ocr-phones-{{ shot.id }}"
+             class="mt-2 hidden text-xs"
+             data-shot-id="{{ shot.id }}"
+             hx-get="/api/screenshot/{{ shot.id }}/phones.json"
+             hx-trigger="load"
+             hx-swap="none"
+             aria-live="polite"></div>
+        <script>
+          (function () {
+            const host = document.getElementById('ocr-phones-{{ shot.id }}');
+            if (!host || host.dataset.bound === '1') return;
+            host.dataset.bound = '1';
+            function escapeHtml(s) {
+              return String(s).replace(/[&<>"']/g, c => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+              }[c]));
+            }
+            host.addEventListener('htmx:afterRequest', (e) => {
+              if (!e.detail.successful) return;
+              let payload = {};
+              try { payload = JSON.parse(e.detail.xhr.responseText); } catch (_) { payload = {}; }
+              const phones = Array.isArray(payload.phones) ? payload.phones : [];
+              if (!phones.length) return;
+              const chips = phones.map(num =>
+                '<a href="/search?q=' + encodeURIComponent(num) + '" ' +
+                  'class="px-2 py-0.5 rounded-full bg-emerald-600/15 text-emerald-300 ' +
+                  'hover:bg-emerald-600/25 border border-emerald-600/30 font-mono break-all">' +
+                  escapeHtml(num) +
+                '</a>'
+              ).join('');
+              host.innerHTML =
+                '<div class="flex flex-wrap items-center gap-1.5">' +
+                  '<span class="text-zinc-500 uppercase tracking-widest">Phones:</span>' +
+                  chips +
+                '</div>';
+              host.classList.remove('hidden');
+            });
+          })();
+        </script>
       </section>
     {% endif %}
 

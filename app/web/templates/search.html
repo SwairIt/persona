@@ -156,6 +156,87 @@
     </div>
   </details>
 
+  {# v0.88 — Tag-all-results: apply one tag to every shot the current
+     filter set matches. Sits next to the Filters panel so the user can
+     read the active facets and the destination tag at the same time.
+     Lives outside the main /search form (so submitting it doesn't
+     re-run the search) but echoes the same query + filters as hidden
+     inputs so the server sees an identical filter snapshot. The form
+     is wired up via fetch() because htmx wouldn't see this form when
+     the outer form re-renders the results via hx-target. #}
+  {% if query %}
+  <div class="rounded-lg border border-ink-700 bg-ink-900/40 px-4 py-3"
+       x-data="searchTagAll()">
+    <form @submit.prevent="apply()"
+          class="flex flex-wrap items-center gap-2 text-xs">
+      <span class="text-zinc-500 uppercase tracking-wider">Tag all results</span>
+      <input type="text" name="tag_name" x-model="tagName"
+             placeholder="tag-name"
+             maxlength="60" required
+             class="px-2 py-1.5 bg-ink-900 border border-ink-700 rounded font-mono text-xs flex-1 min-w-[8rem]">
+      <button type="submit"
+              :disabled="busy || !tagName.trim()"
+              class="px-3 py-1.5 bg-accent-600 hover:bg-accent-500 disabled:opacity-50 disabled:cursor-not-allowed rounded text-xs font-medium transition">
+        <span x-show="!busy">Apply</span>
+        <span x-show="busy">Tagging…</span>
+      </button>
+      <span x-show="message" x-text="message"
+            :class="error ? 'text-red-400' : 'text-emerald-400'"
+            class="font-mono"></span>
+    </form>
+    <p class="text-zinc-600 text-[11px] mt-1">
+      Applies <span class="font-mono text-zinc-400" x-text="tagName.trim() || '…'"></span>
+      to every shot matching the current query + filters (max 1000).
+    </p>
+  </div>
+
+  <script>
+    function searchTagAll() {
+      return {
+        tagName: '',
+        busy: false,
+        error: false,
+        message: '',
+        async apply() {
+          const name = this.tagName.trim();
+          if (!name) { return; }
+          this.busy = true;
+          this.error = false;
+          this.message = '';
+          try {
+            const body = new FormData();
+            body.append('tag_name', name);
+            body.append('q', {{ query | tojson }});
+            {% if app_name %}body.append('app', {{ app_name | tojson }});{% endif %}
+            {% if tier %}body.append('tier', {{ tier | tojson }});{% endif %}
+            {% if date_from %}body.append('date_from', {{ date_from | tojson }});{% endif %}
+            {% if date_to %}body.append('date_to', {{ date_to | tojson }});{% endif %}
+            {% if since %}body.append('since', {{ since | tojson }});{% endif %}
+            {% if until %}body.append('until', {{ until | tojson }});{% endif %}
+            {% if min_w %}body.append('min_w', {{ min_w | tojson }});{% endif %}
+            {% if min_h %}body.append('min_h', {{ min_h | tojson }});{% endif %}
+            {% for t in (tags or []) %}body.append('tag', {{ t | tojson }});
+            {% endfor %}
+            const r = await fetch('/api/search/tag-all', { method: 'POST', body });
+            if (!r.ok) {
+              this.error = true;
+              this.message = 'failed (' + r.status + ')';
+              return;
+            }
+            const data = await r.json();
+            this.message = 'tagged ' + data.tagged + ' / ' + data.matched;
+          } catch (e) {
+            this.error = true;
+            this.message = 'network error';
+          } finally {
+            this.busy = false;
+          }
+        }
+      };
+    }
+  </script>
+  {% endif %}
+
   <script>
     function searchFacets() {
       return {

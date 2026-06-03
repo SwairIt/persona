@@ -140,6 +140,7 @@ from app.web.routes import (
     reminders as reminders_routes,
     rotate_gallery as rotate_gallery_routes,
     retention_preview as retention_preview_routes,
+    retention_trend as retention_trend_routes,
     ocr_admin as ocr_admin_routes,
     ocr_language_stats as ocr_language_stats_routes,
     ocr_languages as ocr_languages_routes,
@@ -150,6 +151,7 @@ from app.web.routes import (
     ocr_length_chart as ocr_length_chart_routes,
     ocr_near_dup as ocr_near_dup_routes,
     ocr_overlay as ocr_overlay_routes,
+    ocr_phones as ocr_phones_routes,
     ocr_phrase_tags as ocr_phrase_tags_routes,
     ocr_rerun_n as ocr_rerun_n_routes,
     ocr_retry as ocr_retry_routes,
@@ -167,6 +169,7 @@ from app.web.routes import (
     search as search_routes,
     search_autocomplete as search_autocomplete_routes,
     search_facets as search_facets_routes,
+    search_tag_all as search_tag_all_routes,
     semantic_similar as semantic_similar_routes,
     share as share_routes,
     share_analytics as share_analytics_routes,
@@ -265,7 +268,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.87.0",
+        version="0.88.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -473,6 +476,9 @@ def create_app() -> FastAPI:
     app.include_router(phrase_frequency_routes.router)
     app.include_router(dashboard_widgets_routes.router)
     app.include_router(ocr_emails_routes.router)
+    app.include_router(ocr_phones_routes.router)
+    app.include_router(search_tag_all_routes.router)
+    app.include_router(retention_trend_routes.router)
 
     return app
 
