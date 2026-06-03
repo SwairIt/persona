@@ -48,11 +48,13 @@ from app.web.routes import (
     day_kanban as day_kanban_routes,
     day_scrubber as day_scrubber_routes,
     day_tldr as day_tldr_routes,
+    diag_bundle as diag_bundle_routes,
     diff_picker as diff_picker_routes,
     diff_slider as diff_slider_routes,
     drag_to_tag as drag_to_tag_routes,
     dup_suggest as dup_suggest_routes,
     digest as digest_routes,
+    digest_prompts as digest_prompts_routes,
     doctor as doctor_routes,
     embeddings_status,
     encrypted_notes as encrypted_notes_routes,
@@ -121,6 +123,7 @@ from app.web.routes import (
     shot_of_week as shot_of_week_routes,
     shot_share as shot_share_routes,
     shot_dimensions as shot_dimensions_routes,
+    shot_embed as shot_embed_routes,
     shot_share_ui as shot_share_ui_routes,
     share_collection as share_collection_routes,
     settings as settings_routes,
@@ -193,7 +196,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.55.0",
+        version="0.56.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -334,6 +337,9 @@ def create_app() -> FastAPI:
     app.include_router(qr_routes.router)
     app.include_router(storage_savings_routes.router)
     app.include_router(ocr_vision_routes.router)
+    app.include_router(digest_prompts_routes.router)
+    app.include_router(shot_embed_routes.router)
+    app.include_router(diag_bundle_routes.router)
 
     return app
 

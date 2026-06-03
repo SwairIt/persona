@@ -19,6 +19,7 @@ Subcommands:
     export-stats-csv   Per-day-per-app rollup CSV (--days N, --out FILE).
     export-ocr-txt     Per-day OCR text dump for grep/fzf (--day YYYY-MM-DD, --out FILE).
     archive            Build a ZIP bundle of recent state (--days N --out FILE [--no-thumbnails]).
+    diagnostics-bundle Build a diagnostics ZIP for bug reports (--out FILE; no user data).
     export-collage     Render a 4xN per-day collage PNG (--day YYYY-MM-DD --out FILE).
     tag-orphans        List tag names with zero linked screenshots.
     tag-prune-orphans  Delete every tag with zero linked screenshots.
@@ -51,6 +52,7 @@ from app.capture import capture_primary_monitor, get_active_window
 from app.day_collage import build_day_collage
 from app.dedup import compute_phash, find_or_create_dedup_group
 from app.diagnostics import run_doctor
+from app.diagnostics_bundle import build_diag_bundle
 from app.logging_setup import configure_logging
 from app.ocr_txt_export import export_day_ocr_txt
 from app.pdf_export import export_day_pdf
@@ -616,6 +618,19 @@ async def _cmd_archive(days: int, out: Path, include_thumbnails: bool) -> int:
     print(f"Days:        {days}")
     print(f"Thumbnails:  {'yes' if include_thumbnails else 'no'}")
     print(f"Files:       {result['files_count']}")
+    print(f"Size bytes:  {result['size_bytes']}")
+    return 0
+
+
+async def _cmd_diagnostics_bundle(out: Path) -> int:
+    """Build a diagnostics ZIP via :func:`app.diagnostics_bundle.build_diag_bundle`."""
+    try:
+        result = await build_diag_bundle(out)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    print(f"Path:        {result['path']}")
     print(f"Size bytes:  {result['size_bytes']}")
     return 0
 
@@ -1233,6 +1248,21 @@ def _build_parser() -> argparse.ArgumentParser:  # noqa: PLR0915 — flat subpar
         help="Skip the thumbnails/ folder (settings + JSON only).",
     )
 
+    diag_bundle_parser = sub.add_parser(
+        "diagnostics-bundle",
+        help=(
+            "Build a diagnostics ZIP for bug reports — version, doctor, "
+            "routes, redacted settings, migrations, recent audit (no user data)."
+        ),
+    )
+    diag_bundle_parser.add_argument(
+        "--out",
+        dest="out",
+        type=Path,
+        required=True,
+        help="Destination .zip path (parent dirs are created).",
+    )
+
     collage_parser = sub.add_parser(
         "export-collage",
         help="Render a 4xN per-day collage PNG of the day's top thumbnails.",
@@ -1340,6 +1370,8 @@ async def _run(args: argparse.Namespace) -> int:  # noqa: PLR0911, PLR0912 — d
         return await _cmd_export_ocr_txt(args.day, args.out)
     if args.command == "archive":
         return await _cmd_archive(args.days, args.out, args.include_thumbnails)
+    if args.command == "diagnostics-bundle":
+        return await _cmd_diagnostics_bundle(args.out)
     if args.command == "export-collage":
         return await _cmd_export_collage(
             args.day, args.out, args.cols, args.max_shots

@@ -1,0 +1,22 @@
+-- v0.56 — user-editable LLM prompt template for the weekly digest.
+--
+-- The weekly summariser (:mod:`app.llm.weekly_summariser`, v0.22) builds
+-- its ``CompletionRequest.system`` text from a hard-coded ``_SYSTEM``
+-- constant. Power users (multilingual setups, custom heading layouts,
+-- people who want a 100-word digest instead of 400) asked for a way to
+-- override it without forking the codebase. This migration seeds a
+-- single ``weekly_digest_prompt_template`` row in ``kv_settings`` so the
+-- new UI at ``/settings/digest-prompt`` has a row to upsert into.
+--
+-- An **empty string** (the default) means "fall back to the hard-coded
+-- ``_SYSTEM`` constant". A non-empty value is treated as a Python
+-- ``str.format``-style template and rendered with the placeholders
+-- ``{week_start}``, ``{sections}``, and ``{shots_count}`` before it is
+-- handed to the LLM. The save route validates that all three are
+-- present so a malformed template can never reach the LLM call site.
+--
+-- ``INSERT OR IGNORE`` keeps the migration idempotent: re-running it
+-- against a database where the user has already saved a custom template
+-- will never clobber their text.
+
+INSERT OR IGNORE INTO kv_settings (key, value) VALUES ('weekly_digest_prompt_template', '');

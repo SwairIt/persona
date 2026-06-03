@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Weekly digest prompt</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Override the system prompt the BYO LLM receives when it writes your
+    weekly retrospective. Leave the box empty to use the built-in default.
+    Changes take effect on the <strong>next</strong> weekly digest run &mdash;
+    nothing is regenerated retroactively.
+  </p>
+</div>
+
+{% if saved %}
+  <div class="rounded-lg border border-emerald-700/40 bg-emerald-900/20 text-emerald-200 px-4 py-3 mb-4 text-sm">
+    Saved. The next weekly digest will use your custom prompt.
+  </div>
+{% endif %}
+
+{% if error %}
+  <div class="rounded-lg border border-rose-700/40 bg-rose-900/20 text-rose-200 px-4 py-3 mb-4 text-sm">
+    {{ error }}
+  </div>
+{% endif %}
+
+<div class="rounded-lg border border-amber-700/40 bg-amber-900/20 text-amber-200 px-4 py-3 mb-6 text-xs leading-relaxed">
+  Your template is rendered with Python's <code class="font-mono">str.format</code>.
+  Every placeholder below must appear <em>exactly</em> (curly braces and all)
+  somewhere in the body or saving will be rejected.
+  <div class="mt-3 flex flex-wrap gap-2">
+    {% for name in placeholders %}
+      <code class="font-mono px-2 py-1 rounded bg-ink-900/60 border border-amber-700/40">
+        {{ '{' + name + '}' }}
+      </code>
+    {% endfor %}
+  </div>
+  <ul class="mt-3 list-disc list-inside space-y-1 text-amber-200/80">
+    <li><code class="font-mono">{{ '{week_start}' }}</code> &mdash; ISO date of the Monday that opens the week.</li>
+    <li><code class="font-mono">{{ '{sections}' }}</code> &mdash; the rendered daily-digest / notes / captures block.</li>
+    <li><code class="font-mono">{{ '{shots_count}' }}</code> &mdash; integer count of screenshots in the window.</li>
+  </ul>
+</div>
+
+<form action="/settings/digest-prompt" method="post"
+      class="rounded-lg border border-ink-700 bg-ink-800 p-5 space-y-4">
+  <label class="flex flex-col gap-2">
+    <span class="text-xs uppercase tracking-widest text-zinc-500">
+      Custom system prompt
+      {% if is_custom %}
+        <span class="ml-2 normal-case tracking-normal text-emerald-400">
+          (active &mdash; overriding the default)
+        </span>
+      {% else %}
+        <span class="ml-2 normal-case tracking-normal text-zinc-500">
+          (empty &mdash; using the built-in default)
+        </span>
+      {% endif %}
+    </span>
+    <textarea name="template" rows="20" spellcheck="false"
+              placeholder="Paste your own prompt here. Include every placeholder listed above."
+              class="px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm leading-relaxed w-full">{{ template }}</textarea>
+  </label>
+
+  <div class="flex items-center justify-between flex-wrap gap-3 pt-4 border-t border-ink-700">
+    <div class="text-xs text-zinc-500">
+      Stored in <code class="font-mono">kv_settings.weekly_digest_prompt_template</code>.
+      An empty value falls back to the hard-coded prompt.
+    </div>
+    <div class="flex items-center gap-2">
+      <button type="submit" formaction="/settings/digest-prompt/reset"
+              formnovalidate
+              class="px-4 py-2 border border-ink-700 hover:border-rose-500 hover:text-rose-300 rounded text-sm">
+        Reset to default
+      </button>
+      <button type="submit"
+              class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
+        Save
+      </button>
+    </div>
+  </div>
+</form>
+
+<details class="mt-6 rounded-lg border border-ink-700 bg-ink-800/60 p-4 text-sm">
+  <summary class="cursor-pointer text-zinc-300 font-medium">
+    Show the built-in default
+  </summary>
+  <pre class="mt-3 whitespace-pre-wrap font-mono text-xs text-zinc-400 leading-relaxed">{{ default_template }}</pre>
+</details>
+{% endblock %}
