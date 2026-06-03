@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Colour palette · Screenshot #{{ shot.id }}</h1>
+  <p class="text-zinc-500 text-sm mt-1 max-w-2xl">
+    Dominant colours extracted from the thumbnail via
+    <code class="font-mono text-xs">PIL.Image.quantize</code>. Each segment of the bar
+    is weighted by the share of the image that collapsed onto that palette entry —
+    wider strips mean the colour covers more pixels.
+  </p>
+  <div class="mt-2 text-xs text-zinc-500">
+    <a href="/screenshot/{{ shot.id }}" class="underline hover:text-zinc-300">&larr; Back to screenshot</a>
+    <span class="mx-2">·</span>
+    <a href="/api/screenshot/{{ shot.id }}/colours.json" class="underline hover:text-zinc-300">JSON</a>
+  </div>
+</div>
+
+{% if shot.thumbnail_path %}
+<div class="mb-6 max-w-2xl">
+  <img src="{{ shot.thumbnail_path | thumbnail_url }}"
+       alt="Screenshot #{{ shot.id }} thumbnail"
+       class="w-full rounded-lg border border-ink-700">
+</div>
+{% endif %}
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5 max-w-2xl">
+  <h2 class="text-lg font-semibold text-accent-400">Palette</h2>
+
+  {% if palette %}
+  <div class="mt-4 flex h-12 w-full overflow-hidden rounded-md border border-ink-700">
+    {% for entry in palette %}
+    <div class="h-full flex-shrink-0"
+         style="background-color: {{ entry.hex }}; width: {{ entry.weight_pct }}%;"
+         title="{{ entry.hex }} — {{ entry.weight_pct }}%"></div>
+    {% endfor %}
+  </div>
+
+  <ul class="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+    {% for entry in palette %}
+    <li class="flex items-center gap-3 rounded border border-ink-700 bg-ink-900 p-3">
+      <span class="inline-block h-8 w-8 flex-shrink-0 rounded border border-ink-700"
+            style="background-color: {{ entry.hex }};"></span>
+      <span class="flex flex-col">
+        <code class="font-mono text-xs text-zinc-200">{{ entry.hex }}</code>
+        <span class="text-xs text-zinc-500">{{ entry.weight_pct }}% of image</span>
+      </span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="mt-4 text-sm text-zinc-400">
+    No palette could be derived for this screenshot &mdash; the thumbnail may be
+    missing on disk, or PIL declined to quantize the bytes. The OCR worker
+    will retry on the next capture.
+  </p>
+  {% endif %}
+</section>
+
+<p class="text-zinc-500 text-xs mt-8 max-w-2xl">
+  Palettes are cached in the <code class="font-mono">shot_colour</code> table; the OCR
+  worker recomputes one for every successful OCR pass, and a one-off
+  visit to this page back-fills the cache for legacy rows on demand.
+</p>
+{% endblock %}

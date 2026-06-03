@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Notes CSV import</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Bulk-import standalone markdown notes from a CSV file &mdash; handy
+    for migrating off Evernote / Bear / Obsidian or rehydrating a fresh
+    install from a previous export. The required column is
+    <code class="font-mono text-xs">body</code>; optional columns are
+    <code class="font-mono text-xs">title</code>,
+    <code class="font-mono text-xs">created_at</code> (ISO-8601) and
+    <code class="font-mono text-xs">tags</code> (comma-separated). The
+    import is <strong>idempotent</strong> &mdash; re-uploading the same
+    file is a no-op because each row is hashed against the existing
+    <code class="font-mono text-xs">notes.body</code> column.
+  </p>
+</div>
+
+<section class="rounded-lg border border-amber-700/40 bg-amber-900/10 p-4 mb-6">
+  <div class="flex items-start gap-3">
+    <span class="text-amber-400 text-lg leading-none mt-0.5">&#9888;</span>
+    <div class="text-sm">
+      <p class="text-amber-300 font-medium mb-1">Limits &amp; safety</p>
+      <ul class="text-zinc-400 list-disc pl-5 space-y-1">
+        <li>Maximum upload size: <strong>{{ (max_upload_bytes // (1024 * 1024)) }}&nbsp;MiB</strong>.</li>
+        <li>UTF-8 encoded CSV only (Excel "CSV UTF-8" export works; legacy
+            Windows-1252 will fail with a 400).</li>
+        <li>Encrypted notes are excluded from the hash dedup &mdash; a
+            re-imported plaintext row that coincidentally matches an
+            encrypted note's hidden body will produce a duplicate.</li>
+        <li>Every upload is recorded in the audit log under
+            <code class="font-mono text-xs">notes_csv_import.upload</code>.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
+  <h2 class="text-lg font-semibold mb-3">Upload CSV</h2>
+  <form action="/admin/notes-csv-import"
+        method="post"
+        enctype="multipart/form-data"
+        hx-post="/admin/notes-csv-import"
+        hx-encoding="multipart/form-data"
+        hx-target="#notes-csv-result"
+        hx-select="#notes-csv-result"
+        hx-swap="outerHTML"
+        class="space-y-4">
+    <label class="block">
+      <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">
+        CSV file
+      </span>
+      <input type="file" name="file" accept="text/csv,.csv" required
+             class="block w-full text-sm text-zinc-300
+                    file:mr-3 file:px-3 file:py-2 file:rounded file:border-0
+                    file:text-sm file:font-medium
+                    file:bg-ink-900 file:text-zinc-200 hover:file:bg-ink-700">
+      <span class="block text-xs text-zinc-600 mt-1">
+        Header row must include <code class="font-mono">body</code>.
+        Optional headers: <code class="font-mono">title</code>,
+        <code class="font-mono">created_at</code>,
+        <code class="font-mono">tags</code>. Unknown columns are
+        silently ignored.
+      </span>
+    </label>
+
+    <label class="block">
+      <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">
+        Default tags <span class="text-zinc-600 normal-case tracking-normal">(optional)</span>
+      </span>
+      <input type="text" name="tags"
+             autocomplete="off" spellcheck="false"
+             placeholder="e.g. evernote, migration, 2024"
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm focus:outline-none focus:border-accent-500">
+      <span class="block text-xs text-zinc-600 mt-1">
+        Comma-separated. Attached to every successfully imported note in
+        addition to the per-row <code class="font-mono">tags</code>
+        column. Names are lower-cased and de-duplicated.
+      </span>
+    </label>
+
+    <button type="submit"
+            class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
+      Import
+    </button>
+  </form>
+</section>
+
+<div id="notes-csv-result">
+{% if result is not none %}
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+  <h2 class="text-lg font-semibold mb-3">Last import</h2>
+  <dl class="grid grid-cols-3 gap-4 text-sm mb-4">
+    <div>
+      <dt class="text-xs uppercase tracking-wider text-zinc-500">Imported</dt>
+      <dd class="text-2xl font-mono text-emerald-300">{{ result.imported }}</dd>
+    </div>
+    <div>
+      <dt class="text-xs uppercase tracking-wider text-zinc-500">Skipped (dedup)</dt>
+      <dd class="text-2xl font-mono text-zinc-300">{{ result.skipped }}</dd>
+    </div>
+    <div>
+      <dt class="text-xs uppercase tracking-wider text-zinc-500">Errors</dt>
+      <dd class="text-2xl font-mono {% if result.errors %}text-rose-300{% else %}text-zinc-500{% endif %}">{{ result.errors|length }}</dd>
+    </div>
+  </dl>
+
+  {% if default_tags %}
+  <p class="text-zinc-400 text-xs mb-3">
+    Default tags applied:
+    {% for tag in default_tags %}<code class="font-mono text-xs bg-ink-900 px-1.5 py-0.5 rounded">{{ tag }}</code>{% if not loop.last %} {% endif %}{% endfor %}
+  </p>
+  {% endif %}
+
+  {% if result.errors %}
+  <details class="mt-4" open>
+    <summary class="cursor-pointer text-sm text-rose-300 font-medium">
+      {{ result.errors|length }} row error(s)
+    </summary>
+    <ul class="mt-3 space-y-1 text-xs font-mono text-zinc-300">
+      {% for err in result.errors %}
+      <li>
+        <span class="text-zinc-500">row {{ err.row }}</span>
+        &mdash;
+        <span class="text-rose-300">{{ err.reason }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+  </details>
+  {% else %}
+  <p class="text-emerald-400 text-sm mt-2">No row errors.</p>
+  {% endif %}
+</section>
+{% endif %}
+</div>
+
+<p class="text-zinc-500 text-xs mt-8">
+  Related admin pages:
+  <a href="/notes/search" class="hover:text-zinc-300 underline">Notes search</a>,
+  <a href="/admin/notes-link-check" class="hover:text-zinc-300 underline">Notes link checker</a>,
+  <a href="/audit?action=notes_csv_import" class="hover:text-zinc-300 underline">Audit log</a>
+  (every upload is recorded here).
+</p>
+{% endblock %}

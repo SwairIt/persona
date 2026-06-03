@@ -18,6 +18,7 @@ from app.ocr_phrase_tags import apply_phrase_rules
 from app.ocr_sentiment import score as score_sentiment
 from app.redaction import apply_redaction
 from app.settings import get_settings
+from app.shot_colours import compute_palette
 from app.storage.db import get_connection
 from app.storage.ocr_skip import is_skipped
 from app.storage.regex_rules import apply_rules_to_ocr
@@ -35,6 +36,7 @@ log = get_logger("persona.ocr_worker")
 colour_log = get_logger("persona.ocr.colour")
 lang_log = get_logger("persona.lang_autodetect_insert")
 sentiment_log = get_logger("persona.ocr.sentiment")
+shot_colours_log = get_logger("persona.shot_colours")
 
 POLL_INTERVAL_SECONDS = 2.0
 BATCH_SIZE = 5
@@ -164,6 +166,8 @@ async def _drain_once() -> None:  # noqa: PLR0915 — pipeline orchestration, ea
         await _store_dominant_script(screenshot_id=shot.id, ocr_text=redacted)
 
         await _store_sentiment(screenshot_id=shot.id, ocr_text=redacted)
+
+        await _store_shot_palette(screenshot_id=shot.id)
 
         await _apply_phrase_tags(shot.id, redacted)
         await _store_word_confidences(
@@ -316,6 +320,43 @@ async def _store_sentiment(*, screenshot_id: int, ocr_text: str | None) -> None:
         screenshot_id=screenshot_id,
         polarity=polarity,
         chars=len(ocr_text),
+    )
+
+
+async def _store_shot_palette(*, screenshot_id: int) -> None:
+    """Compute the dominant-colour palette and cache it via :mod:`app.shot_colours`.
+
+    Best-effort side-channel mirroring :func:`_store_sentiment` and
+    :func:`_store_dominant_script` — the OCR text + status have already
+    been committed by the time this runs, so any palette failure must
+    never poison the worker loop. :func:`compute_palette` already
+    swallows every internal error and returns ``None`` on failure; the
+    enclosing ``try/except`` here is defence-in-depth for anything
+    that might leak past it (a future refactor, a thread-pool oom,
+    etc.). The cache write happens inside ``compute_palette`` itself,
+    so this helper has no DB work of its own.
+    """
+    try:
+        result = await compute_palette(screenshot_id)
+    except Exception as exc:
+        shot_colours_log.warning(
+            "shot_colours.worker_failed",
+            screenshot_id=screenshot_id,
+            error=str(exc),
+        )
+        return
+
+    if result is None:
+        shot_colours_log.debug(
+            "shot_colours.worker_skipped",
+            screenshot_id=screenshot_id,
+        )
+        return
+
+    shot_colours_log.info(
+        "shot_colours.worker_stored",
+        screenshot_id=screenshot_id,
+        entries=len(result),
     )
 
 

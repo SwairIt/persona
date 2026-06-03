@@ -124,6 +124,7 @@ from app.web.routes import (
     note_attachments as note_attachments_routes,
     note_templates as note_templates_routes,
     notes as notes_routes,
+    notes_csv_import as notes_csv_import_routes,
     notes_link_checker as notes_link_checker_routes,
     notes_search as notes_search_routes,
     notes_timeline as notes_timeline_routes,
@@ -198,6 +199,7 @@ from app.web.routes import (
     share_visits_csv as share_visits_csv_routes,
     shot_of_day as shot_of_day_routes,
     shot_of_week as shot_of_week_routes,
+    shot_colours as shot_colours_routes,
     shot_share as shot_share_routes,
     shot_summary as shot_summary_routes,
     shot_token_cloud as shot_token_cloud_routes,
@@ -305,7 +307,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.7.0",
+        version="1.8.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -553,6 +555,8 @@ def create_app() -> FastAPI:
     app.include_router(app_shots_csv_routes.router)
     app.include_router(collection_visit_stats_routes.router)
     app.include_router(shot_summary_routes.router)
+    app.include_router(shot_colours_routes.router)
+    app.include_router(notes_csv_import_routes.router)
 
     return app
 

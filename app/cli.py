@@ -23,6 +23,7 @@ Subcommands:
     unlock-shots       Bulk-unlock screenshots matching an FTS5 query (defaults to dry-run).
     export-settings    Dump every preference table to a JSON file (--out FILE).
     import-settings    Insert rows from a settings JSON file (--in FILE [--replace]).
+    import-notes-csv   Bulk-import standalone notes from a CSV file (--in FILE [--tags csv-list]).
     export-stats-csv   Per-day-per-app rollup CSV (--days N, --out FILE).
     export-monthly-stats-csv  Per-month-per-app rollup CSV (--months N, --out FILE).
     export-share-visits  v0.55 share_visit rows as CSV (--days N, --out FILE).
@@ -75,6 +76,7 @@ from app.diagnostics import run_doctor
 from app.diagnostics_bundle import build_diag_bundle
 from app.logging_setup import configure_logging
 from app.monthly_stats_csv import export_monthly_stats_csv
+from app.notes_csv_import import import_notes_csv
 from app.ocr_force_reindex import count_candidates, wipe_and_requeue
 from app.ocr_txt_export import export_day_ocr_txt
 from app.pdf_export import export_day_pdf
@@ -707,6 +709,61 @@ async def _cmd_import_settings(src: Path, replace: bool) -> int:
     for table, written in sorted(summary.items()):
         print(f"  - {table}: {written}")
     return 0
+
+
+def _parse_tag_csv(raw: str | None) -> list[str]:
+    """Split a ``--tags`` value (``"a,b,c"``) into a normalised list.
+
+    Mirrors the HTTP route's ``_parse_tag_input`` so the CLI and the
+    web upload form treat ``--tags evernote,Migration,EVERNOTE`` the
+    same way: lower-case, stripped, deduped while preserving the
+    first-seen order. A missing flag returns ``[]`` so the importer can
+    treat "no default tags" uniformly.
+    """
+    if not raw:
+        return []
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for piece in raw.split(","):
+        cleaned = piece.strip().lower()
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        ordered.append(cleaned)
+    return ordered
+
+
+async def _cmd_import_notes_csv(src: Path, tags: str | None) -> int:
+    """Bulk-import standalone notes from a CSV file via ``import_notes_csv``.
+
+    The CLI mirrors the HTTP route's flow exactly: read the file as
+    UTF-8, parse it, and print a three-line summary (imported / skipped
+    / errors) plus the per-row error list when non-empty. Exits with
+    ``1`` when at least one row errored so shell pipelines fail loudly
+    on a partly-broken import; exits ``2`` only for "cannot start"
+    conditions (missing file, undecodable bytes).
+    """
+    if not src.exists():
+        print(f"error: file not found: {src}", file=sys.stderr)
+        return 2
+    try:
+        text = src.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        print(f"error: invalid UTF-8: {exc}", file=sys.stderr)
+        return 2
+
+    default_tags = _parse_tag_csv(tags)
+    result = await import_notes_csv(text, default_tags=default_tags)
+
+    print(f"Path:     {src}")
+    if default_tags:
+        print(f"Tags:     {', '.join(default_tags)}")
+    print(f"Imported: {result['imported']}")
+    print(f"Skipped:  {result['skipped']}")
+    print(f"Errors:   {len(result['errors'])}")
+    for err in result["errors"]:
+        print(f"  - row {err['row']}: {err['reason']}", file=sys.stderr)
+    return 0 if not result["errors"] else 1
 
 
 async def _cmd_archive(days: int, out: Path, include_thumbnails: bool) -> int:
@@ -1997,6 +2054,30 @@ def _build_parser() -> argparse.ArgumentParser:  # noqa: PLR0915 — flat subpar
         ),
     )
 
+    import_notes_csv_parser = sub.add_parser(
+        "import-notes-csv",
+        help=(
+            "Bulk-import standalone notes from a CSV file "
+            "(idempotent — re-uploading the same file is a no-op)."
+        ),
+    )
+    import_notes_csv_parser.add_argument(
+        "--in",
+        dest="src",
+        type=Path,
+        required=True,
+        help="Source CSV path (UTF-8; header must include 'body').",
+    )
+    import_notes_csv_parser.add_argument(
+        "--tags",
+        dest="tags",
+        default=None,
+        help=(
+            "Comma-separated default tags applied to every imported "
+            "note (in addition to the per-row 'tags' column)."
+        ),
+    )
+
     stats_csv_parser = sub.add_parser(
         "export-stats-csv",
         help=(
@@ -2398,6 +2479,8 @@ async def _run(args: argparse.Namespace) -> int:  # noqa: PLR0911, PLR0912 — d
         return await _cmd_export_settings(args.out)
     if args.command == "import-settings":
         return await _cmd_import_settings(args.src, args.replace)
+    if args.command == "import-notes-csv":
+        return await _cmd_import_notes_csv(args.src, args.tags)
     if args.command == "export-stats-csv":
         return await _cmd_export_stats_csv(args.days, args.out)
     if args.command == "export-monthly-stats-csv":
