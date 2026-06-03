@@ -75,7 +75,7 @@
 
   {# Facets panel — collapsible <details> so it stays out of the way until needed.
      Opens automatically when any facet is active so the user can see / clear it. #}
-  {% set _facets_active = app_name or date_from or date_to or tags %}
+  {% set _facets_active = app_name or date_from or date_to or tags or script %}
   <details class="rounded-lg border border-ink-700 bg-ink-900/40"
            x-data="searchFacets()"
            x-init="loadFacets()"
@@ -129,6 +129,22 @@
             <option :value="t.name" x-text="`${t.name} (${t.count})`"></option>
           </template>
         </datalist>
+      </label>
+
+      {# v1.2 — Script dropdown. Backed by ``screenshots.dominant_script``
+         (migration 084), written by the OCR worker after each insert.
+         Whitelisted server-side by :func:`_coerce_script` in
+         ``routes/search.py`` — anything outside this set silently drops
+         to "any" so URL fuzzing can't slip a literal into the SQL filter. #}
+      <label class="flex flex-col gap-1">
+        <span class="text-zinc-500">Script</span>
+        <select name="script"
+                class="px-2 py-1.5 bg-ink-900 border border-ink-700 rounded font-mono text-xs">
+          <option value="">— any —</option>
+          {% for s in script_options %}
+            <option value="{{ s }}" {% if script == s %}selected{% endif %}>{{ s }}</option>
+          {% endfor %}
+        </select>
       </label>
 
       {# Additional repeatable ``tag`` params from the URL are preserved as
@@ -275,6 +291,7 @@
             {% if until %}body.append('until', {{ until | tojson }});{% endif %}
             {% if min_w %}body.append('min_w', {{ min_w | tojson }});{% endif %}
             {% if min_h %}body.append('min_h', {{ min_h | tojson }});{% endif %}
+            {% if script %}body.append('script', {{ script | tojson }});{% endif %}
             {% for t in (tags or []) %}body.append('tag', {{ t | tojson }});
             {% endfor %}
             const r = await fetch('/api/search/tag-all', { method: 'POST', body });

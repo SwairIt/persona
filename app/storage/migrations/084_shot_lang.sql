@@ -1,0 +1,54 @@
+-- v1.2 feature 3/3 — per-shot OCR dominant-script tag.
+--
+-- Background
+-- ----------
+-- The v0.39 ``language_stats`` aggregator already classifies every
+-- captured glyph into one of five buckets (``cyrillic`` / ``latin`` /
+-- ``cjk`` / ``digit`` / ``other``) for the corpus-wide breakdown page.
+-- That works fine for *reporting* but not for *filtering*: the search
+-- UI couldn't ask "show me only Cyrillic shots" without re-scanning
+-- the full OCR text of every candidate row on every request.
+--
+-- This migration adds a precomputed, per-shot tag — ``dominant_script``
+-- — that the OCR worker writes once when a shot's OCR text is finalised
+-- (see :func:`app.workers.ocr_worker._drain_once`). The search route
+-- (:mod:`app.web.routes.search`) then filters by an indexed column
+-- instead of a per-request full-text walk.
+--
+-- Schema
+-- ------
+-- One nullable ``TEXT`` column on ``screenshots``. The value is the
+-- bucket name that the v0.39 ``_classify`` helper would assign the
+-- *highest* count for that shot's OCR text. We store the string label
+-- (``'cyrillic'`` / ``'latin'`` / ``'cjk'`` / ``'digit'`` / ``'other'``)
+-- rather than an integer enum so an operator running ad-hoc SQL during
+-- triage can read the column at a glance.
+--
+-- A ``NULL`` value means "not yet classified" — either the shot pre-
+-- dates this migration, the OCR worker hasn't finished it, or its
+-- ``ocr_text`` was empty/whitespace so no bucket carried any weight.
+-- Filtering is opt-in (``?script=...`` query param), so ``NULL`` rows
+-- simply drop out of a script-filtered search instead of being treated
+-- as ``'other'``.
+--
+-- Tolerant duplicate
+-- ------------------
+-- SQLite has no ``ALTER TABLE ... ADD COLUMN IF NOT EXISTS``. The
+-- migration runner (:func:`app.storage.db.init_database`) catches the
+-- ``duplicate column name`` error per-statement (v0.51 split path), so
+-- re-running this migration on an already-upgraded DB silently no-ops
+-- while a fresh install picks the column up cleanly.
+--
+-- Index
+-- -----
+-- ``idx_screenshots_dominant_script`` is a plain (non-partial) index on
+-- the column. The search filter is an equality predicate
+-- (``dominant_script = ?``) and the worker batch-writes one row at a
+-- time, so the index pays for itself on the read side without measurable
+-- write-amplification. ``CREATE INDEX IF NOT EXISTS`` keeps the
+-- migration idempotent alongside the tolerated ALTER.
+
+ALTER TABLE screenshots ADD COLUMN dominant_script TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_screenshots_dominant_script
+    ON screenshots(dominant_script);

@@ -32,6 +32,13 @@
   const FLASH_CLASS = 'quick-pin-flash';
   const FLASH_MS = 600;
 
+  // v1.2 — user-customisable binding. Defaults to "p" (single-key, no
+  // modifier) to match the original v0.99 behaviour. Loaded once on
+  // init from /api/kbd-shortcuts.json; a failed fetch leaves the
+  // binding at its default so the listener keeps working offline.
+  const DEFAULT_PIN_KEY = 'p';
+  let pinKey = DEFAULT_PIN_KEY;
+
   // Inject the flash style once. Kept inline so quick_pin.js stays a
   // single file the way the rest of /static/*.js modules do.
   function ensureFlashStyle() {
@@ -132,7 +139,14 @@
     // Ignore modified presses so we don't hijack browser shortcuts
     // (Ctrl+P print, Cmd+P, etc.).
     if (e.ctrlKey || e.metaKey || e.altKey) return;
-    if (e.key !== 'p' && e.key !== 'P') return;
+    // Match either case of the bound single-key letter. We don't try to
+    // canonicalise multi-token sequences here — quick-pin is an instant
+    // shortcut by design; if the user binds something like "g p" it
+    // simply won't fire from this listener and the legacy "g" sequence
+    // in keyboard_shortcuts.js (which is unrelated) keeps its meaning.
+    const bound = (pinKey || DEFAULT_PIN_KEY).trim();
+    if (bound.indexOf(' ') !== -1) return;
+    if (e.key !== bound && e.key.toLowerCase() !== bound.toLowerCase()) return;
     if (isTypingTarget(e.target)) return;
     // Also bail if any contenteditable host is the active element —
     // covers the OCR inline editor where the actual <pre> takes focus.
@@ -141,9 +155,28 @@
     handleQuickPin();
   }
 
+  function loadBinding() {
+    // Best-effort fetch — a failure leaves pinKey at its default so the
+    // listener still fires on "p" / "P" exactly like the v0.99 behaviour.
+    return fetch('/api/kbd-shortcuts.json', {
+      credentials: 'same-origin',
+      headers: { Accept: 'application/json' },
+    })
+      .then(function (res) { return res.ok ? res.json() : null; })
+      .then(function (json) {
+        if (!json || typeof json !== 'object') return;
+        const value = json.pin_toggle;
+        if (typeof value === 'string' && value.trim()) {
+          pinKey = value.trim();
+        }
+      })
+      .catch(function () { /* keep default */ });
+  }
+
   function init() {
     ensureFlashStyle();
     document.addEventListener('keydown', onKeydown);
+    loadBinding();
   }
 
   if (document.readyState === 'loading') {

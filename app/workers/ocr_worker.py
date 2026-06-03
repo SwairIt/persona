@@ -12,6 +12,7 @@ from app.image_blur import blur_sensitive_regions
 from app.logging_setup import get_logger
 from app.ocr import OCRNotAvailable, extract_text, is_available, redact
 from app.ocr.colour_sample import sample_colours
+from app.ocr.language_stats import _BUCKETS, _classify
 from app.ocr.languages import refresh_ocr_lang_string
 from app.ocr_phrase_tags import apply_phrase_rules
 from app.redaction import apply_redaction
@@ -30,6 +31,7 @@ from app.workers.heartbeat import beat
 
 log = get_logger("persona.ocr_worker")
 colour_log = get_logger("persona.ocr.colour")
+lang_log = get_logger("persona.lang_autodetect_insert")
 
 POLL_INTERVAL_SECONDS = 2.0
 BATCH_SIZE = 5
@@ -156,6 +158,8 @@ async def _drain_once() -> None:
                     error=str(exc),
                 )
 
+        await _store_dominant_script(screenshot_id=shot.id, ocr_text=redacted)
+
         await _apply_phrase_tags(shot.id, redacted)
         await _store_word_confidences(
             screenshot_id=shot.id,
@@ -188,6 +192,76 @@ async def _drain_once() -> None:
                         screenshot_id=shot.id,
                         regions_count=regions_count,
                     )
+
+
+def _dominant_script(ocr_text: str) -> str | None:
+    """Return the bucket name with the highest character count, or ``None``.
+
+    Walks ``ocr_text`` character-by-character through the v0.39
+    :func:`app.ocr.language_stats._classify` helper, then picks the
+    bucket with the highest total. Ties are broken by the canonical
+    bucket order from :data:`app.ocr.language_stats._BUCKETS` —
+    deterministic and stable across re-runs of the same input.
+
+    Returns ``None`` when the text is empty or contains no classifiable
+    glyphs (every count is zero). The caller skips the UPDATE in that
+    case so the column stays ``NULL`` rather than landing in
+    ``'other'`` for a whitespace-only shot.
+    """
+    if not ocr_text:
+        return None
+    counts: dict[str, int] = dict.fromkeys(_BUCKETS, 0)
+    for ch in ocr_text:
+        counts[_classify(ch)] += 1
+    best: str | None = None
+    best_count = 0
+    # Iterate ``_BUCKETS`` (not ``counts.items()``) so a tie deterministically
+    # falls to the earliest-declared bucket — ``cyrillic`` beats ``latin``
+    # beats ``cjk`` beats ``digit`` beats ``other``. Without a fixed order,
+    # tie-breaking would depend on dict insertion order, which is stable
+    # in CPython but conceptually accidental.
+    for bucket in _BUCKETS:
+        if counts[bucket] > best_count:
+            best = bucket
+            best_count = counts[bucket]
+    return best
+
+
+async def _store_dominant_script(*, screenshot_id: int, ocr_text: str | None) -> None:
+    """Classify the OCR text and persist the dominant-script bucket label.
+
+    Best-effort side-channel: the OCR text + status have already been
+    committed by the time this runs, so any failure here must not poison
+    the worker loop. Errors are logged at ``warning`` and swallowed.
+    Empty / unclassifiable text writes nothing (column stays ``NULL``);
+    that mirrors how the search filter treats unknowns — they drop out
+    of a ``?script=...`` query, they're not coerced into ``'other'``.
+    """
+    if not ocr_text:
+        return
+    script = _dominant_script(ocr_text)
+    if script is None:
+        return
+    try:
+        async with get_connection() as conn:
+            await conn.execute(
+                "UPDATE screenshots SET dominant_script = ? WHERE id = ?",
+                (script, screenshot_id),
+            )
+            await conn.commit()
+    except Exception as exc:
+        lang_log.warning(
+            "lang_autodetect_insert.update_failed",
+            screenshot_id=screenshot_id,
+            error=str(exc),
+        )
+        return
+    lang_log.info(
+        "lang_autodetect_insert.stored",
+        screenshot_id=screenshot_id,
+        dominant_script=script,
+        chars=len(ocr_text),
+    )
 
 
 async def _apply_phrase_tags(screenshot_id: int, ocr_text: str | None) -> None:

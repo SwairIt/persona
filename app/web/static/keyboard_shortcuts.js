@@ -38,6 +38,26 @@
     f: "/focus",
   };
 
+  // v1.2 — user-customisable bindings. Loaded once on init from
+  // /api/kbd-shortcuts.json; falls back to the historical defaults if
+  // the fetch fails so an offline / errored response leaves listeners
+  // working with their original behaviour. Only the four actions wired
+  // up in this file are honoured here — go_timeline overrides the
+  // "g t" sequence specifically, the other g+letter combos stay on
+  // their built-in mappings so search/heatmap/focus still navigate.
+  const DEFAULT_BINDINGS = {
+    help_overlay: "?",
+    search_focus: "/",
+    go_timeline: "g t",
+  };
+  /** @type {{ help_overlay: string, search_focus: string, go_timeline: string }} */
+  let bindings = Object.assign({}, DEFAULT_BINDINGS);
+
+  /** Split a binding string into one or two whitespace-separated tokens. */
+  function tokenise(binding) {
+    return String(binding || "").trim().split(/\s+/).filter(Boolean);
+  }
+
   /** @type {HTMLDivElement | null} */
   let overlayEl = null;
   /** @type {number | null} */
@@ -229,9 +249,23 @@
 
     const key = ev.key;
 
-    // "?" opens the cheatsheet. On most layouts "?" requires Shift, but
-    // we accept whatever produces the "?" character.
-    if (key === "?") {
+    // Resolve the user's bound keys; tokenise() always returns at least
+    // one entry because the fallback defaults are non-empty.
+    const helpTokens = tokenise(bindings.help_overlay);
+    const searchTokens = tokenise(bindings.search_focus);
+    const timelineTokens = tokenise(bindings.go_timeline);
+    const helpKey = helpTokens[0] || "?";
+    const searchKey = searchTokens[0] || "/";
+    // The go_timeline binding may be a sequence ("g t") or a single
+    // instant key (e.g. "T"). When it's a sequence we keep the legacy
+    // GO_TARGETS map for the trailing letter so /search, /heatmap,
+    // /focus still navigate via g+s, g+h, g+f.
+    const timelinePrefix = timelineTokens.length === 2 ? timelineTokens[0] : null;
+    const timelineSuffix = timelineTokens.length === 2 ? timelineTokens[1] : null;
+    const timelineInstant = timelineTokens.length === 1 ? timelineTokens[0] : null;
+
+    // Open / close the cheatsheet on the help binding (default "?").
+    if (key === helpKey) {
       ev.preventDefault();
       clearSequence();
       if (isOpen()) close();
@@ -243,9 +277,8 @@
     // the user is reading it, not navigating.
     if (isOpen()) return;
 
-    // "/" focuses the search input on the /search page, matching common
-    // app conventions (GitHub, Linear, etc.).
-    if (key === "/") {
+    // Search-focus binding (default "/").
+    if (key === searchKey) {
       const search = document.querySelector(
         'input[type="search"], input[name="q"], #search-input'
       );
@@ -258,9 +291,26 @@
       }
     }
 
-    // Multi-key sequences: "g" arms, then any of {t,s,h,f} navigates.
-    if (pendingPrefix === "g") {
-      const target = GO_TARGETS[key.toLowerCase()];
+    // Instant (non-sequence) go-to-timeline binding.
+    if (timelineInstant && key === timelineInstant) {
+      ev.preventDefault();
+      clearSequence();
+      window.location.assign("/timeline");
+      return;
+    }
+
+    // Multi-key sequences. The prefix arms, then a letter from
+    // GO_TARGETS navigates. The user can rebind the *prefix* (e.g.
+    // "j t" instead of "g t") and the same letter set still applies.
+    const armedPrefix = timelinePrefix || "g";
+    if (pendingPrefix === armedPrefix) {
+      const lower = key.toLowerCase();
+      // The bound suffix wins for the timeline target; everything else
+      // (s/h/f) keeps its legacy mapping.
+      const target =
+        timelineSuffix && lower === timelineSuffix.toLowerCase()
+          ? "/timeline"
+          : GO_TARGETS[lower];
       clearSequence();
       if (target) {
         ev.preventDefault();
@@ -269,8 +319,8 @@
       return;
     }
 
-    if (key === "g" || key === "G") {
-      startSequence("g");
+    if (key === armedPrefix || key === armedPrefix.toUpperCase()) {
+      startSequence(armedPrefix);
       return;
     }
   }
@@ -279,8 +329,30 @@
   // Wire-up.
   // ---------------------------------------------------------------------
 
+  function loadBindings() {
+    // Best-effort fetch — a failure (network, 404 on legacy installs
+    // without the v1.2 migration applied yet, malformed JSON) leaves
+    // ``bindings`` at its default values so the listeners keep working.
+    return fetch("/api/kbd-shortcuts.json", {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    })
+      .then(function (res) { return res.ok ? res.json() : null; })
+      .then(function (json) {
+        if (!json || typeof json !== "object") return;
+        for (const action of Object.keys(DEFAULT_BINDINGS)) {
+          const value = json[action];
+          if (typeof value === "string" && value.trim()) {
+            bindings[action] = value.trim();
+          }
+        }
+      })
+      .catch(function () { /* keep defaults */ });
+  }
+
   function init() {
     document.addEventListener("keydown", onKeyDown);
+    loadBindings();
   }
 
   if (document.readyState === "loading") {

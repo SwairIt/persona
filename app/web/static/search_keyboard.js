@@ -30,6 +30,16 @@
   const ACTIVE_CLASS = "search-result-active";
   const RESULT_SELECTOR = "[data-search-result]";
 
+  // v1.2 — user-customisable binding for the focus-search shortcut.
+  // Defaults to "/" so a fresh install behaves identically to v0.51.
+  // The j / k jump-to-result keys and Enter-to-open are not exposed in
+  // the editor — they are inherent to the result-list interaction
+  // pattern (Gmail / Vim style) rather than the cheatsheet shortcuts
+  // the editor surfaces. Loaded asynchronously below; a failed fetch
+  // leaves the binding at its default.
+  const DEFAULT_SEARCH_KEY = "/";
+  let searchKey = DEFAULT_SEARCH_KEY;
+
   /** @type {Element | null} */
   let activeEl = null;
 
@@ -112,10 +122,13 @@
   document.addEventListener(
     "keydown",
     (ev) => {
-      // "/" should focus the query input even from a non-input context.
-      // It is intentionally allowed to fire while typing is NOT happening,
-      // so it does not eat the literal "/" from inside another text box.
-      if (ev.key === "/" && !isTyping(ev.target)) {
+      // Bound focus-search shortcut (default "/"). Allowed only while
+      // typing is NOT happening so it does not eat the literal token
+      // from inside another text box. Sequence bindings ("g s") are
+      // ignored here — they are the cheatsheet listener's territory.
+      const boundSearch = (searchKey || DEFAULT_SEARCH_KEY).trim();
+      const isSequence = boundSearch.indexOf(" ") !== -1;
+      if (!isSequence && ev.key === boundSearch && !isTyping(ev.target)) {
         const input = getQueryInput();
         if (input) {
           ev.preventDefault();
@@ -164,4 +177,25 @@
       activeEl = null;
     }
   });
+
+  // -------------------------------------------------------------------
+  // v1.2 — load the user's bound focus-search key. Best-effort fetch:
+  // a failure leaves searchKey at the default so "/" still focuses the
+  // input exactly like the v0.51 behaviour.
+  // -------------------------------------------------------------------
+  fetch("/api/kbd-shortcuts.json", {
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+  })
+    .then((res) => (res.ok ? res.json() : null))
+    .then((json) => {
+      if (!json || typeof json !== "object") return;
+      const value = json.search_focus;
+      if (typeof value === "string" && value.trim()) {
+        searchKey = value.trim();
+      }
+    })
+    .catch(() => {
+      /* keep default */
+    });
 })();

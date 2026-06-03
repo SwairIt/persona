@@ -470,7 +470,15 @@
     document.documentElement.dataset.fullscreenKeyBound = '1';
     if (!enabled) return;
     document.addEventListener('keydown', function (ev) {
-      if (ev.key !== 'f' && ev.key !== 'F') return;
+      // v1.2 — user-customisable binding. fullscreenKey defaults to "f"
+      // to preserve v0.95 behaviour; rebound asynchronously via
+      // /api/kbd-shortcuts.json (see loadFullscreenBinding below).
+      const bound = (fullscreenKey || DEFAULT_FULLSCREEN_KEY).trim();
+      // Multi-token sequences aren't supported for fullscreen — it's an
+      // instant shortcut by design. If the user binds something exotic
+      // we simply don't fire from this listener.
+      if (bound.indexOf(' ') !== -1) return;
+      if (ev.key !== bound && ev.key.toLowerCase() !== bound.toLowerCase()) return;
       // Don't hijack the letter in any text-entry context.
       const t = ev.target;
       if (t && (
@@ -484,6 +492,30 @@
     });
   }
 
+  // v1.2 — user-customisable fullscreen binding. Mutable so an async
+  // fetch can override it after listeners are wired; the listener
+  // reads the current value on each keydown.
+  const DEFAULT_FULLSCREEN_KEY = 'f';
+  let fullscreenKey = DEFAULT_FULLSCREEN_KEY;
+
+  function loadFullscreenBinding() {
+    // Best-effort fetch — a failure leaves the key at its default so
+    // pressing "f" / "F" still toggles fullscreen exactly like v0.95.
+    return fetch('/api/kbd-shortcuts.json', {
+      credentials: 'same-origin',
+      headers: { Accept: 'application/json' },
+    })
+      .then(function (res) { return res.ok ? res.json() : null; })
+      .then(function (json) {
+        if (!json || typeof json !== 'object') return;
+        const value = json.fullscreen;
+        if (typeof value === 'string' && value.trim()) {
+          fullscreenKey = value.trim();
+        }
+      })
+      .catch(function () { /* keep default */ });
+  }
+
   function init() {
     const nodes = document.querySelectorAll('[data-zoomable]');
     if (!nodes.length) {
@@ -491,6 +523,7 @@
       // themselves gracefully on pages without a zoomable image.
       bindCopyButtons();
       bindFullscreen();
+      loadFullscreenBinding();
       return;
     }
     let firstViewer = null;
@@ -503,6 +536,7 @@
     if (firstViewer) applyDeepLink(firstViewer);
     bindCopyButtons();
     bindFullscreen();
+    loadFullscreenBinding();
   }
 
   if (document.readyState === 'loading') {

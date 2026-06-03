@@ -43,6 +43,23 @@ _SORT_OPTIONS: tuple[str, ...] = (
 )
 _DEFAULT_SORT = "captured_at"
 
+# Whitelist of allowed ``?script=`` query values. Must stay in lock-step
+# with :data:`app.ocr.language_stats._BUCKETS` and migration 084's
+# ``dominant_script`` column contents — any value outside this set is
+# silently discarded so URL fuzzing can't slip a bogus literal into the
+# parametrised SQL filter below.
+_SCRIPT_OPTIONS: tuple[str, ...] = ("cyrillic", "latin", "cjk", "digit", "other")
+
+
+def _coerce_script(value: str | None) -> str | None:
+    """Reduce arbitrary user input to a whitelisted script bucket or ``None``."""
+    if not value:
+        return None
+    candidate = value.strip().lower()
+    if candidate in _SCRIPT_OPTIONS:
+        return candidate
+    return None
+
 
 def _coerce_sort(value: str | None) -> str:
     """Reduce arbitrary user input to a whitelisted sort key."""
@@ -98,11 +115,13 @@ async def search_page(
     min_w: int | None = Query(default=None, ge=1),
     min_h: int | None = Query(default=None, ge=1),
     sort_by: str = Query(default=_DEFAULT_SORT),
+    script: str | None = Query(default=None),
 ) -> HTMLResponse:
-    """Render search page with optional tier / tag / app / date / size post-filters."""
+    """Render search page with optional tier / tag / app / date / size / script post-filters."""
     since_dt = _parse_iso_or_none(since)
     until_dt = _parse_iso_or_none(until)
     sort_key = _coerce_sort(sort_by)
+    script_key = _coerce_script(script)
 
     # Normalise repeatable ``?tag=`` query params: drop blanks, dedupe,
     # preserve order so the template can faithfully echo what the user
@@ -159,7 +178,16 @@ async def search_page(
 
         recent_searches = await list_recent(conn)
 
-    if q and (tier or tags or app_name or date_from_norm or date_to_norm or min_w or min_h):
+    if q and (
+        tier
+        or tags
+        or app_name
+        or date_from_norm
+        or date_to_norm
+        or min_w
+        or min_h
+        or script_key
+    ):
         hits = await _apply_post_filters(
             hits,
             tier=tier,
@@ -169,6 +197,7 @@ async def search_page(
             date_to=date_to_norm,
             min_w=min_w,
             min_h=min_h,
+            script=script_key,
         )
         log.debug(
             "search.facets.applied",
@@ -180,6 +209,7 @@ async def search_page(
             date_to=date_to_norm,
             min_w=min_w,
             min_h=min_h,
+            script=script_key,
             remaining=len(hits),
         )
 
@@ -222,6 +252,8 @@ async def search_page(
             "min_h": min_h,
             "sort_by": sort_key,
             "sort_options": _SORT_OPTIONS,
+            "script": script_key,
+            "script_options": _SCRIPT_OPTIONS,
             "hits": hits,
             "total": len(hits),
             "embeddings_enabled": settings.embeddings_enabled,
@@ -308,8 +340,9 @@ async def _apply_post_filters(
     date_to: str | None,
     min_w: int | None = None,
     min_h: int | None = None,
+    script: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Filter merged hits by tier / tags / app / date / size via DB lookups.
+    """Filter merged hits by tier / tags / app / date / size / script via DB lookups.
 
     All SQL uses ``?`` bind parameters; no user input is interpolated.
     Each filter independently narrows ``keep_ids`` so a hit must satisfy
@@ -320,6 +353,14 @@ async def _apply_post_filters(
     height — legacy captures the backfill hasn't visited yet — drop out
     of the result set, mirroring the SQL ``>= ?`` comparison semantics
     against an unknown left-hand side.
+
+    ``script`` filters on the per-shot ``dominant_script`` column written
+    by :func:`app.workers.ocr_worker._store_dominant_script` (migration
+    084). Rows with ``NULL`` ``dominant_script`` — shots that pre-date
+    the migration, OCR-pending shots, or whitespace-only OCR text —
+    silently drop out of a script-filtered query rather than being
+    coerced into ``'other'``. The caller is responsible for whitelisting
+    the value via :func:`_coerce_script` before passing it here.
     """
     if not hits:
         return hits
@@ -382,6 +423,16 @@ async def _apply_post_filters(
                 f"SELECT id FROM screenshots WHERE id IN ({placeholders}) "  # noqa: S608
                 "AND height IS NOT NULL AND height >= ?",
                 (*ids, min_h),
+            )
+            rows = await cursor.fetchall()
+            keep_ids &= {int(row["id"]) for row in rows}
+
+        if script:
+            placeholders = ",".join("?" * len(ids))
+            cursor = await conn.execute(
+                f"SELECT id FROM screenshots WHERE id IN ({placeholders}) "  # noqa: S608
+                "AND dominant_script = ?",
+                (*ids, script),
             )
             rows = await cursor.fetchall()
             keep_ids &= {int(row["id"]) for row in rows}

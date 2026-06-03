@@ -30,6 +30,7 @@ Subcommands:
     slack-summary      Compact Slack-style daily summary (--day YYYY-MM-DD, --out FILE).
     export-sticky      Dump every sticky_note row as a JSON array (--out FILE).
     export-annotations-ndjson  Stream every screenshot_annotation row as NDJSON (--out FILE).
+    export-annotations-csv     Stream every screenshot_annotation row as CSV (--out FILE).
     archive            Build a ZIP bundle of recent state (--days N --out FILE [--no-thumbnails]).
     diagnostics-bundle Build a diagnostics ZIP for bug reports (--out FILE; no user data).
     export-collage     Render a 4xN per-day collage PNG (--day YYYY-MM-DD --out FILE).
@@ -91,6 +92,7 @@ from app.storage.thumbnails import save_thumbnail
 from app.storage.time import iso, parse_iso
 from app.tag_cleanup import find_orphan_tags, purge_orphan_tags, untag_older_than
 from app.thumb_regen import regen_missing
+from app.web.routes.annotations_csv import _iter_annotations_csv
 from app.web.routes.annotations_ndjson import _iter_annotations_ndjson
 from app.web.routes.share_visits_csv import _render_share_visits_csv
 from app.web.routes.sticky_export import _fetch_all_stickies
@@ -1225,6 +1227,42 @@ async def _cmd_export_annotations_ndjson(out: Path) -> int:
     return 0
 
 
+async def _cmd_export_annotations_csv(out: Path) -> int:
+    """Stream every ``screenshot_annotation`` row as CSV to ``out``.
+
+    Reuses :func:`app.web.routes.annotations_csv._iter_annotations_csv`
+    so the CLI and the HTTP route produce byte-identical files — single
+    source of truth for column order, CSV quoting, and the
+    ``screenshot_id → shot_id`` rename. The async generator yields
+    pre-encoded chunks (one CSV record per chunk, RFC-4180 CRLF
+    terminators) so we write the file row-by-row without materialising
+    the whole table in memory.
+    """
+    out.parent.mkdir(parents=True, exist_ok=True)
+    rows = 0
+    size_bytes = 0
+    # Open in binary mode — the generator already encodes to UTF-8 and
+    # emits CRLF line terminators (csv module default, RFC 4180). Going
+    # through the text layer would risk Windows rewriting ``\r\n`` to
+    # ``\r\r\n`` and corrupting downstream parsers.
+    with out.open("wb") as fh:
+        first = True
+        async for chunk in _iter_annotations_csv():
+            fh.write(chunk)
+            size_bytes += len(chunk)
+            # The first chunk is the header line — subsequent chunks are
+            # data rows. Count only data rows for the user-facing tally.
+            if first:
+                first = False
+            else:
+                rows += 1
+
+    print(f"Path:   {out}")
+    print(f"Rows:   {rows}")
+    print(f"Bytes:  {size_bytes}")
+    return 0
+
+
 async def _cmd_export_ocr_txt(day: str | None, out: Path) -> int:
     """Write the per-day OCR text dump via :func:`export_day_ocr_txt`."""
     target = _parse_day(day)
@@ -1928,6 +1966,22 @@ def _build_parser() -> argparse.ArgumentParser:  # noqa: PLR0915 — flat subpar
         help="Destination NDJSON path (parent dirs are created).",
     )
 
+    annotations_csv_parser = sub.add_parser(
+        "export-annotations-csv",
+        help=(
+            "Stream every screenshot_annotation row (id, shot_id, body, "
+            "created_at) as RFC-4180 CSV for spreadsheet / pandas / "
+            "`cut -d,` workflows."
+        ),
+    )
+    annotations_csv_parser.add_argument(
+        "--out",
+        dest="out",
+        type=Path,
+        required=True,
+        help="Destination CSV path (parent dirs are created).",
+    )
+
     ocr_txt_parser = sub.add_parser(
         "export-ocr-txt",
         help=(
@@ -2180,6 +2234,8 @@ async def _run(args: argparse.Namespace) -> int:  # noqa: PLR0911, PLR0912 — d
         return await _cmd_export_sticky(args.out)
     if args.command == "export-annotations-ndjson":
         return await _cmd_export_annotations_ndjson(args.out)
+    if args.command == "export-annotations-csv":
+        return await _cmd_export_annotations_csv(args.out)
     if args.command == "archive":
         return await _cmd_archive(args.days, args.out, args.include_thumbnails)
     if args.command == "diagnostics-bundle":

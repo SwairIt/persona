@@ -22,6 +22,7 @@ from app.web.routes import (
     about as about_routes,
     analysis as analysis_routes,
     annotations as annotations_routes,
+    annotations_csv as annotations_csv_routes,
     annotations_ndjson as annotations_ndjson_routes,
     api_tokens as api_tokens_routes,
     app_aliases as app_aliases_routes,
@@ -104,6 +105,7 @@ from app.web.routes import (
     journal as journal_routes,
     journal_export as journal_export_routes,
     kanban_csv as kanban_csv_routes,
+    kbd_shortcuts as kbd_shortcuts_routes,
     keywords as keywords_routes,
     lang_autodetect as lang_autodetect_routes,
     live_sse as live_sse_routes,
@@ -292,7 +294,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.1.0",
+        version="1.2.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -527,6 +529,8 @@ def create_app() -> FastAPI:
     app.include_router(phrase_autotag_suggest_routes.router)
     app.include_router(whats_new_routes.router)
     app.include_router(note_attachments_routes.router)
+    app.include_router(annotations_csv_routes.router)
+    app.include_router(kbd_shortcuts_routes.router)
 
     return app
 
