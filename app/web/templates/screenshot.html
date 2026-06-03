@@ -77,12 +77,30 @@
       <section class="rounded-lg border border-ink-700 bg-ink-800 p-4">
         <div class="flex items-center justify-between mb-3">
           <h3 class="text-xs uppercase tracking-widest text-zinc-500">OCR text</h3>
-          <button type="button"
-                  data-copy-ocr
-                  data-ocr-text="{{ shot.ocr_text or '' }}"
-                  class="px-3 py-1 text-xs bg-ink-700 hover:bg-ink-600 rounded text-zinc-200">
-            Copy OCR text
-          </button>
+          <div class="flex items-center gap-2">
+            <button type="button"
+                    data-copy-ocr
+                    data-ocr-text="{{ shot.ocr_text or '' }}"
+                    class="px-3 py-1 text-xs bg-ink-700 hover:bg-ink-600 rounded text-zinc-200">
+              Copy OCR text
+            </button>
+            {# v0.74 feature 2/3 — Copy OCR as markdown.
+               Wraps the OCR body with a `## app — timestamp` header and
+               a [Open in Persona](origin/screenshot/{id}) link so the
+               clipboard payload is self-describing when pasted into
+               external notes. The shot id + app name + captured_at all
+               flow through data-* attributes; ocr_copy.js builds the
+               final string and copies via navigator.clipboard. #}
+            <button type="button"
+                    data-copy-md
+                    data-ocr-text="{{ shot.ocr_text or '' }}"
+                    data-shot-id="{{ shot.id }}"
+                    data-app-name="{{ (shot.app_name | app_alias) if shot.app_name else 'Screenshot' }}"
+                    data-captured-at="{{ shot.captured_at | humantime }}"
+                    class="px-3 py-1 text-xs bg-ink-700 hover:bg-ink-600 rounded text-zinc-200">
+              Copy MD
+            </button>
+          </div>
         </div>
         <pre class="text-sm font-mono text-zinc-200 whitespace-pre-wrap leading-relaxed">{{ shot.ocr_text }}</pre>
       </section>

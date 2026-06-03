@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-start justify-between gap-4 flex-wrap">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">External pings</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Heartbeats from external scripts (CLI timers, CI watchers, meeting
+      bots) hitting <span class="font-mono text-accent-400">POST /api/ping</span>.
+      Useful for marking active intervals when Persona&rsquo;s own capture
+      loop was paused. Newest first.
+    </p>
+  </div>
+  <div class="text-xs text-zinc-500 font-mono flex-shrink-0">
+    showing {{ items|length }} of {{ total }} &middot; limit {{ limit }}
+  </div>
+</div>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-4 mb-5">
+  <form action="/admin/external-pings" method="get" class="flex flex-wrap items-end gap-3">
+    <label class="flex flex-col gap-1 flex-1 min-w-[200px]">
+      <span class="text-xs uppercase tracking-widest text-zinc-500">
+        Filter by source (exact)
+      </span>
+      <input type="text" name="source" value="{{ filter_source }}"
+             placeholder="e.g. cli-timer, ci-watch"
+             class="px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
+    </label>
+    <label class="flex flex-col gap-1 w-32">
+      <span class="text-xs uppercase tracking-widest text-zinc-500">Limit</span>
+      <input type="number" name="limit" value="{{ limit }}" min="1" max="1000" step="1"
+             class="px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
+    </label>
+    <div class="flex gap-2">
+      <button type="submit"
+              class="px-4 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
+        Apply
+      </button>
+      {% if filter_source %}
+        <a href="/admin/external-pings"
+           class="px-4 py-2 bg-ink-900 hover:bg-ink-700 border border-ink-700 rounded text-sm">
+          Clear
+        </a>
+      {% endif %}
+    </div>
+  </form>
+</section>
+
+{% if items %}
+  <div class="rounded-lg border border-ink-700 bg-ink-900/40 overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-ink-900 border-b border-ink-700 text-xs uppercase tracking-wider text-zinc-500">
+        <tr>
+          <th class="px-3 py-2 text-right font-medium w-16">#</th>
+          <th class="px-3 py-2 text-left font-medium w-52">Timestamp</th>
+          <th class="px-3 py-2 text-left font-medium w-44">Source</th>
+          <th class="px-3 py-2 text-left font-medium">Label</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-ink-700">
+        {% for entry in items %}
+          <tr class="hover:bg-ink-800/40 transition">
+            <td class="px-3 py-2 align-top text-right font-mono text-[11px] text-zinc-500">
+              {{ entry.id }}
+            </td>
+            <td class="px-3 py-2 align-top font-mono text-[11px] text-zinc-300 whitespace-nowrap">
+              {{ entry.ts }}
+            </td>
+            <td class="px-3 py-2 align-top font-mono text-xs text-accent-400 whitespace-nowrap">
+              {{ entry.source }}
+            </td>
+            <td class="px-3 py-2 align-top text-zinc-200 break-words">
+              {% if entry.label %}
+                {{ entry.label }}
+              {% else %}
+                <span class="text-zinc-600">&mdash;</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  <div class="text-center py-20 px-6 rounded-lg border border-dashed border-ink-700 bg-ink-900/40">
+    <div class="text-5xl text-zinc-700 mb-4">&#9203;</div>
+    <h2 class="text-lg font-semibold text-zinc-300">
+      {% if filter_source %}No pings from "{{ filter_source }}"{% else %}No external pings yet{% endif %}
+    </h2>
+    <p class="text-sm text-zinc-500 mt-2 max-w-md mx-auto">
+      {% if filter_source %}
+        Try clearing the source filter or check that the script is
+        actually POSTing with the expected identifier.
+      {% else %}
+        Any script can record a heartbeat with a single HTTP call:
+        <span class="block mt-3 font-mono text-xs text-zinc-400 bg-ink-900 border border-ink-700 rounded p-3 text-left whitespace-pre-wrap">curl -X POST http://localhost:8765/api/ping \
+  -H "Content-Type: application/json" \
+  -d '{"source": "cli-timer", "label": "deep work"}'</span>
+      {% endif %}
+    </p>
+  </div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,155 @@
+{# Bulk add-to-auto-collection admin page.
+
+   One template, three views — switched by the ``fragment`` context var:
+
+   * default (no fragment) — full page extending ``base.html``: the
+     collection dropdown + query input + an empty HTMX target div.
+   * ``"preview"`` — fragment returned by /admin/bulk-collection/preview,
+     swapped into ``#bulk-collection-preview`` by HTMX. Shows the match
+     count plus the HMAC-gated apply form.
+   * ``"result"`` — fragment returned by /admin/bulk-collection/apply,
+     swapped into the same target after the real tag run.
+
+   Jinja allows multiple ``extends`` tags as long as only one fires per
+   render — we exploit that here so a single ``.html`` file can serve
+   both the full page and the HTMX fragments without a sibling file. #}
+
+{% if not fragment %}{% extends "base.html" %}{% endif %}
+
+{% if fragment == "preview" %}
+  {% if preview.matched == 0 %}
+    <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+      <p class="text-zinc-300 text-sm">
+        No screenshots matched
+        <code class="font-mono text-xs bg-ink-900 px-1.5 py-0.5 rounded">{{ preview.query }}</code>.
+        Nothing to add to
+        <strong class="text-zinc-100">{{ preview.slug }}</strong>.
+      </p>
+    </div>
+  {% else %}
+    <div class="rounded-lg border border-sky-700 bg-sky-900/30 p-5 space-y-4">
+      <h2 class="text-lg font-semibold text-sky-100">
+        {{ preview.matched }} screenshot{{ "s" if preview.matched != 1 else "" }} will be tagged
+        <code class="font-mono text-xs bg-ink-900 px-1.5 py-0.5 rounded">{{ preview.tag }}</code>
+      </h2>
+      <p class="text-sky-100/80 text-sm">
+        Collection:
+        <strong class="text-sky-50">{{ preview.slug }}</strong>
+        · Query:
+        <code class="font-mono text-xs bg-ink-900 px-1.5 py-0.5 rounded">{{ preview.query }}</code>
+        · limit {{ preview.limit }}
+      </p>
+      <p class="text-sky-100/70 text-xs">
+        Adding the tag is idempotent — shots already carrying
+        <code class="font-mono">{{ preview.tag }}</code> are skipped, not duplicated.
+        New membership at
+        <code class="font-mono">/collection/{{ preview.slug }}</code> is visible
+        immediately (auto-collections compute membership on read).
+      </p>
+
+      <form hx-post="/admin/bulk-collection/apply"
+            hx-target="#bulk-collection-preview"
+            hx-swap="innerHTML"
+            hx-confirm="Tag {{ preview.matched }} screenshot(s) with '{{ preview.tag }}'?"
+            class="pt-2 border-t border-sky-700/60">
+        <input type="hidden" name="slug"    value="{{ preview.slug }}">
+        <input type="hidden" name="query"   value="{{ preview.query }}">
+        <input type="hidden" name="limit"   value="{{ preview.limit }}">
+        <input type="hidden" name="matched" value="{{ preview.matched }}">
+        <input type="hidden" name="token"   value="{{ preview.token }}">
+        <button type="submit"
+                class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded text-sm font-bold tracking-wide">
+          Apply to {{ preview.matched }} match{{ "es" if preview.matched != 1 else "" }}
+        </button>
+      </form>
+    </div>
+  {% endif %}
+{% elif fragment == "result" %}
+  <div class="rounded-lg border border-emerald-700/60 bg-emerald-900/20 p-5">
+    <h2 class="text-lg font-semibold text-emerald-200 mb-2">Done.</h2>
+    <p class="text-emerald-100 text-sm">
+      Tagged <strong>{{ result.affected }}</strong> screenshot(s) with
+      <code class="font-mono text-xs bg-ink-900 px-1.5 py-0.5 rounded">{{ result.tag }}</code>
+      (matched {{ result.matched }}). They are now visible at
+      <a href="/collection/{{ result.slug }}"
+         class="underline hover:text-emerald-50">/collection/{{ result.slug }}</a>.
+    </p>
+    <p class="text-emerald-200/70 text-xs mt-3">
+      Run another query above to add more, or
+      <a href="/admin/bulk-collection" class="underline hover:text-emerald-100">reset the page</a>.
+    </p>
+  </div>
+{% else %}
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight flex items-center gap-3">
+    <span class="text-sky-400">+</span> Bulk add to auto-collection
+  </h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Apply an auto-collection's tag to every screenshot matching a
+    full-text search query. Auto-collections compute membership on read,
+    so the matches show up at <code class="font-mono">/collection/&lt;slug&gt;</code>
+    the moment they are tagged.
+  </p>
+</div>
+
+{% if not rules %}
+  <div class="rounded-lg border border-amber-700/60 bg-amber-900/20 p-4 mb-8">
+    <p class="text-amber-100 text-sm">
+      No auto-collections defined yet.
+      <a href="/collections" class="underline hover:text-amber-50">Create one first</a>,
+      then come back here to populate it from a search query.
+    </p>
+  </div>
+{% else %}
+  <div class="rounded-lg border border-sky-700/60 bg-sky-900/20 p-4 mb-8">
+    <p class="text-sky-100 text-sm">
+      <strong class="font-semibold">How it works.</strong>
+      Picking a collection selects the tag bound to it. The preview is a
+      dry-run — nothing is tagged until you click the confirm button on
+      the next step. The confirmation token is invalidated as soon as the
+      collection, query or match count changes.
+    </p>
+  </div>
+
+  <form id="bulk-collection-form"
+        hx-post="/admin/bulk-collection/preview"
+        hx-target="#bulk-collection-preview"
+        hx-swap="innerHTML"
+        class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6 space-y-4">
+    <label class="block">
+      <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">Collection</span>
+      <select name="slug" required
+              class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm focus:outline-none focus:border-sky-500">
+        {% for rule in rules %}
+          <option value="{{ rule.slug }}">
+            {{ rule.title }} — /collection/{{ rule.slug }} (tag: {{ rule.tag }})
+          </option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="block">
+      <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">FTS5 query</span>
+      <input name="query" required minlength="1" maxlength="500"
+             autocomplete="off"
+             placeholder='e.g. "invoice" or app:figma OR design'
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm focus:outline-none focus:border-sky-500">
+    </label>
+    <label class="block max-w-xs">
+      <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">Limit (max 10000)</span>
+      <input name="limit" type="number" min="1" max="10000" value="{{ default_limit }}"
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm focus:outline-none focus:border-sky-500">
+    </label>
+    <div class="flex items-center gap-3">
+      <button type="submit"
+              class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded text-sm font-medium">
+        Preview matches
+      </button>
+      <span class="text-xs text-zinc-500">Preview is always dry-run — nothing is tagged yet.</span>
+    </div>
+  </form>
+{% endif %}
+
+<div id="bulk-collection-preview"></div>
+{% endblock %}
+{% endif %}

@@ -132,4 +132,60 @@
     const ok = await copyText(text);
     flashTooltip(btn, ok ? 'Copied!' : 'Copy failed', ok);
   });
+
+  /*
+   * v0.74 feature 2/3 — Copy OCR as markdown.
+   *
+   * A second button variant (attribute `data-copy-md`) builds a markdown
+   * snippet that wraps the OCR text with a header (app name + capture
+   * timestamp) and a link back to the screenshot detail page in Persona.
+   * This makes the clipboard payload self-describing when pasted into
+   * Obsidian / docs / chat — you can tell at a glance which shot the
+   * text came from and click straight back to it.
+   *
+   * Inputs come from data-* attributes on the button itself:
+   *   data-ocr-text     — the plaintext OCR body (same source as the
+   *                       existing Copy OCR button; we re-use the same
+   *                       attribute so the Jinja template doesn't need
+   *                       to duplicate the value).
+   *   data-app-name     — display name of the source app.
+   *   data-captured-at  — human-readable capture timestamp.
+   *   data-shot-id      — numeric screenshot id; used to construct the
+   *                       link URL relative to the current origin so the
+   *                       markdown stays valid both in local dev
+   *                       (http://localhost:PORT/) and in any future
+   *                       deployment.
+   *
+   * Output shape (exact):
+   *   ## {app_name} — {captured_at}
+   *   [Open in Persona](http://host:PORT/screenshot/{id})
+   *
+   *   {ocr_text}
+   *
+   * The blank line between the link and the OCR body keeps the markdown
+   * well-formed (a paragraph break) so renderers don't glue the URL to
+   * the first OCR line.
+   */
+  function buildMarkdown(btn) {
+    const ocrText = btn.getAttribute('data-ocr-text') || '';
+    const appName = btn.getAttribute('data-app-name') || 'Screenshot';
+    const capturedAt = btn.getAttribute('data-captured-at') || '';
+    const shotId = btn.getAttribute('data-shot-id') || '';
+    const origin = window.location.origin;
+    const url = origin + '/screenshot/' + shotId;
+    const header = '## ' + appName + (capturedAt ? ' — ' + capturedAt : '');
+    return header + '\n[Open in Persona](' + url + ')\n\n' + ocrText;
+  }
+
+  document.addEventListener('click', async (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const btn = target.closest('[data-copy-md]');
+    if (!btn) return;
+
+    event.preventDefault();
+    const text = buildMarkdown(btn);
+    const ok = await copyText(text);
+    flashTooltip(btn, ok ? 'Copied MD!' : 'Copy failed', ok);
+  });
 })();
