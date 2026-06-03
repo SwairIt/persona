@@ -17,6 +17,7 @@ Subcommands:
     export-settings    Dump every preference table to a JSON file (--out FILE).
     import-settings    Insert rows from a settings JSON file (--in FILE [--replace]).
     export-stats-csv   Per-day-per-app rollup CSV (--days N, --out FILE).
+    export-share-visits  v0.55 share_visit rows as CSV (--days N, --out FILE).
     export-ocr-txt     Per-day OCR text dump for grep/fzf (--day YYYY-MM-DD, --out FILE).
     archive            Build a ZIP bundle of recent state (--days N --out FILE [--no-thumbnails]).
     diagnostics-bundle Build a diagnostics ZIP for bug reports (--out FILE; no user data).
@@ -71,6 +72,7 @@ from app.storage.size_log import sample_today, today_bytes
 from app.storage.thumbnails import save_thumbnail
 from app.storage.time import iso, parse_iso
 from app.tag_cleanup import find_orphan_tags, purge_orphan_tags, untag_older_than
+from app.web.routes.share_visits_csv import _render_share_visits_csv
 from app.weekly_pdf import export_week_pdf
 
 _ANSI_GREEN = "\033[32m"
@@ -846,6 +848,38 @@ async def _cmd_export_stats_csv(days: int, out: Path) -> int:
     return 0
 
 
+async def _cmd_export_share_visits(days: int, out: Path) -> int:
+    """Write the v0.55 ``share_visit`` rows as a CSV via the shared renderer.
+
+    Reuses :func:`app.web.routes.share_visits_csv._render_share_visits_csv`
+    so the CLI and the HTTP route always agree on columns, ordering, and
+    the ``-N days`` window — there is exactly one query in the codebase
+    that materialises this table for offline analysis.
+    """
+    if days < 1:
+        print(f"error: --days must be >= 1, got {days}", file=sys.stderr)
+        return 2
+
+    body = await _render_share_visits_csv(days=days)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    # ``newline=""`` keeps the stdlib csv-writer line endings (already
+    # ``\n``) intact instead of letting the platform layer rewrite them
+    # to CRLF on Windows, which would double-up to ``\r\r\n``.
+    with out.open("w", encoding="utf-8", newline="") as fh:
+        fh.write(body)
+
+    # Subtract the header line for the user-facing row count.
+    line_count = body.count("\n")
+    data_rows = max(line_count - 1, 0)
+    size_bytes = len(body.encode("utf-8"))
+
+    print(f"Path:   {out}")
+    print(f"Days:   {days}")
+    print(f"Rows:   {data_rows}")
+    print(f"Bytes:  {size_bytes}")
+    return 0
+
+
 async def _cmd_export_ocr_txt(day: str | None, out: Path) -> int:
     """Write the per-day OCR text dump via :func:`export_day_ocr_txt`."""
     target = _parse_day(day)
@@ -1199,6 +1233,28 @@ def _build_parser() -> argparse.ArgumentParser:  # noqa: PLR0915 — flat subpar
         help="Destination CSV path (parent dirs are created).",
     )
 
+    share_visits_parser = sub.add_parser(
+        "export-share-visits",
+        help=(
+            "Dump v0.55 share_visit rows (shot_id, visited_at, ua, "
+            "ip_prefix) as a CSV for offline analysis."
+        ),
+    )
+    share_visits_parser.add_argument(
+        "--days",
+        dest="days",
+        type=int,
+        default=90,
+        help="Lookback window in days (default: 90).",
+    )
+    share_visits_parser.add_argument(
+        "--out",
+        dest="out",
+        type=Path,
+        required=True,
+        help="Destination CSV path (parent dirs are created).",
+    )
+
     ocr_txt_parser = sub.add_parser(
         "export-ocr-txt",
         help=(
@@ -1366,6 +1422,8 @@ async def _run(args: argparse.Namespace) -> int:  # noqa: PLR0911, PLR0912 — d
         return await _cmd_import_settings(args.src, args.replace)
     if args.command == "export-stats-csv":
         return await _cmd_export_stats_csv(args.days, args.out)
+    if args.command == "export-share-visits":
+        return await _cmd_export_share_visits(args.days, args.out)
     if args.command == "export-ocr-txt":
         return await _cmd_export_ocr_txt(args.day, args.out)
     if args.command == "archive":

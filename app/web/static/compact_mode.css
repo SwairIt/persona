@@ -1,0 +1,21 @@
+/*
+ * Persona v0.61 — global compact mode.
+ *
+ * Activated by the ``data-compact="1"`` attribute that ``base.html``
+ * stamps onto ``<body>`` whenever the ``compact_mode`` kv_settings row
+ * is ``"1"``. The rules below shrink the base font size, tighten row
+ * padding, and trim the thumbnail size CSS variable that the timeline
+ * / day-kanban / heatmap templates already consume — so flipping the
+ * toggle re-flows the whole UI without per-template changes.
+ *
+ * The default (``data-compact="0"`` or absent) keeps the historical
+ * layout untouched: this sheet ships zero rules outside the
+ * ``[data-compact="1"]`` selector so it is safe to include on every
+ * page regardless of the stored setting.
+ */
+
+[data-compact="1"] {
+  font-size: 14px;
+  --thumb-size: 200px;
+  --row-pad: 0.5rem;
+}

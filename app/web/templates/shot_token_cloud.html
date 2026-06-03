@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-8 flex flex-wrap items-end justify-between gap-4">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Token cloud</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Words extracted from this screenshot's OCR text, sized by how often each
+      appears. Click any term to search every other capture that mentions it.
+    </p>
+    <p class="text-zinc-500 text-xs mt-2">
+      <a href="/screenshot/{{ shot.id }}"
+         class="font-mono text-accent-400 hover:underline">#{{ shot.id }}</a>
+      {% if shot.app_name %}
+        · <span class="text-zinc-400">{{ shot.app_name }}</span>
+      {% endif %}
+      {% if shot.window_title %}
+        · <span class="text-zinc-400 truncate">{{ shot.window_title }}</span>
+      {% endif %}
+    </p>
+  </div>
+
+  <a href="/screenshot/{{ shot.id }}"
+     class="px-3 py-1.5 rounded-md bg-accent-600/20 text-accent-400 hover:bg-accent-600/30
+            border border-accent-600/40 transition text-sm">
+    Back to screenshot
+  </a>
+</div>
+
+{% if items %}
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-8 mb-6">
+    <div class="flex flex-wrap items-baseline gap-x-4 gap-y-3 leading-none">
+      {% for item in items %}
+        <a href="/search?q={{ item.word | urlencode }}"
+           title="{{ item.word }} — {{ item.count }} occurrence{{ '' if item.count == 1 else 's' }}"
+           class="text-accent-400 hover:text-accent-300 hover:underline transition tabular-nums"
+           style="font-size: {{ item.size_rem }}rem;
+                  font-weight: {{ item.weight }};
+                  opacity: {{ item.opacity }};">
+          {{ item.word }}<span class="text-zinc-500 text-xs ml-0.5 font-normal align-super">
+            {{ item.count }}</span>
+        </a>
+      {% endfor %}
+    </div>
+  </section>
+
+  <div class="grid sm:grid-cols-3 gap-4 mb-8">
+    <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+      <div class="text-xs uppercase tracking-widest text-zinc-500">Rendered tokens</div>
+      <div class="text-2xl font-bold mt-1 tabular-nums">{{ items | length }}</div>
+    </div>
+    <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+      <div class="text-xs uppercase tracking-widest text-zinc-500">Unique tokens</div>
+      <div class="text-2xl font-bold mt-1 tabular-nums">{{ unique_tokens }}</div>
+    </div>
+    <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+      <div class="text-xs uppercase tracking-widest text-zinc-500">OCR characters</div>
+      <div class="text-2xl font-bold mt-1 tabular-nums">{{ ocr_chars }}</div>
+    </div>
+  </div>
+{% else %}
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-10 text-center text-zinc-500">
+    <div class="text-4xl mb-3">∅</div>
+    {% if ocr_chars == 0 %}
+      <p>No OCR text yet for screenshot #{{ shot.id }}.</p>
+      <p class="mt-1 text-xs">The OCR worker may still be processing this frame.</p>
+    {% else %}
+      <p>No words to display after stopword and length filtering.</p>
+      <p class="mt-1 text-xs">
+        Tokens shorter than 4 characters and common function words are filtered out.
+      </p>
+    {% endif %}
+  </section>
+{% endif %}
+{% endblock %}

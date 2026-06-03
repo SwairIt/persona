@@ -84,6 +84,30 @@
   </section>
 
   <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 lg:col-span-2">
+    <h2 class="text-lg font-semibold mb-2">Appearance</h2>
+    <p class="text-zinc-500 text-xs mb-4">
+      Compact mode tightens row padding, shrinks the base font, and
+      reduces the timeline / day-kanban thumbnail size. The setting is
+      stored in <code>kv_settings</code> and applied via a
+      <code>data-compact</code> attribute on <code>&lt;body&gt;</code>.
+    </p>
+    <form action="/settings/compact-mode" method="post" class="flex items-center gap-3">
+      <label class="flex items-center gap-2 text-sm cursor-pointer">
+        <input
+          type="checkbox"
+          name="enabled"
+          value="true"
+          {% if compact_mode_enabled %}checked{% endif %}
+          class="w-4 h-4 accent-accent-500 bg-ink-900 border-ink-700 rounded">
+        <span>Compact mode (smaller fonts, denser thumbnails)</span>
+      </label>
+      <button type="submit" class="px-3 py-1.5 bg-accent-600 hover:bg-accent-500 rounded text-xs font-medium">
+        Save
+      </button>
+    </form>
+  </section>
+
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 lg:col-span-2">
     <h2 class="text-lg font-semibold mb-2">Digests</h2>
     <p class="text-zinc-500 text-xs mb-4">
       Anti-FOMO digest mode tells the LLM to write a qualitative, themes-only
