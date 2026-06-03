@@ -13,12 +13,14 @@ from typing import Any
 
 from app.llm.client import CompletionRequest, LLMClient, make_client
 from app.logging_setup import get_logger
+from app.settings import get_settings
 from app.storage.db import get_connection
 from app.storage.repository import get_kv, list_screenshots
 from app.storage.time import iso
 
 log = get_logger("persona.llm")
 _prompt_log = get_logger("persona.digest.prompt")
+_fomo_log = get_logger("persona.digest.fomo")
 
 _SYSTEM = (
     "You are a memory assistant for a single user. You receive a structured "
@@ -30,6 +32,30 @@ _SYSTEM = (
     "shipped'. Write it in the user's language (Russian if Cyrillic dominates "
     "the source text, English otherwise). Do NOT invent facts not visible in "
     "the input. If a section has no material, say so honestly in one sentence "
+    "rather than padding."
+)
+
+# v0.59 — anti-FOMO weekly variant. Same three-section shape so the
+# rendered Markdown still slots into the existing weekly digest UI, but
+# stripped of every productivity-style metric. When the user toggles
+# ``anti_fomo_digest`` on, this prompt REPLACES both ``_SYSTEM`` and any
+# user-configured custom template — re-introducing numbers via the kv
+# override would defeat the entire purpose of the flag.
+_SYSTEM_ANTI_FOMO = (
+    "You are a memory assistant for a single user. You receive a structured "
+    "log of one calendar week (Mon-Sun) covering what was on their screen, "
+    "any free-text notes they wrote, and per-day digests already generated. "
+    "Produce a tight first-person QUALITATIVE weekly retrospective "
+    "(250-400 words) with exactly these three sections, in this order, each "
+    "on its own line as a Markdown heading: '## Big themes', "
+    "'## Notable moments', '## What I shipped'. Write it in the user's "
+    "language (Russian if Cyrillic dominates the source text, English "
+    "otherwise). Hard rules: do NOT mention any shot count, capture count, "
+    "note count, digest count, percentage, ratio, time-spent figure, hour "
+    "total, minute total, duration, productivity score, app ranking, or any "
+    "other numeric or productivity-style metric. Focus on themes, topics, "
+    "and texture — not throughput. Do NOT invent facts not visible in the "
+    "input. If a section has no material, say so honestly in one sentence "
     "rather than padding."
 )
 
@@ -56,6 +82,25 @@ PROMPT_PLACEHOLDERS: tuple[str, ...] = ("week_start", "sections", "shots_count")
 # prompt instead". Any non-empty value is treated as a Python
 # ``str.format`` template and rendered with ``PROMPT_PLACEHOLDERS``.
 _PROMPT_KV_KEY = "weekly_digest_prompt_template"
+
+# v0.59 — kv key the settings UI checkbox writes to. Mirrors the env
+# flag ``PERSONA_ANTI_FOMO_DIGEST`` so the user can toggle anti-FOMO
+# mode at runtime from /settings without restarting the process.
+_ANTI_FOMO_KV_KEY = "anti_fomo_digest"
+
+
+def _parse_anti_fomo_kv(raw: str | None) -> bool | None:
+    """Return ``True``/``False`` for a kv string, ``None`` if absent."""
+    if raw is None:
+        return None
+    normalised = raw.strip().lower()
+    if normalised == "":
+        return None
+    if normalised in {"1", "true", "yes", "on"}:
+        return True
+    if normalised in {"0", "false", "no", "off"}:
+        return False
+    return None
 
 
 def default_weekly_prompt_template() -> str:
@@ -125,14 +170,22 @@ def build_weekly_summary_prompt(
     events: list[dict[str, Any]],
     notes: list[dict[str, Any]],
     daily_digests: list[dict[str, Any]],
+    quantitative: bool = True,
 ) -> str:
-    """Render the week as compact text the LLM can ingest."""
+    """Render the week as compact text the LLM can ingest.
+
+    When ``quantitative`` is False (anti-FOMO digest mode), the
+    capture/notes/digest counts line is omitted so the LLM is not
+    handed numbers it has been instructed to ignore.
+    """
     week_end = week_start + timedelta(days=6)
-    parts: list[str] = [
-        f"Week: {week_start.isoformat()} → {week_end.isoformat()}",
-        f"Captures: {len(events)} · Notes: {len(notes)} · Daily digests: {len(daily_digests)}",
-        "",
-    ]
+    parts: list[str] = [f"Week: {week_start.isoformat()} → {week_end.isoformat()}"]
+    if quantitative:
+        parts.append(
+            f"Captures: {len(events)} · Notes: {len(notes)} · "
+            f"Daily digests: {len(daily_digests)}"
+        )
+    parts.append("")
 
     if daily_digests:
         parts.append("DAILY DIGESTS (already condensed by the assistant):")
@@ -192,6 +245,8 @@ async def summarise_week(
         )
         digest_rows = await cursor.fetchall()
 
+        anti_fomo_kv = _parse_anti_fomo_kv(await get_kv(conn, _ANTI_FOMO_KV_KEY))
+
     if not shots and not note_rows and not digest_rows:
         return "No activity captured for this week."
 
@@ -216,48 +271,84 @@ async def summarise_week(
         {"day": str(row["day"]), "body": str(row["body"])} for row in digest_rows
     ]
 
-    apps_summary = Counter(s.app_name for s in shots if s.app_name).most_common(8)
-    header = (
-        f"Week {monday_iso} → {(monday + timedelta(days=6)).isoformat()} · "
-        f"{len(shots)} captures · {len(notes)} notes · "
-        f"{len(daily_digests)} daily digests · "
-        f"top apps: {', '.join(f'{a} ({n})' for a, n in apps_summary) or '—'}"
-    )
+    cfg = get_settings()
+    # kv override wins (UI checkbox is the user-facing control), env flag
+    # provides the headless default for deployments without a writable UI.
+    anti_fomo = anti_fomo_kv if anti_fomo_kv is not None else bool(cfg.anti_fomo_digest)
+
+    # v0.59 — when anti-FOMO is on, the header collapses to a date range
+    # only (no shot/note/digest counts, no top-apps roll-up) and the
+    # body is rebuilt without its quantitative line so the LLM never
+    # sees the numbers it has been told to omit.
+    if anti_fomo:
+        header = (
+            f"Week {monday_iso} → {(monday + timedelta(days=6)).isoformat()}"
+        )
+    else:
+        apps_summary = Counter(s.app_name for s in shots if s.app_name).most_common(8)
+        header = (
+            f"Week {monday_iso} → {(monday + timedelta(days=6)).isoformat()} · "
+            f"{len(shots)} captures · {len(notes)} notes · "
+            f"{len(daily_digests)} daily digests · "
+            f"top apps: {', '.join(f'{a} ({n})' for a, n in apps_summary) or '—'}"
+        )
 
     body = build_weekly_summary_prompt(
         week_start=monday,
         events=events,
         notes=notes,
         daily_digests=daily_digests,
+        quantitative=not anti_fomo,
     )
     user_message = f"{header}\n\n{body}"
 
-    # Resolve the system prompt. A non-empty ``kv_settings`` row wins,
-    # but only if every placeholder renders cleanly — otherwise we fall
-    # back to the hard-coded ``_SYSTEM`` and log a structured warning so
-    # the user can spot the broken template in their logs.
-    system_prompt: str = _SYSTEM
+    # Resolve the system prompt. When anti-FOMO digest mode is on the
+    # hard-coded anti-FOMO prompt wins unconditionally — re-introducing
+    # numbers via a custom kv template would defeat the flag. Otherwise
+    # a non-empty ``kv_settings`` row wins, but only if every
+    # placeholder renders cleanly; otherwise we fall back to the
+    # hard-coded ``_SYSTEM`` and log a structured warning so the user
+    # can spot the broken template in their logs.
     custom_template = await _load_custom_prompt_template()
-    if custom_template is not None:
-        rendered = _render_custom_prompt(
-            custom_template,
-            week_start=monday_iso,
-            sections=body,
-            shots_count=len(events),
-        )
-        if rendered is not None:
-            system_prompt = rendered
+    prompt_custom = False
+    if anti_fomo:
+        system_prompt = _SYSTEM_ANTI_FOMO
+        if custom_template is not None:
             _prompt_log.info(
-                "digest.prompt.override_active",
-                week_start=monday_iso,
-                length=len(rendered),
-            )
-        else:
-            _prompt_log.warning(
                 "digest.prompt.override_skipped",
                 week_start=monday_iso,
-                reason="render_failed",
+                reason="anti_fomo_digest",
             )
+        _fomo_log.info(
+            "digest.fomo.weekly.active",
+            week_start=monday_iso,
+            events=len(events),
+            notes=len(notes),
+            daily_digests=len(daily_digests),
+        )
+    else:
+        system_prompt = _SYSTEM
+        if custom_template is not None:
+            rendered = _render_custom_prompt(
+                custom_template,
+                week_start=monday_iso,
+                sections=body,
+                shots_count=len(events),
+            )
+            if rendered is not None:
+                system_prompt = rendered
+                prompt_custom = True
+                _prompt_log.info(
+                    "digest.prompt.override_active",
+                    week_start=monday_iso,
+                    length=len(rendered),
+                )
+            else:
+                _prompt_log.warning(
+                    "digest.prompt.override_skipped",
+                    week_start=monday_iso,
+                    reason="render_failed",
+                )
 
     request = CompletionRequest(system=system_prompt, user=user_message, max_tokens=900)
 
@@ -268,8 +359,14 @@ async def summarise_week(
         notes=len(notes),
         daily_digests=len(daily_digests),
         provider=ll.provider,
-        prompt_custom=custom_template is not None and system_prompt is not _SYSTEM,
+        prompt_custom=prompt_custom,
+        anti_fomo=anti_fomo,
     )
     text = await ll.complete(request)
-    log.info("llm.weekly_summary.done", week_start=monday_iso, chars=len(text))
+    log.info(
+        "llm.weekly_summary.done",
+        week_start=monday_iso,
+        chars=len(text),
+        anti_fomo=anti_fomo,
+    )
     return text

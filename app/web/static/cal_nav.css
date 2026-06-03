@@ -1,0 +1,220 @@
+/*
+ * cal_nav.css — floating month-navigator widget (v0.59)
+ *
+ * Footprint kept deliberately tiny: one fixed FAB in the bottom-right
+ * corner, plus a popup panel that the JS toggles via the
+ * `data-cal-nav-open` attribute on the host element.  Colours follow
+ * the same ink/accent palette declared in base.html's Tailwind config
+ * so the widget feels native in both dark and light themes.
+ */
+
+.cal-nav-root {
+  position: fixed;
+  right: 1.25rem;
+  bottom: 1.25rem;
+  z-index: 60;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+  line-height: 1.2;
+  color: #e4e4e7;
+}
+
+.cal-nav-fab {
+  width: 44px;
+  height: 44px;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #1a1a1f;
+  color: #a78bfa;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 120ms ease, background 120ms ease;
+}
+
+.cal-nav-fab:hover {
+  background: #26262e;
+  transform: translateY(-1px);
+}
+
+.cal-nav-fab:focus-visible {
+  outline: 2px solid #8b5cf6;
+  outline-offset: 2px;
+}
+
+html:not(.dark) .cal-nav-fab {
+  background: #ffffff;
+  border-color: rgba(0, 0, 0, 0.08);
+  color: #7c3aed;
+}
+
+html:not(.dark) .cal-nav-fab:hover {
+  background: #f4f4f5;
+}
+
+.cal-nav-panel {
+  position: absolute;
+  right: 0;
+  bottom: 56px;
+  width: 264px;
+  padding: 10px 12px 12px;
+  border-radius: 12px;
+  background: #111114;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+  display: none;
+}
+
+html:not(.dark) .cal-nav-panel {
+  background: #ffffff;
+  border-color: rgba(0, 0, 0, 0.08);
+  color: #18181b;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.18);
+}
+
+.cal-nav-root[data-cal-nav-open="1"] .cal-nav-panel {
+  display: block;
+}
+
+.cal-nav-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.cal-nav-title {
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.cal-nav-nav {
+  display: flex;
+  gap: 4px;
+}
+
+.cal-nav-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cal-nav-btn:hover {
+  background: rgba(167, 139, 250, 0.12);
+}
+
+.cal-nav-btn:focus-visible {
+  outline: 2px solid #8b5cf6;
+  outline-offset: 1px;
+}
+
+.cal-nav-weekdays,
+.cal-nav-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.cal-nav-weekdays {
+  margin-bottom: 4px;
+  color: #71717a;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.cal-nav-weekdays span {
+  text-align: center;
+  padding: 2px 0;
+}
+
+.cal-nav-cell {
+  position: relative;
+  height: 30px;
+  border-radius: 6px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.cal-nav-cell:disabled {
+  cursor: default;
+  color: transparent;
+}
+
+.cal-nav-cell:not(:disabled):hover {
+  background: rgba(167, 139, 250, 0.16);
+}
+
+.cal-nav-cell:focus-visible {
+  outline: 2px solid #8b5cf6;
+  outline-offset: 1px;
+}
+
+/* A cell that has at least one screenshot — highlighted with the accent
+ * colour at an opacity proportional to its share of the busiest day. */
+.cal-nav-cell[data-has="1"] {
+  background: rgba(139, 92, 246, 0.18);
+  color: #ede9fe;
+}
+
+.cal-nav-cell[data-has="1"][data-heat="2"] { background: rgba(139, 92, 246, 0.32); }
+.cal-nav-cell[data-has="1"][data-heat="3"] { background: rgba(139, 92, 246, 0.48); }
+.cal-nav-cell[data-has="1"][data-heat="4"] { background: rgba(124, 58, 237, 0.68); }
+
+html:not(.dark) .cal-nav-cell[data-has="1"] { color: #4c1d95; }
+
+.cal-nav-cell[data-today="1"] {
+  box-shadow: inset 0 0 0 1px #a78bfa;
+}
+
+.cal-nav-footer {
+  margin-top: 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #71717a;
+  font-size: 11px;
+}
+
+.cal-nav-today-btn {
+  background: transparent;
+  border: 1px solid rgba(167, 139, 250, 0.4);
+  color: #a78bfa;
+  padding: 2px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+}
+
+.cal-nav-today-btn:hover {
+  background: rgba(167, 139, 250, 0.12);
+}
+
+.cal-nav-empty {
+  text-align: center;
+  color: #71717a;
+  padding: 14px 0;
+  font-size: 12px;
+}

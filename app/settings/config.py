@@ -53,6 +53,14 @@ class Settings(BaseSettings):
     weekly_stats_email_enabled: bool = Field(default=False)
     weekly_stats_email_hour_local: int = Field(default=9, ge=0, le=23)
 
+    # v0.59 — anti-FOMO digest mode. When True, the daily and weekly
+    # LLM digests instruct the model to produce a qualitative,
+    # theme-only retrospective without mentioning shot counts,
+    # percentages, time-spent figures, or any productivity-style
+    # metric. Default False keeps the existing behaviour for
+    # everyone who has not opted in.
+    anti_fomo_digest: bool = Field(default=False)
+
     host: str = Field(default="127.0.0.1")
     port: int = Field(default=8765, ge=1, le=65535)
     log_level: str = Field(default="INFO")

@@ -82,6 +82,35 @@
       <div class="flex justify-between"><dt class="text-zinc-500">Log level</dt><dd>{{ settings.log_level }}</dd></div>
     </dl>
   </section>
+
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 lg:col-span-2">
+    <h2 class="text-lg font-semibold mb-2">Digests</h2>
+    <p class="text-zinc-500 text-xs mb-4">
+      Anti-FOMO digest mode tells the LLM to write a qualitative, themes-only
+      retrospective. Shot counts, percentages, time-spent figures, and other
+      productivity metrics are stripped from both the prompt and the
+      generated text.
+    </p>
+    <form action="/settings/anti-fomo-digest" method="post" class="flex items-center gap-3">
+      <label class="flex items-center gap-2 text-sm cursor-pointer">
+        <input
+          type="checkbox"
+          name="enabled"
+          value="true"
+          {% if anti_fomo_enabled %}checked{% endif %}
+          class="w-4 h-4 accent-accent-500 bg-ink-900 border-ink-700 rounded">
+        <span>Anti-FOMO digest mode (themes only, no numbers)</span>
+      </label>
+      <button type="submit" class="px-3 py-1.5 bg-accent-600 hover:bg-accent-500 rounded text-xs font-medium">
+        Save
+      </button>
+      {% if anti_fomo_kv_set and anti_fomo_enabled != anti_fomo_env_default %}
+        <span class="text-xs text-zinc-500">
+          (overriding <code>PERSONA_ANTI_FOMO_DIGEST={{ "true" if anti_fomo_env_default else "false" }}</code>)
+        </span>
+      {% endif %}
+    </form>
+  </section>
 </div>
 
 <section class="mt-8 rounded-lg border border-rose-700/40 bg-rose-950/20 p-5">
