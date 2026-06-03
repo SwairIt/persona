@@ -3,7 +3,7 @@
 {% set _persona_grayscale = get_grayscale_mode() %}
 {% set _persona_reduce_motion = get_reduce_motion() %}
 <!DOCTYPE html>
-<html lang="en"{% if _persona_theme == 'dark' %} class="dark"{% elif _persona_theme == 'light' %} class=""{% endif %}>
+<html lang="{{ get_ui_language() }}"{% if _persona_theme == 'dark' %} class="dark"{% elif _persona_theme == 'light' %} class=""{% endif %}>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -105,23 +105,23 @@
 
       <nav class="flex items-center gap-1 text-sm">
         {% set items = [
-          ('timeline', '/', 'Timeline'),
-          ('search', '/search', 'Search'),
-          ('ask', '/ask', 'Ask'),
-          ('focus', '/focus', 'Focus'),
-          ('reminders', '/reminders', 'Reminders'),
-          ('reading', '/reading', 'Reading'),
-          ('digest', '/digest/weekly', 'Digest'),
-          ('journal', '/journal', 'Journal'),
-          ('apps', '/apps', 'Apps'),
-          ('stats', '/stats', 'Stats'),
-          ('settings', '/settings', 'Settings')
+          ('timeline', '/', 'nav_timeline'),
+          ('search', '/search', 'nav_search'),
+          ('ask', '/ask', 'nav_ask'),
+          ('focus', '/focus', 'nav_focus'),
+          ('reminders', '/reminders', 'nav_reminders'),
+          ('reading', '/reading', 'nav_reading'),
+          ('digest', '/digest/weekly', 'nav_digest'),
+          ('journal', '/journal', 'nav_journal'),
+          ('apps', '/apps', 'nav_apps'),
+          ('stats', '/stats', 'nav_stats'),
+          ('settings', '/settings', 'nav_settings')
         ] %}
-        {% for slug, href, label in items %}
+        {% for slug, href, label_key in items %}
           <a href="{{ href }}"
              class="px-3 py-1.5 rounded-md transition
                     {% if active_nav == slug %}bg-accent-600/20 text-accent-400{% else %}text-zinc-400 hover:text-zinc-100 hover:bg-ink-800{% endif %}">
-            {{ label }}
+            {{ t(label_key) }}
           </a>
         {% endfor %}
       </nav>
@@ -133,15 +133,15 @@
               title="Worker heartbeat"></span>
         <span x-show="paused" class="flex items-center gap-1.5 text-amber-400">
           <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
-          <span>Paused</span>
+          <span>{{ t('status_paused') }}</span>
         </span>
         <span x-show="!paused" class="flex items-center gap-1.5 text-emerald-400">
           <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-          <span>Capturing</span>
+          <span>{{ t('status_capturing') }}</span>
         </span>
         <span class="text-zinc-500">
           <span id="status-pill-shots" x-text="captures">0</span>
-          <span>frames</span>
+          <span>{{ t('status_frames') }}</span>
         </span>
         <span x-show="ocrPending > 0" class="text-amber-400" :title="`${ocrPending} OCR pending`">
           OCR <span x-text="ocrPending"></span>
@@ -155,16 +155,16 @@
           <span x-text="budgetMb.toFixed(1) + 'MB'"></span>
         </a>
         <button @click="captureNow()"
-                title="Capture now"
+                title="{{ t('btn_capture_now') }}"
                 class="px-2 py-1 rounded bg-ink-800 hover:bg-ink-700 text-zinc-300">●</button>
         <button @click="toggleTheme()"
-                title="Toggle dark / light"
+                title="{{ t('btn_toggle_theme') }}"
                 class="px-2 py-1 rounded bg-ink-800 hover:bg-ink-700 text-zinc-300">
           <span x-text="theme === 'dark' ? '☀' : '☾'"></span>
         </button>
         <button @click="toggle()"
                 class="px-2 py-1 rounded bg-ink-800 hover:bg-ink-700 text-zinc-300"
-                x-text="paused ? 'Start' : 'Pause'"></button>
+                x-text="paused ? {{ t('btn_start') | tojson }} : {{ t('btn_pause') | tojson }}"></button>
       </div>
     </div>
   </header>
@@ -194,7 +194,7 @@
 
   <footer class="border-t border-ink-700 mt-16 py-6 text-center text-xs text-zinc-500">
     <a href="https://github.com/SwairIt/persona" class="hover:text-zinc-300">github.com/SwairIt/persona</a>
-    · 100% local · AGPL-3.0
+    · {{ t('footer_local') }} · {{ t('footer_license') }}
   </footer>
 
   {# v1.0 capstone 3/3 — version banner chip. Small bottom-right pill

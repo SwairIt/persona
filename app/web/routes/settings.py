@@ -5,6 +5,12 @@ from __future__ import annotations
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
+from app.i18n import (
+    DEFAULT_LANGUAGE,
+    SUPPORTED_LANGUAGES,
+    UI_LANGUAGE_KV_KEY,
+    invalidate_language_cache,
+)
 from app.logging_setup import get_logger
 from app.ocr import probe_tesseract
 from app.settings import get_settings
@@ -23,6 +29,7 @@ _fomo_log = get_logger("persona.digest.fomo")
 _compact_log = get_logger("persona.compact")
 _grayscale_log = get_logger("persona.grayscale")
 _reduce_motion_log = get_logger("persona.reduce_motion")
+_i18n_log = get_logger("persona.i18n")
 
 # kv key shared with ``app.llm.summariser`` and ``app.llm.weekly_summariser``.
 # Kept as a route-level constant so the checkbox form-field name and the
@@ -71,6 +78,7 @@ async def settings_page(request: Request) -> HTMLResponse:
         compact_raw = await get_kv(conn, _COMPACT_MODE_KV_KEY)
         grayscale_raw = await get_kv(conn, _GRAYSCALE_MODE_KV_KEY)
         reduce_motion_raw = await get_kv(conn, _REDUCE_MOTION_KV_KEY)
+        ui_language_raw = await get_kv(conn, UI_LANGUAGE_KV_KEY)
 
     # Effective state for the checkbox: kv override wins, env flag is the
     # fallback. Surfacing the env baseline separately lets the template
@@ -89,6 +97,12 @@ async def settings_page(request: Request) -> HTMLResponse:
     # keeps the checkbox state aligned with the body attribute that
     # gates ``reduce_motion.css``.
     reduce_motion_enabled = (reduce_motion_raw or "").strip() == "1"
+    # UI language: anything outside the whitelist (or absent) collapses
+    # to the default so the ``<select>`` always has a valid option
+    # pre-selected and a manual kv edit can never wedge the renderer.
+    ui_language_current = (ui_language_raw or "").strip()
+    if ui_language_current not in SUPPORTED_LANGUAGES:
+        ui_language_current = DEFAULT_LANGUAGE
 
     return templates.TemplateResponse(
         request,
@@ -105,6 +119,8 @@ async def settings_page(request: Request) -> HTMLResponse:
             "compact_mode_enabled": compact_enabled,
             "grayscale_mode_enabled": grayscale_enabled,
             "reduce_motion_enabled": reduce_motion_enabled,
+            "ui_language_current": ui_language_current,
+            "ui_language_options": sorted(SUPPORTED_LANGUAGES),
         },
     )
 
@@ -228,6 +244,38 @@ async def update_reduce_motion(
     _reduce_motion_log.info(
         "reduce_motion.toggle",
         enabled=new_value,
+        source="settings_ui",
+    )
+    return RedirectResponse(url="/settings", status_code=303)
+
+
+@router.post("/settings/ui-language", response_class=HTMLResponse)
+async def update_ui_language(
+    request: Request,
+    language: str = Form(...),
+) -> RedirectResponse:
+    """Persist the UI language selector to ``kv_settings`` (v1.1).
+
+    Switches the locale that drives the Jinja ``t(key)`` global wired up
+    in :mod:`app.web.templates_engine`. The submitted value is checked
+    against :data:`app.i18n.SUPPORTED_LANGUAGES` before writing — an
+    unknown code collapses to :data:`app.i18n.DEFAULT_LANGUAGE` rather
+    than being stored verbatim, so a hand-crafted POST cannot wedge the
+    renderer with a missing translation file.
+
+    Invalidates the per-request language cache so the redirect-target
+    render reflects the new value rather than the value cached earlier
+    in this same request when the GET form was rendered.
+    """
+    candidate = language.strip().lower()
+    new_value = candidate if candidate in SUPPORTED_LANGUAGES else DEFAULT_LANGUAGE
+    async with get_connection() as conn:
+        await set_kv(conn, UI_LANGUAGE_KV_KEY, new_value)
+    invalidate_language_cache()
+    _i18n_log.info(
+        "i18n.language.set",
+        language=new_value,
+        requested=candidate,
         source="settings_ui",
     )
     return RedirectResponse(url="/settings", status_code=303)

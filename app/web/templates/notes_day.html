@@ -111,6 +111,17 @@
             {% endif %}
           {% endif %}
 
+          {#
+            v1.1 — audio attachments. Hydrated by /api/notes/{id}/attachments.json
+            so the timeline view does not have to pre-load the metadata server-
+            side. Each row renders as <audio controls src=…> pointing at the
+            streaming endpoint; a small delete form lets the operator drop one.
+            Empty state renders nothing — no audio means no widget.
+          #}
+          <section data-note-attachments="{{ item.id }}"
+                   class="mt-3 space-y-2 empty:hidden"
+                   aria-label="Audio attachments"></section>
+
           {% if item.tags %}
             <footer class="mt-3 flex flex-wrap gap-1.5">
               {% for tag in item.tags %}
@@ -127,5 +138,73 @@
       </li>
     {% endfor %}
   </ol>
+
+  {# Audio attachments hydrator: one fetch per note, vanilla JS, no framework.
+     Lives inline so the timeline route does not have to ship a separate JS
+     asset and so the script is naturally scoped to the timeline page. #}
+  <script>
+    (function hydrateNoteAttachments() {
+      const containers = document.querySelectorAll("[data-note-attachments]");
+      const fmtBytes = (n) => {
+        if (n < 1024) return n + " B";
+        if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
+        return (n / (1024 * 1024)).toFixed(1) + " MB";
+      };
+      const render = (container, items) => {
+        container.innerHTML = "";
+        for (const att of items) {
+          const row = document.createElement("div");
+          row.className = "flex items-center gap-3 bg-ink-950/40 border " +
+                          "border-ink-700 rounded p-2";
+
+          const audio = document.createElement("audio");
+          audio.controls = true;
+          audio.preload = "none";
+          audio.src = att.file_url;
+          audio.className = "flex-1 min-w-0 max-w-full";
+
+          const meta = document.createElement("div");
+          meta.className = "text-[11px] text-zinc-500 font-mono shrink-0";
+          meta.textContent = att.filename + " · " + fmtBytes(att.size_bytes);
+
+          const del = document.createElement("button");
+          del.type = "button";
+          del.textContent = "Remove";
+          del.className = "px-2 py-1 text-[11px] rounded border border-ink-700 " +
+                          "hover:border-red-500 text-zinc-400 hover:text-red-300 " +
+                          "transition shrink-0";
+          del.addEventListener("click", async () => {
+            if (!confirm("Remove this audio attachment?")) return;
+            const resp = await fetch(
+              "/api/note-attachment/" + att.id + "/delete",
+              { method: "POST" }
+            );
+            if (resp.ok) {
+              row.remove();
+            }
+          });
+
+          row.appendChild(audio);
+          row.appendChild(meta);
+          row.appendChild(del);
+          container.appendChild(row);
+        }
+      };
+      containers.forEach(async (container) => {
+        const noteId = container.getAttribute("data-note-attachments");
+        try {
+          const resp = await fetch("/api/notes/" + noteId + "/attachments.json");
+          if (!resp.ok) return;
+          const data = await resp.json();
+          if (Array.isArray(data.items) && data.items.length > 0) {
+            render(container, data.items);
+          }
+        } catch (_err) {
+          /* swallowed — leaving the timeline rendered without attachments is
+             the safe degradation when the endpoint is unreachable. */
+        }
+      });
+    })();
+  </script>
 {% endif %}
 {% endblock %}

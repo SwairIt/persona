@@ -14,6 +14,8 @@ from markupsafe import Markup
 
 from app import __version__ as _app_version
 from app.app_aliases import resolve as _resolve_app_alias
+from app.i18n import get_ui_language as _get_ui_language
+from app.i18n import t as _translate
 from app.logging_setup import get_logger
 from app.settings import get_settings
 
@@ -422,10 +424,26 @@ templates.env.filters["thumbnail_url"] = _thumbnail_url
 templates.env.filters["app_alias"] = _resolve_app_alias
 templates.env.filters["linkify_urls"] = _linkify_urls
 
+def _jinja_translate(key: str) -> str:
+    """Jinja-facing wrapper around :func:`app.i18n.t`.
+
+    Binds the ``lang`` argument to the active ``ui_language`` setting so
+    templates can simply write ``{{ t("btn_save") }}`` without each
+    route having to thread the language through context. The resolution
+    uses the same per-request :class:`~contextvars.ContextVar` cache as
+    every other ``kv_settings`` read on this page, so calling ``t(...)``
+    on every line of :file:`base.html` triggers at most one SQLite hit
+    per request.
+    """
+    return _translate(key, _get_ui_language())
+
+
 templates.env.globals["get_theme"] = get_theme
 templates.env.globals["get_compact_mode"] = get_compact_mode
 templates.env.globals["get_grayscale_mode"] = get_grayscale_mode
 templates.env.globals["get_reduce_motion"] = get_reduce_motion
+templates.env.globals["get_ui_language"] = _get_ui_language
+templates.env.globals["t"] = _jinja_translate
 # v1.0 capstone 3/3 — expose the package version to every template so
 # :file:`base.html` can stamp the version-banner chip without each route
 # having to thread the value through context. Reads ``app.__version__``

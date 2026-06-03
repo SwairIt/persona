@@ -116,6 +116,7 @@ from app.web.routes import (
     multi_day_diff as multi_day_diff_routes,
     multi_shot_zip as multi_shot_zip_routes,
     note_assist as note_assist_routes,
+    note_attachments as note_attachments_routes,
     note_templates as note_templates_routes,
     notes as notes_routes,
     notes_link_checker as notes_link_checker_routes,
@@ -291,7 +292,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.0.0",
+        version="1.1.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -525,6 +526,7 @@ def create_app() -> FastAPI:
     app.include_router(shot_groups_routes.router)
     app.include_router(phrase_autotag_suggest_routes.router)
     app.include_router(whats_new_routes.router)
+    app.include_router(note_attachments_routes.router)
 
     return app
 

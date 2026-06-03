@@ -42,6 +42,16 @@ Safety + design notes
   pattern cannot synthesise text on blank shots.
 * **Parametrised SQL.** Every value travels via ``?`` placeholders.
   The regex is applied in Python, never interpolated into SQL.
+* **Per-app scoping (v1.1).** Both :func:`preview` and :func:`apply`
+  accept an optional ``app_name`` argument. When provided, the candidate
+  query gains a ``WHERE app_name = ?`` predicate so the regex only ever
+  runs against shots from that one app — the rest of the corpus is
+  invisible. ``None`` (the default) preserves the v0.77 corpus-wide
+  behaviour exactly. The value is bound as a parameter; the regex
+  itself is still applied in Python, never glued into SQL. Per-app
+  apply emits its own structured log under
+  ``persona.ocr.find_replace.per_app`` so the audit reader can tell
+  scoped runs apart from corpus-wide ones at a glance.
 """
 
 from __future__ import annotations
@@ -54,6 +64,7 @@ from app.ocr_history import record_snapshot
 from app.storage.db import get_connection
 
 log = get_logger("persona.ocr.find_replace")
+log_per_app = get_logger("persona.ocr.find_replace.per_app")
 
 # Hard caps on how many rows preview / apply will ever touch in a single
 # call. The route layer also validates the user-supplied limit, but the
@@ -114,10 +125,26 @@ def _truncate(text: str) -> str:
     return text[:_PREVIEW_SNIPPET_CHARS] + "..."
 
 
+def _normalise_app_name(app_name: str | None) -> str | None:
+    """Trim whitespace and treat empty input as "no scope" (``None``).
+
+    Keeps the route layer free of "is this an empty string or None?"
+    bookkeeping — callers may pass either and the function treats them
+    identically. Anything non-empty is returned stripped, ready to bind
+    as a single ``?`` parameter against ``screenshots.app_name``.
+    """
+    if app_name is None:
+        return None
+    cleaned = app_name.strip()
+    return cleaned if cleaned else None
+
+
 async def preview(
     pattern: str,
     replacement: str,
     limit: int = 100,
+    *,
+    app_name: str | None = None,
 ) -> list[PreviewRow]:
     """Dry-run the regex against ``ocr_text`` and return up to ``limit`` diffs.
 
@@ -128,10 +155,17 @@ async def preview(
     the pattern does not match are skipped silently so the preview only
     shows the impact, never the noise.
 
+    When ``app_name`` is provided, the candidate query gains a
+    ``WHERE app_name = ?`` predicate so only shots captured from that
+    one app are scanned — useful for repairing a Tesseract mis-read
+    that only ever happens in a specific font/UI. Passing ``None``
+    (the default) preserves the v0.77 corpus-wide behaviour.
+
     Never writes — safe to call from any read-only context.
     """
     regex = _compile(pattern)
     safe_limit = _clamp_limit(limit, _PREVIEW_HARD_CAP)
+    scoped_app = _normalise_app_name(app_name)
 
     rows: list[PreviewRow] = []
     async with get_connection() as conn:
@@ -141,13 +175,27 @@ async def preview(
         # first, and stop as soon as we have collected ``safe_limit``
         # genuinely-changed rows. The hard-cap on ``scan_cap`` keeps
         # the worst case bounded when no rows match.
+        #
+        # Per-app scoping (v1.1) adds a parametrised ``app_name = ?``
+        # predicate when the caller supplied a name. The SQL string is
+        # built from two fixed branches (no f-string interpolation of
+        # user data) and the value is always bound as a placeholder.
         scan_cap = safe_limit * 10
-        cursor = await conn.execute(
-            "SELECT id, ocr_text FROM screenshots "
-            "WHERE ocr_text IS NOT NULL AND ocr_text <> '' "
-            "ORDER BY id DESC LIMIT ?",
-            (scan_cap,),
-        )
+        if scoped_app is None:
+            cursor = await conn.execute(
+                "SELECT id, ocr_text FROM screenshots "
+                "WHERE ocr_text IS NOT NULL AND ocr_text <> '' "
+                "ORDER BY id DESC LIMIT ?",
+                (scan_cap,),
+            )
+        else:
+            cursor = await conn.execute(
+                "SELECT id, ocr_text FROM screenshots "
+                "WHERE ocr_text IS NOT NULL AND ocr_text <> '' "
+                "AND app_name = ? "
+                "ORDER BY id DESC LIMIT ?",
+                (scoped_app, scan_cap),
+            )
         async for row in cursor:
             before = str(row["ocr_text"])
             after = regex.sub(replacement, before)
@@ -169,7 +217,17 @@ async def preview(
         replacement=replacement,
         limit=safe_limit,
         matched=len(rows),
+        app_name=scoped_app,
     )
+    if scoped_app is not None:
+        log_per_app.info(
+            "ocr.find_replace.preview.per_app",
+            pattern=pattern,
+            replacement=replacement,
+            limit=safe_limit,
+            matched=len(rows),
+            app_name=scoped_app,
+        )
     return rows
 
 
@@ -177,6 +235,8 @@ async def apply(
     pattern: str,
     replacement: str,
     limit: int = 1000,
+    *,
+    app_name: str | None = None,
 ) -> ApplyResult:
     """Execute the regex substitution against ``ocr_text``.
 
@@ -186,6 +246,12 @@ async def apply(
     is applied in Python and the result is written back via an
     ``UPDATE`` only when it differs from the original (no-op writes are
     skipped so the FTS trigger work stays proportional to real changes).
+
+    When ``app_name`` is provided, the candidate query is restricted to
+    shots whose ``screenshots.app_name`` equals that value — every other
+    row in the corpus is invisible to this call and will not be touched
+    even if the regex would otherwise have matched. ``None`` (the
+    default) preserves the v0.77 corpus-wide behaviour.
 
     After the loop, an explicit
     ``INSERT INTO screenshots_fts(screenshots_fts) VALUES('rebuild')``
@@ -201,6 +267,7 @@ async def apply(
     """
     regex = _compile(pattern)
     safe_limit = _clamp_limit(limit, _APPLY_HARD_CAP)
+    scoped_app = _normalise_app_name(app_name)
 
     scanned = 0
     changed = 0
@@ -209,14 +276,25 @@ async def apply(
         # Same pattern as :func:`preview`: pull a bounded candidate set
         # in one query, then run the Python regex over each row, only
         # writing back the rows that actually change. Stop once we have
-        # mutated ``safe_limit`` rows.
+        # mutated ``safe_limit`` rows. The two SQL branches keep the
+        # ``app_name = ?`` predicate parametrised; the user-supplied
+        # value is never interpolated into the statement text.
         scan_cap = safe_limit * 10
-        cursor = await conn.execute(
-            "SELECT id, ocr_text FROM screenshots "
-            "WHERE ocr_text IS NOT NULL AND ocr_text <> '' "
-            "ORDER BY id DESC LIMIT ?",
-            (scan_cap,),
-        )
+        if scoped_app is None:
+            cursor = await conn.execute(
+                "SELECT id, ocr_text FROM screenshots "
+                "WHERE ocr_text IS NOT NULL AND ocr_text <> '' "
+                "ORDER BY id DESC LIMIT ?",
+                (scan_cap,),
+            )
+        else:
+            cursor = await conn.execute(
+                "SELECT id, ocr_text FROM screenshots "
+                "WHERE ocr_text IS NOT NULL AND ocr_text <> '' "
+                "AND app_name = ? "
+                "ORDER BY id DESC LIMIT ?",
+                (scoped_app, scan_cap),
+            )
         targets: list[tuple[int, str, str]] = []
         async for row in cursor:
             before = str(row["ocr_text"])
@@ -261,7 +339,21 @@ async def apply(
         limit=safe_limit,
         scanned=scanned,
         changed=changed,
+        app_name=scoped_app,
     )
+    if scoped_app is not None:
+        # Dedicated per-app logger — lets the audit reader filter scoped
+        # runs out of the much-noisier corpus-wide stream. The line above
+        # already covers the global view; this is the focused signal.
+        log_per_app.info(
+            "ocr.find_replace.apply.per_app",
+            pattern=pattern,
+            replacement=replacement,
+            limit=safe_limit,
+            scanned=scanned,
+            changed=changed,
+            app_name=scoped_app,
+        )
     return ApplyResult(
         scanned=scanned,
         changed=changed,

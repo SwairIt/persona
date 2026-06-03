@@ -32,7 +32,9 @@
       Pattern
       <code class="font-mono text-xs bg-ink-900 px-1.5 py-0.5 rounded">{{ apply_result.pattern }}</code>
       rewritten to
-      <code class="font-mono text-xs bg-ink-900 px-1.5 py-0.5 rounded">{{ apply_result.replacement }}</code>.
+      <code class="font-mono text-xs bg-ink-900 px-1.5 py-0.5 rounded">{{ apply_result.replacement }}</code>{% if apply_app_name %}
+      in app
+      <code class="font-mono text-xs bg-ink-900 px-1.5 py-0.5 rounded">{{ apply_app_name }}</code>{% endif %}.
       Scanned {{ apply_result.scanned }} candidate row(s); changed
       <strong>{{ apply_result.changed }}</strong>. Full-text search
       index was refreshed.
@@ -62,7 +64,9 @@
         <code class="font-mono text-xs bg-ink-900 px-1.5 py-0.5 rounded">{{ preview_pattern }}</code>
         &middot; replacement:
         <code class="font-mono text-xs bg-ink-900 px-1.5 py-0.5 rounded">{{ preview_replacement }}</code>
-        &middot; preview limit {{ preview_limit }}.
+        &middot; preview limit {{ preview_limit }}{% if preview_app_name %}
+        &middot; scope: app
+        <code class="font-mono text-xs bg-ink-900 px-1.5 py-0.5 rounded">{{ preview_app_name }}</code>{% endif %}.
       </p>
 
       <details class="text-xs text-rose-100/80" open>
@@ -101,10 +105,16 @@
       <form hx-post="/admin/ocr-find-replace/apply"
             hx-target="#ocr-fr-preview"
             hx-swap="innerHTML"
-            hx-confirm="Really overwrite ocr_text for up to {{ apply_max }} matching row(s)? There is no undo."
+            hx-confirm="Really overwrite ocr_text for up to {{ apply_max }} matching row(s){% if preview_app_name %} in app {{ preview_app_name }}{% endif %}? There is no undo."
             class="pt-2 border-t border-rose-700/60 space-y-3">
         <input type="hidden" name="pattern"     value="{{ preview_pattern }}">
         <input type="hidden" name="replacement" value="{{ preview_replacement }}">
+        {# v1.1 per-app scope: forward the previewed app_name through as
+           a hidden field so the user cannot accidentally widen the
+           scope between Preview (which they just saw a diff for) and
+           Apply (which actually writes). Empty string = corpus-wide,
+           matching the form-level default. #}
+        <input type="hidden" name="app_name"    value="{{ preview_app_name }}">
         <label class="block max-w-xs">
           <span class="block text-xs uppercase tracking-wider text-rose-200/70 mb-1">
             Apply limit (max {{ apply_max }})

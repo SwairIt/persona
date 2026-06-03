@@ -88,6 +88,32 @@
   </section>
 
   <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 lg:col-span-2">
+    <h2 class="text-lg font-semibold mb-2">Language</h2>
+    <p class="text-zinc-500 text-xs mb-4">
+      Switch the UI language. Translation tables live under
+      <code>app/translations/{lang}.json</code>; missing keys fall back
+      to English so a partially translated locale still renders. Stored
+      in <code>kv_settings</code> under <code>ui_language</code>.
+    </p>
+    <form action="/settings/ui-language" method="post" class="flex items-center gap-3">
+      <label for="ui-language-select" class="text-sm text-zinc-300">
+        {{ t('label_language') }}
+      </label>
+      <select id="ui-language-select" name="language"
+              class="px-3 py-1.5 bg-ink-900 border border-ink-700 rounded text-sm">
+        {% for code in ui_language_options %}
+          <option value="{{ code }}" {% if ui_language_current == code %}selected{% endif %}>
+            {% if code == 'en' %}{{ t('label_english') }}{% elif code == 'ru' %}{{ t('label_russian') }}{% else %}{{ code }}{% endif %}
+          </option>
+        {% endfor %}
+      </select>
+      <button type="submit" class="px-3 py-1.5 bg-accent-600 hover:bg-accent-500 rounded text-xs font-medium">
+        {{ t('btn_save') }}
+      </button>
+    </form>
+  </section>
+
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 lg:col-span-2">
     <h2 class="text-lg font-semibold mb-2">Appearance</h2>
     <p class="text-zinc-500 text-xs mb-4">
       Compact mode tightens row padding, shrinks the base font, and
