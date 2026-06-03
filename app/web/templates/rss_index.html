@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-end justify-between gap-4 flex-wrap">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">RSS feeds</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Every RSS feed Persona exposes — paste any URL into your feed reader.
+      <span class="font-mono text-zinc-400">{{ total_dynamic }}</span> dynamic feed{{ '' if total_dynamic == 1 else 's' }}
+      plus the two always-on feeds below.
+    </p>
+  </div>
+  <div class="text-xs text-zinc-500">
+    <span class="font-mono text-zinc-400">application/rss+xml</span>
+  </div>
+</div>
+
+<div class="mb-6 rounded-lg border border-ink-700 bg-ink-800 p-4 text-sm text-zinc-400">
+  <p>
+    Click <span class="font-mono text-zinc-300">Copy</span> on any row to copy the
+    feed URL to your clipboard. Each feed enforces its own access policy —
+    e.g. the audit feed and private auto-collections are loopback-only and
+    will return <span class="font-mono text-zinc-300">403</span> to anything
+    outside <span class="font-mono text-zinc-300">127.0.0.1</span> / <span class="font-mono text-zinc-300">::1</span>.
+  </p>
+</div>
+
+<div class="space-y-8">
+  {% for section in sections %}
+    <section class="rss-section" data-section="{{ section.slug }}">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-lg font-semibold text-zinc-200">{{ section.label }}</h2>
+        <span class="text-xs font-mono text-zinc-500">
+          {{ section.rows|length }} feed{{ '' if section.rows|length == 1 else 's' }}
+        </span>
+      </div>
+      <p class="text-sm text-zinc-500 mb-3">{{ section.blurb }}</p>
+
+      {% if section.rows %}
+        <ul class="grid gap-2">
+          {% for row in section.rows %}
+            <li class="rss-row group rounded-lg border border-ink-700 bg-ink-800
+                       p-4 flex items-start gap-3 transition
+                       hover:border-accent-500/60 hover:bg-ink-800/80">
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <h3 class="text-zinc-100 font-medium leading-tight truncate">{{ row.title }}</h3>
+                </div>
+                <p class="text-xs text-zinc-500 mt-1">{{ row.description }}</p>
+                <code class="block text-xs font-mono text-zinc-400 mt-2 truncate"
+                      data-rss-url="{{ row.url }}">{{ row.url }}</code>
+              </div>
+              <div class="flex items-center gap-2 shrink-0">
+                <a href="{{ row.url }}"
+                   class="text-xs font-semibold px-2.5 py-1 rounded bg-ink-900 text-accent-400
+                          hover:bg-accent-600/20 transition"
+                   title="Open feed in browser">
+                  Open
+                </a>
+                <button type="button"
+                        class="rss-copy text-xs font-semibold px-2.5 py-1 rounded
+                               bg-ink-900 text-zinc-300 hover:bg-accent-600/20
+                               hover:text-accent-400 transition"
+                        data-copy="{{ row.url }}"
+                        aria-label="Copy feed URL">
+                  Copy
+                </button>
+              </div>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <div class="rounded-lg border border-dashed border-ink-700 bg-ink-900/50
+                    p-4 text-sm text-zinc-500">
+          Nothing here yet. Add a
+          {% if section.slug == 'tags' %}
+            <a href="/tags" class="text-accent-400 hover:underline">tag</a>
+          {% elif section.slug == 'collections' %}
+            <a href="/collections" class="text-accent-400 hover:underline">collection rule</a>
+          {% elif section.slug == 'saved-searches' %}
+            <a href="/tags" class="text-accent-400 hover:underline">saved search</a>
+          {% else %}
+            entry
+          {% endif %}
+          and it will show up here.
+        </div>
+      {% endif %}
+    </section>
+  {% endfor %}
+</div>
+
+<script>
+  (function () {
+    // Copy-to-clipboard for every "Copy" button. Modern path uses the
+    // async Clipboard API (HTTPS / loopback only); we fall back to the
+    // legacy execCommand path so plain-HTTP local installs still work.
+    var buttons = Array.prototype.slice.call(document.querySelectorAll('.rss-copy'));
+    if (!buttons.length) { return; }
+
+    function buildAbsolute(path) {
+      try {
+        return new URL(path, window.location.origin).toString();
+      } catch (err) {
+        return path;
+      }
+    }
+
+    function flash(button, label) {
+      var original = button.dataset.originalLabel || button.textContent;
+      button.dataset.originalLabel = original;
+      button.textContent = label;
+      button.classList.add('text-accent-400');
+      window.setTimeout(function () {
+        button.textContent = original;
+        button.classList.remove('text-accent-400');
+      }, 1200);
+    }
+
+    function legacyCopy(text) {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'absolute';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      var ok = false;
+      try { ok = document.execCommand('copy'); } catch (err) { ok = false; }
+      document.body.removeChild(ta);
+      return ok;
+    }
+
+    buttons.forEach(function (button) {
+      button.addEventListener('click', function () {
+        var raw = button.getAttribute('data-copy') || '';
+        var absolute = buildAbsolute(raw);
+
+        if (navigator.clipboard && window.isSecureContext) {
+          navigator.clipboard.writeText(absolute).then(
+            function () { flash(button, 'Copied'); },
+            function () {
+              if (legacyCopy(absolute)) { flash(button, 'Copied'); }
+              else { flash(button, 'Failed'); }
+            }
+          );
+        } else {
+          flash(button, legacyCopy(absolute) ? 'Copied' : 'Failed');
+        }
+      });
+    });
+  })();
+</script>
+{% endblock %}

@@ -38,6 +38,22 @@ if TYPE_CHECKING:
 log = get_logger("persona.recycle")
 
 
+class ShotLocked(Exception):
+    """Raised by :func:`soft_delete_screenshot` when the row has ``locked = 1``.
+
+    The v0.70 per-shot lock is a hard barrier: a locked screenshot is
+    never silently dropped to the recycle bin, never overwritten, never
+    "fixed up" by an automated retention pass. Callers that catch this
+    must surface the failure to the user (the bulk-delete path filters
+    locked rows out *before* this point precisely so the exception
+    fires only on direct single-shot delete attempts on a locked row).
+    """
+
+    def __init__(self, screenshot_id: int) -> None:
+        super().__init__(f"screenshot {screenshot_id} is locked")
+        self.screenshot_id = screenshot_id
+
+
 class RecycleBinEntry(TypedDict):
     """Row returned by :func:`list_bin`."""
 
@@ -64,6 +80,14 @@ async def soft_delete_screenshot(screenshot_id: int) -> int | None:
 
     Returns the new ``recycle_bin.id`` (or ``None`` when the screenshot
     does not exist).
+
+    v0.70 — raises :class:`ShotLocked` when the row carries
+    ``locked = 1``. The bulk-delete path filters locked rows out
+    upstream, so this branch normally fires only on a direct
+    single-shot delete attempt (e.g. the screenshot detail page's
+    delete button hitting a row the user just locked from another
+    tab). We probe ``locked`` *before* serialising the row so the
+    inserts in ``recycle_bin`` never have to be rolled back.
     """
     async with get_connection() as conn:
         cursor = await conn.execute(
@@ -74,6 +98,14 @@ async def soft_delete_screenshot(screenshot_id: int) -> int | None:
         if row is None:
             log.warning("recycle.screenshot.missing", screenshot_id=screenshot_id)
             return None
+
+        # v0.70 — hard guard. The keys() check keeps us forward-
+        # compatible with legacy DBs that predate migration 067 (the
+        # column may not exist yet during an in-place upgrade window).
+        column_names = row.keys()
+        if "locked" in column_names and int(row["locked"] or 0) == 1:
+            log.warning("recycle.screenshot.locked", screenshot_id=screenshot_id)
+            raise ShotLocked(screenshot_id)
 
         payload = _row_to_dict(row)
         thumbnail = payload.get("thumbnail_path")
@@ -373,6 +405,7 @@ async def purge_expired(retention_days: int = 7) -> int:
 
 __all__ = [
     "RecycleBinEntry",
+    "ShotLocked",
     "list_bin",
     "purge_expired",
     "restore",

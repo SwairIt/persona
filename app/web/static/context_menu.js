@@ -226,6 +226,23 @@
     return !!pinIcon;
   }
 
+  /**
+   * Whether the thumbnail's template marks it as locked (v0.70).
+   *
+   * Locked shots opt out of every soft-delete path: the bulk-delete
+   * job filters them server-side, and here in the context menu we
+   * suppress the Delete entry entirely so the user is never even
+   * offered the destructive action. The server still rejects a
+   * forged POST via `ShotLocked` — this check is only a courtesy
+   * to keep the UI consistent with the data layer.
+   */
+  function isLocked(target) {
+    if (!target || !target.dataset) {
+      return false;
+    }
+    return target.dataset.locked === "1";
+  }
+
   /** Build and show the menu for one specific shot. */
   function openMenuFor(target, shotId, x, y) {
     const menu = ensureMenu();
@@ -347,38 +364,44 @@
       })
     );
 
-    menu.appendChild(makeSeparator());
+    // v0.70 — locked shots never offer a Delete entry. The server
+    // also rejects the underlying POST (recycle.ShotLocked), but the
+    // menu suppression keeps the UI honest: a destructive action the
+    // server will refuse should never appear in the first place.
+    if (!isLocked(target)) {
+      menu.appendChild(makeSeparator());
 
-    menu.appendChild(
-      makeItem(
-        "Delete",
-        "🗑",
-        function () {
-          const ok = window.confirm(
-            "Move screenshot #" + shotId + " to the recycle bin?"
-          );
-          if (!ok) {
-            return undefined;
-          }
-          return deleteShot(shotId)
-            .then(function (success) {
-              flash(target, success);
-              if (success) {
-                // Best-effort: fade the thumbnail out of the current
-                // grid so the user can see the row leave without a
-                // page reload.
-                target.style.transition = "opacity 240ms ease";
-                target.style.opacity = "0.25";
-                target.style.pointerEvents = "none";
-              }
-            })
-            .catch(function () {
-              flash(target, false);
-            });
-        },
-        { danger: true }
-      )
-    );
+      menu.appendChild(
+        makeItem(
+          "Delete",
+          "🗑",
+          function () {
+            const ok = window.confirm(
+              "Move screenshot #" + shotId + " to the recycle bin?"
+            );
+            if (!ok) {
+              return undefined;
+            }
+            return deleteShot(shotId)
+              .then(function (success) {
+                flash(target, success);
+                if (success) {
+                  // Best-effort: fade the thumbnail out of the current
+                  // grid so the user can see the row leave without a
+                  // page reload.
+                  target.style.transition = "opacity 240ms ease";
+                  target.style.opacity = "0.25";
+                  target.style.pointerEvents = "none";
+                }
+              })
+              .catch(function () {
+                flash(target, false);
+              });
+          },
+          { danger: true }
+        )
+      );
+    }
 
     positionMenu(menu, x, y);
   }

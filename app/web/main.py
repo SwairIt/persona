@@ -89,6 +89,7 @@ from app.web.routes import (
     lang_autodetect as lang_autodetect_routes,
     live_sse as live_sse_routes,
     mobile as mobile_routes,
+    monthly_digest_card as monthly_digest_card_routes,
     monthly_digests as monthly_digests_routes,
     multi_shot_zip as multi_shot_zip_routes,
     note_assist as note_assist_routes,
@@ -136,6 +137,7 @@ from app.web.routes import (
     ocr_txt_export as ocr_txt_export_routes,
     ocr_vision as ocr_vision_routes,
     rss as rss_routes,
+    rss_index as rss_index_routes,
     saved_searches as saved_searches_routes,
     screenshot,
     search as search_routes,
@@ -151,6 +153,7 @@ from app.web.routes import (
     sitemap as sitemap_routes,
     shot_dimensions as shot_dimensions_routes,
     shot_embed as shot_embed_routes,
+    shot_lock as shot_lock_routes,
     shot_share_ui as shot_share_ui_routes,
     share_collection as share_collection_routes,
     settings as settings_routes,
@@ -228,7 +231,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.69.0",
+        version="0.70.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -401,6 +404,9 @@ def create_app() -> FastAPI:
     app.include_router(app_health_routes.router)
     app.include_router(ocr_rerun_n_routes.router)
     app.include_router(multi_shot_zip_routes.router)
+    app.include_router(monthly_digest_card_routes.router)
+    app.include_router(shot_lock_routes.router)
+    app.include_router(rss_index_routes.router)
 
     return app
 

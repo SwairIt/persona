@@ -41,6 +41,7 @@
       <div class="sticky-host relative"
            data-sticky-host="1"
            data-shot-id="{{ shot.id }}"
+           data-locked="{{ '1' if shot.locked else '0' }}"
            style="position: relative;">
         <div class="zoom-wrapper rounded-lg border border-ink-700 bg-ink-900"
              data-lightbox-src="{{ thumb_src }}">
@@ -333,6 +334,26 @@
           <button @click="$dispatch('open-private')"
                   class="px-3 py-1.5 text-xs bg-ink-700 hover:bg-ink-600 rounded">🔒 Make private</button>
         {% endif %}
+        {# v0.70 — per-shot lock toggle. Locked shots are excluded from
+           bulk-delete (server-side filter in app.bulk_delete) and the
+           recycle-bin soft delete path raises ShotLocked. The button
+           POSTs to /api/screenshot/{id}/lock which flips the flag and
+           returns the new state; we reload so the action bar, the
+           data-locked attribute on the sticky-host wrapper, and the
+           context-menu Delete suppression all stay in sync. The state
+           is rendered as plain text "Locked" / "Unlocked" (no emoji)
+           so screen-readers and grep both see the literal word. #}
+        <button type="button"
+                data-shot-lock-toggle
+                data-shot-id="{{ shot.id }}"
+                onclick="(async () => {
+                  const r = await fetch('/api/screenshot/{{ shot.id }}/lock', { method: 'POST', credentials: 'same-origin' });
+                  if (r.ok) { location.reload(); }
+                  else { alert('Lock toggle failed: ' + r.status); }
+                })()"
+                class="px-3 py-1.5 text-xs {% if shot.locked %}bg-amber-700/40 hover:bg-amber-700 text-amber-200{% else %}bg-ink-700 hover:bg-ink-600{% endif %} rounded">
+          {% if shot.locked %}Locked{% else %}Unlocked{% endif %}
+        </button>
       </div>
     </section>
 

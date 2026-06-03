@@ -31,6 +31,11 @@ class Screenshot(BaseModel):
     created_at: datetime
     tier: Tier = "hot"
     is_private: bool = False
+    # v0.70 — per-shot lock guard. Locked rows are filtered out of
+    # :mod:`app.bulk_delete` and rejected by
+    # :func:`app.recycle.soft_delete_screenshot`. Default ``False``
+    # keeps every legacy row writable without a backfill.
+    locked: bool = False
 
 
 class DedupGroup(BaseModel):

@@ -337,6 +337,10 @@ def _row_to_screenshot(row: aiosqlite.Row) -> Screenshot:
     keys = set(row.keys()) if hasattr(row, "keys") else set()
     tier = row["tier"] if "tier" in keys else "hot"
     is_private = bool(row["is_private"]) if "is_private" in keys else False
+    # v0.70 — defensive read: legacy DBs upgraded in-place may briefly
+    # render before migration 067 runs, so we tolerate the column
+    # being absent and treat that case as "unlocked".
+    locked = bool(row["locked"]) if "locked" in keys else False
     return Screenshot(
         id=row["id"],
         captured_at=_parse_iso(row["captured_at"]),
@@ -354,6 +358,7 @@ def _row_to_screenshot(row: aiosqlite.Row) -> Screenshot:
         created_at=_parse_iso(row["created_at"]),
         tier=tier or "hot",
         is_private=is_private,
+        locked=locked,
     )
 
 
