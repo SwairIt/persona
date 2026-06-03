@@ -14,6 +14,15 @@ from app.storage.repository import (
     insert_dedup_group,
     list_recent_dedup_groups,
 )
+from app.storage_savings import record_dedup_hit
+
+# Estimated bytes the would-be screenshot+thumbnail would have occupied
+# on disk if the dedup pass had not skipped it. The dedup decision runs
+# pre-write so there is no real file to measure — we credit a single
+# fixed JPEG-sized estimate per hit, deliberately conservative, so the
+# savings chart reports a believable lower bound rather than an
+# optimistic guess that drifts with capture resolution.
+_DEDUP_HIT_BYTES_ESTIMATE = 50 * 1024
 
 
 def compute_phash(image: Image.Image, *, hash_size: int = 8) -> str:
@@ -51,6 +60,7 @@ async def find_or_create_dedup_group(
     exact = await find_dedup_group_by_phash(conn, phash)
     if exact is not None:
         await bump_dedup_group(conn, exact.id, last_seen=now)
+        await record_dedup_hit(_DEDUP_HIT_BYTES_ESTIMATE)
         return exact.id, False
 
     candidates = await list_recent_dedup_groups(conn, limit=candidate_limit)
@@ -58,6 +68,7 @@ async def find_or_create_dedup_group(
         try:
             if is_near_duplicate(phash, group.phash, threshold=threshold):
                 await bump_dedup_group(conn, group.id, last_seen=now)
+                await record_dedup_hit(_DEDUP_HIT_BYTES_ESTIMATE)
                 return group.id, False
         except ValueError:
             continue

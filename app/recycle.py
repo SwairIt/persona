@@ -30,6 +30,7 @@ import anyio.to_thread
 
 from app.logging_setup import get_logger
 from app.storage.db import get_connection
+from app.storage_savings import record_retention_freed
 
 if TYPE_CHECKING:
     import aiosqlite
@@ -284,31 +285,41 @@ async def list_bin(limit: int = 100) -> list[RecycleBinEntry]:
     return entries
 
 
-def _unlink_files(paths: list[str]) -> int:
-    """Delete files on disk; return how many were actually removed.
+def _unlink_files(paths: list[str]) -> tuple[int, int]:
+    """Delete files on disk; return ``(removed_count, bytes_freed)``.
 
     Synchronous worker — invoked via :func:`anyio.to_thread.run_sync`.
     Missing files and :class:`OSError` are swallowed so a single
-    permission glitch cannot abort the whole purge.
+    permission glitch cannot abort the whole purge. The byte tally is
+    captured via :py:meth:`pathlib.Path.stat` *before* :py:meth:`unlink`
+    because the file is gone after the unlink — and we need the size
+    to credit :func:`app.storage_savings.record_retention_freed`.
     """
     removed = 0
+    bytes_freed = 0
     for raw in paths:
         path = Path(raw)
         try:
             if path.exists():
+                size = path.stat().st_size
                 path.unlink()
                 removed += 1
+                bytes_freed += int(size)
         except OSError as exc:  # pragma: no cover — best-effort cleanup
             log.warning("recycle.purge.thumb_failed", path=str(path), error=str(exc))
-    return removed
+    return removed, bytes_freed
 
 
 async def purge_expired(retention_days: int = 7) -> int:
     """Hard-delete every bin row older than ``retention_days``.
 
-    Returns the count of recycle_bin rows actually removed. Thumbnail
-    files for purged rows are unlinked in a thread pool so we never
-    block the event loop on disk.
+    Returns the on-disk **bytes reclaimed** by unlinking the thumbnail
+    files of the purged rows. Thumbnail files for purged rows are
+    unlinked in a thread pool so we never block the event loop on disk.
+
+    The bytes total is also credited to today's row in
+    ``storage_saving`` via :func:`app.storage_savings.record_retention_freed`
+    so the savings chart can attribute the reclaim to the retention pass.
     """
     if retention_days < 1:
         msg = f"retention_days must be >= 1, got {retention_days}"
@@ -338,16 +349,26 @@ async def purge_expired(retention_days: int = 7) -> int:
         )
         await conn.commit()
 
+    bytes_freed = 0
+    thumbs_unlinked = 0
     if thumbs:
-        await anyio.to_thread.run_sync(_unlink_files, thumbs)
+        thumbs_unlinked, bytes_freed = await anyio.to_thread.run_sync(
+            _unlink_files, thumbs
+        )
+
+    # Credit the savings journal *after* the DELETE commits and the disk
+    # work finishes so a failed unlink batch cannot leave a phantom bump
+    # in ``storage_saving``. ``record_retention_freed`` no-ops on zero.
+    await record_retention_freed(bytes_freed)
 
     log.info(
         "recycle.purge",
         purged=len(ids),
-        thumbs_unlinked=len(thumbs),
+        thumbs_unlinked=thumbs_unlinked,
+        bytes_freed=bytes_freed,
         retention_days=retention_days,
     )
-    return len(ids)
+    return bytes_freed
 
 
 __all__ = [

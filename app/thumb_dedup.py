@@ -41,6 +41,7 @@ import anyio
 
 from app.logging_setup import get_logger
 from app.storage.db import get_connection
+from app.storage_savings import record_thumb_dedup
 
 if TYPE_CHECKING:
     import aiosqlite
@@ -235,4 +236,8 @@ async def scan_and_dedup(limit: int = 500) -> DedupResult:
         bytes_freed=bytes_freed,
         limit=effective_limit,
     )
+    # Credit the savings journal *after* the scan transaction commits so
+    # a rollback inside ``scan_and_dedup`` cannot leave a phantom bump
+    # in ``storage_saving``. ``record_thumb_dedup`` no-ops on zero.
+    await record_thumb_dedup(bytes_freed)
     return DedupResult(scanned=scanned, dedups=dedups, bytes_freed=bytes_freed)

@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+
+{% block content %}
+{# ---- helpers (binary units, 1 decimal) ---- #}
+{% macro humanize_bytes(n) -%}
+  {%- if n is none -%}—
+  {%- elif n < 1024 -%}{{ n }} B
+  {%- elif n < 1024 * 1024 -%}{{ (n / 1024) | round(1) }} KB
+  {%- elif n < 1024 * 1024 * 1024 -%}{{ (n / 1024 / 1024) | round(1) }} MB
+  {%- else -%}{{ (n / 1024 / 1024 / 1024) | round(1) }} GB
+  {%- endif -%}
+{%- endmacro %}
+
+<div class="mb-6 flex items-end justify-between flex-wrap gap-3">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Storage savings</h1>
+    <p class="text-zinc-500 text-sm mt-1 max-w-2xl">
+      Bytes reclaimed per day by the three housekeeping passes:
+      <strong class="text-zinc-300">pHash dedup</strong> (skipped near-duplicate captures),
+      <strong class="text-zinc-300">thumbnail dedup</strong> (unlinked byte-identical JPEGs),
+      and <strong class="text-zinc-300">recycle-bin purge</strong> (hard-deleted expired soft-deletes).
+      Window: <strong class="text-zinc-300">{{ days_window }}</strong> days.
+    </p>
+  </div>
+  <a href="/stats" class="text-xs text-zinc-500 hover:text-accent-400 underline">
+    ← back to stats
+  </a>
+</div>
+
+{# ---- grand totals ---- #}
+<section class="mb-6 grid grid-cols-2 md:grid-cols-4 gap-3">
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs text-zinc-500">Total reclaimed</div>
+    <div class="text-2xl font-bold mt-1 text-emerald-300">{{ humanize_bytes(grand_bytes) }}</div>
+    <div class="text-xs text-zinc-500 mt-1">across all sources</div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs text-zinc-500">Dedup hits</div>
+    <div class="text-2xl font-bold mt-1 text-accent-400">{{ "{:,}".format(grand_dedup_hits) }}</div>
+    <div class="text-xs text-zinc-500 mt-1">near-dup captures skipped</div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs text-zinc-500">Thumb dedup</div>
+    <div class="text-2xl font-bold mt-1 text-sky-300">{{ humanize_bytes(grand_thumb_bytes) }}</div>
+    <div class="text-xs text-zinc-500 mt-1">duplicate JPEGs unlinked</div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs text-zinc-500">Retention purge</div>
+    <div class="text-2xl font-bold mt-1 text-amber-300">{{ humanize_bytes(grand_retention_bytes) }}</div>
+    <div class="text-xs text-zinc-500 mt-1">expired soft-deletes</div>
+  </div>
+</section>
+
+{# ---- line chart (pure SVG, oldest → newest) ---- #}
+<section class="mb-8 rounded-lg border border-ink-700 bg-ink-800 p-5">
+  <div class="flex items-center justify-between mb-3">
+    <div>
+      <h2 class="text-sm font-semibold text-zinc-300">Bytes saved per day</h2>
+      <p class="text-zinc-500 text-xs mt-0.5">
+        Oldest left → newest right. Peak:
+        <strong class="text-zinc-300">{{ humanize_bytes(max_bytes) }}</strong>.
+      </p>
+    </div>
+  </div>
+
+  {% if rows and max_bytes > 0 %}
+    {% set svg_w = 640 %}
+    {% set svg_h = 160 %}
+    {% set pad = 4 %}
+    {% set inner_h = svg_h - 2 * pad %}
+    {% set step = (svg_w / (rows | length - 1)) if (rows | length) > 1 else 0 %}
+
+    <svg viewBox="0 0 {{ svg_w }} {{ svg_h }}" width="100%" height="{{ svg_h }}"
+         class="block" preserveAspectRatio="none" role="img"
+         aria-label="Daily storage savings line chart">
+
+      {# baseline at y = svg_h - pad #}
+      <line x1="0" x2="{{ svg_w }}" y1="{{ svg_h - pad }}" y2="{{ svg_h - pad }}"
+            stroke="#26262e" stroke-width="0.5"/>
+
+      {%- set pts = [] %}
+      {%- for row in rows %}
+        {%- set x = (loop.index0 * step) if (rows | length) > 1 else (svg_w / 2) %}
+        {%- set y = (svg_h - pad) - ((row.bytes_saved / max_bytes) * inner_h) %}
+        {%- set _ = pts.append("%.2f,%.2f" | format(x, y)) %}
+      {%- endfor %}
+
+      {# area fill under the line #}
+      <polygon fill="#a78bfa" fill-opacity="0.12"
+               points="0,{{ svg_h - pad }} {{ pts | join(' ') }} {{ svg_w }},{{ svg_h - pad }}"/>
+
+      <polyline fill="none" stroke="#a78bfa" stroke-width="1.5"
+                stroke-linejoin="round" stroke-linecap="round"
+                points="{{ pts | join(' ') }}"/>
+
+      {%- for row in rows %}
+        {%- set x = (loop.index0 * step) if (rows | length) > 1 else (svg_w / 2) %}
+        {%- set y = (svg_h - pad) - ((row.bytes_saved / max_bytes) * inner_h) %}
+        <circle cx="{{ x | round(2) }}" cy="{{ y | round(2) }}" r="2" fill="#a78bfa">
+          <title>{{ row.day }} — {{ humanize_bytes(row.bytes_saved) }} ({{ row.dedup_hits }} dedup hits)</title>
+        </circle>
+      {%- endfor %}
+    </svg>
+
+    <div class="flex justify-between text-[10px] text-zinc-500 mt-1 font-mono">
+      <span>{{ rows[0].day }}</span>
+      <span>{{ rows[-1].day }}</span>
+    </div>
+  {% else %}
+    <p class="text-zinc-500 text-xs">No savings recorded yet — run the dedup or retention passes first.</p>
+  {% endif %}
+</section>
+
+{# ---- table (newest first) ---- #}
+<section class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-ink-900/60 text-xs uppercase tracking-wide text-zinc-500">
+      <tr>
+        <th class="px-4 py-2 text-left font-medium">Date</th>
+        <th class="px-4 py-2 text-right font-medium">Total saved</th>
+        <th class="px-4 py-2 text-right font-medium">Dedup hits</th>
+        <th class="px-4 py-2 text-right font-medium">Thumb dedup</th>
+        <th class="px-4 py-2 text-right font-medium">Retention</th>
+        <th class="px-4 py-2 text-left font-medium w-40">Bar</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-ink-700">
+      {% for row in rows | reverse %}
+        {% set has_data = row.bytes_saved > 0 %}
+        {% set bar_pct = ((row.bytes_saved / max_bytes) * 100) if max_bytes else 0 %}
+        <tr class="hover:bg-ink-700/40">
+          <td class="px-4 py-2 font-mono text-zinc-400">{{ row.day }}</td>
+          <td class="px-4 py-2 text-right font-mono font-semibold
+                     {% if not has_data %}text-zinc-600{% else %}text-emerald-300{% endif %}">
+            {{ humanize_bytes(row.bytes_saved) }}
+          </td>
+          <td class="px-4 py-2 text-right font-mono text-zinc-300">
+            {{ row.dedup_hits }}
+          </td>
+          <td class="px-4 py-2 text-right font-mono text-zinc-300">
+            {{ humanize_bytes(row.thumb_dedup_bytes) }}
+          </td>
+          <td class="px-4 py-2 text-right font-mono text-zinc-300">
+            {{ humanize_bytes(row.retention_freed_bytes) }}
+          </td>
+          <td class="px-4 py-2">
+            <div class="bg-ink-900 rounded h-2 overflow-hidden"
+                 title="{{ humanize_bytes(row.bytes_saved) }}">
+              <div class="h-full bg-accent-500/70" style="width: {{ bar_pct | round(2) }}%"></div>
+            </div>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6" class="px-4 py-6 text-center text-zinc-500 text-xs">No data.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<p class="text-xs text-zinc-500 mt-4">
+  1 KB = 1024 B. Recorded by <code class="text-zinc-400">app.storage_savings</code>;
+  raw JSON at <a href="/api/storage-savings.json?days={{ days_window }}"
+    class="hover:text-accent-400 underline">/api/storage-savings.json</a>.
+</p>
+{% endblock %}

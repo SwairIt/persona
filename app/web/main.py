@@ -88,6 +88,7 @@ from app.web.routes import (
     process_remap as process_remap_routes,
     public_day as public_day_routes,
     qa as qa_routes,
+    qr as qr_routes,
     query_api as query_api_routes,
     quiet_hours as quiet_hours_routes,
     regex_rules as regex_rules_routes,
@@ -128,6 +129,7 @@ from app.web.routes import (
     stats,
     stats_csv as stats_csv_routes,
     storage_report as storage_report_routes,
+    storage_savings as storage_savings_routes,
     streak as streak_routes,
     summary as summary_routes,
     tag_colour as tag_colour_routes,
@@ -190,7 +192,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.53.0",
+        version="0.54.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -328,6 +330,8 @@ def create_app() -> FastAPI:
     app.include_router(shot_dimensions_routes.router)
     app.include_router(reading_mode_routes.router)
     app.include_router(thumb_dedup_routes.router)
+    app.include_router(qr_routes.router)
+    app.include_router(storage_savings_routes.router)
 
     return app
 
