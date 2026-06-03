@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-8">
+  <h1 class="text-2xl font-bold tracking-tight">Top-{{ top_n }} dashboard</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    The five most-frequent things Persona has ever seen — apps, tags,
+    words, hours-of-day and weekdays. Computed across your whole capture
+    history; no filters, no date window.
+  </p>
+</div>
+
+<section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+  {% for column in columns %}
+    {% set max_count = (column.items | map(attribute='count') | max) if column.items else 0 %}
+    <div class="rounded-lg border border-ink-700 bg-ink-800 flex flex-col min-w-0">
+      <header class="px-4 py-3 border-b border-ink-700">
+        <h2 class="font-semibold tracking-tight text-zinc-100">
+          {{ column.title }}
+          <span class="text-xs font-normal text-zinc-500 ml-1 tabular-nums">
+            ({{ column.items | length }})
+          </span>
+        </h2>
+        <p class="text-xs text-zinc-500 mt-0.5">{{ column.subtitle }}</p>
+      </header>
+
+      {% if column.items %}
+        <ol class="divide-y divide-ink-700/60 text-sm">
+          {% for item in column.items %}
+            {% set ratio = (item.count / max_count) if max_count > 0 else 0 %}
+            {% set pct = (ratio * 100) | round(1) %}
+            <li class="px-4 py-1.5 flex items-baseline gap-2 min-w-0
+                       hover:bg-ink-700/40 transition-colors relative">
+              <span class="text-[10px] text-zinc-600 tabular-nums w-6 shrink-0 text-right">
+                {{ loop.index }}
+              </span>
+              <span class="flex-1 truncate min-w-0" title="{{ item.name }}">
+                {% if column.value_link %}
+                  {% if column.key == 'words' %}
+                    <a href="{{ column.value_link.replace('{name}', item.name | urlencode) }}"
+                       class="text-accent-400 hover:text-accent-300 hover:underline">
+                      {{ item.name }}
+                    </a>
+                  {% else %}
+                    <a href="{{ column.value_link.replace('{name}', item.name | urlencode) }}"
+                       class="text-accent-400 hover:text-accent-300 hover:underline">
+                      {{ item.name | app_alias if column.key == 'apps' else item.name }}
+                    </a>
+                  {% endif %}
+                {% else %}
+                  <span class="text-zinc-200">{{ item.name }}</span>
+                {% endif %}
+              </span>
+              <span class="text-xs text-zinc-500 tabular-nums shrink-0"
+                    title="{{ item.count }} ({{ pct }}% of column leader)">
+                {{ item.count }}
+              </span>
+              <span aria-hidden="true"
+                    class="absolute left-0 bottom-0 h-px bg-accent-500/40 pointer-events-none"
+                    style="width: {{ pct }}%;"></span>
+            </li>
+          {% endfor %}
+        </ol>
+      {% else %}
+        <div class="px-4 py-8 text-center text-xs text-zinc-500">
+          <div class="text-2xl mb-1">∅</div>
+          <p>No data yet.</p>
+        </div>
+      {% endif %}
+    </div>
+  {% endfor %}
+</section>
+
+<p class="text-xs text-zinc-500 mt-8">
+  Each column caps at {{ top_n }} entries. Hour and weekday columns
+  naturally top out at 24 and 7 respectively. Bar widths are scaled to
+  the per-column leader, so the relative shape is comparable inside a
+  column but not across them.
+</p>
+{% endblock %}

@@ -1,0 +1,334 @@
+{% extends "base.html" %}
+
+{# Tag merge wizard — v0.96 feature 3/3.
+
+   Full-page render. Steps 2-4 are loaded into ``#tmw-wizard`` via
+   HTMX (``hx-get`` / ``hx-post``), each returning a fragment that
+   replaces the wizard container's outer HTML. The fragment body
+   itself lives in the macro below so the four step bodies stay in
+   one file and the HTMX endpoints can render the same markup by
+   calling the same template with ``fragment_only=True`` — that
+   branch skips the ``{% block content %}`` chrome.
+
+   Context contract:
+   * ``step`` (int 1..4) — which step to render.
+   * ``fragment_only`` (bool, default false) — when true the
+     ``{% block content %}`` chrome is suppressed and only the
+     ``#tmw-wizard`` container is emitted.
+
+   Per-step extras:
+   * step 1: ``tags`` (list of {id, name, color, count})
+   * step 2: ``source_name``, ``source_count``, ``dest_candidates``
+   * step 3: ``source_name``, ``dest_name``, ``result_moved``,
+             ``result_source_existed``, ``result_dest_existed``
+   * step 4: ``source_name``, ``dest_name``, ``result_moved``,
+             ``result_source_existed``, ``result_dest_existed``,
+             ``committed`` (bool)
+
+   ``error``: shown above the step body in a rose panel.
+   ``apply_error`` (step 4): same panel, dedicated key.
+
+   Note on the extends + fragment_only trick: Jinja2 requires
+   ``extends`` to be the very first node of a template (it cannot
+   live inside an ``{% if %}``). We work around that by always
+   extending ``base.html`` but wrapping the ``{% block content %}``
+   contents in a conditional. The fragment branch sets
+   ``fragment_only=True`` and renders ``{% block content %}`` with
+   *only* the wizard div, no surrounding page chrome. Because HTMX
+   takes only the matched DOM subtree from the response (via
+   ``hx-swap="outerHTML"`` targeting ``#tmw-wizard``), the extra
+   ``<html>``/``<head>`` HTMX never reads is harmless and never paints.
+#}
+
+{% macro stepper(active) -%}
+<ol class="flex items-center gap-2 text-xs font-mono uppercase tracking-wider mb-6 flex-wrap">
+  {% for n, label in [(1, "Pick source"), (2, "Pick destination"), (3, "Preview"), (4, "Apply")] %}
+    <li class="flex items-center gap-2">
+      <span class="inline-flex items-center justify-center w-6 h-6 rounded-full border
+                   {% if n < active %}border-emerald-600 bg-emerald-900/30 text-emerald-200{% elif n == active %}border-accent-500 bg-accent-600/30 text-accent-200{% else %}border-ink-700 bg-ink-900 text-zinc-500{% endif %}">
+        {% if n < active %}&#10003;{% else %}{{ n }}{% endif %}
+      </span>
+      <span class="{% if n == active %}text-accent-200{% elif n < active %}text-emerald-200{% else %}text-zinc-500{% endif %}">{{ label }}</span>
+      {% if not loop.last %}<span class="text-zinc-700">&rarr;</span>{% endif %}
+    </li>
+  {% endfor %}
+</ol>
+{%- endmacro %}
+
+{% macro step_body(step) %}
+  {% if error %}
+    <div class="rounded-lg border border-rose-700 bg-rose-900/30 p-4 mb-5">
+      <p class="text-rose-100 text-sm">{{ error }}</p>
+    </div>
+  {% endif %}
+
+  {{ stepper(step) }}
+
+  {# ---------------- Step 1: pick source ---------------- #}
+  {% if step == 1 %}
+    <div class="space-y-4">
+      <header>
+        <h2 class="text-lg font-semibold tracking-tight">Step 1 &mdash; pick the tag to eliminate</h2>
+        <p class="text-zinc-500 text-sm mt-1">
+          Choose the <em>source</em>: the tag that will be deleted at
+          the end. Every screenshot it labels will be re-tagged with
+          your chosen destination in Step&nbsp;2.
+        </p>
+      </header>
+
+      {% if tags|length == 0 %}
+        <div class="rounded-lg border border-ink-700 bg-ink-900 p-5 text-sm text-zinc-400">
+          No tags exist yet. <a href="/tags" class="underline hover:text-accent-300">Create some first</a>.
+        </div>
+      {% else %}
+        <form hx-get="/admin/tag-merge-wizard/preview"
+              hx-target="#tmw-wizard"
+              hx-swap="outerHTML"
+              class="space-y-3">
+          <div class="rounded-lg border border-ink-700 bg-ink-900 max-h-96 overflow-y-auto divide-y divide-ink-700">
+            {% for t in tags %}
+              <label class="flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:bg-ink-800/60">
+                <input type="radio" name="source" value="{{ t.name }}" required
+                       class="w-4 h-4 accent-accent-500">
+                <span class="font-mono text-sm flex-1 truncate">{{ t.name }}</span>
+                <span class="text-xs text-zinc-500 tabular-nums">
+                  {{ t.count }} shot{{ "s" if t.count != 1 else "" }}
+                </span>
+              </label>
+            {% endfor %}
+          </div>
+          <div class="flex items-center gap-3">
+            <button type="submit"
+                    class="px-4 py-2 bg-accent-600 hover:bg-accent-500 text-white rounded text-sm font-semibold">
+              Next &rarr;
+            </button>
+            <span class="text-xs text-zinc-500">{{ tags|length }} tag{{ "s" if tags|length != 1 else "" }} available.</span>
+          </div>
+        </form>
+      {% endif %}
+    </div>
+
+  {# ---------------- Step 2: pick destination ---------------- #}
+  {% elif step == 2 %}
+    <div class="space-y-4">
+      <header>
+        <h2 class="text-lg font-semibold tracking-tight">Step 2 &mdash; pick the tag to keep</h2>
+        <p class="text-zinc-500 text-sm mt-1">
+          You picked
+          <code class="font-mono text-xs bg-ink-900 border border-ink-700 px-1.5 py-0.5 rounded">{{ source_name }}</code>
+          ({{ source_count }} screenshot{{ "s" if source_count != 1 else "" }}) as the source.
+          Now pick the <em>destination</em> &mdash; the tag those
+          screenshots should land on.
+        </p>
+      </header>
+
+      {% if dest_candidates|length == 0 %}
+        <div class="rounded-lg border border-amber-700/60 bg-amber-900/20 p-5 text-sm text-amber-200">
+          No other tags exist to merge into.
+          <a href="/admin/tag-merge-wizard" class="underline hover:text-amber-100">Start over</a>.
+        </div>
+      {% else %}
+        <form hx-get="/admin/tag-merge-wizard/confirm"
+              hx-target="#tmw-wizard"
+              hx-swap="outerHTML"
+              class="space-y-3">
+          <input type="hidden" name="source" value="{{ source_name }}">
+          <div class="rounded-lg border border-ink-700 bg-ink-900 max-h-96 overflow-y-auto divide-y divide-ink-700">
+            {% for t in dest_candidates %}
+              <label class="flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:bg-ink-800/60">
+                <input type="radio" name="dest" value="{{ t.name }}" required
+                       class="w-4 h-4 accent-accent-500">
+                <span class="font-mono text-sm flex-1 truncate">{{ t.name }}</span>
+                <span class="text-xs text-zinc-500 tabular-nums">
+                  {{ t.count }} shot{{ "s" if t.count != 1 else "" }}
+                </span>
+              </label>
+            {% endfor %}
+          </div>
+          <div class="flex items-center gap-3">
+            <button type="button"
+                    hx-get="/admin/tag-merge-wizard"
+                    hx-target="#tmw-wizard"
+                    hx-swap="outerHTML"
+                    class="px-3 py-2 bg-ink-700 hover:bg-ink-600 rounded text-xs">
+              &larr; Back
+            </button>
+            <button type="submit"
+                    class="px-4 py-2 bg-accent-600 hover:bg-accent-500 text-white rounded text-sm font-semibold">
+              Preview merge &rarr;
+            </button>
+            <span class="text-xs text-zinc-500">{{ dest_candidates|length }} other tag{{ "s" if dest_candidates|length != 1 else "" }} available.</span>
+          </div>
+        </form>
+      {% endif %}
+    </div>
+
+  {# ---------------- Step 3: dry-run preview + confirm ---------------- #}
+  {% elif step == 3 %}
+    <div class="space-y-4">
+      <header>
+        <h2 class="text-lg font-semibold tracking-tight">Step 3 &mdash; preview &amp; confirm</h2>
+        <p class="text-zinc-500 text-sm mt-1">
+          Nothing has been written yet. Review the impact below, then confirm.
+        </p>
+      </header>
+
+      {% if not result_source_existed or not result_dest_existed %}
+        <div class="rounded-lg border border-rose-700 bg-rose-900/30 p-5">
+          <h3 class="text-base font-semibold text-rose-100 mb-2">Tag not found</h3>
+          <ul class="text-rose-100/80 text-sm list-disc list-inside space-y-1">
+            {% if not result_source_existed %}
+              <li>Source
+                <code class="font-mono text-xs bg-ink-900 px-1.5 py-0.5 rounded">{{ source_name }}</code>
+                no longer exists.</li>
+            {% endif %}
+            {% if not result_dest_existed %}
+              <li>Destination
+                <code class="font-mono text-xs bg-ink-900 px-1.5 py-0.5 rounded">{{ dest_name }}</code>
+                no longer exists.</li>
+            {% endif %}
+          </ul>
+          <div class="mt-4">
+            <button type="button"
+                    hx-get="/admin/tag-merge-wizard"
+                    hx-target="#tmw-wizard"
+                    hx-swap="outerHTML"
+                    class="px-3 py-2 bg-ink-700 hover:bg-ink-600 rounded text-xs">
+              &larr; Start over
+            </button>
+          </div>
+        </div>
+      {% else %}
+        <div class="rounded-lg border border-amber-700/60 bg-amber-900/20 p-5 space-y-4">
+          <p class="text-amber-100 text-sm">
+            Merging will move
+            <strong class="font-semibold">{{ result_moved }}</strong>
+            screenshot tag{{ "s" if result_moved != 1 else "" }} from
+            <code class="font-mono text-xs bg-ink-900 px-1.5 py-0.5 rounded">{{ source_name }}</code>
+            to
+            <code class="font-mono text-xs bg-ink-900 px-1.5 py-0.5 rounded">{{ dest_name }}</code>,
+            then delete the
+            <code class="font-mono text-xs bg-ink-900 px-1.5 py-0.5 rounded">{{ source_name }}</code>
+            tag. Screenshots themselves are never touched.
+          </p>
+          <form hx-post="/admin/tag-merge-wizard/apply"
+                hx-target="#tmw-wizard"
+                hx-swap="outerHTML"
+                hx-confirm="Really merge '{{ source_name }}' into '{{ dest_name }}'? This deletes the source tag."
+                class="flex items-center gap-3">
+            <input type="hidden" name="source" value="{{ source_name }}">
+            <input type="hidden" name="dest" value="{{ dest_name }}">
+            <button type="button"
+                    hx-get="/admin/tag-merge-wizard/preview?source={{ source_name | urlencode }}"
+                    hx-target="#tmw-wizard"
+                    hx-swap="outerHTML"
+                    class="px-3 py-2 bg-ink-700 hover:bg-ink-600 rounded text-xs">
+              &larr; Back
+            </button>
+            <button type="submit"
+                    class="px-4 py-2 bg-accent-600 hover:bg-accent-500 text-white rounded text-sm font-bold tracking-wide">
+              Confirm merge ({{ result_moved }})
+            </button>
+          </form>
+        </div>
+      {% endif %}
+    </div>
+
+  {# ---------------- Step 4: result panel ---------------- #}
+  {% elif step == 4 %}
+    <div class="space-y-4">
+      <header>
+        <h2 class="text-lg font-semibold tracking-tight">Step 4 &mdash; done</h2>
+      </header>
+
+      {% if apply_error %}
+        <div class="rounded-lg border border-rose-700 bg-rose-900/30 p-5">
+          <p class="text-rose-100 text-sm">{{ apply_error }}</p>
+          <div class="mt-4">
+            <a href="/admin/tag-merge-wizard"
+               class="px-3 py-2 bg-ink-700 hover:bg-ink-600 rounded text-xs inline-block">
+              &larr; Start over
+            </a>
+          </div>
+        </div>
+      {% elif committed %}
+        <div class="rounded-lg border border-emerald-700/60 bg-emerald-900/20 p-5">
+          <h3 class="text-base font-semibold text-emerald-200 mb-2">Merged successfully.</h3>
+          <p class="text-emerald-100 text-sm">
+            Moved {{ result_moved }} screenshot tag{{ "s" if result_moved != 1 else "" }} from
+            <code class="font-mono text-xs bg-ink-900 px-1.5 py-0.5 rounded">{{ source_name }}</code>
+            to
+            <code class="font-mono text-xs bg-ink-900 px-1.5 py-0.5 rounded">{{ dest_name }}</code>,
+            and deleted the source tag.
+          </p>
+          <p class="text-emerald-200/80 text-xs mt-4 flex gap-4 flex-wrap">
+            <a href="/admin/tag-merge-wizard" class="underline hover:text-emerald-100">Merge another pair</a>
+            <a href="/tags" class="underline hover:text-emerald-100">Back to tags</a>
+            <a href="/admin/audit" class="underline hover:text-emerald-100">View audit log</a>
+          </p>
+        </div>
+      {% else %}
+        <div class="rounded-lg border border-rose-700 bg-rose-900/30 p-5">
+          <h3 class="text-base font-semibold text-rose-100 mb-2">Merge skipped</h3>
+          <p class="text-rose-100/80 text-sm">
+            {% if not result_source_existed %}
+              Source
+              <code class="font-mono text-xs bg-ink-900 px-1.5 py-0.5 rounded">{{ source_name }}</code>
+              no longer exists.
+            {% elif not result_dest_existed %}
+              Destination
+              <code class="font-mono text-xs bg-ink-900 px-1.5 py-0.5 rounded">{{ dest_name }}</code>
+              no longer exists.
+            {% else %}
+              The merge could not be committed. Check the server logs and try again.
+            {% endif %}
+          </p>
+          <div class="mt-4">
+            <a href="/admin/tag-merge-wizard"
+               class="px-3 py-2 bg-ink-700 hover:bg-ink-600 rounded text-xs inline-block">
+              &larr; Start over
+            </a>
+          </div>
+        </div>
+      {% endif %}
+    </div>
+  {% endif %}
+{% endmacro %}
+
+{% block content %}
+{% if fragment_only %}
+  {# HTMX fragment response. We still extend base.html (Jinja2 requires
+     ``extends`` at the top level), but the full HTML envelope is what
+     HTMX discards — it pulls only the matched ``#tmw-wizard`` subtree
+     via ``hx-swap="outerHTML"``, so the surrounding chrome never paints
+     and never costs the user a real page repaint. #}
+  <div id="tmw-wizard" class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    {{ step_body(step) }}
+  </div>
+{% else %}
+  <div class="mb-6">
+    <h1 class="text-2xl font-bold tracking-tight flex items-center gap-3">
+      <span class="text-accent-400">&#8651;</span> Merge tags &mdash; wizard
+    </h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Guided four-step flow for folding one tag into another. The
+      classic free-form page lives at
+      <a href="/admin/tag-merge" class="underline hover:text-accent-300">/admin/tag-merge</a>
+      if you already know both names.
+    </p>
+  </div>
+
+  <div class="rounded-lg border border-amber-700/60 bg-amber-900/20 p-4 mb-8">
+    <p class="text-amber-200 text-sm">
+      <strong class="font-semibold">Heads up.</strong>
+      The final step permanently deletes the source tag. Screenshots are
+      never touched. Each step is a dry-run until you press
+      <em>Confirm merge</em> on Step&nbsp;3.
+    </p>
+  </div>
+
+  <div id="tmw-wizard" class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    {{ step_body(step) }}
+  </div>
+{% endif %}
+{% endblock %}

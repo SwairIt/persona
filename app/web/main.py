@@ -214,6 +214,7 @@ from app.web.routes import (
     tag_colour as tag_colour_routes,
     tag_gallery as tag_gallery_routes,
     tag_merge as tag_merge_routes,
+    tag_merge_wizard as tag_merge_wizard_routes,
     tag_ocr_export as tag_ocr_export_routes,
     tag_trends as tag_trends_routes,
     tags as tags_routes,
@@ -226,6 +227,7 @@ from app.web.routes import (
     timeline,
     timeline_api as timeline_api_routes,
     timesheet as timesheet_routes,
+    top100 as top100_routes,
     vault as vault_routes,
     visual_diff as visual_diff_routes,
     webhooks_routes,
@@ -281,7 +283,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.95.0",
+        version="0.96.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -505,6 +507,8 @@ def create_app() -> FastAPI:
     app.include_router(import_screenshot_routes.router)
     app.include_router(ocr_edit_routes.router)
     app.include_router(facet_sets_routes.router)
+    app.include_router(top100_routes.router)
+    app.include_router(tag_merge_wizard_routes.router)
 
     return app
 
