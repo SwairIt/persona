@@ -37,6 +37,7 @@ from app.workers.control import CaptureController, get_controller
 from app.workers.heartbeat import beat
 
 log = get_logger("persona.capture_loop")
+rate_guard_log = get_logger("persona.capture.rate_guard")
 
 
 async def run_capture_loop(controller: CaptureController | None = None) -> None:
@@ -51,6 +52,7 @@ async def run_capture_loop(controller: CaptureController | None = None) -> None:
 
     while not ctrl.stop_event.is_set():
         await beat("capture-loop")
+        rate_pause = await _enforce_rate_guard()
         battery_pause = False
         battery_slowdown = False
         if settings.battery_aware_enabled:
@@ -73,7 +75,7 @@ async def run_capture_loop(controller: CaptureController | None = None) -> None:
                     battery_slowdown = True
 
         idle_observed: float | None = None
-        if not battery_pause:
+        if not battery_pause and not rate_pause:
             try:
                 idle_observed = await _single_iteration(ctrl)
             except asyncio.CancelledError:
@@ -310,3 +312,54 @@ def _timedelta_seconds(seconds: float) -> timedelta:
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+async def _enforce_rate_guard() -> bool:
+    """Capture-rate guard for v0.90.
+
+    Counts ``screenshots`` rows whose ``captured_at`` falls inside the
+    trailing 60-minute window and consults the two configurable
+    thresholds:
+
+    * ``capture_rate_warn_per_hour`` — when reached, log a warning so
+      an operator can investigate runaway capture.
+    * ``capture_rate_pause_per_hour`` — when reached AND non-zero,
+      return ``True`` so the caller skips the iteration entirely. Zero
+      disables the pause arm of the guard.
+
+    Returns ``True`` only when the pause threshold fires; the warning
+    arm never affects scheduling.
+    """
+    settings = get_settings()
+    warn_threshold = settings.capture_rate_warn_per_hour
+    pause_threshold = settings.capture_rate_pause_per_hour
+    if warn_threshold <= 0 and pause_threshold <= 0:
+        return False
+
+    cutoff_iso = (_now() - timedelta(hours=1)).isoformat()
+    async with get_connection() as conn:
+        cursor = await conn.execute(
+            "SELECT COUNT(*) FROM screenshots WHERE captured_at >= ?",
+            (cutoff_iso,),
+        )
+        row = await cursor.fetchone()
+    count = int(row[0]) if row is not None else 0
+
+    pause = pause_threshold > 0 and count >= pause_threshold
+    if pause:
+        rate_guard_log.warning(
+            "capture.rate_pause",
+            count=count,
+            pause_threshold=pause_threshold,
+            warn_threshold=warn_threshold,
+            window_seconds=3600,
+        )
+    elif warn_threshold > 0 and count >= warn_threshold:
+        rate_guard_log.warning(
+            "capture.rate_warn",
+            count=count,
+            warn_threshold=warn_threshold,
+            pause_threshold=pause_threshold,
+            window_seconds=3600,
+        )
+    return pause

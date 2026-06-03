@@ -163,6 +163,22 @@ class Settings(BaseSettings):
     auto_backup_path: Path = Field(default=Path("./data/backups"))
     auto_backup_keep_days: int = Field(default=14, ge=1, le=3650)
 
+    # v0.90 — capture-rate guard. The capture loop counts screenshots
+    # written in the trailing 60-minute window at the start of each
+    # iteration. When the count reaches ``capture_rate_warn_per_hour``
+    # the guard emits a ``capture.rate_warn`` structlog warning so an
+    # operator can investigate runaway capture (e.g. a stuck dedup
+    # threshold, mis-tuned cadence, or a hostile foreground app). When
+    # the count also reaches ``capture_rate_pause_per_hour`` AND that
+    # threshold is non-zero, the iteration is skipped entirely with a
+    # ``capture.rate_pause`` log line; the loop continues sleeping on
+    # its normal cadence so it self-recovers as soon as the trailing
+    # hour drops back below the threshold. Setting
+    # ``capture_rate_pause_per_hour`` to 0 disables the pause arm of
+    # the guard while still keeping the warning.
+    capture_rate_warn_per_hour: int = Field(default=60, ge=0, le=1_000_000)
+    capture_rate_pause_per_hour: int = Field(default=200, ge=0, le=1_000_000)
+
     @model_validator(mode="after")
     def _validate_adaptive_bounds(self) -> Settings:
         if self.adaptive_max_seconds < self.adaptive_min_seconds:

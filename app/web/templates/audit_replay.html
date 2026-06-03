@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+
+{#
+  audit_replay.html — v0.90 feature 1/3 per-day audit replay.
+
+  Layout:
+    * Page header with the day + total + JSON companion link
+    * Five collapsible <details> blocks, one per action category, in the
+      canonical order returned by app.audit_replay.build_replay:
+        settings → bulk_delete → tokens → vault → other
+    * Each block lists its entries newest-friendly (top-down chronological
+      because the bucket is already sorted ascending by ts/id in the
+      backend); failed events get a rose-tinted left border so a security
+      review can spot them at a glance.
+    * The first non-empty section is rendered with `open` so the page
+      doesn't land on a wall of collapsed summaries.
+#}
+
+{% block content %}
+<div class="mb-6 flex items-center justify-between flex-wrap gap-3">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Audit replay — {{ day }}</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      {{ total }} event{% if total != 1 %}s{% endif %}
+      &middot; grouped by category
+      {% if truncated %}
+        &middot; <span class="text-amber-400">truncated</span>
+      {% endif %}
+    </p>
+  </div>
+  <div class="flex items-center gap-2">
+    <a href="/audit/timeline/{{ day }}"
+       class="px-3 py-1 rounded-full text-xs border bg-ink-800 border-ink-700 hover:border-zinc-500 text-zinc-400 transition"
+       title="Per-event chronological timeline">
+      Timeline
+    </a>
+    <a href="/api/audit/replay/{{ day }}.json"
+       class="px-3 py-1 rounded-full text-xs border bg-ink-800 border-ink-700 hover:border-zinc-500 text-zinc-400 transition"
+       title="Machine-readable companion endpoint">
+      JSON
+    </a>
+  </div>
+</div>
+
+{% if total == 0 %}
+  <div class="text-center py-24">
+    <p class="text-zinc-400">No audit events on {{ day }}.</p>
+    <p class="text-zinc-600 text-sm mt-2">
+      The full paginated log lives at
+      <a href="/audit" class="text-accent-400 hover:underline">/audit</a>.
+    </p>
+  </div>
+{% else %}
+  <div class="space-y-3">
+    {% for section in sections %}
+      <details class="group bg-ink-900/60 border border-ink-700 rounded-lg"
+               {% if loop.index0 == first_open %}open{% endif %}>
+        <summary class="cursor-pointer select-none px-4 py-3 flex items-center justify-between gap-3
+                        rounded-lg hover:bg-ink-800/60 transition">
+          <div class="flex items-center gap-3 min-w-0">
+            <span class="font-mono text-[10px] uppercase tracking-wider text-zinc-500 shrink-0">
+              {{ section.category }}
+            </span>
+            <span class="text-zinc-200 font-semibold truncate">{{ section.label }}</span>
+          </div>
+          <div class="flex items-center gap-2 shrink-0">
+            <span class="px-2 py-0.5 rounded bg-ink-800 border border-ink-700
+                         text-zinc-400 font-mono text-[10px] tabular-nums">
+              {{ section.count }}
+            </span>
+            <span class="text-zinc-600 text-xs group-open:rotate-90 transition-transform"
+                  aria-hidden="true">&rsaquo;</span>
+          </div>
+        </summary>
+
+        <div class="border-t border-ink-700 px-4 py-3">
+          {% if section.count == 0 %}
+            <p class="text-zinc-600 text-sm italic">No entries in this category on {{ day }}.</p>
+          {% else %}
+            <ol class="space-y-3">
+              {% for row in section.entries %}
+                <li id="replay-{{ row.id }}" class="scroll-mt-24">
+                  <article class="bg-ink-900/40 border-l-2 rounded-r px-3 py-2
+                                  {% if not row.success %}border-rose-500/70
+                                  {% else %}border-accent-500/60{% endif %}">
+                    <header class="flex items-baseline justify-between gap-3 mb-1 flex-wrap">
+                      <div class="flex items-baseline gap-3 min-w-0 flex-wrap">
+                        <a href="/audit/timeline/{{ day }}#audit-{{ row.id }}"
+                           class="font-mono text-xs text-zinc-500 hover:text-accent-400 tabular-nums shrink-0"
+                           title="Jump to this event in the per-day timeline">
+                          {{ row.ts }}
+                        </a>
+                        <span class="font-mono text-xs text-accent-400 truncate">{{ row.action }}</span>
+                        {% if not row.success %}
+                          <span class="px-2 py-0.5 rounded bg-rose-500/10 border border-rose-500/30
+                                       text-rose-300 font-mono text-[10px] uppercase tracking-wider">
+                            failure
+                          </span>
+                        {% endif %}
+                      </div>
+                      <span class="font-mono text-[10px] text-zinc-600 shrink-0">#{{ row.id }}</span>
+                    </header>
+
+                    <dl class="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-0.5 text-xs">
+                      <dt class="text-zinc-500 uppercase tracking-wider">Actor</dt>
+                      <dd class="font-mono text-zinc-300 break-all">
+                        {% if row.actor %}{{ row.actor }}{% else %}<span class="text-zinc-600">&mdash;</span>{% endif %}
+                      </dd>
+
+                      <dt class="text-zinc-500 uppercase tracking-wider">Target</dt>
+                      <dd class="font-mono text-zinc-300 break-all">
+                        {% if row.target %}{{ row.target }}{% else %}<span class="text-zinc-600">&mdash;</span>{% endif %}
+                      </dd>
+
+                      <dt class="text-zinc-500 uppercase tracking-wider">Detail</dt>
+                      <dd class="text-zinc-400 break-words">
+                        {% if row.detail %}{{ row.detail }}{% else %}<span class="text-zinc-600">&mdash;</span>{% endif %}
+                      </dd>
+                    </dl>
+                  </article>
+                </li>
+              {% endfor %}
+            </ol>
+          {% endif %}
+        </div>
+      </details>
+    {% endfor %}
+  </div>
+{% endif %}
+{% endblock %}
