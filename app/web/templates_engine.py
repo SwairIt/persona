@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from contextvars import ContextVar
+from html import escape as _html_escape
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fastapi.templating import Jinja2Templates
+from markupsafe import Markup
 
 from app.app_aliases import resolve as _resolve_app_alias
 from app.logging_setup import get_logger
@@ -45,15 +48,95 @@ _GRAYSCALE_DEFAULT = "0"
 # because Starlette runs each request in its own ``asyncio.Task`` — and
 # ``ContextVar`` values do not leak across tasks.
 _theme_cache: ContextVar[str | None] = ContextVar("persona_theme_cache", default=None)
-_compact_cache: ContextVar[str | None] = ContextVar(
-    "persona_compact_cache", default=None
-)
-_grayscale_cache: ContextVar[str | None] = ContextVar(
-    "persona_grayscale_cache", default=None
-)
+_compact_cache: ContextVar[str | None] = ContextVar("persona_compact_cache", default=None)
+_grayscale_cache: ContextVar[str | None] = ContextVar("persona_grayscale_cache", default=None)
 
 _compact_log = get_logger("persona.compact")
 _grayscale_log = get_logger("persona.grayscale")
+_linkify_log = get_logger("persona.linkify")
+
+# v0.83 feature 2/3 — OCR URL detection.
+# When OCR text is rendered on the screenshot detail page, any
+# ``http://`` / ``https://`` substring should become a real anchor so
+# operators can jump straight to the captured URL instead of copy-paste.
+# The pattern is intentionally permissive (``\S+``) so query strings,
+# fragments, and unicode-rich paths all survive — trailing punctuation
+# like a sentence-terminating ``.`` or ``)`` is peeled off after the
+# match so we don't generate dead links. Output is HTML-escaped per
+# segment, then concatenated and wrapped in :class:`markupsafe.Markup`
+# so the template's ``|safe`` is honoured without disabling Jinja's
+# auto-escaping for the surrounding context.
+_URL_PATTERN: re.Pattern[str] = re.compile(r"https?://\S+")
+# Trailing punctuation that should be peeled off a matched URL and
+# pushed back into the plaintext segment. Includes ASCII sentence
+# punctuation plus the common typographic closing quotes that OCR
+# engines emit. Stored as a frozenset of single chars (not a string
+# literal) to keep ``ruff`` happy about ambiguous Unicode glyphs.
+_URL_TRAILING_PUNCT: frozenset[str] = frozenset(
+    [
+        ".",
+        ",",
+        ";",
+        ":",
+        "!",
+        "?",
+        ")",
+        '"',
+        "'",
+        "»",  # right-pointing double angle quotation mark
+        "”",  # right double quotation mark
+        "’",  # noqa: RUF001 — right single quote (OCR-friendly apostrophe)
+    ]
+)
+
+
+def _linkify_urls(value: str | None) -> Markup:
+    """Wrap ``http(s)://…`` substrings in anchor tags, escape the rest.
+
+    Registered as a Jinja2 filter. The non-URL segments pass through
+    :func:`html.escape` so user-controlled OCR text can never inject raw
+    markup; URLs themselves are also escaped before being written into
+    the ``href`` attribute and the visible anchor body. Anchors open in
+    a new tab with ``rel="noopener noreferrer"`` so the opened page
+    cannot reach back through ``window.opener``.
+    """
+    if value is None or value == "":
+        return Markup("")
+    pieces: list[str] = []
+    cursor = 0
+    match_count = 0
+    for match in _URL_PATTERN.finditer(value):
+        start, end = match.span()
+        if start > cursor:
+            pieces.append(_html_escape(value[cursor:start]))
+        raw_url = match.group(0)
+        # Peel trailing punctuation back into the plaintext so a URL at
+        # the end of a sentence doesn't drag the period into ``href``.
+        trailing = ""
+        while raw_url and raw_url[-1] in _URL_TRAILING_PUNCT:
+            trailing = raw_url[-1] + trailing
+            raw_url = raw_url[:-1]
+        if not raw_url:
+            pieces.append(_html_escape(trailing))
+            cursor = end
+            continue
+        safe_url = _html_escape(raw_url, quote=True)
+        pieces.append(
+            f'<a href="{safe_url}" target="_blank" rel="noopener noreferrer">{safe_url}</a>'
+        )
+        if trailing:
+            pieces.append(_html_escape(trailing))
+        cursor = end
+        match_count += 1
+    if cursor < len(value):
+        pieces.append(_html_escape(value[cursor:]))
+    if match_count:
+        _linkify_log.debug("linkify.matched", urls=match_count, length=len(value))
+    # Safe to wrap as Markup: every ``pieces`` entry was produced by
+    # ``html.escape`` (plaintext segments + the URL fragments injected
+    # into both the ``href`` and the visible anchor body), so the joined
+    # string contains no un-escaped user input.
+    return Markup("".join(pieces))  # noqa: S704 — all segments are html.escape-d above
 
 
 def _format_human_time(value: datetime | None) -> str:
@@ -269,6 +352,7 @@ templates.env.filters["clock"] = _format_clock
 templates.env.filters["filesize"] = _format_filesize
 templates.env.filters["thumbnail_url"] = _thumbnail_url
 templates.env.filters["app_alias"] = _resolve_app_alias
+templates.env.filters["linkify_urls"] = _linkify_urls
 
 templates.env.globals["get_theme"] = get_theme
 templates.env.globals["get_compact_mode"] = get_compact_mode

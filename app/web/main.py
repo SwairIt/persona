@@ -170,6 +170,7 @@ from app.web.routes import (
     shot_share as shot_share_routes,
     shot_token_cloud as shot_token_cloud_routes,
     sitemap as sitemap_routes,
+    slack_summary as slack_summary_routes,
     shot_dimensions as shot_dimensions_routes,
     shot_embed as shot_embed_routes,
     shot_lock as shot_lock_routes,
@@ -256,7 +257,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.82.0",
+        version="0.83.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -455,6 +456,7 @@ def create_app() -> FastAPI:
     app.include_router(ocr_translate_routes.router)
     app.include_router(stickers_gallery_routes.router)
     app.include_router(share_collection_zip_routes.router)
+    app.include_router(slack_summary_routes.router)
 
     return app
 

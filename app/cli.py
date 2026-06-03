@@ -17,12 +17,15 @@ Subcommands:
     delete             Bulk-delete screenshots matching an FTS5 query (defaults to dry-run).
     pin                Bulk-pin screenshots matching an FTS5 query (defaults to dry-run).
     unpin              Bulk-unpin screenshots matching an FTS5 query.
+    lock-shots         Bulk-lock screenshots matching an FTS5 query (defaults to dry-run).
+    unlock-shots       Bulk-unlock screenshots matching an FTS5 query (defaults to dry-run).
     export-settings    Dump every preference table to a JSON file (--out FILE).
     import-settings    Insert rows from a settings JSON file (--in FILE [--replace]).
     export-stats-csv   Per-day-per-app rollup CSV (--days N, --out FILE).
     export-monthly-stats-csv  Per-month-per-app rollup CSV (--months N, --out FILE).
     export-share-visits  v0.55 share_visit rows as CSV (--days N, --out FILE).
     export-ocr-txt     Per-day OCR text dump for grep/fzf (--day YYYY-MM-DD, --out FILE).
+    slack-summary      Compact Slack-style daily summary (--day YYYY-MM-DD, --out FILE).
     export-sticky      Dump every sticky_note row as a JSON array (--out FILE).
     export-annotations-ndjson  Stream every screenshot_annotation row as NDJSON (--out FILE).
     archive            Build a ZIP bundle of recent state (--days N --out FILE [--no-thumbnails]).
@@ -69,6 +72,8 @@ from app.pdf_export import export_day_pdf
 from app.search import search as fts_search
 from app.settings import get_settings
 from app.settings_backup import export_settings_json, import_settings_json
+from app.shot_lock_cli import lock_shots, unlock_shots
+from app.slack_summary import slack_style_summary
 from app.stats_csv import export_stats_csv
 from app.storage.db import get_connection, init_database
 from app.storage.ocr_admin import (
@@ -934,6 +939,81 @@ async def _cmd_unpin(query: str, limit: int) -> int:
     return 0
 
 
+async def _cmd_lock_shots(query: str, limit: int, confirm: bool) -> int:
+    """Bulk-lock screenshots matching ``query``; dry-run unless ``confirm``.
+
+    Mirrors :func:`_cmd_delete` / :func:`_cmd_pin` — the destructive
+    ``--confirm`` flag refuses to run without ``--query`` so a typo
+    cannot accidentally lock every shot in the database.
+    """
+    if confirm and not query.strip():
+        print("error: --confirm requires --query", file=sys.stderr)
+        return 2
+    if not query.strip():
+        print("error: empty search query", file=sys.stderr)
+        return 2
+    if limit < 1:
+        print(f"error: --limit must be >= 1, got {limit}", file=sys.stderr)
+        return 2
+
+    try:
+        result = await lock_shots(query, limit, dry_run=not confirm)
+    except aiosqlite.OperationalError as exc:
+        print(f"error: malformed FTS5 query: {exc}", file=sys.stderr)
+        return 2
+
+    if result["dry_run"]:
+        print(f"Matched {result['matched']} screenshots (dry-run; nothing locked).")
+        preview = result["ids"][:10]
+        if preview:
+            joined = ", ".join(str(i) for i in preview)
+            more = "" if len(result["ids"]) <= 10 else f" (+{len(result['ids']) - 10} more)"
+            print(f"First ids: {joined}{more}")
+        print("Re-run with --confirm --query ... to lock for real.")
+        return 0
+
+    print(f"Locked {result['affected']} screenshots.")
+    return 0
+
+
+async def _cmd_unlock_shots(query: str, limit: int, confirm: bool) -> int:
+    """Bulk-unlock screenshots matching ``query``; dry-run unless ``confirm``.
+
+    Symmetric with :func:`_cmd_lock_shots` — unlocking strips a guard
+    the user explicitly asked for so we keep the same ``--confirm``
+    handshake rather than letting a typo silently remove the protection
+    from a swathe of shots.
+    """
+    if confirm and not query.strip():
+        print("error: --confirm requires --query", file=sys.stderr)
+        return 2
+    if not query.strip():
+        print("error: empty search query", file=sys.stderr)
+        return 2
+    if limit < 1:
+        print(f"error: --limit must be >= 1, got {limit}", file=sys.stderr)
+        return 2
+
+    try:
+        result = await unlock_shots(query, limit, dry_run=not confirm)
+    except aiosqlite.OperationalError as exc:
+        print(f"error: malformed FTS5 query: {exc}", file=sys.stderr)
+        return 2
+
+    if result["dry_run"]:
+        print(f"Matched {result['matched']} screenshots (dry-run; nothing unlocked).")
+        preview = result["ids"][:10]
+        if preview:
+            joined = ", ".join(str(i) for i in preview)
+            more = "" if len(result["ids"]) <= 10 else f" (+{len(result['ids']) - 10} more)"
+            print(f"First ids: {joined}{more}")
+        print("Re-run with --confirm --query ... to unlock for real.")
+        return 0
+
+    print(f"Unlocked {result['affected']} screenshots.")
+    return 0
+
+
 async def _cmd_export_stats_csv(days: int, out: Path) -> int:
     """Write the per-day-per-app stats CSV produced by :func:`export_stats_csv`."""
     if days < 1:
@@ -1090,6 +1170,43 @@ async def _cmd_export_ocr_txt(day: str | None, out: Path) -> int:
     print(f"Day:     {target.isoformat()}")
     print(f"Blocks:  {blocks}")
     print(f"Bytes:   {size_bytes}")
+    return 0
+
+
+async def _cmd_slack_summary(day: str | None, out: Path) -> int:
+    """Write the Slack-style daily summary produced by :func:`slack_style_summary`.
+
+    Mirrors ``export-ocr-txt`` in shape — single positional day,
+    single ``--out`` path, ``newline=""`` to preserve the lone ``\\n``
+    separators the summary helper emits.  The renderer never raises on
+    an empty day (it returns placeholder bullets), so there is no
+    "nothing to export" branch here.
+    """
+    target = _parse_day(day)
+    try:
+        body = await slack_style_summary(target.isoformat())
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    # Trailing newline matches the HTTP route's policy and keeps the
+    # on-disk file POSIX-conformant ("a complete line is terminated by
+    # a newline") while the renderer itself stays terminator-free.
+    payload = body + "\n"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    # ``newline=""`` preserves the lone ``\n`` separators we emit
+    # instead of letting the Windows text layer rewrite them to
+    # ``\r\n`` — paste targets (Slack, Mattermost) expect ``\n``.
+    with out.open("w", encoding="utf-8", newline="") as fh:
+        fh.write(payload)
+
+    size_bytes = len(payload.encode("utf-8"))
+    line_count = payload.count("\n")
+
+    print(f"Path:   {out}")
+    print(f"Day:    {target.isoformat()}")
+    print(f"Lines:  {line_count}")
+    print(f"Bytes:  {size_bytes}")
     return 0
 
 
@@ -1438,6 +1555,60 @@ def _build_parser() -> argparse.ArgumentParser:  # noqa: PLR0915 — flat subpar
         help="Maximum number of screenshots to unpin (default: 100).",
     )
 
+    lock_shots_parser = sub.add_parser(
+        "lock-shots",
+        help=(
+            "Bulk-lock screenshots matching an FTS5 query so bulk-delete "
+            "and recycle skip them (dry-run unless --confirm)."
+        ),
+    )
+    lock_shots_parser.add_argument(
+        "--query",
+        dest="query",
+        default="",
+        help="FTS5 MATCH query — same syntax as `persona search`.",
+    )
+    lock_shots_parser.add_argument(
+        "--limit",
+        dest="limit",
+        type=int,
+        default=100,
+        help="Maximum number of screenshots to lock (default: 100).",
+    )
+    lock_shots_parser.add_argument(
+        "--confirm",
+        dest="confirm",
+        action="store_true",
+        help="Actually lock (without this flag the command is a dry-run).",
+    )
+
+    unlock_shots_parser = sub.add_parser(
+        "unlock-shots",
+        help=(
+            "Bulk-unlock screenshots matching an FTS5 query "
+            "(re-exposes them to bulk-delete; dry-run unless --confirm)."
+        ),
+    )
+    unlock_shots_parser.add_argument(
+        "--query",
+        dest="query",
+        default="",
+        help="FTS5 MATCH query — same syntax as `persona search`.",
+    )
+    unlock_shots_parser.add_argument(
+        "--limit",
+        dest="limit",
+        type=int,
+        default=100,
+        help="Maximum number of screenshots to unlock (default: 100).",
+    )
+    unlock_shots_parser.add_argument(
+        "--confirm",
+        dest="confirm",
+        action="store_true",
+        help="Actually unlock (without this flag the command is a dry-run).",
+    )
+
     export_settings_parser = sub.add_parser(
         "export-settings",
         help="Dump every preference table (kv, redaction, webhooks, …) to a JSON file.",
@@ -1582,6 +1753,27 @@ def _build_parser() -> argparse.ArgumentParser:  # noqa: PLR0915 — flat subpar
         help="Date in YYYY-MM-DD format (default: today).",
     )
     ocr_txt_parser.add_argument(
+        "--out",
+        dest="out",
+        type=Path,
+        required=True,
+        help="Destination text path (parent dirs are created).",
+    )
+
+    slack_summary_parser = sub.add_parser(
+        "slack-summary",
+        help=(
+            "Render a Slack-style daily summary (header + top apps + top "
+            "keywords) as a .txt file ready to paste into a chat channel."
+        ),
+    )
+    slack_summary_parser.add_argument(
+        "--day",
+        dest="day",
+        default=None,
+        help="Date in YYYY-MM-DD format (default: today).",
+    )
+    slack_summary_parser.add_argument(
         "--out",
         dest="out",
         type=Path,
@@ -1735,6 +1927,10 @@ async def _run(args: argparse.Namespace) -> int:  # noqa: PLR0911, PLR0912 — d
         return await _cmd_pin(args.query, args.limit, args.confirm)
     if args.command == "unpin":
         return await _cmd_unpin(args.query, args.limit)
+    if args.command == "lock-shots":
+        return await _cmd_lock_shots(args.query, args.limit, args.confirm)
+    if args.command == "unlock-shots":
+        return await _cmd_unlock_shots(args.query, args.limit, args.confirm)
     if args.command == "export-settings":
         return await _cmd_export_settings(args.out)
     if args.command == "import-settings":
@@ -1747,6 +1943,8 @@ async def _run(args: argparse.Namespace) -> int:  # noqa: PLR0911, PLR0912 — d
         return await _cmd_export_share_visits(args.days, args.out)
     if args.command == "export-ocr-txt":
         return await _cmd_export_ocr_txt(args.day, args.out)
+    if args.command == "slack-summary":
+        return await _cmd_slack_summary(args.day, args.out)
     if args.command == "export-sticky":
         return await _cmd_export_sticky(args.out)
     if args.command == "export-annotations-ndjson":

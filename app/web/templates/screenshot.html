@@ -102,7 +102,13 @@
             </button>
           </div>
         </div>
-        <pre class="text-sm font-mono text-zinc-200 whitespace-pre-wrap leading-relaxed">{{ shot.ocr_text }}</pre>
+        {# v0.83 feature 2/3 — linkify ``http(s)://…`` URLs in OCR text.
+           ``linkify_urls`` HTML-escapes the surrounding plaintext and
+           emits ``<a target=_blank rel=noopener noreferrer>`` anchors
+           for each URL. The filter returns a ``Markup`` instance, so
+           Jinja's autoescape leaves it alone — no ``|safe`` needed and
+           non-URL segments stay safely escaped. #}
+        <pre class="text-sm font-mono text-zinc-200 whitespace-pre-wrap leading-relaxed">{{ shot.ocr_text | linkify_urls }}</pre>
       </section>
     {% endif %}
 
