@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
+  <title>{{ title }}</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      background: #000;
+      color: #f4f4f5;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      overflow: hidden;
+    }
+    .stage {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .stage img {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+      user-select: none;
+      -webkit-user-drag: none;
+      transition: opacity 280ms ease;
+    }
+    .stage img.fade { opacity: 0; }
+    .hud {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      padding: 14px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #a1a1aa;
+      background: linear-gradient(to top, rgba(0,0,0,0.65), rgba(0,0,0,0));
+      pointer-events: none;
+    }
+    .hud .meta { font-variant-numeric: tabular-nums; }
+    .hud a {
+      color: #d4d4d8;
+      text-decoration: none;
+      border-bottom: 1px dotted #52525b;
+      pointer-events: auto;
+    }
+    .hud a:hover { color: #fafafa; border-color: #a1a1aa; }
+    .empty {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      color: #71717a;
+      text-align: center;
+      padding: 24px;
+    }
+    .empty h1 {
+      font-size: 16px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      font-weight: 500;
+      color: #d4d4d8;
+      margin: 0;
+    }
+    .empty p { margin: 0; font-size: 13px; }
+    .empty a {
+      color: #a1a1aa;
+      text-decoration: none;
+      border-bottom: 1px dotted #52525b;
+    }
+    .paused-dot {
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #22c55e;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+    .paused-dot.paused { background: #f59e0b; }
+  </style>
+</head>
+<body>
+  {% if total == 0 %}
+    <div class="empty">
+      <h1>No screenshots match</h1>
+      <p>Query: <code>{{ query or "(empty)" }}</code></p>
+      <p><a href="/timeline">Return to timeline</a></p>
+    </div>
+  {% else %}
+    <div class="stage" id="stage">
+      <img id="frame" alt="Screenshot" decoding="async">
+    </div>
+    <div class="hud">
+      <span class="meta">
+        <span id="paused-dot" class="paused-dot"></span>
+        <span id="position">1</span> / {{ total }}
+        &nbsp;&middot;&nbsp; {{ interval }}s
+        {% if query %}&nbsp;&middot;&nbsp; {{ query }}{% endif %}
+      </span>
+      <span><a href="/timeline">Esc &larr; timeline</a></span>
+    </div>
+
+    <script id="playlist-data" type="application/json">
+      {{ playlist_json | safe }}
+    </script>
+    <script>
+      (function () {
+        "use strict";
+        var dataEl = document.getElementById("playlist-data");
+        var playlist = JSON.parse(dataEl.textContent || "[]");
+        if (!playlist.length) { return; }
+
+        var intervalSeconds = {{ interval }};
+        var frame = document.getElementById("frame");
+        var position = document.getElementById("position");
+        var pausedDot = document.getElementById("paused-dot");
+        var index = 0;
+        var timer = null;
+        var paused = false;
+
+        function render() {
+          var item = playlist[index];
+          frame.classList.add("fade");
+          // brief fade-out before swapping src to avoid a hard flash
+          window.setTimeout(function () {
+            frame.src = item.url;
+            frame.alt = "Screenshot #" + item.id;
+            position.textContent = String(index + 1);
+            frame.classList.remove("fade");
+          }, 140);
+        }
+
+        function advance(step) {
+          index = (index + step + playlist.length) % playlist.length;
+          render();
+        }
+
+        function start() {
+          stop();
+          if (paused) { return; }
+          timer = window.setInterval(function () { advance(1); }, intervalSeconds * 1000);
+        }
+
+        function stop() {
+          if (timer !== null) {
+            window.clearInterval(timer);
+            timer = null;
+          }
+        }
+
+        function togglePause() {
+          paused = !paused;
+          pausedDot.classList.toggle("paused", paused);
+          if (paused) { stop(); } else { start(); }
+        }
+
+        document.addEventListener("keydown", function (ev) {
+          if (ev.key === "Escape") {
+            window.location.href = "/timeline";
+            return;
+          }
+          if (ev.key === "ArrowRight" || ev.key === "PageDown" || ev.key === " ") {
+            ev.preventDefault();
+            advance(1);
+            start(); // restart the interval so manual nav resets the cadence
+            return;
+          }
+          if (ev.key === "ArrowLeft" || ev.key === "PageUp") {
+            ev.preventDefault();
+            advance(-1);
+            start();
+            return;
+          }
+          if (ev.key === "p" || ev.key === "P") {
+            ev.preventDefault();
+            togglePause();
+          }
+        });
+
+        // Pause the carousel when the tab is hidden — saves CPU on a
+        // wall-mounted display and prevents a "fast-forward burst" when
+        // the user returns from another tab.
+        document.addEventListener("visibilitychange", function () {
+          if (document.hidden) { stop(); }
+          else if (!paused) { start(); }
+        });
+
+        render();
+        start();
+      })();
+    </script>
+  {% endif %}
+</body>
+</html>

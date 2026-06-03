@@ -90,6 +90,7 @@ from app.web.routes import (
     inbox as inbox_routes,
     journal as journal_routes,
     journal_export as journal_export_routes,
+    kanban_csv as kanban_csv_routes,
     keywords as keywords_routes,
     lang_autodetect as lang_autodetect_routes,
     live_sse as live_sse_routes,
@@ -131,6 +132,7 @@ from app.web.routes import (
     recycle as recycle_routes,
     redaction as redaction_routes,
     reminders as reminders_routes,
+    rotate_gallery as rotate_gallery_routes,
     retention_preview as retention_preview_routes,
     ocr_admin as ocr_admin_routes,
     ocr_language_stats as ocr_language_stats_routes,
@@ -170,6 +172,7 @@ from app.web.routes import (
     shot_lock as shot_lock_routes,
     shot_share_ui as shot_share_ui_routes,
     share_collection as share_collection_routes,
+    share_collection_pdf as share_collection_pdf_routes,
     settings as settings_routes,
     settings_backup as settings_backup_routes,
     settings_diff as settings_diff_routes,
@@ -248,7 +251,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.78.0",
+        version="0.79.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -439,6 +442,9 @@ def create_app() -> FastAPI:
     app.include_router(ocr_find_replace_routes.router)
     app.include_router(day_ocr_diff_routes.router)
     app.include_router(monthly_stats_csv_routes.router)
+    app.include_router(kanban_csv_routes.router)
+    app.include_router(rotate_gallery_routes.router)
+    app.include_router(share_collection_pdf_routes.router)
 
     return app
 
