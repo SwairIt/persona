@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex flex-wrap items-baseline gap-x-4 gap-y-2">
+  <h1 class="text-2xl font-bold tracking-tight">Side-by-side compare</h1>
+  <p class="text-zinc-500 text-sm">
+    Two captures rendered full-size next to each other. Distinct from the
+    <a href="/diff/{{ shot_a.id }}/{{ shot_b.id }}" class="text-accent-400 hover:underline">slider diff</a>
+    — nothing is hidden behind a reveal handle.
+  </p>
+  <div class="ml-auto text-xs text-zinc-500 font-mono select-all">
+    {{ request.url.path }}
+  </div>
+</div>
+
+<figure id="side-by-side"
+        data-id-a="{{ shot_a.id }}"
+        data-id-b="{{ shot_b.id }}"
+        class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+  {% for shot, side_label in [(shot_a, 'Left'), (shot_b, 'Right')] %}
+    <div class="rounded-lg border border-ink-700 bg-ink-900 overflow-hidden flex flex-col">
+      <div class="relative bg-ink-950 flex items-center justify-center"
+           style="aspect-ratio: {{ shot.width }} / {{ shot.height }};">
+        {% if shot.thumbnail_path %}
+          <a href="/screenshot/{{ shot.id }}"
+             class="block w-full h-full"
+             title="Open #{{ shot.id }} detail">
+            <img src="{{ shot.thumbnail_path | thumbnail_url }}"
+                 alt="Screenshot #{{ shot.id }} ({{ side_label }})"
+                 loading="lazy" decoding="async"
+                 class="w-full h-full object-contain">
+          </a>
+        {% else %}
+          <div class="text-zinc-500 text-sm p-6 text-center">
+            No thumbnail for #{{ shot.id }}.
+            <a href="/screenshot/{{ shot.id }}" class="text-accent-400 hover:underline">Open detail →</a>
+          </div>
+        {% endif %}
+      </div>
+
+      <div class="border-t border-ink-700 bg-ink-800/60 p-3 text-sm flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <span class="text-xs uppercase tracking-widest text-zinc-500">{{ side_label }}</span>
+        <a href="/screenshot/{{ shot.id }}"
+           class="text-accent-400 hover:underline font-mono">#{{ shot.id }}</a>
+        <span class="text-zinc-300 truncate">{{ shot.app_name or '—' }}</span>
+        <span class="text-zinc-500 text-xs font-mono">{{ shot.captured_at | humantime }}</span>
+        <span class="ml-auto text-zinc-500 text-xs font-mono">
+          {{ shot.width }}×{{ shot.height }}
+        </span>
+      </div>
+    </div>
+  {% endfor %}
+</figure>
+
+<div class="mt-6 max-w-5xl mx-auto text-center text-xs text-zinc-500">
+  Press
+  <kbd class="px-1.5 py-0.5 rounded bg-ink-800 border border-ink-700 font-mono">←</kbd>
+  /
+  <kbd class="px-1.5 py-0.5 rounded bg-ink-800 border border-ink-700 font-mono">→</kbd>
+  to walk through the shots-of-the-day series.
+</div>
+
+<script>
+  /*
+   * Arrow-key navigation through the deterministic shots-of-the-day series.
+   *
+   * On ← / → we hit /api/compare/shots-of-day.json with an incrementing
+   * offset, then `location.href` to the returned id pair so the URL stays
+   * a plain shareable permalink (no client-only state). Offset is held in
+   * an in-page variable; we do not persist it because the URL itself is
+   * the source of truth — when the user lands somewhere new they can refresh
+   * and start a fresh walk from offset 0.
+   *
+   * Silent no-op when:
+   *   - focus is in a form control (don't fight the user's typing),
+   *   - the JSON endpoint returns null ids (empty candidate pool).
+   */
+  (function () {
+    let offset = 0;
+    let inflight = false;
+
+    function isTypingTarget(el) {
+      if (!el) return false;
+      const tag = el.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+      if (el.isContentEditable) return true;
+      return false;
+    }
+
+    async function step(direction) {
+      if (inflight) return;
+      if (direction !== -1 && direction !== 1) return;
+      inflight = true;
+      const nextOffset = offset + direction;
+      try {
+        const resp = await fetch('/api/compare/shots-of-day.json?offset=' + nextOffset, {
+          headers: { 'Accept': 'application/json' },
+        });
+        if (!resp.ok) return;
+        const data = await resp.json();
+        if (data && typeof data.id_a === 'number' && typeof data.id_b === 'number') {
+          offset = nextOffset;
+          window.location.href = '/compare/' + data.id_a + '/' + data.id_b;
+        }
+      } catch (e) {
+        // Network or parse error — leave the page where it is.
+      } finally {
+        inflight = false;
+      }
+    }
+
+    document.addEventListener('keydown', function (ev) {
+      if (ev.defaultPrevented) return;
+      if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+      if (isTypingTarget(ev.target)) return;
+      if (ev.key === 'ArrowLeft') {
+        ev.preventDefault();
+        step(-1);
+      } else if (ev.key === 'ArrowRight') {
+        ev.preventDefault();
+        step(1);
+      }
+    });
+  })();
+</script>
+{% endblock %}

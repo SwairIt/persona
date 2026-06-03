@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Search by OCR word</h1>
+  <p class="text-zinc-500 text-sm mt-1 max-w-2xl">
+    Find screenshots where Tesseract recognised a specific word with
+    high confidence. Backed by the per-word
+    <code class="font-mono text-accent-400">ocr_word</code> table
+    (v0.35) — each row carries the token plus a 0-100 confidence
+    score. Tighten <em>min confidence</em> to filter out blurry,
+    ambiguous, or low-quality OCR.
+  </p>
+</div>
+
+<form action="/search/word" method="get"
+      class="mb-8 flex flex-wrap items-center gap-3">
+  <input type="text" name="w" value="{{ term | e }}"
+         placeholder="kubernetes · password · invoice..."
+         autofocus
+         maxlength="64"
+         class="flex-1 min-w-[16rem] px-4 py-2.5 bg-ink-800 border border-ink-700 rounded-lg
+                placeholder:text-zinc-600 focus:outline-none focus:border-accent-500
+                font-mono text-sm">
+  <label class="flex items-center gap-2 text-sm text-zinc-400">
+    min&nbsp;conf
+    <input type="number" name="min_conf" value="{{ min_conf }}"
+           min="0" max="100" step="1"
+           class="w-20 px-3 py-2.5 bg-ink-800 border border-ink-700 rounded-lg
+                  font-mono text-sm text-zinc-200 focus:outline-none focus:border-accent-500">
+  </label>
+  <button type="submit"
+          class="px-5 py-2.5 bg-accent-600 hover:bg-accent-500 rounded-lg font-medium transition">
+    Search
+  </button>
+</form>
+
+{% if not term %}
+  <div class="rounded-lg border border-dashed border-ink-700 bg-ink-900/40 p-8 text-center">
+    <p class="text-zinc-400 text-sm">
+      Type a word above to find shots where Tesseract saw it.
+    </p>
+    <p class="text-zinc-600 text-xs mt-2">
+      Substring match · capped at {{ limit }} shots · conf 0-100
+    </p>
+  </div>
+{% else %}
+  <p class="text-xs uppercase tracking-wider text-zinc-500 mb-3">
+    {{ total }} shot{{ '' if total == 1 else 's' }} matched
+    <code class="text-accent-400 font-mono normal-case">{{ term | e }}</code>
+    at conf &ge; <span class="font-mono">{{ min_conf }}</span>
+    {% if total >= limit %}
+      <span class="text-zinc-600">(capped at {{ limit }})</span>
+    {% endif %}
+  </p>
+
+  {% if results %}
+    <ul class="space-y-3">
+      {% for hit in results %}
+        {#
+          Colour-code the confidence badge the same way the per-shot
+          overlay does (035_ocr_words.sql):
+            red    < 50
+            amber  50-79
+            green  >= 80
+          Keeps the visual language consistent across the app.
+        #}
+        {% if hit.best_conf >= 80 %}
+          {% set _badge = 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40' %}
+        {% elif hit.best_conf >= 50 %}
+          {% set _badge = 'bg-amber-500/15 text-amber-300 border-amber-500/40' %}
+        {% else %}
+          {% set _badge = 'bg-rose-500/15 text-rose-300 border-rose-500/40' %}
+        {% endif %}
+
+        <li class="rounded-lg border border-ink-700 bg-ink-800 hover:border-accent-500/60 transition">
+          <a href="/screenshot/{{ hit.id }}" class="flex items-stretch gap-4 p-3 sm:p-4">
+            <div class="flex-shrink-0 w-32 sm:w-48 aspect-video rounded-md overflow-hidden bg-ink-900 border border-ink-700">
+              {% if hit.thumbnail_path %}
+                <img src="{{ hit.thumbnail_path | thumbnail_url }}"
+                     alt="Screenshot #{{ hit.id }}"
+                     loading="lazy"
+                     width="192"
+                     class="w-full h-full object-cover">
+              {% else %}
+                <div class="w-full h-full flex items-center justify-center text-[10px] text-zinc-600">
+                  shot #{{ hit.id }}
+                </div>
+              {% endif %}
+            </div>
+
+            <div class="flex-1 min-w-0 flex flex-col justify-between gap-2">
+              <header class="flex items-center justify-between gap-2 text-xs font-mono text-zinc-500">
+                <span class="truncate" title="{{ hit.window_title | e }}">
+                  {{ hit.app_name or 'shot #' ~ hit.id }}
+                </span>
+                <time class="flex-shrink-0">{{ hit.captured_at }}</time>
+              </header>
+
+              <p class="text-sm text-zinc-300 leading-snug">
+                Matched
+                {#
+                  matched_word is a single literal token from the
+                  ocr_word table — escape it before rendering, then
+                  wrap in <mark> client-side via the surrounding
+                  element (we cannot use snippet() here because LIKE
+                  has no FTS5-style highlight helper).
+                #}
+                <mark class="bg-accent-500/30 text-accent-200 rounded px-1 font-mono">
+                  {{ hit.matched_word | e }}
+                </mark>
+                <span class="ml-1 inline-flex items-center px-2 py-0.5 rounded border text-xs font-mono {{ _badge }}">
+                  conf {{ hit.best_conf }}
+                </span>
+              </p>
+
+              {% if hit.window_title %}
+                <p class="text-xs text-zinc-500 truncate" title="{{ hit.window_title | e }}">
+                  {{ hit.window_title | e }}
+                </p>
+              {% endif %}
+            </div>
+          </a>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <div class="rounded-lg border border-ink-700 bg-ink-800 p-6 text-center text-sm text-zinc-400">
+      No screenshots contain
+      <code class="text-accent-400 font-mono">{{ term | e }}</code>
+      at confidence &ge; <span class="font-mono">{{ min_conf }}</span>.
+      <p class="text-zinc-600 text-xs mt-2">
+        Try lowering <em>min&nbsp;conf</em>, or shortening the word.
+      </p>
+    </div>
+  {% endif %}
+{% endif %}
+{% endblock %}

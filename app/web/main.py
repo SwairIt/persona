@@ -185,6 +185,7 @@ from app.web.routes import (
     search as search_routes,
     search_autocomplete as search_autocomplete_routes,
     search_facets as search_facets_routes,
+    search_query_stats as search_query_stats_routes,
     search_tag_all as search_tag_all_routes,
     sparkline_svg as sparkline_svg_routes,
     semantic_similar as semantic_similar_routes,
@@ -200,6 +201,7 @@ from app.web.routes import (
     shot_dimensions as shot_dimensions_routes,
     shot_embed as shot_embed_routes,
     shot_groups as shot_groups_routes,
+    side_by_side as side_by_side_routes,
     shot_lock as shot_lock_routes,
     shot_share_ui as shot_share_ui_routes,
     share_collection as share_collection_routes,
@@ -243,6 +245,7 @@ from app.web.routes import (
     visual_diff as visual_diff_routes,
     webhooks_routes,
     whats_new as whats_new_routes,
+    word_search as word_search_routes,
     words_csv as words_csv_routes,
     weekly_digests as weekly_digests_routes,
     weekly_pdf as weekly_pdf_routes,
@@ -295,7 +298,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.3.0",
+        version="1.4.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -533,6 +536,9 @@ def create_app() -> FastAPI:
     app.include_router(annotations_csv_routes.router)
     app.include_router(kbd_shortcuts_routes.router)
     app.include_router(tag_aliases_admin_routes.router)
+    app.include_router(search_query_stats_routes.router)
+    app.include_router(side_by_side_routes.router)
+    app.include_router(word_search_routes.router)
 
     return app
 

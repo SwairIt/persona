@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-8 flex flex-wrap items-end justify-between gap-4">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Search query stats</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Top search queries by frequency from <code class="font-mono">search_history</code> —
+      what the user actually typed into the search box, how often, and when
+      last. Aggregated over the last {{ days }} day{{ '' if days == 1 else 's' }}.
+    </p>
+  </div>
+
+  <form method="get" action="/stats/search-queries"
+        class="flex flex-wrap items-end gap-3 text-sm">
+    <label class="flex flex-col gap-1">
+      <span class="text-xs uppercase tracking-widest text-zinc-500">Window</span>
+      <input type="number" name="days" value="{{ days }}"
+             min="{{ min_days }}" max="{{ max_days }}"
+             class="bg-ink-800 border border-ink-700 rounded-md px-2 py-1.5 w-24 text-zinc-100
+                    focus:outline-none focus:ring-2 focus:ring-accent-500 tabular-nums">
+    </label>
+    <label class="flex flex-col gap-1">
+      <span class="text-xs uppercase tracking-widest text-zinc-500">Limit</span>
+      <input type="number" name="limit" value="{{ limit }}"
+             min="{{ min_limit }}" max="{{ max_limit }}"
+             class="bg-ink-800 border border-ink-700 rounded-md px-2 py-1.5 w-24 text-zinc-100
+                    focus:outline-none focus:ring-2 focus:ring-accent-500 tabular-nums">
+    </label>
+    <button type="submit"
+            class="px-3 py-1.5 rounded-md bg-accent-600/20 text-accent-400 hover:bg-accent-600/30
+                   border border-accent-600/40 transition">
+      Refresh
+    </button>
+  </form>
+</div>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden">
+  {% if rows %}
+  <table class="w-full text-sm">
+    <thead class="bg-ink-900 text-zinc-500">
+      <tr>
+        <th class="text-left px-4 py-3 font-medium text-xs uppercase tracking-widest w-12">#</th>
+        <th class="text-left px-4 py-3 font-medium text-xs uppercase tracking-widest">Query</th>
+        <th class="text-right px-4 py-3 font-medium text-xs uppercase tracking-widest w-28">Count</th>
+        <th class="text-left px-4 py-3 font-medium text-xs uppercase tracking-widest w-56">Last used</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-ink-700">
+      {% for row in rows %}
+      <tr class="hover:bg-ink-700/40 transition">
+        <td class="px-4 py-2 text-zinc-500 tabular-nums">{{ loop.index }}</td>
+        <td class="px-4 py-2">
+          <a href="/search?q={{ row.query | urlencode }}"
+             class="font-mono text-zinc-100 hover:text-accent-400 break-all">
+            {{ row.query }}
+          </a>
+        </td>
+        <td class="px-4 py-2 text-right font-mono tabular-nums text-emerald-400">
+          {{ row.count }}
+        </td>
+        <td class="px-4 py-2 font-mono text-xs text-zinc-400">
+          {{ row.last_used_display }}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="p-8 text-center text-zinc-500 text-sm">
+    No queries recorded in the last {{ days }} day{{ '' if days == 1 else 's' }}.
+    Run a few searches and check back.
+  </div>
+  {% endif %}
+</section>
+
+<p class="text-xs text-zinc-600 mt-4">
+  Source: <code class="font-mono">search_history</code> table
+  (migration <code class="font-mono">016_search_history.sql</code>, v0.21).
+  Capped at 50 rows by <code class="font-mono">app.storage.search_history</code>.
+</p>
+{% endblock %}
