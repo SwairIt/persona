@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-center justify-between flex-wrap gap-3">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Embeddings stats</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Live snapshot of the semantic-search index — what fraction of
+      OCR-eligible shots already carry a vector, which model produced
+      them, and when the last bulk re-index ran.
+    </p>
+  </div>
+  <div class="flex items-center gap-2 text-sm">
+    <a href="/admin/embeddings-reindex"
+       class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700">Re-index &rarr;</a>
+    <a href="/api/embeddings-stats.json"
+       class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700 font-mono text-xs">JSON</a>
+  </div>
+</div>
+
+<section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <div class="text-xs uppercase tracking-widest text-zinc-500 mb-2">
+      Eligible shots
+    </div>
+    <div class="font-mono text-4xl text-zinc-100 leading-none">
+      {{ total_shots }}
+    </div>
+    <div class="text-xs text-zinc-500 mt-3">
+      OCR done · text long enough to embed
+    </div>
+  </div>
+
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <div class="text-xs uppercase tracking-widest text-zinc-500 mb-2">
+      Embedded
+    </div>
+    <div class="font-mono text-4xl text-emerald-400 leading-none">
+      {{ embedded_count }}
+    </div>
+    <div class="text-xs text-zinc-500 mt-3">
+      {% if pending > 0 %}
+        {{ pending }} pending
+      {% else %}
+        fully indexed
+      {% endif %}
+      · {{ '%.1f' | format(embedded_pct) }}% coverage
+    </div>
+
+    <div class="w-full h-2 rounded bg-ink-900 overflow-hidden mt-4">
+      <div class="h-full bg-emerald-500 transition-all duration-500"
+           style="width: {{ embedded_pct }}%"></div>
+    </div>
+  </div>
+
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <div class="text-xs uppercase tracking-widest text-zinc-500 mb-2">
+      Model
+    </div>
+    <div class="text-lg font-semibold break-all leading-snug text-zinc-100">
+      {{ model }}
+    </div>
+    <div class="text-xs text-zinc-500 mt-3">
+      Dimension:
+      <span class="font-mono text-zinc-300">{{ dimension_display }}</span>
+    </div>
+  </div>
+
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <div class="text-xs uppercase tracking-widest text-zinc-500 mb-2">
+      Last re-index
+    </div>
+    <div class="font-mono text-lg text-zinc-100 leading-snug">
+      {{ last_reindex_display }}
+    </div>
+    <div class="text-xs text-zinc-500 mt-3">
+      {% if last_reindex_at %}
+        from <code class="font-mono">kv_settings.last_reindex_at</code>
+      {% else %}
+        no bulk re-index recorded yet
+      {% endif %}
+    </div>
+  </div>
+</section>
+
+<p class="text-xs text-zinc-600">
+  JSON snapshot:
+  <a href="/api/embeddings-stats.json"
+     class="underline hover:text-zinc-400 font-mono">/api/embeddings-stats.json</a>
+</p>
+{% endblock %}

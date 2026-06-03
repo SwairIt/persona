@@ -70,6 +70,7 @@ from app.web.routes import (
     digest_prompts as digest_prompts_routes,
     doctor as doctor_routes,
     embeddings_reindex as embeddings_reindex_routes,
+    embeddings_stats as embeddings_stats_routes,
     embeddings_status,
     encrypted_notes as encrypted_notes_routes,
     export,
@@ -251,7 +252,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.79.0",
+        version="0.80.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -445,6 +446,7 @@ def create_app() -> FastAPI:
     app.include_router(kanban_csv_routes.router)
     app.include_router(rotate_gallery_routes.router)
     app.include_router(share_collection_pdf_routes.router)
+    app.include_router(embeddings_stats_routes.router)
 
     return app
 

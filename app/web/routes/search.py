@@ -27,6 +27,7 @@ from app.web.templates_engine import templates
 
 log = get_logger("persona.search.facets")
 log_sort = get_logger("persona.grid_sort")
+log_highlight = get_logger("persona.snippet_highlight")
 
 router = APIRouter(tags=["search"])
 
@@ -185,6 +186,18 @@ async def search_page(
     if hits and sort_key != _DEFAULT_SORT:
         hits = _sort_hits(hits, sort_key)
         log_sort.info("grid_sort.search", sort_by=sort_key, count=len(hits))
+
+    if q and hits:
+        # Observability: FTS5 snippet() wraps matches in <mark>…</mark>.
+        # Count hits whose snippet actually carries a highlight tag so we
+        # can spot a regression where the SQL stops emitting them.
+        marked = sum(1 for h in hits if "<mark>" in str(h.get("snippet") or ""))
+        log_highlight.debug(
+            "snippet_highlight.rendered",
+            query=q,
+            total=len(hits),
+            marked=marked,
+        )
 
     is_htmx = request.headers.get("HX-Request") == "true"
     template_name = "_search_results.html" if is_htmx else "search.html"

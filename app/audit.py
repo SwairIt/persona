@@ -48,6 +48,10 @@ _LIST_HARD_CAP = 1000
 # collect the task mid-flight (see asyncio + RUF006 docs).
 _BACKGROUND_TASKS: set[asyncio.Task[None]] = set()
 
+# Length of a bare ISO-8601 date string (``YYYY-MM-DD``). Anything longer
+# is assumed to already include a time component.
+_ISO_DATE_LEN = 10
+
 
 class AuditRow(TypedDict):
     """Public projection of a row in ``audit_log``."""
@@ -172,39 +176,90 @@ def log_action_sync(
 # ---------------------------------------------------------------------------
 
 
+def _build_filter_clause(
+    action_like: str | None,
+    actor_like: str | None,
+    date_from: str | None,
+    date_to: str | None,
+) -> tuple[str, list[object]]:
+    """Compose a ``WHERE`` clause + bound parameters from optional filters.
+
+    Each filter is an independent, append-only ``AND`` predicate so we
+    can mix-and-match them without quadratically branching the SQL.
+    Every value is bound via a ``?`` placeholder — no string
+    interpolation ever touches user input. Returns ``("", [])`` when no
+    filters are active so the caller can emit the unfiltered query
+    unchanged.
+
+    ``date_from`` / ``date_to`` use lexicographic comparison on the
+    ``ts`` column, which is safe because ``audit_log.ts`` is stored as
+    ``datetime('now')`` ISO-8601 text (``YYYY-MM-DD HH:MM:SS``); a date
+    like ``2026-06-03`` compares correctly against full timestamps.
+    """
+    clauses: list[str] = []
+    params: list[object] = []
+    if action_like and action_like.strip():
+        clauses.append("action LIKE ?")
+        params.append(f"%{action_like.strip()}%")
+    if actor_like and actor_like.strip():
+        clauses.append("actor LIKE ?")
+        params.append(f"%{actor_like.strip()}%")
+    if date_from and date_from.strip():
+        clauses.append("ts >= ?")
+        params.append(date_from.strip())
+    if date_to and date_to.strip():
+        # Inclusive upper bound: a bare ``YYYY-MM-DD`` should match the
+        # whole day, so we anchor the comparison to end-of-day. Full
+        # timestamps already include their own ``HH:MM:SS`` and stay
+        # within the same lexicographic order.
+        upper = date_to.strip()
+        if len(upper) == _ISO_DATE_LEN:
+            upper = f"{upper} 23:59:59"
+        clauses.append("ts <= ?")
+        params.append(upper)
+    if not clauses:
+        return "", []
+    return " WHERE " + " AND ".join(clauses), params
+
+
 async def list_recent(
     limit: int = 200,
     action_like: str | None = None,
     offset: int = 0,
+    actor_like: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
 ) -> list[AuditRow]:
-    """Return audit rows newest first, optionally filtered by action substring.
+    """Return audit rows newest first, optionally filtered.
 
-    ``action_like`` is matched with SQL ``LIKE`` using ``%`` wildcards
-    around the user input; the input itself is parameter-bound so no
-    SQL injection is possible. ``limit`` is clamped to
+    All ``*_like`` arguments are matched with SQL ``LIKE`` using ``%``
+    wildcards around the user input; the input itself is parameter-bound
+    so no SQL injection is possible. ``date_from`` / ``date_to`` apply
+    inclusive bounds on the ``ts`` column (see
+    :func:`_build_filter_clause`). ``limit`` is clamped to
     ``_LIST_HARD_CAP`` so a typo (``limit=10**9``) cannot load the whole
     table into memory.
+
+    Sort order is fixed to newest-first (``ts DESC`` via ``id DESC``,
+    which is monotonic with ``ts`` thanks to ``AUTOINCREMENT``).
     """
     safe_limit = max(1, min(int(limit), _LIST_HARD_CAP))
     safe_offset = max(0, int(offset))
 
-    # Two fully-static SQL strings, chosen by whether a filter was passed.
-    # No interpolation happens at all — values still travel via ``?`` binds.
-    params: Sequence[object]
-    if action_like and action_like.strip():
-        sql = (
-            "SELECT id, ts, action, actor, target, detail, success "
-            "FROM audit_log WHERE action LIKE ? "
-            "ORDER BY id DESC LIMIT ? OFFSET ?"
-        )
-        params = (f"%{action_like.strip()}%", safe_limit, safe_offset)
-    else:
-        sql = (
-            "SELECT id, ts, action, actor, target, detail, success "
-            "FROM audit_log "
-            "ORDER BY id DESC LIMIT ? OFFSET ?"
-        )
-        params = (safe_limit, safe_offset)
+    where_sql, where_params = _build_filter_clause(
+        action_like=action_like,
+        actor_like=actor_like,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    # ``where_sql`` is composed only from the hard-coded predicate strings
+    # inside :func:`_build_filter_clause`; every user value travels as a
+    # bound ``?`` parameter. The concatenation is therefore safe.
+    sql = (
+        "SELECT id, ts, action, actor, target, detail, success "
+        "FROM audit_log" + where_sql + " ORDER BY id DESC LIMIT ? OFFSET ?"
+    )
+    params: Sequence[object] = (*where_params, safe_limit, safe_offset)
     try:
         async with get_connection() as conn:
             cursor = await conn.execute(sql, params)
@@ -227,21 +282,30 @@ async def list_recent(
     ]
 
 
-async def count_recent(action_like: str | None = None) -> int:
-    """Return the total number of rows matching ``action_like`` (or all rows).
+async def count_recent(
+    action_like: str | None = None,
+    actor_like: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> int:
+    """Return the total number of rows matching the given filters.
 
     Used by the pagination UI to render "Page X of Y" without holding
     every row in memory. Returns ``0`` on any DB error so the page can
     still render rather than 500-ing on a transient SQLite hiccup.
+    Filters mirror :func:`list_recent` exactly so the count and the
+    rendered slice always agree.
     """
-    # Two fully-static SQL strings, same rationale as :func:`list_recent`.
-    params: Sequence[object]
-    if action_like and action_like.strip():
-        sql = "SELECT COUNT(*) AS n FROM audit_log WHERE action LIKE ?"
-        params = (f"%{action_like.strip()}%",)
-    else:
-        sql = "SELECT COUNT(*) AS n FROM audit_log"
-        params = ()
+    where_sql, where_params = _build_filter_clause(
+        action_like=action_like,
+        actor_like=actor_like,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    # Same safety argument as :func:`list_recent` — ``where_sql`` is
+    # static text from :func:`_build_filter_clause`.
+    sql = "SELECT COUNT(*) AS n FROM audit_log" + where_sql  # noqa: S608
+    params: Sequence[object] = tuple(where_params)
     try:
         async with get_connection() as conn:
             cursor = await conn.execute(sql, params)

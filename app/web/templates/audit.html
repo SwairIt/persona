@@ -1,6 +1,17 @@
 {% extends "base.html" %}
 
 {% block content %}
+{# Build a query-string fragment carrying every active filter so links
+   (pagination, json, clear) preserve the user's selection without
+   rebuilding the conditional chain in three places. ``urlencode`` here
+   keeps spaces and ``%`` literals safe for the URL. #}
+{% set filter_qs_parts = [] %}
+{% if filter_action %}{% set _ = filter_qs_parts.append('action=' ~ filter_action|urlencode) %}{% endif %}
+{% if filter_actor %}{% set _ = filter_qs_parts.append('actor=' ~ filter_actor|urlencode) %}{% endif %}
+{% if filter_date_from %}{% set _ = filter_qs_parts.append('date_from=' ~ filter_date_from|urlencode) %}{% endif %}
+{% if filter_date_to %}{% set _ = filter_qs_parts.append('date_to=' ~ filter_date_to|urlencode) %}{% endif %}
+{% set filter_qs = filter_qs_parts | join('&') %}
+
 <div class="mb-6 flex items-end justify-between flex-wrap gap-3">
   <div>
     <h1 class="text-2xl font-bold tracking-tight">Audit log</h1>
@@ -10,40 +21,92 @@
       after-the-fact security review. Newest events first.
     </p>
   </div>
-  <a href="/api/audit.json{% if filter_action %}?action={{ filter_action }}{% endif %}"
+  <a href="/api/audit.json{% if filter_qs %}?{{ filter_qs }}{% endif %}"
      class="text-xs text-zinc-500 hover:text-accent-400 underline font-mono">
     json &rarr;
   </a>
 </div>
 
-<section class="rounded-lg border border-ink-700 bg-ink-800 p-4 mb-5">
-  <form action="/audit" method="get" class="flex flex-wrap items-end gap-3">
-    <label class="flex flex-col gap-1 flex-1 min-w-[200px]">
+<details class="rounded-lg border border-ink-700 bg-ink-800 mb-5"
+         {% if filters_active %}open{% endif %}>
+  <summary class="cursor-pointer select-none px-4 py-3 text-sm font-medium
+                  text-zinc-300 hover:text-accent-400 flex items-center
+                  justify-between gap-2">
+    <span class="flex items-center gap-2">
+      <span class="text-xs uppercase tracking-widest text-zinc-500">Filters</span>
+      {% if filters_active %}
+        <span class="px-2 py-0.5 rounded-full bg-accent-600/20 text-accent-400
+                     text-[10px] font-mono uppercase tracking-wider">
+          active
+        </span>
+      {% endif %}
+    </span>
+    <span class="text-zinc-500 text-xs font-mono">
+      {{ "{:,}".format(total_rows) }} match{{ "" if total_rows == 1 else "es" }}
+      &middot; page {{ page }} / {{ total_pages }}
+    </span>
+  </summary>
+
+  <form action="/audit" method="get"
+        class="px-4 pb-4 pt-1 grid gap-3 md:grid-cols-2 lg:grid-cols-4 items-end">
+    <label class="flex flex-col gap-1">
       <span class="text-xs uppercase tracking-widest text-zinc-500">
-        Filter by action (substring)
+        Date from
+      </span>
+      <input type="date" name="date_from" value="{{ filter_date_from }}"
+             class="px-3 py-2 bg-ink-900 border border-ink-700 rounded
+                    text-sm font-mono text-zinc-200
+                    focus:outline-none focus:border-accent-500">
+    </label>
+
+    <label class="flex flex-col gap-1">
+      <span class="text-xs uppercase tracking-widest text-zinc-500">
+        Date to
+      </span>
+      <input type="date" name="date_to" value="{{ filter_date_to }}"
+             class="px-3 py-2 bg-ink-900 border border-ink-700 rounded
+                    text-sm font-mono text-zinc-200
+                    focus:outline-none focus:border-accent-500">
+    </label>
+
+    <label class="flex flex-col gap-1">
+      <span class="text-xs uppercase tracking-widest text-zinc-500">
+        Action contains
       </span>
       <input type="text" name="action" value="{{ filter_action }}"
-             placeholder="e.g. vault, bulk_delete, api_token"
-             class="px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
+             placeholder="vault, bulk_delete, api_token"
+             class="px-3 py-2 bg-ink-900 border border-ink-700 rounded
+                    text-sm font-mono
+                    focus:outline-none focus:border-accent-500">
     </label>
-    <div class="flex gap-2">
+
+    <label class="flex flex-col gap-1">
+      <span class="text-xs uppercase tracking-widest text-zinc-500">
+        Actor contains
+      </span>
+      <input type="text" name="actor" value="{{ filter_actor }}"
+             placeholder="admin, token:..., ip"
+             class="px-3 py-2 bg-ink-900 border border-ink-700 rounded
+                    text-sm font-mono
+                    focus:outline-none focus:border-accent-500">
+    </label>
+
+    <div class="flex gap-2 md:col-span-2 lg:col-span-4">
       <button type="submit"
-              class="px-4 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
+              class="px-4 py-2 bg-accent-600 hover:bg-accent-500 rounded
+                     text-sm font-medium transition">
         Apply
       </button>
-      {% if filter_action %}
+      {% if filters_active %}
         <a href="/audit"
-           class="px-4 py-2 bg-ink-900 hover:bg-ink-700 border border-ink-700 rounded text-sm">
+           class="px-4 py-2 bg-ink-900 hover:bg-ink-700 border border-ink-700
+                  rounded text-sm">
           Clear
         </a>
       {% endif %}
     </div>
   </form>
-  <div class="text-xs text-zinc-500 mt-3">
-    {{ "{:,}".format(total_rows) }} matching event{{ "" if total_rows == 1 else "s" }}
-    &middot; page {{ page }} of {{ total_pages }}
-  </div>
-</section>
+</details>
 
 {% if rows %}
   <div class="rounded-lg border border-ink-700 bg-ink-800 overflow-x-auto">
@@ -96,7 +159,7 @@
     </div>
     <div class="flex gap-2">
       {% if has_prev %}
-        <a href="/audit?page={{ page - 1 }}{% if filter_action %}&action={{ filter_action }}{% endif %}"
+        <a href="/audit?page={{ page - 1 }}{% if filter_qs %}&{{ filter_qs }}{% endif %}"
            class="px-3 py-1.5 bg-ink-900 hover:bg-ink-700 border border-ink-700 rounded">
           &larr; Prev
         </a>
@@ -106,7 +169,7 @@
         </span>
       {% endif %}
       {% if has_next %}
-        <a href="/audit?page={{ page + 1 }}{% if filter_action %}&action={{ filter_action }}{% endif %}"
+        <a href="/audit?page={{ page + 1 }}{% if filter_qs %}&{{ filter_qs }}{% endif %}"
            class="px-3 py-1.5 bg-ink-900 hover:bg-ink-700 border border-ink-700 rounded">
           Next &rarr;
         </a>
@@ -119,8 +182,8 @@
   </nav>
 {% else %}
   <p class="text-zinc-500 text-sm">
-    {% if filter_action %}
-      No audit events match <code class="font-mono text-accent-400">{{ filter_action }}</code>.
+    {% if filters_active %}
+      No audit events match the current filters.
     {% else %}
       No audit events recorded yet.
     {% endif %}

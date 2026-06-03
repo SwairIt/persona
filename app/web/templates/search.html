@@ -9,6 +9,13 @@
     outline-offset: 2px;
     border-radius: 0.5rem;
   }
+  /* OCR snippet highlight — FTS5 wraps matched terms in <mark> via the
+     snippet() call in app/search/queries.py. Tailwind's preflight
+     normalises <mark> away, so we restore a soft yellow ourselves. */
+  mark {
+    background: #fef08a;
+    color: inherit;
+  }
 </style>
 <script src="/static/search_keyboard.js" defer></script>
 <div class="mb-6">
