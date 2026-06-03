@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-8">
+  <h1 class="text-2xl font-bold tracking-tight">Ping heatmap</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    External heartbeats from <span class="font-mono">/api/ping</span> bucketed by
+    hour-of-day (rows) and calendar day (columns). Darker means quiet, brighter
+    means busy.
+  </p>
+</div>
+
+<section class="grid sm:grid-cols-3 gap-4 mb-6">
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Window</div>
+    <div class="text-3xl font-bold mt-1 tabular-nums">
+      {{ days }}
+      <span class="text-base font-normal text-zinc-500 ml-1">
+        day{{ '' if days == 1 else 's' }}
+      </span>
+    </div>
+    <div class="text-xs text-zinc-500 mt-1 font-mono">
+      {{ start_date }} &rarr; {{ end_date }}
+    </div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Total pings</div>
+    <div class="text-3xl font-bold mt-1 tabular-nums">
+      {{ "{:,}".format(total) }}
+    </div>
+    <div class="text-xs text-zinc-500 mt-1">
+      Across {{ days * 24 }} hourly buckets.
+    </div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Busiest hour</div>
+    {% if busiest is none %}
+      <div class="text-3xl font-bold mt-1 tabular-nums text-zinc-500">&mdash;</div>
+      <div class="text-xs text-zinc-500 mt-1">
+        No pings yet in this window.
+      </div>
+    {% else %}
+      <div class="text-3xl font-bold mt-1 tabular-nums">
+        {{ "{:,}".format(busiest.count) }}
+        <span class="text-base font-normal text-zinc-500 ml-1">
+          ping{{ '' if busiest.count == 1 else 's' }}
+        </span>
+      </div>
+      <div class="text-xs text-zinc-500 mt-1 font-mono">
+        {{ busiest.date }} at {{ "%02d"|format(busiest.hour) }}:00
+      </div>
+    {% endif %}
+  </div>
+</section>
+
+<div class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6 overflow-x-auto">
+  <svg xmlns="http://www.w3.org/2000/svg"
+       width="{{ svg_width }}"
+       height="{{ svg_height }}"
+       viewBox="0 0 {{ svg_width }} {{ svg_height }}"
+       role="img"
+       aria-label="Ping heatmap across {{ days }} days and 24 hours from {{ start_date }} to {{ end_date }}">
+
+    {# Column labels (calendar day) along the top #}
+    {% for label in column_labels %}
+      <text x="{{ label.x }}"
+            y="{{ top_pad - 8 }}"
+            fill="#a1a1aa"
+            font-size="9"
+            text-anchor="middle"
+            font-family="JetBrains Mono, Cascadia Code, Consolas, monospace">
+        {{ label.label }}
+      </text>
+    {% endfor %}
+
+    {# Row labels (hour-of-day) along the left edge #}
+    {% for label in row_labels %}
+      <text x="0"
+            y="{{ label.y }}"
+            fill="#71717a"
+            font-size="9"
+            font-family="JetBrains Mono, Cascadia Code, Consolas, monospace">
+        {{ label.label }}
+      </text>
+    {% endfor %}
+
+    {# Grid cells — outer loop is days (columns), inner loop is hours (rows). #}
+    {% for column in cells %}
+      {% set col_index = loop.index0 %}
+      {% for cell in column %}
+        {% set row_index = loop.index0 %}
+        {% set x = left_pad + col_index * (tile_w + gap) %}
+        {% set y = top_pad + row_index * (tile_h + gap) %}
+        <rect x="{{ x }}"
+              y="{{ y }}"
+              width="{{ tile_w }}"
+              height="{{ tile_h }}"
+              rx="2"
+              ry="2"
+              fill="{{ level_fills[cell.level] }}">
+          <title>{{ cell.date }} {{ "%02d"|format(cell.hour) }}:00 &mdash; {{ cell.count }} ping{{ '' if cell.count == 1 else 's' }}</title>
+        </rect>
+      {% endfor %}
+    {% endfor %}
+  </svg>
+
+  {# Legend #}
+  <div class="flex items-center justify-end gap-2 mt-3 text-xs text-zinc-500 font-mono">
+    <span>Less</span>
+    {% for fill in level_fills %}
+      <span class="inline-block rounded-sm"
+            style="width: {{ tile_h }}px; height: {{ tile_h }}px; background-color: {{ fill }};"></span>
+    {% endfor %}
+    <span>More</span>
+  </div>
+</div>
+
+<p class="text-xs text-zinc-500">
+  Machine-readable counterpart at
+  <a href="/api/ping-heatmap.json?days={{ days }}" class="font-mono text-accent-400 hover:underline">/api/ping-heatmap.json</a>.
+  Raw rows at
+  <a href="/admin/external-pings" class="font-mono text-accent-400 hover:underline">/admin/external-pings</a>.
+</p>
+{% endblock %}

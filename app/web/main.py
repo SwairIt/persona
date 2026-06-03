@@ -107,6 +107,7 @@ from app.web.routes import (
     per_app_digest as per_app_digest_routes,
     permalinks as permalinks_routes,
     pin as pin_routes,
+    ping_heatmap as ping_heatmap_routes,
     pinmap as pinmap_routes,
     process_remap as process_remap_routes,
     public_day as public_day_routes,
@@ -140,6 +141,7 @@ from app.web.routes import (
     ocr_skip as ocr_skip_routes,
     ocr_txt_export as ocr_txt_export_routes,
     ocr_vision as ocr_vision_routes,
+    ocr_vision_replace as ocr_vision_replace_routes,
     rss as rss_routes,
     rss_index as rss_index_routes,
     saved_searches as saved_searches_routes,
@@ -238,7 +240,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.74.0",
+        version="0.75.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -420,6 +422,8 @@ def create_app() -> FastAPI:
     app.include_router(settings_diff_routes.router)
     app.include_router(bulk_collection_add_routes.router)
     app.include_router(external_ping_routes.router)
+    app.include_router(ping_heatmap_routes.router)
+    app.include_router(ocr_vision_replace_routes.router)
 
     return app
 

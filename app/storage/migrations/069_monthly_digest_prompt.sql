@@ -1,0 +1,21 @@
+-- v0.75 — user-editable LLM prompt template for the monthly digest.
+--
+-- Sibling of migration 057 (``weekly_digest_prompt_template``), but for the
+-- monthly summariser (:mod:`app.llm.monthly_summariser`, v0.68). The
+-- monthly digest builds its ``CompletionRequest.system`` text from a
+-- hard-coded ``_SYSTEM`` constant; this migration seeds a single
+-- ``monthly_digest_prompt_template`` row in ``kv_settings`` so the
+-- extended ``/settings/digest-prompt`` UI has a row to upsert into.
+--
+-- An **empty string** (the default) means "fall back to the hard-coded
+-- ``_SYSTEM`` constant". A non-empty value is treated as a Python
+-- ``str.format``-style template and rendered with the placeholders
+-- ``{month}``, ``{sections}``, and ``{shots_count}`` before it is handed
+-- to the LLM. The save route validates that all three are present so a
+-- malformed template can never reach the LLM call site.
+--
+-- ``INSERT OR IGNORE`` keeps the migration idempotent: re-running it
+-- against a database where the user has already saved a custom template
+-- will never clobber their text.
+
+INSERT OR IGNORE INTO kv_settings (key, value) VALUES ('monthly_digest_prompt_template', '');

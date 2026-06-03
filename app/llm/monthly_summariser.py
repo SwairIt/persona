@@ -8,6 +8,15 @@ capture count, then asks the LLM for a ~500-word first-person narrative.
 The month is identified by an ISO ``YYYY-MM`` string. The day window we sweep
 is ``[first-of-month, first-of-next-month)`` in UTC, mirroring how the weekly
 summariser treats its Mon→Sun window.
+
+v0.75 — the hard-coded system prompt can be overridden via a
+``monthly_digest_prompt_template`` row in ``kv_settings``. Mirrors the
+weekly editor (v0.56) so power users can re-shape the retrospective without
+forking the codebase. An empty value falls back to ``_SYSTEM``; a non-empty
+value is treated as a Python ``str.format`` template rendered with
+:data:`MONTHLY_PROMPT_PLACEHOLDERS`. Validation lives in the route layer
+(:mod:`app.web.routes.digest_prompts`); a render failure here is caught and
+logged so a broken template never crashes the monthly digest job.
 """
 
 from __future__ import annotations
@@ -20,10 +29,11 @@ from app.keywords import STOPWORDS
 from app.llm.client import CompletionRequest, LLMClient, make_client
 from app.logging_setup import get_logger
 from app.storage.db import get_connection
-from app.storage.repository import list_screenshots
+from app.storage.repository import get_kv, list_screenshots
 from app.storage.time import iso
 
 log = get_logger("persona.monthly_digest")
+_prompt_log = get_logger("persona.digest.monthly_prompt")
 
 _SYSTEM = (
     "You are a memory assistant for a single user. You receive a structured "
@@ -40,6 +50,88 @@ _SYSTEM = (
     "NOT invent facts not visible in the input. If a section has no material, "
     "say so honestly in one sentence rather than padding."
 )
+
+# Default template body the editor in :mod:`app.web.routes.digest_prompts`
+# pre-fills its monthly textarea with. It uses every supported placeholder
+# so a user who just clicks "Reset to default" lands on a template that
+# already passes the placeholder check on first save.
+_DEFAULT_PROMPT_TEMPLATE = (
+    _SYSTEM
+    + "\n\n"
+    + "Month is {month}. The following sections cover {shots_count} screen "
+    + "captures plus the daily digests, top keywords, and top apps for that "
+    + "calendar month:\n\n{sections}"
+)
+
+# Public tuple of placeholders the monthly prompt template editor must
+# honour. Kept module-level (mirrors ``PROMPT_PLACEHOLDERS`` in the
+# weekly summariser) so the route module imports the canonical list
+# without re-deriving it.
+MONTHLY_PROMPT_PLACEHOLDERS: tuple[str, ...] = ("month", "sections", "shots_count")
+
+# Key under which the user-edited monthly template is persisted in
+# ``kv_settings``. An empty value (the migration-seeded default) means
+# "use the hard-coded prompt instead". Any non-empty value is treated as
+# a Python ``str.format`` template rendered with
+# :data:`MONTHLY_PROMPT_PLACEHOLDERS`.
+_PROMPT_KV_KEY = "monthly_digest_prompt_template"
+
+
+def default_monthly_prompt_template() -> str:
+    """Return the canonical default monthly template body.
+
+    Exposed as a function (mirrors :func:`default_weekly_prompt_template`)
+    so the editor UI can render it in a "show default" disclosure without
+    coupling to module-private names, and so future tests can assert
+    against the same string the editor displays.
+    """
+    return _DEFAULT_PROMPT_TEMPLATE
+
+
+async def _load_custom_prompt_template() -> str | None:
+    """Read the user-edited monthly template from ``kv_settings``.
+
+    Returns ``None`` when no override is configured (key absent or value
+    empty after stripping), which is the signal to the caller that the
+    hard-coded ``_SYSTEM`` prompt should be used instead.
+    """
+    async with get_connection() as conn:
+        raw = await get_kv(conn, _PROMPT_KV_KEY)
+    if raw is None:
+        return None
+    stripped = raw.strip()
+    return stripped or None
+
+
+def _render_custom_prompt(
+    template: str,
+    *,
+    month: str,
+    sections: str,
+    shots_count: int,
+) -> str | None:
+    """Format ``template`` with the three supported monthly placeholders.
+
+    Returns ``None`` if the template is malformed (unknown placeholder,
+    unbalanced brace, etc.) so the caller can transparently fall back to
+    the hard-coded prompt rather than crashing the monthly digest job.
+    The route layer validates placeholders before saving, so a ``None``
+    return here is a defence-in-depth path for templates that were
+    edited directly in the database.
+    """
+    try:
+        return template.format(
+            month=month,
+            sections=sections,
+            shots_count=shots_count,
+        )
+    except (KeyError, IndexError, ValueError) as exc:
+        _prompt_log.warning(
+            "digest.monthly_prompt.render_failed",
+            error=str(exc),
+            length=len(template),
+        )
+        return None
 
 
 def _tokenise(text: str) -> list[str]:
@@ -225,7 +317,36 @@ async def summarise_month(
     )
     user_message = f"{header}\n\n{body}"
 
-    request = CompletionRequest(system=_SYSTEM, user=user_message, max_tokens=1400)
+    # Resolve the system prompt. A non-empty ``kv_settings`` row wins,
+    # but only if every placeholder renders cleanly; otherwise we fall
+    # back to the hard-coded ``_SYSTEM`` and log a structured warning so
+    # the user can spot the broken template in their logs.
+    system_prompt = _SYSTEM
+    prompt_custom = False
+    custom_template = await _load_custom_prompt_template()
+    if custom_template is not None:
+        rendered = _render_custom_prompt(
+            custom_template,
+            month=month_iso,
+            sections=body,
+            shots_count=len(shots),
+        )
+        if rendered is not None:
+            system_prompt = rendered
+            prompt_custom = True
+            _prompt_log.info(
+                "digest.monthly_prompt.override_active",
+                month=month_iso,
+                length=len(rendered),
+            )
+        else:
+            _prompt_log.warning(
+                "digest.monthly_prompt.override_skipped",
+                month=month_iso,
+                reason="render_failed",
+            )
+
+    request = CompletionRequest(system=system_prompt, user=user_message, max_tokens=1400)
 
     log.info(
         "llm.monthly_summary.start",
@@ -235,6 +356,7 @@ async def summarise_month(
         keywords=len(keywords),
         top_apps=len(top_apps),
         provider=ll.provider,
+        prompt_custom=prompt_custom,
     )
     text = await ll.complete(request)
     log.info(

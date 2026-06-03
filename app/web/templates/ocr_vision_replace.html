@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">OCR vision replace</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Promote the v0.55 multimodal-vision transcription
+    (<code class="font-mono text-xs">ocr_text_vision</code>) into the
+    canonical Tesseract column
+    (<code class="font-mono text-xs">ocr_text</code>) for every shot that
+    has both. Use this when you've spot-checked the vision pass on the
+    <a href="/admin/ocr-vision" class="hover:text-zinc-300 underline">OCR via vision</a>
+    page and decided the vision result is better than the Tesseract one
+    across the board.
+  </p>
+  <p class="text-zinc-500 text-sm mt-2">
+    This is <strong>destructive</strong> &mdash; Tesseract's existing
+    text is overwritten, not appended. The sidecar
+    <code class="font-mono text-xs">ocr_text_vision</code> column is
+    left in place so a future re-promotion is still possible, but the
+    previous Tesseract text is gone after the swap.
+  </p>
+</div>
+
+{% if affected is not none %}
+  <div class="mb-6 rounded-lg border border-emerald-700 bg-emerald-900/30 px-4 py-3 text-sm">
+    <span class="font-semibold text-emerald-300">Done.</span>
+    <span class="text-emerald-100">
+      Promoted vision text into <strong>{{ affected }}</strong>
+      screenshot row(s). Search, embeddings, exports and digests will
+      now reflect the vision transcription for those shots.
+    </span>
+  </div>
+{% endif %}
+
+<section class="mb-6 rounded-lg border border-ink-700 bg-ink-800 p-4">
+  <div class="text-xs uppercase tracking-widest text-zinc-500">
+    Eligible rows
+  </div>
+  <div class="mt-1 text-3xl font-bold text-zinc-100 font-mono">
+    {{ eligible }}
+  </div>
+  <p class="text-zinc-500 text-xs mt-2">
+    Counts shots where <code class="font-mono">ocr_text</code> is set
+    <em>and</em> <code class="font-mono">ocr_text_vision</code> is set
+    to a non-empty string. Rows where vision returned an empty cached
+    negative result are skipped &mdash; clicking Apply will never blank
+    out perfectly good Tesseract text.
+  </p>
+</section>
+
+<form action="/admin/ocr-vision-replace/apply" method="post"
+      onsubmit="return confirm('Overwrite Tesseract ocr_text with the vision transcription for {{ eligible }} screenshot(s)?\nThis cannot be undone &mdash; the previous Tesseract text will be lost.');"
+      class="rounded-lg border border-rose-800/60 bg-ink-800 p-6 max-w-xl">
+  <h2 class="text-lg font-semibold text-rose-300 mb-2">
+    Full replace &mdash; promote vision into ocr_text
+  </h2>
+  <p class="text-zinc-400 text-sm mb-4">
+    Every eligible row's <code class="font-mono">ocr_text</code> is
+    overwritten with the value from
+    <code class="font-mono">ocr_text_vision</code>. Rows that lack a
+    vision pass, or where vision returned empty, are left untouched.
+  </p>
+
+  <button type="submit"
+          {% if eligible == 0 %}disabled{% endif %}
+          class="px-6 py-2.5 rounded text-sm font-semibold transition-colors
+                 {% if eligible == 0 %}
+                   bg-ink-700 text-zinc-500 cursor-not-allowed
+                 {% else %}
+                   bg-rose-700 hover:bg-rose-600 text-white
+                   ring-1 ring-rose-500/40
+                 {% endif %}">
+    Apply &mdash; overwrite ocr_text with ocr_text_vision
+  </button>
+
+  {% if eligible == 0 %}
+    <p class="text-zinc-500 text-xs mt-4">
+      Nothing to do &mdash; no shots currently have both columns
+      populated. Run the
+      <a href="/admin/ocr-vision" class="hover:text-zinc-300 underline">OCR via vision</a>
+      pass on a few rows first.
+    </p>
+  {% else %}
+    <p class="text-zinc-500 text-xs mt-4">
+      This action is audit-logged
+      (<code class="font-mono">ocr.vision_replace</code>). You can review
+      the entry in
+      <a href="/audit" class="hover:text-zinc-300 underline">Audit log</a>.
+    </p>
+  {% endif %}
+</form>
+
+<p class="text-zinc-500 text-xs mt-8">
+  Related admin pages:
+  <a href="/admin/ocr-vision" class="hover:text-zinc-300 underline">OCR via vision</a>
+  (run the per-row vision fallback),
+  <a href="/ocr-admin" class="hover:text-zinc-300 underline">OCR admin</a>
+  (reset entire <code class="font-mono">skipped</code> /
+  <code class="font-mono">failed</code> buckets),
+  <a href="/admin/ocr-rerun-n" class="hover:text-zinc-300 underline">OCR rerun last N</a>
+  (re-OCR the N most recent captures).
+</p>
+{% endblock %}
