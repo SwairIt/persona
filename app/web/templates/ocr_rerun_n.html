@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">OCR rerun &mdash; last N</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Flip the <strong>N most recent</strong> screenshots (by
+    <code class="font-mono text-xs">captured_at</code>) back to
+    <code class="font-mono text-xs">ocr_status = 'pending'</code> so the
+    OCR worker re-reads them on its next sweep. Use this after swapping
+    Tesseract language packs or a binary upgrade &mdash; you almost always
+    want to verify the new setup against your last few hundred captures,
+    not a random historical slice.
+  </p>
+  <p class="text-zinc-500 text-sm mt-2">
+    Rows without a thumbnail are skipped automatically (the worker has
+    nothing to read). Each click is capped at
+    <strong>{{ max_n }}</strong> rows so a single button press never
+    floods the worker queue.
+  </p>
+</div>
+
+{% if affected is not none %}
+  <div class="mb-6 rounded-lg border border-emerald-700 bg-emerald-900/30 px-4 py-3 text-sm">
+    <span class="font-semibold text-emerald-300">Done.</span>
+    <span class="text-emerald-100">
+      Re-queued <strong>{{ affected }}</strong>
+      {% if requested is not none %}of {{ requested }}{% endif %}
+      screenshot(s). The OCR worker will process them on its next sweep.
+    </span>
+  </div>
+{% endif %}
+
+<form action="/admin/ocr-rerun-n" method="post"
+      onsubmit="return confirm('Re-OCR the last ' + (this.n.value || '0') + ' screenshot(s)?\nThis will overwrite their current OCR text once the worker re-processes them.');"
+      class="rounded-lg border border-rose-800/60 bg-ink-800 p-6 max-w-xl">
+  <h2 class="text-lg font-semibold text-rose-300 mb-2">Rerun the last N captures</h2>
+  <p class="text-zinc-400 text-sm mb-4">
+    Default is <strong>{{ default_n }}</strong>. Maximum is
+    <strong>{{ max_n }}</strong>. Values outside the range are clamped
+    server-side &mdash; tampering with the form does not widen the blast
+    radius.
+  </p>
+
+  <label class="block mb-5">
+    <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">
+      How many recent shots
+    </span>
+    <input type="number" name="n"
+           value="{{ default_n }}"
+           min="1" max="{{ max_n }}" step="1"
+           required
+           class="w-32 px-3 py-2 bg-ink-900 border border-ink-700 rounded
+                  text-lg font-mono
+                  focus:outline-none focus:border-rose-500">
+  </label>
+
+  <button type="submit"
+          class="px-6 py-2.5 rounded text-sm font-semibold
+                 bg-rose-700 hover:bg-rose-600 text-white
+                 ring-1 ring-rose-500/40
+                 transition-colors">
+    Rerun &mdash; flip last N to pending
+  </button>
+
+  <p class="text-zinc-500 text-xs mt-4">
+    This action is audit-logged
+    (<code class="font-mono">ocr.rerun_n</code>). You can review the
+    entry in <a href="/audit" class="hover:text-zinc-300 underline">Audit log</a>.
+  </p>
+</form>
+
+<p class="text-zinc-500 text-xs mt-8">
+  Related admin pages:
+  <a href="/ocr-admin" class="hover:text-zinc-300 underline">OCR admin</a>
+  (reset entire <code class="font-mono">skipped</code> /
+  <code class="font-mono">failed</code> buckets),
+  <a href="/admin/ocr-retry" class="hover:text-zinc-300 underline">OCR retry queue</a>
+  (re-queue empty / low-confidence rows only).
+</p>
+{% endblock %}

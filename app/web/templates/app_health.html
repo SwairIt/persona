@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-8 flex flex-wrap items-end justify-between gap-4">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">App health</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Last seen, captures in the last
+      <span class="text-zinc-300 tabular-nums">{{ days }}</span>
+      day{{ '' if days == 1 else 's' }}, and per-app OCR failure rate.
+      Cells under
+      <span class="text-emerald-400 tabular-nums">{{ "%.0f"|format(green_pct) }}%</span>
+      are green; under
+      <span class="text-amber-400 tabular-nums">{{ "%.0f"|format(amber_pct) }}%</span>
+      amber; at or above that, red.
+    </p>
+  </div>
+
+  <form method="get" action="/stats/app-health"
+        class="flex flex-wrap items-end gap-3 text-sm">
+    <label class="flex flex-col gap-1">
+      <span class="text-xs uppercase tracking-widest text-zinc-500">Window</span>
+      <input type="number" name="days" value="{{ days }}"
+             min="{{ min_days }}" max="{{ max_days }}"
+             class="bg-ink-800 border border-ink-700 rounded-md px-2 py-1.5 w-24 text-zinc-100
+                    focus:outline-none focus:ring-2 focus:ring-accent-500 tabular-nums">
+    </label>
+    <button type="submit"
+            class="px-3 py-1.5 rounded-md bg-accent-600/20 text-accent-400 hover:bg-accent-600/30
+                   border border-accent-600/40 transition">
+      Refresh
+    </button>
+  </form>
+</div>
+
+<div class="flex flex-wrap items-center gap-2 mb-6">
+  <span class="text-xs uppercase tracking-widest text-zinc-500 mr-1">Quick</span>
+  {% for choice in window_choices %}
+    <a href="/stats/app-health?days={{ choice }}"
+       class="px-3 py-1.5 rounded-md text-sm font-mono transition
+              {% if choice == days %}bg-accent-600/20 text-accent-400 border border-accent-600/40{% else %}text-zinc-400 hover:text-zinc-100 hover:bg-ink-800 border border-ink-700{% endif %}">
+      {{ choice }}d
+    </a>
+  {% endfor %}
+</div>
+
+<section class="grid sm:grid-cols-4 gap-4 mb-8">
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Apps</div>
+    <div class="text-2xl font-bold mt-1 tabular-nums">{{ summary.apps }}</div>
+    <div class="text-xs text-zinc-500 mt-1">tracked overall</div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Shots in window</div>
+    <div class="text-2xl font-bold mt-1 tabular-nums">
+      {{ "{:,}".format(summary.total_shots) }}
+    </div>
+    <div class="text-xs text-zinc-500 mt-1">last {{ days }}d</div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Amber</div>
+    <div class="text-2xl font-bold mt-1 tabular-nums
+                {% if summary.amber > 0 %}text-amber-400{% else %}text-zinc-600{% endif %}">
+      {{ summary.amber }}
+    </div>
+    <div class="text-xs text-zinc-500 mt-1">apps {{ "%.0f"|format(green_pct) }}–{{ "%.0f"|format(amber_pct) }}% fail</div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Red</div>
+    <div class="text-2xl font-bold mt-1 tabular-nums
+                {% if summary.red > 0 %}text-rose-400{% else %}text-zinc-600{% endif %}">
+      {{ summary.red }}
+    </div>
+    <div class="text-xs text-zinc-500 mt-1">apps ≥ {{ "%.0f"|format(amber_pct) }}% fail</div>
+  </div>
+</section>
+
+{% if not rows %}
+  <p class="text-zinc-500">No app data yet — capture some screenshots first.</p>
+{% else %}
+  {#
+    Sortable table — Alpine.js owns the local sort state. We start by
+    mirroring the server-side default (shots_7d desc) so the initial
+    paint matches what the data layer returned. Click a header to flip
+    the sort column / direction; the arrow indicator (▲ / ▼) is rendered
+    inline so it stays in sync without any CSS pseudo-element trickery.
+    Keeping it client-side means no extra round-trip and no URL state to
+    manage beyond ``?days=``.
+  #}
+  {#
+    The rows payload lives in a separate ``<script type="application/json">``
+    block rather than being inlined into the ``x-data`` attribute — a raw
+    double-quote in any app_name would otherwise prematurely close the
+    attribute and silently break the entire Alpine component (see
+    feedback_alpine_xdata_quotes). ``tojson`` here is rendered inside a
+    ``<script>`` body where Jinja's autoescape still HTML-encodes ``<`` /
+    ``>`` correctly, and ``JSON.parse`` on the client gets the clean
+    payload.
+  #}
+  <script id="app-health-rows" type="application/json">{{ rows | tojson }}</script>
+  <div x-data="{
+        col: 'shots_7d',
+        dir: 'desc',
+        rows: JSON.parse(document.getElementById('app-health-rows').textContent),
+        toggle(c) {
+          if (this.col === c) { this.dir = this.dir === 'asc' ? 'desc' : 'asc'; }
+          else { this.col = c; this.dir = (c === 'app_name') ? 'asc' : 'desc'; }
+        },
+        sorted() {
+          const sign = this.dir === 'asc' ? 1 : -1;
+          const c = this.col;
+          return [...this.rows].sort((a, b) => {
+            const av = a[c] === null || a[c] === undefined ? '' : a[c];
+            const bv = b[c] === null || b[c] === undefined ? '' : b[c];
+            if (av < bv) return -1 * sign;
+            if (av > bv) return  1 * sign;
+            return 0;
+          });
+        },
+        arrow(c) { return this.col === c ? (this.dir === 'asc' ? '&#9650;' : '&#9660;') : ''; }
+       }"
+       class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-ink-900 text-zinc-500 text-xs uppercase tracking-wider select-none">
+        <tr>
+          <th class="text-left py-2 px-4 cursor-pointer hover:text-zinc-200"
+              @click="toggle('app_name')">
+            App <span class="text-accent-400 font-mono" x-html="arrow('app_name')"></span>
+          </th>
+          <th class="text-left py-2 px-4 cursor-pointer hover:text-zinc-200"
+              @click="toggle('last_seen')">
+            Last seen <span class="text-accent-400 font-mono" x-html="arrow('last_seen')"></span>
+          </th>
+          <th class="text-right py-2 px-4 cursor-pointer hover:text-zinc-200"
+              @click="toggle('shots_7d')">
+            Shots ({{ days }}d) <span class="text-accent-400 font-mono" x-html="arrow('shots_7d')"></span>
+          </th>
+          <th class="text-right py-2 px-4 cursor-pointer hover:text-zinc-200"
+              @click="toggle('ocr_fail_rate_pct')">
+            OCR fail % <span class="text-accent-400 font-mono" x-html="arrow('ocr_fail_rate_pct')"></span>
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        <template x-for="r in sorted()" :key="r.app_name">
+          <tr class="border-t border-ink-700 hover:bg-ink-900/50">
+            <td class="py-2 px-4">
+              <a :href="'/apps/' + encodeURIComponent(r.app_name)"
+                 class="text-zinc-200 hover:text-accent-400 flex items-center gap-2">
+                <img :src="'/icons/' + r.app_name.replace(/ /g, '_') + '.png'" alt=""
+                     onerror="this.style.display='none'"
+                     class="w-5 h-5 rounded">
+                <span x-text="r.app_name"></span>
+              </a>
+            </td>
+            <td class="py-2 px-4 text-xs text-zinc-400 font-mono">
+              <span x-text="r.last_seen_human"></span>
+              <span class="text-zinc-600 ml-2" x-text="r.last_seen.substring(0, 19)"></span>
+            </td>
+            <td class="py-2 px-4 text-right font-mono tabular-nums"
+                :class="r.shots_7d === 0 ? 'text-zinc-600' : 'text-zinc-200'">
+              <span x-text="r.shots_7d.toLocaleString()"></span>
+            </td>
+            <td class="py-2 px-4 text-right font-mono tabular-nums"
+                :class="{
+                  'text-zinc-600': r.bucket === 'none',
+                  'text-emerald-400': r.bucket === 'green',
+                  'text-amber-400': r.bucket === 'amber',
+                  'text-rose-400 font-semibold': r.bucket === 'red'
+                }">
+              <span x-show="r.bucket === 'none'" class="text-zinc-600">&mdash;</span>
+              <span x-show="r.bucket !== 'none'"
+                    x-text="r.ocr_fail_rate_pct.toFixed(1) + '%'"></span>
+            </td>
+          </tr>
+        </template>
+      </tbody>
+    </table>
+  </div>
+{% endif %}
+
+<p class="text-xs text-zinc-500 mt-6">
+  Machine-readable counterpart at
+  <a href="/api/app-health.json?days={{ days }}"
+     class="font-mono text-accent-400 hover:underline">/api/app-health.json?days={{ days }}</a>.
+</p>
+{% endblock %}
