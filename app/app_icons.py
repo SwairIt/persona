@@ -7,22 +7,31 @@ chips. This module is the cache layer that backs ``/app-icon/{name}.png``:
 
 1. Lookup by ``app_name`` in the ``app_icon`` SQLite table
    (see :mod:`app.storage.migrations.044_app_icons`).
-2. On Windows, opportunistically try to extract the real exe icon via
-   the existing :mod:`app.capture.icons` Shell32 path. The attempt is
-   gated by ``PERSONA_APP_ICONS_USE_SHELL32`` (default off) because on
-   a busy host with thousands of processes ``psutil.process_iter`` can
-   tie up the request thread for tens of seconds — fine for a
-   background backfill job, not fine for a hot timeline render.
-3. Otherwise (the default path), generate a deterministic "initials"
-   PNG: 64x64 RGB tile, background hue derived from a stable SHA-256
-   of the lowercased ``app_name``, centred uppercase first-two letters
-   in white. Stored with ``source='initials'``.
+2. On Windows, walk ``psutil.process_iter`` to find a running process
+   whose ``name`` matches ``app_name``, then ask the shell for its
+   icon via ``SHGetFileInfoW`` with the ``SHGFI_ICON`` flag. The
+   resulting ``HICON`` is rendered to a 64x64 PNG and cached with
+   ``source='windows_exe'``. This is v1.9's headline upgrade over the
+   v0.45 ``ExtractIconExW`` path — ``SHGetFileInfoW`` honours
+   per-version icon overlays the shell associates with the exe
+   (Steam, Electron wrappers, MSIX-installed apps) instead of always
+   returning the first icon resource baked into the binary.
+3. On Windows with the legacy ``PERSONA_APP_ICONS_USE_SHELL32`` opt-in,
+   fall back to the older :mod:`app.capture.icons` ``ExtractIconExW``
+   path. Kept as a safety net in case ``SHGetFileInfoW`` mis-renders on
+   some exotic exe; opt-out is a single env var.
+4. Otherwise (the default cross-platform path), generate a
+   deterministic "initials" PNG: 64x64 RGB tile, background hue
+   derived from a stable SHA-256 of the lowercased ``app_name``,
+   centred uppercase first-two letters in white. Stored with
+   ``source='initials'``.
 
 The generator is intentionally deterministic so the *same* app gets the
 *same* tile across reinstalls, browser refreshes and across machines.
 
-All PIL work runs inside :func:`anyio.to_thread.run_sync` so the calling
-coroutine never blocks the event loop on disk IO or pixel arithmetic.
+All PIL and ctypes work runs inside :func:`anyio.to_thread.run_sync` so
+the calling coroutine never blocks the event loop on disk IO, pixel
+arithmetic or Win32 shell round-trips.
 """
 
 from __future__ import annotations
@@ -32,6 +41,7 @@ import io
 import os
 import sys
 import time
+from pathlib import Path
 from typing import Final
 
 import anyio
@@ -41,6 +51,10 @@ from app.logging_setup import get_logger
 from app.storage.db import get_connection
 
 log = get_logger("persona.app_icons")
+# Dedicated child logger for the SHGetFileInfoW path so an operator can
+# isolate the v1.9 extraction trail from the generic icon-cache logs
+# (the legacy ExtractIconExW route still logs under ``persona.app_icons``).
+win_log = get_logger("persona.app_icons.windows")
 
 # Final on-disk tile size. 64 is the largest "small icon" most desktop
 # environments still ship at native resolution; bigger PNGs would just
@@ -70,6 +84,11 @@ _LUM: Final[float] = 0.42
 _SOURCE_SHELL32: Final[str] = "shell32"
 _SOURCE_INITIALS: Final[str] = "initials"
 _SOURCE_USER: Final[str] = "user"
+# v1.9 — ``SHGetFileInfoW`` + ``SHGFI_ICON`` path. Kept distinct from the
+# legacy ``shell32`` source so a future maintenance job can selectively
+# re-extract one variant without nuking the other, and so the admin UI
+# can flag "this row came from the new pipeline".
+_SOURCE_WINDOWS_EXE: Final[str] = "windows_exe"
 
 # Observability budget for the Win32 Shell32 extraction path.
 # ``psutil.process_iter`` can walk thousands of processes on a busy
@@ -98,14 +117,16 @@ async def get_icon_png(app_name: str) -> bytes:
 
     1. ``app_icon`` row keyed by the normalised ``app_name``. The row may
        have ``source='user'`` (an operator-uploaded override — v0.58),
-       ``source='shell32'`` (Windows real-exe extraction) or
-       ``source='initials'`` (deterministic fallback). All three are
+       ``source='windows_exe'`` (v1.9 ``SHGetFileInfoW`` extraction),
+       ``source='shell32'`` (legacy ``ExtractIconExW`` extraction) or
+       ``source='initials'`` (deterministic fallback). All four are
        returned as-is — *the user override takes precedence simply by
        virtue of being the row that's there*, because the upload path
        writes it with ``ON CONFLICT DO UPDATE`` and the reset path
        deletes the row so the next read falls through to (2).
-    2. On miss, generate (Shell32 attempt → initials fallback) and
-       persist with the appropriate non-user ``source``.
+    2. On miss, generate (Windows exe attempt → optional legacy Shell32
+       attempt → initials fallback) and persist with the appropriate
+       non-user ``source``.
 
     Never raises for empty / unusable input: an empty name yields the
     same deterministic "??" tile as any other unrecognised string, so
@@ -161,8 +182,9 @@ async def list_known_icons() -> list[dict[str, str]]:
 
     Used by the v0.58 admin page to render the table of known apps with
     their current icon source. Each item exposes ``app_name`` and
-    ``source`` (one of ``shell32`` / ``initials`` / ``user``) so the
-    template can flag custom overrides without a second query.
+    ``source`` (one of ``windows_exe`` / ``shell32`` / ``initials`` /
+    ``user``) so the template can flag custom overrides and real-exe
+    icons without a second query.
     """
     async with get_connection() as conn:
         cursor = await conn.execute(
@@ -247,29 +269,43 @@ async def _generate(app_name: str) -> tuple[bytes, str]:
 def _generate_sync(app_name: str) -> tuple[bytes, str]:
     """Worker for :func:`_generate`. Runs entirely off the event loop.
 
-    On Windows with the ``PERSONA_APP_ICONS_USE_SHELL32`` opt-in env var
-    set we try the Shell32 path under an observed wall-clock budget; any
-    miss or failure transparently falls through to the deterministic
-    initials tile so a slow / unavailable extractor never propagates a
-    user-visible error.
+    Generation cascade on Windows:
+
+    1. ``SHGetFileInfoW`` against the running process's exe path — the
+       v1.9 path. Best quality (honours shell overlays), cheap when the
+       exe is already running.
+    2. Legacy :mod:`app.capture.icons` ``ExtractIconExW`` path, gated by
+       ``PERSONA_APP_ICONS_USE_SHELL32``. Only attempted when (1) misses
+       *and* an operator opted in — kept as a safety net while the new
+       pipeline matures.
+    3. Deterministic initials tile — the unconditional cross-platform
+       fallback.
+
+    Any miss or failure transparently falls through to the next step so
+    a slow / unavailable extractor never propagates a user-visible error.
     """
-    if sys.platform == "win32" and _shell32_opted_in():
-        start = time.monotonic()
-        shell_png = _extract_shell32_png(app_name)
-        elapsed = time.monotonic() - start
-        if shell_png is not None:
-            log.info(
-                "app_icons.shell32_extracted",
-                app_name=app_name,
-                elapsed_seconds=round(elapsed, 3),
-            )
-            return shell_png, _SOURCE_SHELL32
-        if elapsed >= _SHELL32_BUDGET_SECONDS:
-            log.info(
-                "app_icons.shell32_slow_miss",
-                app_name=app_name,
-                elapsed_seconds=round(elapsed, 3),
-            )
+    if sys.platform == "win32":
+        windows_png = _extract_windows_exe_png(app_name)
+        if windows_png is not None:
+            return windows_png, _SOURCE_WINDOWS_EXE
+
+        if _shell32_opted_in():
+            start = time.monotonic()
+            shell_png = _extract_shell32_png(app_name)
+            elapsed = time.monotonic() - start
+            if shell_png is not None:
+                log.info(
+                    "app_icons.shell32_extracted",
+                    app_name=app_name,
+                    elapsed_seconds=round(elapsed, 3),
+                )
+                return shell_png, _SOURCE_SHELL32
+            if elapsed >= _SHELL32_BUDGET_SECONDS:
+                log.info(
+                    "app_icons.shell32_slow_miss",
+                    app_name=app_name,
+                    elapsed_seconds=round(elapsed, 3),
+                )
     return _render_initials_png(app_name), _SOURCE_INITIALS
 
 
@@ -305,6 +341,266 @@ def _extract_shell32_png(app_name: str) -> bytes | None:
     buffer = io.BytesIO()
     image.save(buffer, format="PNG", optimize=True)
     return buffer.getvalue()
+
+
+def _resolve_running_exe(app_name: str) -> Path | None:
+    """Walk ``psutil.process_iter`` looking for a running exe matching ``app_name``.
+
+    Match logic mirrors :mod:`app.capture.icons` so the two extractors
+    behave identically on which apps they "see": case-insensitive
+    equality between ``proc.info['name']`` and the requested ``app_name``.
+    We also accept a match against the exe stem (``chrome.exe`` → match
+    when the caller asked for ``chrome``) so callers can pass either the
+    Win32 window-class name *or* the raw process name without the cache
+    fragmenting.
+
+    Returns the first matching path that still exists on disk, or
+    ``None`` if no candidate is found / psutil is unavailable. Suppresses
+    ``NoSuchProcess`` / ``AccessDenied`` per-row because a vanishing
+    process must not abort the scan.
+    """
+    try:
+        import psutil  # noqa: PLC0415 — keep psutil out of import path on non-Windows
+    except ImportError:
+        return None
+
+    target = app_name.strip().lower()
+    target_stem = target[:-4] if target.endswith(".exe") else target
+
+    for proc in psutil.process_iter(["name", "exe"]):
+        try:
+            raw_name = (proc.info.get("name") or "").lower()
+            if not raw_name:
+                continue
+            raw_stem = raw_name[:-4] if raw_name.endswith(".exe") else raw_name
+            if raw_name == target or raw_stem == target_stem:
+                exe = proc.info.get("exe")
+                if exe:
+                    candidate = Path(exe)
+                    if candidate.exists():
+                        return candidate
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+    return None
+
+
+def _extract_windows_exe_png(app_name: str) -> bytes | None:
+    """Extract the shell-rendered exe icon via ``SHGetFileInfoW``.
+
+    Windows-only. Returns PNG bytes on success or ``None`` for any miss:
+    no running process matches ``app_name``, ``SHGetFileInfoW`` returns
+    a null icon handle, ``GetIconInfo`` / ``GetDIBits`` fails, or any
+    other Win32 quirk surfaces. Callers fall back to the legacy /
+    initials path.
+
+    The PIL conversion mirrors :mod:`app.capture.icons` — 32x32 BGRA
+    buffer from ``GetDIBits``, Lanczos-resampled to the cache's
+    canonical 64x64 — so the on-disk PNGs are shape-uniform regardless
+    of which extractor produced them.
+
+    The function is purely synchronous; the caller (:func:`_generate`)
+    wraps the whole generation cascade in :func:`anyio.to_thread.run_sync`
+    so neither psutil's process walk nor the ctypes round-trip ever
+    blocks the event loop.
+    """
+    try:
+        import ctypes  # noqa: PLC0415 — Windows-only stdlib
+        from ctypes import wintypes  # noqa: PLC0415
+    except ImportError:
+        return None
+
+    exe_path = _resolve_running_exe(app_name)
+    if exe_path is None:
+        win_log.debug("app_icons.windows.no_running_exe", app_name=app_name)
+        return None
+
+    start = time.monotonic()
+
+    # SHFILEINFOW layout — fixed by the SDK headers. We only consume
+    # ``hIcon``; the rest is reserved for API contract compatibility.
+    class SHFILEINFOW(ctypes.Structure):
+        _fields_ = (
+            ("hIcon", wintypes.HICON),
+            ("iIcon", ctypes.c_int),
+            ("dwAttributes", wintypes.DWORD),
+            ("szDisplayName", wintypes.WCHAR * 260),
+            ("szTypeName", wintypes.WCHAR * 80),
+        )
+
+    SHGFI_ICON: Final[int] = 0x000000100
+    SHGFI_LARGEICON: Final[int] = 0x000000000  # 32x32 system metric
+
+    try:
+        shell32 = ctypes.windll.shell32  # type: ignore[attr-defined]
+        user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+        gdi32 = ctypes.windll.gdi32  # type: ignore[attr-defined]
+    except (AttributeError, OSError):
+        # ``ctypes.windll`` is only present on Windows; defensive in case
+        # this branch is reached on a misconfigured cross-build runner.
+        return None
+
+    info = SHFILEINFOW()
+    flags = SHGFI_ICON | SHGFI_LARGEICON
+    result = shell32.SHGetFileInfoW(
+        ctypes.c_wchar_p(str(exe_path)),
+        0,
+        ctypes.byref(info),
+        ctypes.sizeof(info),
+        flags,
+    )
+    if not result or not info.hIcon:
+        win_log.debug(
+            "app_icons.windows.shgetfileinfo_miss",
+            app_name=app_name,
+            exe=str(exe_path),
+        )
+        return None
+
+    try:
+        image = _hicon_to_pil_image(info.hIcon, user32, gdi32)
+    except Exception as exc:
+        # Win32 surfaces a wide menagerie of exceptions through ctypes
+        # — OSError, ValueError, occasionally bare ``Exception`` from
+        # PIL when the BGRA buffer is malformed. We deliberately swallow
+        # all of them: a missed extraction must fall back to initials,
+        # never bubble a 500 into the timeline render.
+        win_log.debug(
+            "app_icons.windows.hicon_decode_failed",
+            app_name=app_name,
+            error=str(exc),
+        )
+        image = None
+    finally:
+        user32.DestroyIcon(info.hIcon)
+
+    if image is None:
+        return None
+
+    if image.size != (_TILE_SIZE, _TILE_SIZE):
+        image = image.resize((_TILE_SIZE, _TILE_SIZE), Image.Resampling.LANCZOS)
+
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG", optimize=True)
+    png_bytes = buffer.getvalue()
+
+    elapsed = time.monotonic() - start
+    win_log.info(
+        "app_icons.windows.extracted",
+        app_name=app_name,
+        exe=str(exe_path),
+        bytes=len(png_bytes),
+        elapsed_seconds=round(elapsed, 3),
+    )
+    return png_bytes
+
+
+def _hicon_to_pil_image(
+    hicon: int,
+    user32: object,
+    gdi32: object,
+) -> Image.Image | None:
+    """Convert a Win32 ``HICON`` handle to a PIL RGBA image.
+
+    Allocates a 32-bit-per-pixel DIB sized to the icon's colour bitmap,
+    fills it via ``GetDIBits``, then wraps the BGRA buffer in a PIL
+    image. Returns ``None`` when the icon has a zero-sized colour
+    bitmap (monochrome / corrupt icons — rare but observed for
+    anti-cheat exes), letting the caller fall back gracefully.
+
+    Callers own the ``HICON`` lifetime — this helper *does not*
+    ``DestroyIcon`` so the bitmap can be inspected for diagnostic
+    reasons after a decode failure.
+    """
+    import ctypes  # noqa: PLC0415
+    from ctypes import wintypes  # noqa: PLC0415
+
+    class ICONINFO(ctypes.Structure):
+        _fields_ = (
+            ("fIcon", wintypes.BOOL),
+            ("xHotspot", wintypes.DWORD),
+            ("yHotspot", wintypes.DWORD),
+            ("hbmMask", wintypes.HBITMAP),
+            ("hbmColor", wintypes.HBITMAP),
+        )
+
+    class BITMAP(ctypes.Structure):
+        _fields_ = (
+            ("bmType", wintypes.LONG),
+            ("bmWidth", wintypes.LONG),
+            ("bmHeight", wintypes.LONG),
+            ("bmWidthBytes", wintypes.LONG),
+            ("bmPlanes", wintypes.WORD),
+            ("bmBitsPixel", wintypes.WORD),
+            ("bmBits", ctypes.c_void_p),
+        )
+
+    class BITMAPINFOHEADER(ctypes.Structure):
+        _fields_ = (
+            ("biSize", wintypes.DWORD),
+            ("biWidth", wintypes.LONG),
+            ("biHeight", wintypes.LONG),
+            ("biPlanes", wintypes.WORD),
+            ("biBitCount", wintypes.WORD),
+            ("biCompression", wintypes.DWORD),
+            ("biSizeImage", wintypes.DWORD),
+            ("biXPelsPerMeter", wintypes.LONG),
+            ("biYPelsPerMeter", wintypes.LONG),
+            ("biClrUsed", wintypes.DWORD),
+            ("biClrImportant", wintypes.DWORD),
+        )
+
+    info = ICONINFO()
+    if not user32.GetIconInfo(hicon, ctypes.byref(info)):  # type: ignore[attr-defined]
+        return None
+
+    bmp = BITMAP()
+    gdi32.GetObjectW(info.hbmColor, ctypes.sizeof(BITMAP), ctypes.byref(bmp))  # type: ignore[attr-defined]
+    width = int(bmp.bmWidth)
+    height = int(bmp.bmHeight)
+    if width <= 0 or height <= 0:
+        gdi32.DeleteObject(info.hbmColor)  # type: ignore[attr-defined]
+        gdi32.DeleteObject(info.hbmMask)  # type: ignore[attr-defined]
+        return None
+
+    header = BITMAPINFOHEADER()
+    header.biSize = ctypes.sizeof(BITMAPINFOHEADER)
+    header.biWidth = width
+    header.biHeight = -height  # top-down DIB so the buffer is row-major
+    header.biPlanes = 1
+    header.biBitCount = 32
+    header.biCompression = 0
+
+    buffer_size = width * height * 4
+    buffer = (ctypes.c_byte * buffer_size)()
+
+    hdc = user32.GetDC(0)  # type: ignore[attr-defined]
+    try:
+        gdi32.GetDIBits(  # type: ignore[attr-defined]
+            hdc,
+            info.hbmColor,
+            0,
+            height,
+            buffer,
+            ctypes.byref(header),
+            0,
+        )
+    finally:
+        user32.ReleaseDC(0, hdc)  # type: ignore[attr-defined]
+        gdi32.DeleteObject(info.hbmColor)  # type: ignore[attr-defined]
+        gdi32.DeleteObject(info.hbmMask)  # type: ignore[attr-defined]
+
+    try:
+        return Image.frombuffer(
+            "RGBA",
+            (width, height),
+            bytes(buffer),
+            "raw",
+            "BGRA",
+            0,
+            1,
+        )
+    except (ValueError, OSError):
+        return None
 
 
 def _render_initials_png(app_name: str) -> bytes:

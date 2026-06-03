@@ -57,12 +57,12 @@
             </td>
             <td class="py-2 px-4 text-zinc-200 font-mono text-xs break-all">{{ item.app_name }}</td>
             <td class="py-2 px-4">
-              {% if item.source == 'user' %}
-                <span class="px-2 py-0.5 rounded bg-accent-600/20 text-accent-400 text-xs">custom</span>
-              {% elif item.source == 'shell32' %}
-                <span class="px-2 py-0.5 rounded bg-emerald-900/40 text-emerald-300 text-xs">shell32</span>
+              {% if item.source_label == 'user' %}
+                <span class="px-2 py-0.5 rounded bg-accent-600/20 text-accent-400 text-xs">user</span>
+              {% elif item.source_label == 'windows_exe' %}
+                <span class="px-2 py-0.5 rounded bg-emerald-900/40 text-emerald-300 text-xs">windows_exe</span>
               {% else %}
-                <span class="px-2 py-0.5 rounded bg-ink-700 text-zinc-400 text-xs">{{ item.source }}</span>
+                <span class="px-2 py-0.5 rounded bg-ink-700 text-zinc-400 text-xs">auto</span>
               {% endif %}
             </td>
             <td class="py-2 px-4">

@@ -166,6 +166,26 @@
                     class="px-3 py-1 text-xs bg-ink-700 hover:bg-ink-600 rounded text-zinc-200">
               Copy MD
             </button>
+            {# v1.9 feature 3/3 — Copy OCR as JSON.
+               Emits a structured {shot_id, app_name, captured_at,
+               ocr_text, tags} payload to the clipboard so external
+               automations can consume a shot without scraping the
+               page. The tag list is rendered as a JSON string in
+               data-tags via Jinja's |tojson filter (autoescape keeps
+               embedded quotes safe inside the double-quoted attr);
+               ocr_copy.js JSON.parses it back into an array before
+               serialising the full object via
+               JSON.stringify(obj, null, 2). #}
+            <button type="button"
+                    data-copy-json
+                    data-ocr-text="{{ shot.ocr_text or '' }}"
+                    data-shot-id="{{ shot.id }}"
+                    data-app-name="{{ (shot.app_name | app_alias) if shot.app_name else '' }}"
+                    data-captured-at="{{ shot.captured_at | humantime }}"
+                    data-tags="{{ (attached_tags | map(attribute='name') | list) | tojson }}"
+                    class="px-3 py-1 text-xs bg-ink-700 hover:bg-ink-600 rounded text-zinc-200">
+              Copy JSON
+            </button>
           </div>
         </div>
         {# v0.83 feature 2/3 — linkify ``http(s)://…`` URLs in OCR text.

@@ -11,11 +11,22 @@ Row sourcing:
 
 * Every row in ``app_icon`` is listed first (sorted by name) so the
   operator can see which apps already have a cached icon and whether
-  the source is ``user`` (their override) or auto (``shell32`` /
-  ``initials``).
+  the source is ``user`` (their override), ``windows_exe`` (v1.9 real
+  shell icon — see :mod:`app.app_icons`) or generic ``auto`` (legacy
+  ``shell32`` extraction or the deterministic ``initials`` fallback).
 * On top we append the most-captured app names from the ``screenshots``
   table that do *not* yet have a cached row — they will render the
   initials fallback today and are the natural targets for an override.
+
+Badge mapping
+-------------
+The DB stores fine-grained sources (``initials``, ``shell32``,
+``windows_exe``, ``user``) but the admin UI only cares about three
+operator-visible buckets: ``user`` (hand-picked PNG), ``windows_exe``
+(real exe icon extracted via the Windows shell) and ``auto`` (any
+generated tile — initials or legacy Shell32). The route enriches each
+row with a ``source_label`` field so the template branches on a small
+closed set rather than re-doing the mapping on every render.
 
 Bulk refresh (v0.82)
 --------------------
@@ -59,6 +70,31 @@ _REFRESH_DELETE_SQL: Final[str] = "DELETE FROM app_icon WHERE source != 'user'"
 _SUGGESTION_LIMIT: Final[int] = 24
 _TOP_APPS_LIMIT: Final[int] = 128
 
+# Mapping from raw DB ``source`` values to the badge label the operator
+# sees in the table. Anything not in this map collapses to ``auto`` so a
+# future extractor source can land in DB and degrade gracefully in the
+# UI until the badge styling catches up.
+_SOURCE_LABEL_USER: Final[str] = "user"
+_SOURCE_LABEL_WINDOWS_EXE: Final[str] = "windows_exe"
+_SOURCE_LABEL_AUTO: Final[str] = "auto"
+_SOURCE_LABEL_MAP: Final[dict[str, str]] = {
+    "user": _SOURCE_LABEL_USER,
+    "windows_exe": _SOURCE_LABEL_WINDOWS_EXE,
+}
+
+
+def _badge_label(raw_source: str) -> str:
+    """Return the badge label for a raw ``app_icon.source`` value.
+
+    ``user`` and ``windows_exe`` map to themselves so the template can
+    branch on a stable, closed vocabulary; everything else (``initials``,
+    legacy ``shell32``, any forward-compat extractor name we haven't
+    taught the UI about yet) collapses to ``auto``. Centralising the
+    mapping here keeps ``list_known_icons`` ignorant of presentation
+    concerns and gives tests a single function to assert against.
+    """
+    return _SOURCE_LABEL_MAP.get(raw_source, _SOURCE_LABEL_AUTO)
+
 
 @router.get("/settings/app-icons", response_class=HTMLResponse)
 async def app_icons_admin_page(request: Request) -> HTMLResponse:
@@ -68,12 +104,17 @@ async def app_icons_admin_page(request: Request) -> HTMLResponse:
 
     * ``items`` — every ``app_icon`` row, sorted by ``app_name`` so the
       list is stable between renders and the operator can scan for a
-      specific app with browser-find.
+      specific app with browser-find. Each item is enriched with a
+      ``source_label`` field collapsing the raw DB ``source`` to one of
+      ``user`` / ``windows_exe`` / ``auto`` for the template's badge.
     * ``suggested`` — the most-screenshotted apps that have *no*
       cached row yet, so the operator can pre-emptively upload a tile
       before the first auto-generate writes an ``initials`` row.
     """
-    items = await list_known_icons()
+    raw_items = await list_known_icons()
+    items: list[dict[str, str]] = [
+        {**item, "source_label": _badge_label(item["source"])} for item in raw_items
+    ]
     existing = {item["app_name"] for item in items}
 
     async with get_connection() as conn:

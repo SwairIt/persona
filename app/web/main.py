@@ -56,6 +56,7 @@ from app.web.routes import (
     cal_nav as cal_nav_routes,
     calendar as calendar_routes,
     capture_api,
+    capture_weekly_trend as capture_weekly_trend_routes,
     clipboard as clipboard_routes,
     collection_visit_stats as collection_visit_stats_routes,
     companion as companion_routes,
@@ -307,7 +308,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.8.0",
+        version="1.9.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -557,6 +558,7 @@ def create_app() -> FastAPI:
     app.include_router(shot_summary_routes.router)
     app.include_router(shot_colours_routes.router)
     app.include_router(notes_csv_import_routes.router)
+    app.include_router(capture_weekly_trend_routes.router)
 
     return app
 

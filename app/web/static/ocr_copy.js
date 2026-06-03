@@ -188,4 +188,62 @@
     const ok = await copyText(text);
     flashTooltip(btn, ok ? 'Copied MD!' : 'Copy failed', ok);
   });
+
+  /*
+   * v1.9 feature 3/3 — Copy OCR as JSON.
+   *
+   * A third button variant (attribute `data-copy-json`) builds a
+   * structured JSON object describing the current screenshot and copies
+   * the pretty-printed serialisation to the clipboard. Useful for
+   * piping a shot into external automations / scripts without having
+   * to scrape the HTML.
+   *
+   * Output shape (exact, 2-space indented):
+   *   {
+   *     "shot_id": <number>,
+   *     "app_name": <string>,
+   *     "captured_at": <string>,
+   *     "ocr_text": <string>,
+   *     "tags": [<string>, ...]
+   *   }
+   *
+   * Inputs all come from data-* attributes on the button itself; the
+   * Jinja template renders the tag list as a JSON string in
+   * `data-tags` so we can JSON.parse it here without any extra
+   * server round-trip. If parsing fails (malformed attr) we fall back
+   * to an empty array so the rest of the payload still ships.
+   * `shot_id` is coerced to Number so consumers get a real integer.
+   */
+  function buildJson(btn) {
+    const shotIdRaw = btn.getAttribute('data-shot-id') || '';
+    const shotIdNum = Number(shotIdRaw);
+    const tagsRaw = btn.getAttribute('data-tags') || '[]';
+    let tags = [];
+    try {
+      const parsed = JSON.parse(tagsRaw);
+      if (Array.isArray(parsed)) tags = parsed;
+    } catch (_err) {
+      tags = [];
+    }
+    const obj = {
+      shot_id: Number.isFinite(shotIdNum) ? shotIdNum : shotIdRaw,
+      app_name: btn.getAttribute('data-app-name') || '',
+      captured_at: btn.getAttribute('data-captured-at') || '',
+      ocr_text: btn.getAttribute('data-ocr-text') || '',
+      tags: tags,
+    };
+    return JSON.stringify(obj, null, 2);
+  }
+
+  document.addEventListener('click', async (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const btn = target.closest('[data-copy-json]');
+    if (!btn) return;
+
+    event.preventDefault();
+    const text = buildJson(btn);
+    const ok = await copyText(text);
+    flashTooltip(btn, ok ? 'Copied JSON!' : 'Copy failed', ok);
+  });
 })();

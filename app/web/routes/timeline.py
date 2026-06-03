@@ -33,7 +33,13 @@ _SORT_OPTIONS: dict[str, tuple[str, bool]] = {
 _DEFAULT_SORT = "captured_at"
 
 
-@router.get("/", response_class=HTMLResponse)
+@router.get("/timeline")
+async def timeline_alias() -> RedirectResponse:
+    """Alias so /timeline (referenced from many places) works."""
+    return RedirectResponse(url="/", status_code=303)
+
+
+@router.get("/", response_class=HTMLResponse, response_model=None)
 async def home(
     request: Request,
     date: str | None = Query(default=None),
