@@ -19,6 +19,7 @@ from app.logging_setup import get_logger
 from app.storage.db import get_connection
 from app.streak import current_streak
 from app.web.routes.dashboard_tiles import load_tile_order
+from app.web.routes.dashboard_widgets import COUNT_CAP, collect_widgets
 from app.web.templates_engine import templates
 from app.workers.control import get_controller
 
@@ -138,6 +139,10 @@ async def dashboard_page(request: Request) -> HTMLResponse:
     # whitelist + appends any newly-shipped tiles, so the template can
     # iterate it directly without re-validating each name.
     tile_order = await load_tile_order()
+    # v0.86 — render any user-defined widgets after the built-in tiles.
+    # ``collect_widgets`` runs each saved query live and swallows
+    # per-widget errors so a broken row can't 500 the whole page.
+    widgets = await collect_widgets()
     return templates.TemplateResponse(
         request,
         "dashboard.html",
@@ -145,6 +150,8 @@ async def dashboard_page(request: Request) -> HTMLResponse:
             "title": "Dashboard",
             "active_nav": "stats",
             "tile_order": tile_order,
+            "widgets": widgets,
+            "widget_count_cap": COUNT_CAP,
             **payload,
         },
     )
@@ -153,4 +160,6 @@ async def dashboard_page(request: Request) -> HTMLResponse:
 @router.get("/api/dashboard.json", response_class=JSONResponse)
 async def dashboard_json() -> JSONResponse:
     payload = await _collect_dashboard()
+    widgets = await collect_widgets()
+    payload["widgets"] = widgets
     return JSONResponse(payload)

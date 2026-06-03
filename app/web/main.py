@@ -56,6 +56,7 @@ from app.web.routes import (
     daily_digests as daily_digests_routes,
     dashboard as dashboard_routes,
     dashboard_tiles as dashboard_tiles_routes,
+    dashboard_widgets as dashboard_widgets_routes,
     day_collage as day_collage_routes,
     day_kanban as day_kanban_routes,
     day_ocr_diff as day_ocr_diff_routes,
@@ -116,6 +117,7 @@ from app.web.routes import (
     pdf_export as pdf_export_routes,
     per_app_digest as per_app_digest_routes,
     permalinks as permalinks_routes,
+    phrase_frequency as phrase_frequency_routes,
     pin as pin_routes,
     ping_heatmap as ping_heatmap_routes,
     pinmap as pinmap_routes,
@@ -182,6 +184,7 @@ from app.web.routes import (
     share_collection_pdf as share_collection_pdf_routes,
     share_collection_zip as share_collection_zip_routes,
     settings as settings_routes,
+    settings_api as settings_api_routes,
     settings_backup as settings_backup_routes,
     settings_diff as settings_diff_routes,
     setup as setup_routes,
@@ -261,7 +264,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.85.0",
+        version="0.86.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -465,6 +468,9 @@ def create_app() -> FastAPI:
     app.include_router(focus_blocklist_routes.router)
     app.include_router(feed_tokens_routes.router)
     app.include_router(screenshot_crop_routes.router)
+    app.include_router(settings_api_routes.router)
+    app.include_router(phrase_frequency_routes.router)
+    app.include_router(dashboard_widgets_routes.router)
 
     return app
 
