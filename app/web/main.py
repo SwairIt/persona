@@ -110,6 +110,7 @@ from app.web.routes import (
     ocr_retry as ocr_retry_routes,
     ocr_skip as ocr_skip_routes,
     ocr_txt_export as ocr_txt_export_routes,
+    ocr_vision as ocr_vision_routes,
     rss as rss_routes,
     saved_searches as saved_searches_routes,
     screenshot,
@@ -192,7 +193,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.54.0",
+        version="0.55.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -332,6 +333,7 @@ def create_app() -> FastAPI:
     app.include_router(thumb_dedup_routes.router)
     app.include_router(qr_routes.router)
     app.include_router(storage_savings_routes.router)
+    app.include_router(ocr_vision_routes.router)
 
     return app
 

@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">OCR via vision</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Re-transcribe screenshots whose Tesseract pass returned empty text or
+    sub-confidence words by asking your configured multimodal LLM to read
+    the thumbnail directly. Results are cached in a dedicated
+    <code class="font-mono text-xs">ocr_text_vision</code> column —
+    Tesseract's <code class="font-mono text-xs">ocr_text</code> is never
+    overwritten so the two signals stay independent.
+  </p>
+</div>
+
+<section class="mb-6 rounded-lg border border-ink-700 bg-ink-800 p-4">
+  <div class="flex flex-wrap items-center gap-4">
+    <div>
+      <div class="text-xs uppercase tracking-widest text-zinc-500">Vision fallback</div>
+      <div class="mt-1 text-sm">
+        {% if feature_ready %}
+          <span class="inline-block px-2 py-0.5 rounded bg-emerald-900/40 text-emerald-300 font-medium">
+            Ready
+          </span>
+        {% elif not vision_enabled %}
+          <span class="inline-block px-2 py-0.5 rounded bg-amber-900/40 text-amber-300 font-medium">
+            Disabled
+          </span>
+          <span class="text-zinc-400 ml-2">
+            Set <code class="font-mono text-xs">PERSONA_LLM_VISION_ENABLED=1</code> in your <code class="font-mono text-xs">.env</code>.
+          </span>
+        {% elif provider != 'anthropic' %}
+          <span class="inline-block px-2 py-0.5 rounded bg-rose-900/40 text-rose-300 font-medium">
+            Unsupported provider
+          </span>
+          <span class="text-zinc-400 ml-2">
+            Current provider is <code class="font-mono text-xs">{{ provider }}</code>. Vision fallback requires <code class="font-mono text-xs">anthropic</code>.
+          </span>
+        {% else %}
+          <span class="inline-block px-2 py-0.5 rounded bg-rose-900/40 text-rose-300 font-medium">
+            Missing key
+          </span>
+          <span class="text-zinc-400 ml-2">
+            Set <code class="font-mono text-xs">PERSONA_BYO_API_KEY</code> for your Anthropic account.
+          </span>
+        {% endif %}
+      </div>
+    </div>
+    <div class="ml-auto text-xs text-zinc-500">
+      Min Tesseract confidence threshold:
+      <strong class="text-zinc-300">{{ min_conf }}</strong> ·
+      <strong class="text-zinc-300">{{ total }}</strong> shot(s) below threshold ·
+      showing first <strong class="text-zinc-300">{{ shown }}</strong>
+      {% if shown < total %}<span class="text-zinc-600">(page cap {{ page_limit }})</span>{% endif %}
+    </div>
+  </div>
+</section>
+
+{% if rows %}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden mb-6">
+    <table class="w-full text-sm">
+      <thead class="bg-ink-900 text-zinc-500 text-xs uppercase tracking-wider">
+        <tr>
+          <th class="text-left py-2 px-4 w-24">Shot</th>
+          <th class="text-left py-2 px-4">App / window</th>
+          <th class="text-left py-2 px-4 w-44">Captured</th>
+          <th class="text-left py-2 px-4 w-32">Reason</th>
+          <th class="text-left py-2 px-4 w-24">Avg conf</th>
+          <th class="text-right py-2 px-4 w-44">Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          <tr class="border-t border-ink-700 hover:bg-ink-900/50"
+              id="ocr-vision-row-{{ row.id }}">
+            <td class="py-2 px-4 align-top">
+              {% if row.thumbnail_path %}
+                <a href="/screenshot/{{ row.id }}" class="block">
+                  <img src="{{ row.thumbnail_path | thumbnail_url }}"
+                       alt="shot {{ row.id }}"
+                       loading="lazy"
+                       class="w-20 h-12 object-cover rounded border border-ink-700">
+                </a>
+              {% else %}
+                <span class="text-zinc-600 text-xs">no thumb</span>
+              {% endif %}
+            </td>
+            <td class="py-2 px-4 align-top">
+              <div class="font-medium text-zinc-200">
+                {{ row.app_name or '&mdash;' }}
+              </div>
+              {% if row.window_title %}
+                <div class="text-zinc-500 text-xs truncate max-w-md">
+                  {{ row.window_title }}
+                </div>
+              {% endif %}
+            </td>
+            <td class="py-2 px-4 align-top text-zinc-400 text-xs font-mono">
+              {{ row.captured_at }}
+            </td>
+            <td class="py-2 px-4 align-top">
+              {% if row.reason == 'empty' %}
+                <span class="inline-block px-2 py-0.5 rounded bg-rose-900/40 text-rose-300 text-xs">
+                  empty
+                </span>
+              {% else %}
+                <span class="inline-block px-2 py-0.5 rounded bg-amber-900/40 text-amber-300 text-xs">
+                  low conf
+                </span>
+              {% endif %}
+            </td>
+            <td class="py-2 px-4 align-top text-zinc-300 text-xs font-mono">
+              {% if row.avg_conf is not none %}
+                {{ '%.1f' | format(row.avg_conf) }}
+                <span class="text-zinc-600">({{ row.word_count }} w)</span>
+              {% else %}
+                <span class="text-zinc-600">&mdash; (0 w)</span>
+              {% endif %}
+            </td>
+            <td class="py-2 px-4 align-top text-right">
+              <button type="button"
+                      data-vision-trigger
+                      data-shot-id="{{ row.id }}"
+                      {% if not feature_ready %}disabled{% endif %}
+                      class="px-3 py-1.5 rounded text-xs font-medium transition
+                             {% if feature_ready %}bg-accent-600 hover:bg-accent-500 text-white
+                             {% else %}bg-ink-700 text-zinc-500 cursor-not-allowed{% endif %}">
+                Transcribe with vision
+              </button>
+              <div data-vision-status
+                   class="mt-1 text-xs text-zinc-500 min-h-[1rem]"></div>
+              <div data-vision-text
+                   class="mt-1 text-xs text-zinc-300 whitespace-pre-wrap text-left max-w-md ml-auto"></div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-8 text-center text-zinc-500">
+    <div class="text-4xl mb-2">&#10003;</div>
+    <p>Nothing below the confidence threshold &mdash; OCR results look healthy.</p>
+  </div>
+{% endif %}
+
+<script>
+  // Plain fetch + per-row status — no Alpine, no HTMX. The button is
+  // disabled while the request is in flight so a double-click can't
+  // fire two paid vision calls.
+  document.querySelectorAll('button[data-vision-trigger]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const shotId = btn.getAttribute('data-shot-id');
+      if (!shotId) {
+        return;
+      }
+      const row = document.getElementById('ocr-vision-row-' + shotId);
+      const statusEl = row ? row.querySelector('[data-vision-status]') : null;
+      const textEl = row ? row.querySelector('[data-vision-text]') : null;
+      btn.disabled = true;
+      const prevLabel = btn.textContent;
+      btn.textContent = 'Transcribing…';
+      if (statusEl) {
+        statusEl.textContent = 'Calling vision API…';
+        statusEl.className = 'mt-1 text-xs text-zinc-500 min-h-[1rem]';
+      }
+      if (textEl) {
+        textEl.textContent = '';
+      }
+      try {
+        const response = await fetch(
+          '/api/screenshot/' + encodeURIComponent(shotId) + '/ocr-vision',
+          { method: 'POST', headers: { 'Accept': 'application/json' } }
+        );
+        const data = await response.json();
+        const status = (data && data.status) || 'error';
+        const text = (data && data.text) || '';
+        if (statusEl) {
+          statusEl.textContent = 'Status: ' + status;
+          let cls = 'mt-1 text-xs min-h-[1rem] ';
+          if (status === 'ok') {
+            cls += 'text-emerald-300';
+          } else if (status === 'empty') {
+            cls += 'text-amber-300';
+          } else {
+            cls += 'text-rose-300';
+          }
+          statusEl.className = cls;
+        }
+        if (textEl) {
+          textEl.textContent = text;
+        }
+      } catch (err) {
+        if (statusEl) {
+          statusEl.textContent = 'Status: error (' + err + ')';
+          statusEl.className = 'mt-1 text-xs text-rose-300 min-h-[1rem]';
+        }
+      } finally {
+        btn.disabled = false;
+        btn.textContent = prevLabel;
+      }
+    });
+  });
+</script>
+{% endblock %}

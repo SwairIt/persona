@@ -36,11 +36,17 @@ from app.web.templates_engine import templates
 
 router = APIRouter(tags=["shot-share"])
 logger = get_logger("persona.shot_share")
+visit_logger = get_logger("persona.share.visits")
 
 REVOKE_KV_KEY = "shot_share_revoked"
 MAX_TTL_HOURS = 720
 DEFAULT_TTL_HOURS = 24
 SHOT_PURPOSE = "shot"
+
+# Cap the User-Agent we persist. The header is unbounded by spec and some
+# bots ship multi-kB junk; 200 chars is enough to recognise real browsers
+# and short enough to keep ``share_visit`` rows small.
+_UA_MAX_CHARS = 200
 
 
 class ShotShareCreateRequest(BaseModel):
@@ -107,6 +113,80 @@ def _is_revoked(revoked: list[dict[str, int]], screenshot_id: int, expires: int)
     return False
 
 
+def _truncate_ua(raw: str | None) -> str | None:
+    """Clip an arbitrarily long ``User-Agent`` to :data:`_UA_MAX_CHARS`.
+
+    Returns ``None`` for missing or whitespace-only headers so the DB
+    column stays NULL rather than holding an empty string.
+    """
+    if raw is None:
+        return None
+    stripped = raw.strip()
+    if not stripped:
+        return None
+    if len(stripped) <= _UA_MAX_CHARS:
+        return stripped
+    return stripped[:_UA_MAX_CHARS]
+
+
+def _coarse_ip_prefix(host: str | None) -> str | None:
+    """Reduce a client IP to its first two segments for privacy.
+
+    IPv4 ``192.168.1.42`` becomes ``192.168``; IPv6
+    ``2001:db8:abcd:1234::1`` becomes ``2001:db8``. Anything we cannot
+    confidently classify (None, empty, malformed) returns ``None`` so we
+    never accidentally persist a full address.
+    """
+    if not host:
+        return None
+    if ":" in host:
+        # IPv6 — first two ``:``-separated groups, ignoring an empty
+        # head from a leading ``::``.
+        parts = [segment for segment in host.split(":") if segment]
+        if len(parts) >= 2:
+            return f"{parts[0]}:{parts[1]}"
+        if parts:
+            return parts[0]
+        return None
+    parts = host.split(".")
+    if len(parts) >= 2 and all(parts[:2]):
+        return f"{parts[0]}.{parts[1]}"
+    return None
+
+
+async def _record_visit(
+    conn: Any,
+    *,
+    shot_id: int,
+    ua: str | None,
+    ip_prefix: str | None,
+) -> None:
+    """Insert one row into ``share_visit`` for a successful viewer hit.
+
+    Parametrised SQL only — never interpolate the UA or IP into the
+    statement. Errors are logged and swallowed so a write failure on the
+    audit trail never breaks the public viewer.
+    """
+    try:
+        await conn.execute(
+            "INSERT INTO share_visit (shot_id, ua, ip_prefix) VALUES (?, ?, ?)",
+            (shot_id, ua, ip_prefix),
+        )
+        await conn.commit()
+    except Exception as exc:
+        visit_logger.error(
+            "shot_share_visit_record_failed",
+            shot_id=shot_id,
+            error=str(exc),
+        )
+        return
+    visit_logger.info(
+        "shot_share_visit_recorded",
+        shot_id=shot_id,
+        ip_prefix=ip_prefix,
+    )
+
+
 @router.post("/api/screenshot/{screenshot_id}/share/create")
 async def create_shot_share(
     screenshot_id: int,
@@ -152,6 +232,10 @@ async def view_shot_share(request: Request, shot_id: int, token: str) -> HTMLRes
 
     expires = int(info["expires"])
 
+    client = request.client
+    ua = _truncate_ua(request.headers.get("user-agent"))
+    ip_prefix = _coarse_ip_prefix(client.host if client else None)
+
     async with get_connection() as conn:
         revoked = await _load_revoked(conn)
         if _is_revoked(revoked, shot_id, expires):
@@ -160,6 +244,9 @@ async def view_shot_share(request: Request, shot_id: int, token: str) -> HTMLRes
         if shot is None:
             raise HTTPException(status_code=410, detail="Screenshot no longer available")
         caption = await get_note(conn, shot_id)
+        # Read receipt: only after the viewer has cleared every gate so
+        # we do not record 410-rejected probes as legitimate reads.
+        await _record_visit(conn, shot_id=shot_id, ua=ua, ip_prefix=ip_prefix)
 
     return templates.TemplateResponse(
         request,

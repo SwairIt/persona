@@ -63,6 +63,17 @@ class Settings(BaseSettings):
     byo_api_key: str = Field(default="")
     byo_api_provider: str = Field(default="")
 
+    # v0.55 — OCR fallback via multimodal LLM vision. When enabled (default
+    # False) and ``byo_api_provider == "anthropic"``, low-confidence /
+    # empty-text shots can be re-transcribed by sending the thumbnail
+    # bytes as a base64 image to the BYO LLM. The result is cached in a
+    # dedicated ``ocr_text_vision`` column on the ``screenshots`` table
+    # — Tesseract's ``ocr_text`` is never overwritten so the two
+    # signals stay independent. Defaults False because vision calls are
+    # markedly more expensive than text-only completions and the user
+    # must explicitly opt in.
+    llm_vision_enabled: bool = Field(default=False)
+
     embeddings_enabled: bool = Field(default=False)
     embeddings_model: str = Field(default="intfloat/multilingual-e5-small")
     embeddings_batch_size: int = Field(default=16, ge=1, le=128)

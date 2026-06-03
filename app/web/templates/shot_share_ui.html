@@ -114,6 +114,49 @@
       <p class="text-xs text-zinc-500">No revokes recorded for this screenshot yet.</p>
     {% endif %}
   </section>
+
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
+    <div class="mb-3">
+      <h2 class="text-lg font-semibold">Recent visits</h2>
+      <p class="text-xs text-zinc-500 mt-1">
+        Every successful render of a share link is logged below. We keep
+        the User-Agent (truncated to 200 chars) and the first two octets
+        of the visitor&rsquo;s IP &mdash; never the full address.
+        Showing the most recent {{ visits|length }} of up to 50.
+      </p>
+    </div>
+
+    {% if visits %}
+      <div class="rounded border border-ink-700 overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="bg-ink-900 text-zinc-500 text-xs uppercase tracking-wider">
+            <tr>
+              <th class="text-left py-2 px-3">Visited at (UTC)</th>
+              <th class="text-left py-2 px-3">IP prefix</th>
+              <th class="text-left py-2 px-3">User agent</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for visit in visits %}
+              <tr class="border-t border-ink-700">
+                <td class="py-2 px-3 font-mono text-xs text-zinc-300 whitespace-nowrap">
+                  {{ visit.visited_at }}
+                </td>
+                <td class="py-2 px-3 font-mono text-xs text-zinc-400 whitespace-nowrap">
+                  {{ visit.ip_prefix or '—' }}
+                </td>
+                <td class="py-2 px-3 text-xs text-zinc-400 break-all">
+                  {{ visit.ua or '—' }}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="text-xs text-zinc-500">No visits recorded for this screenshot yet.</p>
+    {% endif %}
+  </section>
 </div>
 
 <script>

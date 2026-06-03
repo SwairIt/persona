@@ -20,6 +20,9 @@ Subcommands:
     export-ocr-txt     Per-day OCR text dump for grep/fzf (--day YYYY-MM-DD, --out FILE).
     archive            Build a ZIP bundle of recent state (--days N --out FILE [--no-thumbnails]).
     export-collage     Render a 4xN per-day collage PNG (--day YYYY-MM-DD --out FILE).
+    tag-orphans        List tag names with zero linked screenshots.
+    tag-prune-orphans  Delete every tag with zero linked screenshots.
+    tag-untag-old      Remove a tag from shots captured before now-Ndays (--tag NAME --days N).
 """
 
 from __future__ import annotations
@@ -65,6 +68,7 @@ from app.storage.repository import insert_screenshot, set_dedup_group_representa
 from app.storage.size_log import sample_today, today_bytes
 from app.storage.thumbnails import save_thumbnail
 from app.storage.time import iso, parse_iso
+from app.tag_cleanup import find_orphan_tags, purge_orphan_tags, untag_older_than
 from app.weekly_pdf import export_week_pdf
 
 _ANSI_GREEN = "\033[32m"
@@ -855,6 +859,48 @@ async def _cmd_export_ocr_txt(day: str | None, out: Path) -> int:
     return 0
 
 
+async def _cmd_tag_orphans() -> int:
+    """List the names of tags that have zero rows in ``screenshot_tags``."""
+    names = await find_orphan_tags()
+    if not names:
+        print("(no orphan tags)")
+        return 0
+    for name in names:
+        print(name)
+    print(f"\n{len(names)} orphan tag(s).")
+    return 0
+
+
+async def _cmd_tag_prune_orphans() -> int:
+    """Delete every tag with zero linked screenshots and report the count."""
+    deleted = await purge_orphan_tags()
+    print(f"Deleted {deleted} orphan tag(s).")
+    return 0
+
+
+async def _cmd_tag_untag_old(tag_name: str, days: int) -> int:
+    """Strip ``tag_name`` from every screenshot older than ``days`` days."""
+    cleaned_tag = tag_name.strip().lower()
+    if not cleaned_tag:
+        print("error: empty tag name", file=sys.stderr)
+        return 2
+    if days < 0:
+        print(f"error: --days must be >= 0, got {days}", file=sys.stderr)
+        return 2
+
+    try:
+        affected = await untag_older_than(cleaned_tag, days)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    print(
+        f"Untagged {affected} screenshot(s) from "
+        f"#{cleaned_tag} older than {days} day(s)."
+    )
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:  # noqa: PLR0915 — flat subparser table
     parser = argparse.ArgumentParser(
         prog="persona",
@@ -1219,6 +1265,34 @@ def _build_parser() -> argparse.ArgumentParser:  # noqa: PLR0915 — flat subpar
         help="Maximum number of thumbnails to include (default: 24).",
     )
 
+    sub.add_parser(
+        "tag-orphans",
+        help="List tag names with zero linked screenshots (sorted, one per line).",
+    )
+
+    sub.add_parser(
+        "tag-prune-orphans",
+        help="Delete every tag with zero linked screenshots.",
+    )
+
+    untag_old_parser = sub.add_parser(
+        "tag-untag-old",
+        help="Remove a tag from screenshots captured before now minus N days.",
+    )
+    untag_old_parser.add_argument(
+        "--tag",
+        dest="tag_name",
+        required=True,
+        help="Tag name to detach (case-insensitive, whitespace-trimmed).",
+    )
+    untag_old_parser.add_argument(
+        "--days",
+        dest="days",
+        type=int,
+        required=True,
+        help="Cutoff window in days; shots older than this lose the tag.",
+    )
+
     return parser
 
 
@@ -1270,6 +1344,12 @@ async def _run(args: argparse.Namespace) -> int:  # noqa: PLR0911, PLR0912 — d
         return await _cmd_export_collage(
             args.day, args.out, args.cols, args.max_shots
         )
+    if args.command == "tag-orphans":
+        return await _cmd_tag_orphans()
+    if args.command == "tag-prune-orphans":
+        return await _cmd_tag_prune_orphans()
+    if args.command == "tag-untag-old":
+        return await _cmd_tag_untag_old(args.tag_name, args.days)
 
     print(f"error: unknown command {args.command!r}", file=sys.stderr)
     return 2

@@ -1,0 +1,24 @@
+-- v0.55 — OCR-via-vision fallback cache.
+--
+-- Persona's primary OCR pipeline (:mod:`app.ocr.tesseract`) writes its
+-- transcription into ``screenshots.ocr_text``. When the result is empty
+-- or sub-confidence (see :mod:`app.ocr_retry`) the user can — if they
+-- have a multimodal BYO LLM configured (Anthropic) and have flipped
+-- ``PERSONA_LLM_VISION_ENABLED=1`` — fall back to asking the LLM to
+-- transcribe the thumbnail directly. The result lands here, NOT in
+-- ``ocr_text`` — Tesseract's column stays the canonical text source,
+-- vision is a sidecar that callers can fall back to when the Tesseract
+-- pass came up empty.
+--
+-- A ``NULL`` value means "no vision pass has ever run for this row";
+-- an empty string means "vision returned no readable text" and is
+-- treated as a cached negative result so a second click doesn't
+-- re-invoice the user's API key. Any non-empty value is the cached
+-- transcription.
+--
+-- SQLite has no ``ALTER TABLE ... ADD COLUMN IF NOT EXISTS``. The
+-- migration runner (:func:`app.storage.db.init_database`) catches the
+-- ``duplicate column`` error per-statement so this file is idempotent
+-- across re-runs.
+
+ALTER TABLE screenshots ADD COLUMN ocr_text_vision TEXT;
