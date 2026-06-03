@@ -221,6 +221,7 @@ from app.web.routes import (
     sticky_search as sticky_search_routes,
     streak as streak_routes,
     summary as summary_routes,
+    tag_aliases_admin as tag_aliases_admin_routes,
     tag_colour as tag_colour_routes,
     tag_gallery as tag_gallery_routes,
     tag_merge as tag_merge_routes,
@@ -294,7 +295,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.2.0",
+        version="1.3.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -531,6 +532,7 @@ def create_app() -> FastAPI:
     app.include_router(note_attachments_routes.router)
     app.include_router(annotations_csv_routes.router)
     app.include_router(kbd_shortcuts_routes.router)
+    app.include_router(tag_aliases_admin_routes.router)
 
     return app
 

@@ -20,15 +20,25 @@ from app.storage.db import get_connection
 from app.streak import current_streak
 from app.web.routes.dashboard_tiles import load_tile_order
 from app.web.routes.dashboard_widgets import COUNT_CAP, collect_widgets
+from app.web.routes.thumbnails import thumbnail_url
 from app.web.templates_engine import templates
 from app.workers.control import get_controller
 
 log = get_logger("persona.dashboard")
+# Dedicated child logger for the pinned-shots widget — keeps the
+# log-namespace stable per feature (matches the ``persona.dashboard.*``
+# pattern already used elsewhere) so an operator can grep for just the
+# pinned-widget renders without wading through every dashboard hit.
+pinned_log = get_logger("persona.dashboard.pinned_widget")
 
 router = APIRouter(tags=["dashboard"])
 
 _SHOTS_WINDOW_DAYS = 7
 _TOP_APPS_LIMIT = 5
+# Hard cap on the pinned-shots strip — the widget is a horizontal
+# thumbnail row, not a gallery, so five frames is the visual ceiling
+# before the strip starts to wrap on the narrowest dashboard column.
+_PINNED_WIDGET_LIMIT = 5
 
 
 def _seven_day_axis(today: date) -> list[str]:
@@ -71,6 +81,22 @@ async def _collect_dashboard() -> dict[str, Any]:
         )
         digest_row = await cursor.fetchone()
 
+        # v1.3 — pinned-shots widget. Five newest frames the user has
+        # explicitly pinned (``tier = 'pinned'``), newest first. Query is
+        # fully parametrised — the tier literal and the row limit are
+        # bound, not interpolated, so user-writable state can never reach
+        # the SQL string. Mirrors :func:`app.pinmap.build_pinmap` but
+        # capped at ``_PINNED_WIDGET_LIMIT`` so the dashboard render
+        # stays bounded even when the user has thousands of pins.
+        cursor = await conn.execute(
+            "SELECT id, captured_at, thumbnail_path, app_name "
+            "FROM screenshots "
+            "WHERE tier = ? AND captured_at IS NOT NULL "
+            "ORDER BY captured_at DESC LIMIT ?",
+            ("pinned", _PINNED_WIDGET_LIMIT),
+        )
+        pinned_rows = await cursor.fetchall()
+
     shots_by_day: dict[str, int] = {str(row["day"]): int(row["n"]) for row in shots_rows}
     shots_series: list[int] = [shots_by_day.get(day, 0) for day in axis]
     shots_week_total = sum(shots_series)
@@ -92,6 +118,26 @@ async def _collect_dashboard() -> dict[str, Any]:
             "provider": provider,
             "generated_at": str(digest_row["generated_at"]),
         }
+
+    pinned_shots: list[dict[str, Any]] = []
+    for row in pinned_rows:
+        thumb_raw = row["thumbnail_path"]
+        thumb_url = thumbnail_url(str(thumb_raw)) if thumb_raw is not None else None
+        app_raw = row["app_name"]
+        pinned_shots.append(
+            {
+                "id": int(row["id"]),
+                "captured_at": str(row["captured_at"]),
+                "thumbnail_url": thumb_url,
+                "app_name": str(app_raw) if app_raw is not None else None,
+            }
+        )
+
+    pinned_log.info(
+        "dashboard.pinned_widget.built",
+        count=len(pinned_shots),
+        limit=_PINNED_WIDGET_LIMIT,
+    )
 
     capture_state = {
         "paused": bool(controller.paused),
@@ -128,6 +174,7 @@ async def _collect_dashboard() -> dict[str, Any]:
         "top_apps": top_apps,
         "latest_digest": latest_digest,
         "capture": capture_state,
+        "pinned_shots": pinned_shots,
     }
 
 

@@ -20,4 +20,4 @@
 -- is a no-op visually until the user opens /settings/dashboard.
 
 INSERT OR IGNORE INTO kv_settings (key, value)
-VALUES ('dashboard_tiles', 'today,streak,top_apps,latest_digest,capture_status');
+VALUES ('dashboard_tiles', 'today,streak,top_apps,latest_digest,capture_status,pinned');

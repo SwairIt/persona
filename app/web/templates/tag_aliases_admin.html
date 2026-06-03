@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Tag aliases</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Collapse multiple spellings onto one canonical tag. Both the LLM auto-tagger
+    and the OCR phrase-rule worker route every candidate name through this table
+    before storing it, so two variants of the same concept
+    (<code>standup</code>, <code>daily-standup</code>) accrete onto a single
+    canonical row instead of splitting into separate facets.
+  </p>
+  <p class="text-zinc-500 text-sm mt-2">
+    Names are stored lowercased — the admin UI normalises both fields on save.
+    Clear the canonical field to remove a mapping.
+  </p>
+</div>
+
+<form action="/settings/tag-aliases" method="post" class="flex gap-2 mb-6">
+  <input name="alias" placeholder="daily-standup" required
+         class="w-64 px-3 py-2 bg-ink-800 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
+  <span class="self-center text-zinc-500 text-sm">&rarr;</span>
+  <input name="canonical" placeholder="standup" required
+         class="flex-1 px-3 py-2 bg-ink-800 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
+  <button type="submit" class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium">Save alias</button>
+</form>
+
+{% if aliases %}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden mb-8">
+    <table class="w-full text-sm">
+      <thead class="bg-ink-900 text-zinc-500 text-xs uppercase tracking-wider">
+        <tr>
+          <th class="text-left py-2 px-4 w-1/3">Alias</th>
+          <th class="text-left py-2 px-4">Canonical</th>
+          <th class="text-left py-2 px-4 w-44">Created</th>
+          <th class="py-2 px-4 w-32"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in aliases %}
+          <tr class="border-t border-ink-700">
+            <td class="py-2 px-4 font-mono text-xs text-zinc-300">{{ item.alias }}</td>
+            <td class="py-2 px-4">
+              <form action="/settings/tag-aliases" method="post" class="flex gap-2 items-center">
+                <input type="hidden" name="alias" value="{{ item.alias }}">
+                <input name="canonical" value="{{ item.canonical }}" required
+                       class="flex-1 px-3 py-1.5 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
+                <button class="px-3 py-1.5 bg-ink-700 hover:bg-ink-600 rounded text-xs">Update</button>
+              </form>
+            </td>
+            <td class="py-2 px-4 text-xs text-zinc-500 font-mono">{{ item.created_at }}</td>
+            <td class="py-2 px-4 text-right">
+              <form action="/settings/tag-aliases/delete" method="post" class="inline">
+                <input type="hidden" name="alias" value="{{ item.alias }}">
+                <button class="text-xs px-2 py-1 rounded bg-rose-900/40 hover:bg-rose-900 text-rose-300">remove</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  <p class="text-zinc-500 text-sm mb-8">No aliases yet &mdash; add one above, or pick a canonical target from the list below.</p>
+{% endif %}
+
+{% if canonical_candidates %}
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">
+      Existing canonical tags (good merge targets)
+    </h2>
+    <p class="text-zinc-500 text-xs mb-3">
+      These are the most-used tag names in your library. Pick one as the
+      canonical and add aliases for any synonyms you've been typing by hand.
+    </p>
+    <div class="flex flex-wrap gap-2">
+      {% for tag in canonical_candidates %}
+        <span class="inline-flex items-center gap-2 px-3 py-1.5 bg-ink-900 border border-ink-700 rounded text-xs font-mono">
+          <span class="text-zinc-300">{{ tag.name }}</span>
+          <span class="text-zinc-500">{{ tag.count }}</span>
+        </span>
+      {% endfor %}
+    </div>
+  </section>
+{% endif %}
+{% endblock %}

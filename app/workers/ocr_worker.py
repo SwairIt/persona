@@ -26,6 +26,7 @@ from app.storage.repository import (
     update_screenshot_ocr,
 )
 from app.storage.tags import create_tag, tag_screenshot
+from app.tag_aliases import resolve as resolve_tag_alias
 from app.workers.control import CaptureController, get_controller
 from app.workers.heartbeat import beat
 
@@ -278,21 +279,30 @@ async def _apply_phrase_tags(screenshot_id: int, ocr_text: str | None) -> None:
         )
         return
 
+    # Route every phrase-rule tag through the alias overlay before it
+    # touches the tag store, so an operator can collapse equivalent
+    # spellings ("standup" / "daily-standup") onto a single canonical
+    # facet without rewriting every phrase rule.
     applied: list[str] = []
-    for tag_name in phrase_tags:
+    seen: set[str] = set()
+    for raw in phrase_tags:
+        canonical = await resolve_tag_alias(raw)
+        if not canonical or canonical in seen:
+            continue
+        seen.add(canonical)
         try:
             async with get_connection() as conn:
-                tag_id = await create_tag(conn, name=tag_name)
+                tag_id = await create_tag(conn, name=canonical)
                 await tag_screenshot(conn, screenshot_id, tag_id)
         except Exception as exc:
             log.warning(
                 "ocr_worker.phrase_tag_apply_failed",
                 screenshot_id=screenshot_id,
-                tag=tag_name,
+                tag=canonical,
                 error=str(exc),
             )
         else:
-            applied.append(tag_name)
+            applied.append(canonical)
 
     if applied:
         log.info(

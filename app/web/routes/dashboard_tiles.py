@@ -51,6 +51,7 @@ KNOWN_TILES: tuple[str, ...] = (
     "top_apps",
     "latest_digest",
     "capture_status",
+    "pinned",
 )
 
 # Human-readable labels for the editor checkbox list. Kept in the route
@@ -62,6 +63,7 @@ TILE_LABELS: dict[str, str] = {
     "top_apps": "Top apps (7d)",
     "latest_digest": "Latest weekly digest",
     "capture_status": "Capture status",
+    "pinned": "Pinned shots",
 }
 
 

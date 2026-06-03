@@ -24,6 +24,21 @@
     {% endif %}
   </div>
 
+  {% if cover_shot %}
+    <figure class="mb-6 rounded-lg overflow-hidden border border-ink-700 bg-ink-900">
+      <img src="/thumbs/{{ cover_shot.id }}"
+           alt="Cover screenshot #{{ cover_shot.id }}"
+           loading="eager"
+           class="w-full max-h-[420px] object-cover bg-ink-800">
+      <figcaption class="px-3 py-2 text-xs text-zinc-400 flex justify-between gap-2">
+        <span class="font-mono text-zinc-500">cover · #{{ cover_shot.id }}</span>
+        <span class="truncate" title="{{ cover_shot.app_name or '' }}">
+          {{ cover_shot.app_name or "—" }}
+        </span>
+      </figcaption>
+    </figure>
+  {% endif %}
+
   {% if shots %}
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
       {% for shot in shots %}

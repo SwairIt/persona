@@ -1,0 +1,47 @@
+-- v1.3 feature 2/3 — shareable-collection cover screenshot.
+--
+-- Background
+-- ----------
+-- A ``share_collections`` row currently holds a JSON list of screenshot
+-- ids and a free-form ``title``. When the public viewer renders the
+-- collection it lays them out in capture order and shows the first
+-- thumbnail by accident of position. That's fine for an internal
+-- triage link, but when an operator shares the URL externally (Slack,
+-- bug ticket, customer email) the "preview" image is essentially
+-- random — whichever shot happened to be created first.
+--
+-- This migration lets the admin pin one of the collection's own
+-- screenshots as the *cover* — the hero image rendered above the grid
+-- on the public ``/share/collection/{token}`` page (see
+-- :mod:`app.web.routes.share_collection`). The cover is *not* a
+-- separate upload: it reuses an existing screenshot id, which keeps
+-- thumbnail generation, redaction rules, and retention sweeps applying
+-- to it for free.
+--
+-- Schema
+-- ------
+-- One nullable ``INTEGER`` column on ``share_collections``. The value
+-- references ``screenshots.id`` but we deliberately skip the
+-- ``REFERENCES`` clause — SQLite enforces foreign keys per-connection
+-- and the screenshot retention worker (:mod:`app.workers.retention`)
+-- already nulls dangling references via application logic. A hard FK
+-- would cascade-delete the *collection row itself* the moment the
+-- chosen cover gets pruned, which is the opposite of what the operator
+-- wanted (the rest of the screenshots might still be intact).
+--
+-- A ``NULL`` value means "no explicit cover" — the public viewer falls
+-- back to the first surviving shot in the gallery, matching pre-v1.3
+-- behaviour. The route also degrades gracefully when ``cover_shot_id``
+-- points at a shot that has since been deleted or excluded from the
+-- collection's id list: in that case the public page renders without
+-- a hero image and structlog emits a one-shot warning rather than 500.
+--
+-- Tolerant duplicate
+-- ------------------
+-- SQLite has no ``ALTER TABLE ... ADD COLUMN IF NOT EXISTS``. The
+-- migration runner (:func:`app.storage.db.init_database`) catches the
+-- ``duplicate column name`` error per-statement (v0.51 split path), so
+-- re-running this migration on an already-upgraded DB silently no-ops
+-- while a fresh install picks the column up cleanly.
+
+ALTER TABLE share_collections ADD COLUMN cover_shot_id INTEGER;
