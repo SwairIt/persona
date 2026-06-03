@@ -197,6 +197,58 @@
     · 100% local · AGPL-3.0
   </footer>
 
+  {# v1.0 capstone 3/3 — version banner chip. Small bottom-right pill
+     linking to /whats-new with a tiny X dismiss button. Dismissal is
+     stored in localStorage under ``persona.version_dismissed`` keyed by
+     the *current* version string, so a fresh release re-shows the chip
+     even after the user dismissed the previous one. Hidden by default
+     and revealed by the script below once we confirm the user has not
+     already dismissed this exact version. #}
+  <div id="persona-version-banner"
+       data-version="{{ app_version }}"
+       hidden
+       class="fixed bottom-4 right-4 z-20 flex items-center gap-2 rounded-full border border-ink-700 bg-ink-900/95 px-3 py-1.5 text-xs text-zinc-300 shadow-lg backdrop-blur">
+    <a href="/whats-new" class="font-mono hover:text-accent-400">v{{ app_version }}</a>
+    <button type="button"
+            id="persona-version-banner-dismiss"
+            aria-label="Dismiss version banner"
+            title="Dismiss"
+            class="rounded-full px-1.5 leading-none text-zinc-500 hover:bg-ink-800 hover:text-zinc-200">×</button>
+  </div>
+  <script>
+    // v1.0 capstone 3/3 — show / dismiss the version banner.
+    // Vanilla ES2020. Silent no-op if localStorage is unavailable
+    // (Safari private mode, locked-down embeds, etc.) — in that case
+    // the chip simply stays visible, which is the safer default.
+    (function () {
+      const STORAGE_KEY = 'persona.version_dismissed';
+      const banner = document.getElementById('persona-version-banner');
+      if (!banner) return;
+      const currentVersion = banner.dataset.version || '';
+      let dismissedVersion = null;
+      try {
+        dismissedVersion = window.localStorage.getItem(STORAGE_KEY);
+      } catch (e) {
+        // localStorage blocked — fall through and show the chip.
+        dismissedVersion = null;
+      }
+      if (dismissedVersion === currentVersion && currentVersion !== '') {
+        // User already dismissed this exact version — keep it hidden.
+        return;
+      }
+      banner.hidden = false;
+      const btn = document.getElementById('persona-version-banner-dismiss');
+      if (btn) {
+        btn.addEventListener('click', function () {
+          try {
+            window.localStorage.setItem(STORAGE_KEY, currentVersion);
+          } catch (e) { /* ignore — UI dismissal still works for this page. */ }
+          banner.hidden = true;
+        });
+      }
+    })();
+  </script>
+
   <script>
     /*
      * captureStatus — v0.40

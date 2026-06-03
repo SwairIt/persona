@@ -238,6 +238,7 @@ from app.web.routes import (
     vault as vault_routes,
     visual_diff as visual_diff_routes,
     webhooks_routes,
+    whats_new as whats_new_routes,
     words_csv as words_csv_routes,
     weekly_digests as weekly_digests_routes,
     weekly_pdf as weekly_pdf_routes,
@@ -290,7 +291,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.99.0",
+        version="1.0.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -523,6 +524,7 @@ def create_app() -> FastAPI:
     app.include_router(llm_usage_routes.router)
     app.include_router(shot_groups_routes.router)
     app.include_router(phrase_autotag_suggest_routes.router)
+    app.include_router(whats_new_routes.router)
 
     return app
 

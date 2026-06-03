@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 
+from app import __version__ as _app_version
 from app.app_aliases import resolve as _resolve_app_alias
 from app.logging_setup import get_logger
 from app.settings import get_settings
@@ -425,3 +426,9 @@ templates.env.globals["get_theme"] = get_theme
 templates.env.globals["get_compact_mode"] = get_compact_mode
 templates.env.globals["get_grayscale_mode"] = get_grayscale_mode
 templates.env.globals["get_reduce_motion"] = get_reduce_motion
+# v1.0 capstone 3/3 — expose the package version to every template so
+# :file:`base.html` can stamp the version-banner chip without each route
+# having to thread the value through context. Reads ``app.__version__``
+# once at import time; the value is immutable for the lifetime of the
+# process.
+templates.env.globals["app_version"] = _app_version
