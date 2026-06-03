@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+
+{#
+  audit_timeline.html — v0.76 per-day audit-log timeline.
+
+  Vertical timeline (same pattern as v0.47 notes_day.html):
+    * left-edge vertical line drawn with a `border-l`
+    * one dot + card per audit row, anchored as #audit-{id}
+    * failed events (success == false) get a rose-tinted dot + card
+      border so a security review can spot them at a glance
+    * timestamps are clickable permalinks to their own #audit-{id} anchor
+    * machine-readable counterpart linked top-right
+#}
+
+{% block content %}
+<div class="mb-6 flex items-center justify-between flex-wrap gap-3">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Audit timeline — {{ day }}</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      {{ total }} event{% if total != 1 %}s{% endif %}
+      &middot; oldest first
+      {% if truncated %}
+        &middot; <span class="text-amber-400">truncated</span>
+      {% endif %}
+    </p>
+  </div>
+  <a href="/api/audit/timeline/{{ day }}.json"
+     class="px-3 py-1 rounded-full text-xs border bg-ink-800 border-ink-700 hover:border-zinc-500 text-zinc-400 transition"
+     title="Machine-readable companion endpoint">
+    JSON
+  </a>
+</div>
+
+{% if total == 0 %}
+  <div class="text-center py-24">
+    <p class="text-zinc-400">No audit events on {{ day }}.</p>
+    <p class="text-zinc-600 text-sm mt-2">
+      The full paginated log lives at
+      <a href="/audit" class="text-accent-400 hover:underline">/audit</a>.
+    </p>
+  </div>
+{% else %}
+  <ol class="relative border-l border-ink-700 ml-3 pl-6 space-y-6">
+    {% for row in rows %}
+      <li id="audit-{{ row.id }}" class="relative scroll-mt-24">
+        {# Dot on the timeline rail. Negative left offset puts it ON the rail.
+           Failed events use rose; successful ones use the accent palette. #}
+        <span class="absolute -left-[31px] top-2 w-3 h-3 rounded-full
+                     {% if not row.success %}bg-rose-400 ring-4 ring-rose-400/15
+                     {% else %}bg-accent-500 ring-4 ring-accent-500/15{% endif %}"
+              aria-hidden="true"></span>
+
+        <article class="bg-ink-900/60 border rounded-lg p-4
+                        target:ring-1 target:ring-accent-500/30
+                        transition-colors
+                        {% if not row.success %}border-rose-900/60 target:border-rose-500
+                        {% else %}border-ink-700 target:border-accent-500{% endif %}">
+          <header class="flex items-baseline justify-between gap-3 mb-2 flex-wrap">
+            <div class="flex items-baseline gap-3 min-w-0 flex-wrap">
+              <a href="#audit-{{ row.id }}"
+                 class="font-mono text-xs text-zinc-500 hover:text-accent-400 tabular-nums shrink-0"
+                 title="Permalink to this event">
+                {{ row.ts }}
+              </a>
+              <span class="font-mono text-xs text-accent-400 truncate">{{ row.action }}</span>
+              {% if not row.success %}
+                <span class="px-2 py-0.5 rounded bg-rose-500/10 border border-rose-500/30
+                             text-rose-300 font-mono text-[10px] uppercase tracking-wider">
+                  failure
+                </span>
+              {% endif %}
+            </div>
+            <span class="font-mono text-[10px] text-zinc-600 shrink-0">#{{ row.id }}</span>
+          </header>
+
+          <dl class="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1 text-xs">
+            <dt class="text-zinc-500 uppercase tracking-wider">Actor</dt>
+            <dd class="font-mono text-zinc-300 break-all">
+              {% if row.actor %}{{ row.actor }}{% else %}<span class="text-zinc-600">&mdash;</span>{% endif %}
+            </dd>
+
+            <dt class="text-zinc-500 uppercase tracking-wider">Target</dt>
+            <dd class="font-mono text-zinc-300 break-all">
+              {% if row.target %}{{ row.target }}{% else %}<span class="text-zinc-600">&mdash;</span>{% endif %}
+            </dd>
+
+            <dt class="text-zinc-500 uppercase tracking-wider">Detail</dt>
+            <dd class="text-zinc-400 break-words">
+              {% if row.detail %}{{ row.detail }}{% else %}<span class="text-zinc-600">&mdash;</span>{% endif %}
+            </dd>
+          </dl>
+        </article>
+      </li>
+    {% endfor %}
+  </ol>
+{% endif %}
+{% endblock %}

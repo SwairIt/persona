@@ -23,6 +23,7 @@ Subcommands:
     export-share-visits  v0.55 share_visit rows as CSV (--days N, --out FILE).
     export-ocr-txt     Per-day OCR text dump for grep/fzf (--day YYYY-MM-DD, --out FILE).
     export-sticky      Dump every sticky_note row as a JSON array (--out FILE).
+    export-annotations-ndjson  Stream every screenshot_annotation row as NDJSON (--out FILE).
     archive            Build a ZIP bundle of recent state (--days N --out FILE [--no-thumbnails]).
     diagnostics-bundle Build a diagnostics ZIP for bug reports (--out FILE; no user data).
     export-collage     Render a 4xN per-day collage PNG (--day YYYY-MM-DD --out FILE).
@@ -78,6 +79,7 @@ from app.storage.size_log import sample_today, today_bytes
 from app.storage.thumbnails import save_thumbnail
 from app.storage.time import iso, parse_iso
 from app.tag_cleanup import find_orphan_tags, purge_orphan_tags, untag_older_than
+from app.web.routes.annotations_ndjson import _iter_annotations_ndjson
 from app.web.routes.share_visits_csv import _render_share_visits_csv
 from app.web.routes.sticky_export import _fetch_all_stickies
 from app.weekly_pdf import export_week_pdf
@@ -1007,6 +1009,34 @@ async def _cmd_export_sticky(out: Path) -> int:
     return 0
 
 
+async def _cmd_export_annotations_ndjson(out: Path) -> int:
+    """Stream every ``screenshot_annotation`` row as NDJSON to ``out``.
+
+    Reuses :func:`app.web.routes.annotations_ndjson._iter_annotations_ndjson`
+    so the CLI and the HTTP route produce byte-identical files — single
+    source of truth for column order, serialisation, and the
+    ``screenshot_id → shot_id`` rename. The async generator yields one
+    pre-encoded line per row so we write the file row-by-row without
+    materialising the whole table in memory.
+    """
+    out.parent.mkdir(parents=True, exist_ok=True)
+    rows = 0
+    size_bytes = 0
+    # ``newline=""`` keeps the ``\n`` separators we yield from the
+    # generator intact instead of letting the Windows text layer
+    # rewrite them to ``\r\n`` — NDJSON consumers expect lone ``\n``.
+    with out.open("wb") as fh:
+        async for chunk in _iter_annotations_ndjson():
+            fh.write(chunk)
+            size_bytes += len(chunk)
+            rows += 1
+
+    print(f"Path:   {out}")
+    print(f"Rows:   {rows}")
+    print(f"Bytes:  {size_bytes}")
+    return 0
+
+
 async def _cmd_export_ocr_txt(day: str | None, out: Path) -> int:
     """Write the per-day OCR text dump via :func:`export_day_ocr_txt`."""
     target = _parse_day(day)
@@ -1472,6 +1502,22 @@ def _build_parser() -> argparse.ArgumentParser:  # noqa: PLR0915 — flat subpar
         help="Destination JSON path (parent dirs are created).",
     )
 
+    annotations_ndjson_parser = sub.add_parser(
+        "export-annotations-ndjson",
+        help=(
+            "Stream every screenshot_annotation row (id, shot_id, body, "
+            "created_at) as newline-delimited JSON for big-data tooling "
+            "(jq -c, DuckDB read_ndjson, ClickHouse JSONEachRow)."
+        ),
+    )
+    annotations_ndjson_parser.add_argument(
+        "--out",
+        dest="out",
+        type=Path,
+        required=True,
+        help="Destination NDJSON path (parent dirs are created).",
+    )
+
     ocr_txt_parser = sub.add_parser(
         "export-ocr-txt",
         help=(
@@ -1651,6 +1697,8 @@ async def _run(args: argparse.Namespace) -> int:  # noqa: PLR0911, PLR0912 — d
         return await _cmd_export_ocr_txt(args.day, args.out)
     if args.command == "export-sticky":
         return await _cmd_export_sticky(args.out)
+    if args.command == "export-annotations-ndjson":
+        return await _cmd_export_annotations_ndjson(args.out)
     if args.command == "archive":
         return await _cmd_archive(args.days, args.out, args.include_thumbnails)
     if args.command == "diagnostics-bundle":

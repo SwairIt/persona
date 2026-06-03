@@ -22,6 +22,7 @@ from app.web.routes import (
     about as about_routes,
     analysis as analysis_routes,
     annotations as annotations_routes,
+    annotations_ndjson as annotations_ndjson_routes,
     api_tokens as api_tokens_routes,
     app_aliases as app_aliases_routes,
     app_capture_skip as app_capture_skip_routes,
@@ -38,6 +39,7 @@ from app.web.routes import (
     auto_collections as auto_collections_routes,
     audit as audit_routes,
     audit_rss as audit_rss_routes,
+    audit_timeline as audit_timeline_routes,
     auto_tag as auto_tag_routes,
     budget as budget_routes,
     bookmarklet as bookmarklet_routes,
@@ -197,6 +199,7 @@ from app.web.routes import (
 )
 from app.workers import (
     get_controller,
+    run_auto_backup_scheduler,
     run_capture_loop,
     run_clipboard_worker,
     run_daily_email_scheduler,
@@ -240,7 +243,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.75.0",
+        version="0.76.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -424,6 +427,8 @@ def create_app() -> FastAPI:
     app.include_router(external_ping_routes.router)
     app.include_router(ping_heatmap_routes.router)
     app.include_router(ocr_vision_replace_routes.router)
+    app.include_router(annotations_ndjson_routes.router)
+    app.include_router(audit_timeline_routes.router)
 
     return app
 
@@ -449,6 +454,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         asyncio.create_task(run_webhook_retry_worker(controller), name="webhook-retry"),
         asyncio.create_task(run_monthly_digest_scheduler(controller), name="monthly-digest-scheduler"),
         asyncio.create_task(run_day_end_summary_scheduler(controller), name="day-end-summary"),
+        asyncio.create_task(run_auto_backup_scheduler(controller), name="auto-backup"),
     ]
 
     controller.pause()

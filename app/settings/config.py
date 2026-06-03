@@ -137,6 +137,24 @@ class Settings(BaseSettings):
     # thumbnail file) once per loop iteration.
     recycle_retention_days: int = Field(default=7, ge=1, le=90)
 
+    # v0.76 — nightly encrypted DB backup scheduler. When
+    # ``auto_backup_enabled`` is True the ``auto_backup_scheduler``
+    # worker polls every 30 minutes and, when local-time hour matches
+    # ``auto_backup_hour_local`` (default 03:00), invokes the v0.23
+    # backup CLI logic (:func:`app.backup.snapshot.create_backup`) to
+    # write an encrypted snapshot into ``auto_backup_path``. The
+    # passphrase is fetched from the v0.33 vault under the key
+    # ``auto_backup_password`` — the worker is silent (logs + skips)
+    # when the vault master password is unavailable, the row is
+    # missing, or the optional ``cryptography`` dep is not installed.
+    # Files older than ``auto_backup_keep_days`` are pruned at the end
+    # of each successful run. Default off so existing users are
+    # unaffected.
+    auto_backup_enabled: bool = Field(default=False)
+    auto_backup_hour_local: int = Field(default=3, ge=0, le=23)
+    auto_backup_path: Path = Field(default=Path("./data/backups"))
+    auto_backup_keep_days: int = Field(default=14, ge=1, le=3650)
+
     @model_validator(mode="after")
     def _validate_adaptive_bounds(self) -> Settings:
         if self.adaptive_max_seconds < self.adaptive_min_seconds:
@@ -147,7 +165,14 @@ class Settings(BaseSettings):
             raise ValueError(msg)
         return self
 
-    @field_validator("data_dir", "db_path", "thumbnails_dir", "inbox_path", mode="after")
+    @field_validator(
+        "data_dir",
+        "db_path",
+        "thumbnails_dir",
+        "inbox_path",
+        "auto_backup_path",
+        mode="after",
+    )
     @classmethod
     def _resolve_path(cls, value: Path) -> Path:
         return value.expanduser().resolve()
@@ -175,6 +200,8 @@ class Settings(BaseSettings):
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         if self.inbox_enabled:
             self.inbox_path.mkdir(parents=True, exist_ok=True)
+        if self.auto_backup_enabled:
+            self.auto_backup_path.mkdir(parents=True, exist_ok=True)
 
 
 @lru_cache(maxsize=1)
