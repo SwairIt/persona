@@ -24,6 +24,7 @@ from app.web.routes import (
     annotations as annotations_routes,
     api_tokens as api_tokens_routes,
     app_aliases as app_aliases_routes,
+    app_groups as app_groups_routes,
     app_icons as app_icons_routes,
     app_icons_admin as app_icons_admin_routes,
     app_overrides as app_overrides_routes,
@@ -39,6 +40,7 @@ from app.web.routes import (
     budget as budget_routes,
     bookmarklet as bookmarklet_routes,
     bulk as bulk_routes,
+    bulk_pin as bulk_pin_routes,
     bulk_delete as bulk_delete_routes,
     cal_nav as cal_nav_routes,
     calendar as calendar_routes,
@@ -117,6 +119,7 @@ from app.web.routes import (
     ocr_language_stats as ocr_language_stats_routes,
     ocr_languages as ocr_languages_routes,
     ocr_diff as ocr_diff_routes,
+    ocr_error_rate as ocr_error_rate_routes,
     ocr_near_dup as ocr_near_dup_routes,
     ocr_overlay as ocr_overlay_routes,
     ocr_phrase_tags as ocr_phrase_tags_routes,
@@ -211,7 +214,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.62.0",
+        version="0.63.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -369,6 +372,9 @@ def create_app() -> FastAPI:
     app.include_router(digest_card_routes.router)
     app.include_router(random_shot_routes.router)
     app.include_router(lang_autodetect_routes.router)
+    app.include_router(bulk_pin_routes.router)
+    app.include_router(ocr_error_rate_routes.router)
+    app.include_router(app_groups_routes.router)
 
     return app
 

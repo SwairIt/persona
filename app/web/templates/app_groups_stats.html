@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-center justify-between flex-wrap gap-3">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">App groups · last {{ days }} days</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Active time and shot counts rolled up by category. Only apps
+      with a group assignment are included.
+      Total: <strong class="text-zinc-300 font-mono">{{ total_duration }}</strong>
+      <span class="text-zinc-600">({{ total_seconds }}s, {{ total_shots }} shots)</span>
+    </p>
+  </div>
+  <div class="flex items-center gap-2 text-sm">
+    <a href="/settings/app-groups"
+       class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700">Manage groups</a>
+    <a href="/time-on-app/summary"
+       class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700">Per-app view</a>
+  </div>
+</div>
+
+<form action="/stats/app-groups" method="get"
+      class="mb-6 flex items-center gap-2 text-sm">
+  <label for="days" class="text-zinc-400">Window (days)</label>
+  <input type="number" id="days" name="days" value="{{ days }}" min="1" max="365"
+         class="bg-ink-800 border border-ink-700 rounded px-2 py-1 w-24 text-zinc-100 font-mono">
+  <button type="submit"
+          class="px-3 py-1 rounded bg-accent-600 hover:bg-accent-500 text-white">Go</button>
+  <span class="text-zinc-500 ml-2">Quick:</span>
+  {% for choice in [1, 7, 14, 30, 90] %}
+    <a href="/stats/app-groups?days={{ choice }}"
+       class="px-2 py-1 rounded
+              {% if choice == days %}bg-accent-600/20 text-accent-400{% else %}text-zinc-400 hover:text-zinc-100 hover:bg-ink-800{% endif %}">
+      {{ choice }}d
+    </a>
+  {% endfor %}
+</form>
+
+{% if not items %}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-6 text-center">
+    <p class="text-zinc-400 text-sm mb-2">No grouped activity in this window.</p>
+    <p class="text-zinc-500 text-xs">
+      Assign apps to groups on
+      <a href="/settings/app-groups" class="text-accent-400 hover:text-accent-300">the settings page</a>
+      to populate this chart.
+    </p>
+  </div>
+{% else %}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-ink-900 text-zinc-400 text-xs uppercase tracking-wider">
+        <tr>
+          <th class="text-left px-4 py-2 font-medium">Group</th>
+          <th class="text-right px-4 py-2 font-medium w-28">Time</th>
+          <th class="text-right px-4 py-2 font-medium w-20">Shots</th>
+          <th class="text-left px-4 py-2 font-medium w-1/2">Share</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in items %}
+          <tr class="border-t border-ink-700 hover:bg-ink-900/50">
+            <td class="px-4 py-2">
+              <span class="text-zinc-200">{{ item.group_name }}</span>
+            </td>
+            <td class="px-4 py-2 text-right font-mono text-zinc-300">{{ item.duration }}</td>
+            <td class="px-4 py-2 text-right font-mono text-zinc-400">{{ item.shots }}</td>
+            <td class="px-4 py-2">
+              <div class="bg-ink-900 rounded h-2 overflow-hidden"
+                   title="{{ '%.1f' | format(item.percent) }}% of the busiest group">
+                <div class="h-full bg-accent-500"
+                     style="width: {{ '%.2f' | format(item.percent) }}%"></div>
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <p class="mt-4 text-xs text-zinc-500">
+    Bar width = share of the busiest group's time. Seconds use the same
+    gap-capped walk as <a href="/time-on-app/summary"
+    class="text-accent-400 hover:text-accent-300">Time on app</a>:
+    idle gaps over 5&nbsp;min are dropped and the walk never bridges
+    midnight.
+  </p>
+{% endif %}
+{% endblock %}

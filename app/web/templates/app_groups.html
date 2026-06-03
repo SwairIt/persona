@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-center justify-between flex-wrap gap-3">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">App groups</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Bucket raw window-class / executable names (<code>devenv.exe</code>,
+      <code>slack.exe</code>) into categories like
+      <code>work</code> / <code>personal</code> / <code>comms</code> /
+      <code>dev</code> / <code>games</code>. Group totals show up on the
+      <a href="/stats/app-groups" class="text-accent-400 hover:text-accent-300">stats page</a>.
+      Clear the group field to remove an assignment.
+    </p>
+  </div>
+  <a href="/stats/app-groups"
+     class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700 text-sm">Group stats &rarr;</a>
+</div>
+
+<form action="/settings/app-groups" method="post" class="flex gap-2 mb-6">
+  <input name="app_name" placeholder="devenv.exe" required
+         list="default-groups-app-list"
+         class="w-64 px-3 py-2 bg-ink-800 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
+  <input name="group_name" placeholder="dev" required
+         list="default-groups-list"
+         class="flex-1 px-3 py-2 bg-ink-800 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
+  <button type="submit"
+          class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium">Save group</button>
+</form>
+
+<datalist id="default-groups-list">
+  {% for g in default_groups %}
+    <option value="{{ g }}"></option>
+  {% endfor %}
+</datalist>
+
+{% if assignments %}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden mb-8">
+    <table class="w-full text-sm">
+      <thead class="bg-ink-900 text-zinc-500 text-xs uppercase tracking-wider">
+        <tr>
+          <th class="text-left py-2 px-4 w-1/3">App</th>
+          <th class="text-left py-2 px-4">Group</th>
+          <th class="py-2 px-4 w-32"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in assignments %}
+          <tr class="border-t border-ink-700">
+            <td class="py-2 px-4 font-mono text-xs text-zinc-300">{{ item.app_name }}</td>
+            <td class="py-2 px-4">
+              <form action="/settings/app-groups" method="post" class="flex gap-2 items-center">
+                <input type="hidden" name="app_name" value="{{ item.app_name }}">
+                <select name="group_name"
+                        class="flex-1 px-3 py-1.5 bg-ink-900 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
+                  {% set current = item.group_name %}
+                  {% set known = default_groups | list %}
+                  {% for g in known %}
+                    <option value="{{ g }}" {% if g == current %}selected{% endif %}>{{ g }}</option>
+                  {% endfor %}
+                  {% if current and current not in known %}
+                    <option value="{{ current }}" selected>{{ current }}</option>
+                  {% endif %}
+                </select>
+                <button class="px-3 py-1.5 bg-ink-700 hover:bg-ink-600 rounded text-xs">Update</button>
+              </form>
+            </td>
+            <td class="py-2 px-4 text-right">
+              <form action="/settings/app-groups" method="post" class="inline">
+                <input type="hidden" name="app_name" value="{{ item.app_name }}">
+                <input type="hidden" name="group_name" value="">
+                <button class="text-xs px-2 py-1 rounded bg-rose-900/40 hover:bg-rose-900 text-rose-300">remove</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  <p class="text-zinc-500 text-sm mb-8">
+    No groups configured yet — add one above, or use the suggestions below.
+  </p>
+{% endif %}
+
+{% if suggested %}
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">
+      Suggested (your most-captured apps without a group)
+    </h2>
+    <div class="space-y-2">
+      {% for s in suggested %}
+        <form action="/settings/app-groups" method="post" class="flex gap-2 items-center">
+          <input type="hidden" name="app_name" value="{{ s.app_name }}">
+          <span class="text-zinc-300 text-xs font-mono w-64 truncate" title="{{ s.app_name }}">{{ s.app_name }}</span>
+          <span class="text-zinc-500 text-xs w-12 font-mono">{{ s.count }}</span>
+          <select name="group_name" required
+                  class="flex-1 px-3 py-1.5 bg-ink-900 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
+            <option value="" disabled selected>Pick a group&hellip;</option>
+            {% for g in default_groups %}
+              <option value="{{ g }}">{{ g }}</option>
+            {% endfor %}
+          </select>
+          <button class="px-3 py-1.5 bg-ink-700 hover:bg-ink-600 rounded text-xs">Add</button>
+        </form>
+      {% endfor %}
+    </div>
+  </section>
+{% endif %}
+{% endblock %}

@@ -14,6 +14,8 @@ Subcommands:
     tag                Bulk-apply a tag to every screenshot matching an FTS5 query.
     untag              Bulk-remove a tag from every screenshot matching an FTS5 query.
     delete             Bulk-delete screenshots matching an FTS5 query (defaults to dry-run).
+    pin                Bulk-pin screenshots matching an FTS5 query (defaults to dry-run).
+    unpin              Bulk-unpin screenshots matching an FTS5 query.
     export-settings    Dump every preference table to a JSON file (--out FILE).
     import-settings    Insert rows from a settings JSON file (--in FILE [--replace]).
     export-stats-csv   Per-day-per-app rollup CSV (--days N, --out FILE).
@@ -48,6 +50,7 @@ from app.backup.snapshot import (
     restore_backup,
 )
 from app.bulk_delete import bulk_delete
+from app.bulk_pin import bulk_pin, bulk_unpin
 from app.bulk_tag import bulk_tag, bulk_untag
 from app.capture import capture_primary_monitor, get_active_window
 from app.day_collage import build_day_collage
@@ -822,6 +825,68 @@ async def _cmd_delete(query: str, limit: int, confirm: bool) -> int:
     return 0
 
 
+async def _cmd_pin(query: str, limit: int, confirm: bool) -> int:
+    """Bulk-pin screenshots matching ``query``; dry-run unless ``confirm``.
+
+    Mirrors :func:`_cmd_delete` — the destructive ``--confirm`` flag
+    refuses to run without ``--query`` so a typo cannot accidentally pin
+    every shot in the database.
+    """
+    if confirm and not query.strip():
+        print("error: --confirm requires --query", file=sys.stderr)
+        return 2
+    if not query.strip():
+        print("error: empty search query", file=sys.stderr)
+        return 2
+    if limit < 1:
+        print(f"error: --limit must be >= 1, got {limit}", file=sys.stderr)
+        return 2
+
+    try:
+        result = await bulk_pin(query, limit, dry_run=not confirm)
+    except aiosqlite.OperationalError as exc:
+        print(f"error: malformed FTS5 query: {exc}", file=sys.stderr)
+        return 2
+
+    if result["dry_run"]:
+        print(f"Matched {result['matched']} screenshots (dry-run; nothing pinned).")
+        preview = result["ids"][:10]
+        if preview:
+            joined = ", ".join(str(i) for i in preview)
+            more = "" if len(result["ids"]) <= 10 else f" (+{len(result['ids']) - 10} more)"
+            print(f"First ids: {joined}{more}")
+        print("Re-run with --confirm --query ... to pin for real.")
+        return 0
+
+    print(f"Pinned {result['pinned']} screenshots.")
+    return 0
+
+
+async def _cmd_unpin(query: str, limit: int) -> int:
+    """Bulk-unpin screenshots matching ``query``.
+
+    Un-pinning is non-destructive (the rows drop back to ``hot`` and the
+    regular tier sweep handles them), so there is no ``--confirm``
+    handshake here — symmetry with the web route, which also skips the
+    HMAC preview step for un-pin.
+    """
+    if not query.strip():
+        print("error: empty search query", file=sys.stderr)
+        return 2
+    if limit < 1:
+        print(f"error: --limit must be >= 1, got {limit}", file=sys.stderr)
+        return 2
+
+    try:
+        result = await bulk_unpin(query, limit)
+    except aiosqlite.OperationalError as exc:
+        print(f"error: malformed FTS5 query: {exc}", file=sys.stderr)
+        return 2
+
+    print(f"Unpinned {result['pinned']} screenshots.")
+    return 0
+
+
 async def _cmd_export_stats_csv(days: int, out: Path) -> int:
     """Write the per-day-per-app stats CSV produced by :func:`export_stats_csv`."""
     if days < 1:
@@ -1178,6 +1243,54 @@ def _build_parser() -> argparse.ArgumentParser:  # noqa: PLR0915 — flat subpar
         help="Actually delete (without this flag the command is a dry-run).",
     )
 
+    pin_parser = sub.add_parser(
+        "pin",
+        help=(
+            "Bulk-pin screenshots matching an FTS5 query so retention "
+            "never demotes them (dry-run unless --confirm)."
+        ),
+    )
+    pin_parser.add_argument(
+        "--query",
+        dest="query",
+        default="",
+        help="FTS5 MATCH query — same syntax as `persona search`.",
+    )
+    pin_parser.add_argument(
+        "--limit",
+        dest="limit",
+        type=int,
+        default=100,
+        help="Maximum number of screenshots to pin (default: 100).",
+    )
+    pin_parser.add_argument(
+        "--confirm",
+        dest="confirm",
+        action="store_true",
+        help="Actually pin (without this flag the command is a dry-run).",
+    )
+
+    unpin_parser = sub.add_parser(
+        "unpin",
+        help=(
+            "Bulk-unpin screenshots matching an FTS5 query "
+            "(drops them back to the hot tier — non-destructive)."
+        ),
+    )
+    unpin_parser.add_argument(
+        "--query",
+        dest="query",
+        required=True,
+        help="FTS5 MATCH query — same syntax as `persona search`.",
+    )
+    unpin_parser.add_argument(
+        "--limit",
+        dest="limit",
+        type=int,
+        default=100,
+        help="Maximum number of screenshots to unpin (default: 100).",
+    )
+
     export_settings_parser = sub.add_parser(
         "export-settings",
         help="Dump every preference table (kv, redaction, webhooks, …) to a JSON file.",
@@ -1416,6 +1529,10 @@ async def _run(args: argparse.Namespace) -> int:  # noqa: PLR0911, PLR0912 — d
         return await _cmd_untag(args.tag_name, args.query, args.limit)
     if args.command == "delete":
         return await _cmd_delete(args.query, args.limit, args.confirm)
+    if args.command == "pin":
+        return await _cmd_pin(args.query, args.limit, args.confirm)
+    if args.command == "unpin":
+        return await _cmd_unpin(args.query, args.limit)
     if args.command == "export-settings":
         return await _cmd_export_settings(args.out)
     if args.command == "import-settings":

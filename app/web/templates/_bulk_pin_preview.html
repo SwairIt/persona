@@ -1,0 +1,74 @@
+{# Fragment returned by /admin/bulk-pin/preview, /confirm and /unpin.
+   Receives either `preview` (dry-run summary + HMAC token) or `result`
+   (actual outcome — `result.mode` is "pin" or "unpin"). Swapped into
+   #bulk-pin-preview by HTMX. #}
+
+{% if result is defined %}
+  <div class="rounded-lg border border-emerald-700/60 bg-emerald-900/20 p-5">
+    {% if result.mode == "unpin" %}
+      <h2 class="text-lg font-semibold text-emerald-200 mb-2">Un-pinned.</h2>
+      <p class="text-emerald-100 text-sm">
+        Un-pinned <strong>{{ result.pinned }}</strong> screenshot(s) matching
+        <code class="font-mono text-xs bg-ink-900 px-1.5 py-0.5 rounded">{{ result.query }}</code>
+        (matched {{ result.matched }}). They are back in <code class="font-mono">hot</code>
+        and the regular tier sweep will demote them again as needed.
+      </p>
+    {% else %}
+      <h2 class="text-lg font-semibold text-emerald-200 mb-2">Pinned.</h2>
+      <p class="text-emerald-100 text-sm">
+        Pinned <strong>{{ result.pinned }}</strong> screenshot(s) matching
+        <code class="font-mono text-xs bg-ink-900 px-1.5 py-0.5 rounded">{{ result.query }}</code>
+        (matched {{ result.matched }}). Retention will leave them alone.
+      </p>
+    {% endif %}
+    <p class="text-emerald-200/70 text-xs mt-3">
+      Run another query above, or
+      <a href="/admin/bulk-pin" class="underline hover:text-emerald-100">reset the page</a>.
+    </p>
+  </div>
+{% elif preview is defined %}
+  {% if preview.matched == 0 %}
+    <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+      <p class="text-zinc-300 text-sm">
+        No screenshots matched
+        <code class="font-mono text-xs bg-ink-900 px-1.5 py-0.5 rounded">{{ preview.query }}</code>.
+        Nothing to pin.
+      </p>
+    </div>
+  {% else %}
+    <div class="rounded-lg border border-amber-700 bg-amber-900/30 p-5 space-y-4">
+      <h2 class="text-lg font-semibold text-amber-100">
+        {{ preview.matched }} screenshot{{ "s" if preview.matched != 1 else "" }} will be pinned
+      </h2>
+      <p class="text-amber-100/80 text-sm">
+        Query:
+        <code class="font-mono text-xs bg-ink-900 px-1.5 py-0.5 rounded">{{ preview.query }}</code>
+        · limit {{ preview.limit }}
+      </p>
+
+      {% if preview.ids %}
+        <details class="text-xs text-amber-100/70">
+          <summary class="cursor-pointer hover:text-amber-50">Show first {{ preview.ids|length }} ids</summary>
+          <div class="mt-2 font-mono break-all">
+            {{ preview.ids|join(", ") }}
+          </div>
+        </details>
+      {% endif %}
+
+      <form hx-post="/admin/bulk-pin/confirm"
+            hx-target="#bulk-pin-preview"
+            hx-swap="innerHTML"
+            hx-confirm="Pin {{ preview.matched }} screenshot(s)? They will be exempt from retention until you un-pin them."
+            class="pt-2 border-t border-amber-700/60">
+        <input type="hidden" name="query"   value="{{ preview.query }}">
+        <input type="hidden" name="limit"   value="{{ preview.limit }}">
+        <input type="hidden" name="matched" value="{{ preview.matched }}">
+        <input type="hidden" name="token"   value="{{ preview.token }}">
+        <button type="submit"
+                class="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded text-sm font-bold tracking-wide">
+          Pin {{ preview.matched }} match{{ "es" if preview.matched != 1 else "" }}
+        </button>
+      </form>
+    </div>
+  {% endif %}
+{% endif %}
