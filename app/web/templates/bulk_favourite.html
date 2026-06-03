@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight flex items-center gap-3">
+    <span class="text-yellow-400">★</span> Bulk favourite
+  </h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Apply the ★ favourite mark to every screenshot matching a full-text
+    search query — favourites surface on
+    <a href="/favourites" class="underline hover:text-zinc-300">/favourites</a>
+    as a quick-recall grid. Distinct from
+    <a href="/admin/bulk-pin" class="underline hover:text-zinc-300">bulk pin</a>:
+    pinning protects shots from retention demotion, while favouriting
+    is purely a discovery shortcut. A shot may be one, both, or neither.
+  </p>
+</div>
+
+<div class="rounded-lg border border-yellow-700/60 bg-yellow-900/20 p-4 mb-8">
+  <p class="text-yellow-100 text-sm">
+    <strong class="font-semibold">Heads up.</strong>
+    Favouriting is non-destructive but a runaway query
+    (<code class="font-mono">query="."</code>) can star thousands of
+    shots in one click and turn the favourites grid into noise. Always
+    preview first to see the match count. The confirm button only
+    appears after a preview, and the confirmation token is invalidated
+    as soon as the query or match count changes.
+  </p>
+</div>
+
+<form id="bulk-favourite-form"
+      hx-post="/admin/bulk-favourite/preview"
+      hx-target="#bulk-favourite-preview"
+      hx-swap="innerHTML"
+      class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6 space-y-4">
+  <label class="block">
+    <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">FTS5 query</span>
+    <input name="query" required minlength="1" maxlength="500"
+           autocomplete="off"
+           placeholder='e.g. "invoice" or app:figma OR design'
+           class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm focus:outline-none focus:border-yellow-500">
+  </label>
+  <label class="block max-w-xs">
+    <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">Limit (max 10000)</span>
+    <input name="limit" type="number" min="1" max="10000" value="{{ default_limit }}"
+           class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm focus:outline-none focus:border-yellow-500">
+  </label>
+  <div class="flex items-center gap-3">
+    <button type="submit"
+            class="px-4 py-2 bg-yellow-600 hover:bg-yellow-500 text-white rounded text-sm font-medium">
+      Preview matches
+    </button>
+    <span class="text-xs text-zinc-500">Preview is always dry-run — nothing is starred yet.</span>
+  </div>
+</form>
+
+<div id="bulk-favourite-preview"></div>
+
+<details class="mt-10 rounded-lg border border-ink-700 bg-ink-800 p-5">
+  <summary class="cursor-pointer text-sm font-medium text-zinc-200">
+    Un-favourite by query
+  </summary>
+  <p class="text-zinc-500 text-xs mt-2 mb-4">
+    Strips the ★ from every matching shot. No preview step —
+    re-favouriting is one form away.
+  </p>
+  <form hx-post="/admin/bulk-favourite/unfavourite"
+        hx-target="#bulk-favourite-preview"
+        hx-swap="innerHTML"
+        hx-confirm="Un-favourite every screenshot matching this query?"
+        class="space-y-3">
+    <label class="block">
+      <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">FTS5 query</span>
+      <input name="query" required minlength="1" maxlength="500"
+             autocomplete="off"
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm focus:outline-none focus:border-yellow-500">
+    </label>
+    <label class="block max-w-xs">
+      <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">Limit (max 10000)</span>
+      <input name="limit" type="number" min="1" max="10000" value="{{ default_limit }}"
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm focus:outline-none focus:border-yellow-500">
+    </label>
+    <button type="submit"
+            class="px-4 py-2 bg-zinc-700 hover:bg-zinc-600 text-white rounded text-sm font-medium">
+      Un-favourite matches
+    </button>
+  </form>
+</details>
+{% endblock %}

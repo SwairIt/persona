@@ -51,6 +51,7 @@ from app.web.routes import (
     bulk_pin as bulk_pin_routes,
     bulk_untag as bulk_untag_routes,
     bulk_delete as bulk_delete_routes,
+    bulk_favourite as bulk_favourite_routes,
     cal_nav as cal_nav_routes,
     calendar as calendar_routes,
     capture_api,
@@ -128,6 +129,7 @@ from app.web.routes import (
     palette as palette_routes,
     pdf_export as pdf_export_routes,
     per_app_digest as per_app_digest_routes,
+    personal_metrics as personal_metrics_routes,
     permalinks as permalinks_routes,
     phrase_autotag_suggest as phrase_autotag_suggest_routes,
     phrase_frequency as phrase_frequency_routes,
@@ -298,7 +300,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.4.0",
+        version="1.5.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -539,6 +541,8 @@ def create_app() -> FastAPI:
     app.include_router(search_query_stats_routes.router)
     app.include_router(side_by_side_routes.router)
     app.include_router(word_search_routes.router)
+    app.include_router(bulk_favourite_routes.router)
+    app.include_router(personal_metrics_routes.router)
 
     return app
 

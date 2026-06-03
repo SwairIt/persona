@@ -17,6 +17,8 @@ Subcommands:
     delete             Bulk-delete screenshots matching an FTS5 query (defaults to dry-run).
     pin                Bulk-pin screenshots matching an FTS5 query (defaults to dry-run).
     unpin              Bulk-unpin screenshots matching an FTS5 query.
+    favourite          Bulk-star screenshots matching an FTS5 query (defaults to dry-run).
+    unfavourite        Bulk-unstar screenshots matching an FTS5 query.
     lock-shots         Bulk-lock screenshots matching an FTS5 query (defaults to dry-run).
     unlock-shots       Bulk-unlock screenshots matching an FTS5 query (defaults to dry-run).
     export-settings    Dump every preference table to a JSON file (--out FILE).
@@ -62,6 +64,7 @@ from app.backup.snapshot import (
     verify_backup,
 )
 from app.bulk_delete import bulk_delete
+from app.bulk_favourite import bulk_favourite, bulk_unfavourite
 from app.bulk_pin import bulk_pin, bulk_unpin
 from app.bulk_tag import bulk_tag, bulk_untag
 from app.capture import capture_primary_monitor, get_active_window
@@ -985,6 +988,69 @@ async def _cmd_unpin(query: str, limit: int) -> int:
     return 0
 
 
+async def _cmd_favourite(query: str, limit: int, confirm: bool) -> int:
+    """Bulk-favourite screenshots matching ``query``; dry-run unless ``confirm``.
+
+    Mirrors :func:`_cmd_pin` — the destructive ``--confirm`` flag refuses
+    to run without ``--query`` so a typo cannot accidentally star every
+    shot in the database.
+    """
+    if confirm and not query.strip():
+        print("error: --confirm requires --query", file=sys.stderr)
+        return 2
+    if not query.strip():
+        print("error: empty search query", file=sys.stderr)
+        return 2
+    if limit < 1:
+        print(f"error: --limit must be >= 1, got {limit}", file=sys.stderr)
+        return 2
+
+    try:
+        result = await bulk_favourite(query, limit, dry_run=not confirm)
+    except aiosqlite.OperationalError as exc:
+        print(f"error: malformed FTS5 query: {exc}", file=sys.stderr)
+        return 2
+
+    if result["dry_run"]:
+        print(f"Matched {result['matched']} screenshots (dry-run; nothing starred).")
+        preview = result["ids"][:10]
+        if preview:
+            joined = ", ".join(str(i) for i in preview)
+            more = "" if len(result["ids"]) <= 10 else f" (+{len(result['ids']) - 10} more)"
+            print(f"First ids: {joined}{more}")
+        print("Re-run with --confirm --query ... to favourite for real.")
+        return 0
+
+    print(f"Favourited {result['favourited']} screenshots.")
+    return 0
+
+
+async def _cmd_unfavourite(query: str, limit: int) -> int:
+    """Bulk-unfavourite screenshots matching ``query``.
+
+    Un-favouriting is non-destructive (only the ``favourite`` link rows
+    are removed; the screenshots themselves are untouched), so there is
+    no ``--confirm`` handshake here — symmetry with :func:`_cmd_unpin`
+    and the web route, which also skips the HMAC preview step for
+    un-favouriting.
+    """
+    if not query.strip():
+        print("error: empty search query", file=sys.stderr)
+        return 2
+    if limit < 1:
+        print(f"error: --limit must be >= 1, got {limit}", file=sys.stderr)
+        return 2
+
+    try:
+        result = await bulk_unfavourite(query, limit)
+    except aiosqlite.OperationalError as exc:
+        print(f"error: malformed FTS5 query: {exc}", file=sys.stderr)
+        return 2
+
+    print(f"Unfavourited {result['favourited']} screenshots.")
+    return 0
+
+
 async def _cmd_lock_shots(query: str, limit: int, confirm: bool) -> int:
     """Bulk-lock screenshots matching ``query``; dry-run unless ``confirm``.
 
@@ -1753,6 +1819,54 @@ def _build_parser() -> argparse.ArgumentParser:  # noqa: PLR0915 — flat subpar
         help="Maximum number of screenshots to unpin (default: 100).",
     )
 
+    favourite_parser = sub.add_parser(
+        "favourite",
+        help=(
+            "Bulk-star screenshots matching an FTS5 query so they "
+            "appear on /favourites (dry-run unless --confirm)."
+        ),
+    )
+    favourite_parser.add_argument(
+        "--query",
+        dest="query",
+        default="",
+        help="FTS5 MATCH query — same syntax as `persona search`.",
+    )
+    favourite_parser.add_argument(
+        "--limit",
+        dest="limit",
+        type=int,
+        default=100,
+        help="Maximum number of screenshots to favourite (default: 100).",
+    )
+    favourite_parser.add_argument(
+        "--confirm",
+        dest="confirm",
+        action="store_true",
+        help="Actually favourite (without this flag the command is a dry-run).",
+    )
+
+    unfavourite_parser = sub.add_parser(
+        "unfavourite",
+        help=(
+            "Bulk-unstar screenshots matching an FTS5 query "
+            "(removes them from /favourites — non-destructive)."
+        ),
+    )
+    unfavourite_parser.add_argument(
+        "--query",
+        dest="query",
+        required=True,
+        help="FTS5 MATCH query — same syntax as `persona search`.",
+    )
+    unfavourite_parser.add_argument(
+        "--limit",
+        dest="limit",
+        type=int,
+        default=100,
+        help="Maximum number of screenshots to unfavourite (default: 100).",
+    )
+
     lock_shots_parser = sub.add_parser(
         "lock-shots",
         help=(
@@ -2208,6 +2322,10 @@ async def _run(args: argparse.Namespace) -> int:  # noqa: PLR0911, PLR0912 — d
         return await _cmd_pin(args.query, args.limit, args.confirm)
     if args.command == "unpin":
         return await _cmd_unpin(args.query, args.limit)
+    if args.command == "favourite":
+        return await _cmd_favourite(args.query, args.limit, args.confirm)
+    if args.command == "unfavourite":
+        return await _cmd_unfavourite(args.query, args.limit)
     if args.command == "lock-shots":
         return await _cmd_lock_shots(args.query, args.limit, args.confirm)
     if args.command == "unlock-shots":

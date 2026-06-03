@@ -91,4 +91,33 @@
     </button>
   </form>
 </section>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mt-6">
+  <h2 class="text-lg font-semibold mb-2">Import from URL</h2>
+  <p class="text-zinc-400 text-sm mb-4">
+    Fetches a backup JSON from a remote <code class="text-zinc-300">http(s)</code>
+    URL and applies it in <strong>merge</strong> mode (additive — existing rows are
+    kept). Handy for syncing preferences across machines: point each instance at
+    the same private gist or internal share, then re-trigger the import after
+    edits. Capped at 1&nbsp;MiB with a 5&nbsp;second timeout.
+  </p>
+  <form action="/settings/backup/import-url" method="post" class="space-y-4">
+    <label class="block">
+      <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">
+        Backup URL
+      </span>
+      <input type="url" name="url" required
+             placeholder="https://example.com/persona-settings.json"
+             pattern="https?://.+"
+             class="block w-full text-sm text-zinc-200 bg-ink-900
+                    border border-ink-700 rounded px-3 py-2
+                    focus:outline-none focus:border-accent-500">
+    </label>
+    <button type="submit"
+            onclick="return confirm('Fetch and import settings from this URL?');"
+            class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
+      Import from URL
+    </button>
+  </form>
+</section>
 {% endblock %}
