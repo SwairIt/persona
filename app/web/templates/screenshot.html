@@ -545,4 +545,19 @@
      aria-live="polite">
   <span class="opacity-60">Loading possibly related…</span>
 </div>
+
+{# Semantically related — v0.68 feature 1/3.
+   Sister strip to the v0.47 one above: same HTMX pattern, but the
+   ranking is cosine similarity over OCR-text embeddings rather than
+   pHash/dedup. Renders as a hidden section when the seed shot has no
+   embedding yet, numpy is missing, or no candidate clears the floor —
+   the strip silently disappears instead of showing an empty box. #}
+<div id="semantic-similar-strip-{{ shot.id }}"
+     hx-get="/api/screenshot/{{ shot.id }}/semantic-similar.json"
+     hx-trigger="load"
+     hx-swap="outerHTML"
+     class="mt-4 text-xs text-zinc-500"
+     aria-live="polite">
+  <span class="opacity-60">Loading semantically related…</span>
+</div>
 {% endblock %}

@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Monthly digests</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Auto-generated LLM retrospectives — runs on the 1st of every month at <code class="text-zinc-300">PERSONA_MONTHLY_DIGEST_HOUR_LOCAL</code>
+    when <code class="text-zinc-300">PERSONA_MONTHLY_DIGEST_ENABLED=true</code>. Each entry covers the calendar month that just closed.
+  </p>
+</div>
+
+{% if not digests %}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-6 text-center">
+    <p class="text-zinc-300">No monthly digests yet.</p>
+    <p class="text-zinc-500 text-sm mt-2">
+      Enable monthly digest in <code>.env</code> and add your BYO LLM key.
+      Or look at the weekly view at <a href="/digest/weekly-archive" class="text-accent-400">/digest/weekly-archive</a>.
+    </p>
+  </div>
+{% else %}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-ink-900 text-zinc-500 text-xs uppercase tracking-wider">
+        <tr>
+          <th class="text-left py-2 px-4">Month</th>
+          <th class="text-left py-2 px-4">Provider</th>
+          <th class="text-right py-2 px-4">Length</th>
+          <th class="text-left py-2 px-4">Generated</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for d in digests %}
+          <tr class="border-t border-ink-700 hover:bg-ink-900/50">
+            <td class="py-2 px-4">
+              <a href="/digest/monthly-archive/{{ d.month }}" class="text-zinc-200 hover:text-accent-400 font-mono">
+                {{ d.month }}
+              </a>
+            </td>
+            <td class="py-2 px-4 text-xs text-zinc-400">{{ d.provider or '—' }}</td>
+            <td class="py-2 px-4 text-right font-mono text-zinc-500">{{ d.length }} chars</td>
+            <td class="py-2 px-4 text-xs text-zinc-500 font-mono">{{ d.generated_at[:19] }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endif %}
+{% endblock %}

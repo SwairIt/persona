@@ -1,0 +1,43 @@
+{# Semantically-related strip fragment served by
+   /api/screenshot/{id}/semantic-similar.json.
+
+   Mirrors the v0.47 ``_dup_suggest_strip.html`` layout so the two
+   "related" rows on the screenshot detail page feel like siblings:
+   same card sizing, same hover lift, same per-card metadata block.
+   The differentiator is the cosine-similarity badge on each card —
+   the v0.47 strip shows ``group`` / ``pHash`` instead.
+
+   HTMX swaps this whole <section> in via ``hx-swap="outerHTML"`` so
+   the loading placeholder on the detail page is replaced rather than
+   wrapped. When ``suggestions`` is empty we emit a hidden marker so
+   the layout doesn't jump. #}
+<section id="semantic-similar-strip-{{ shot_id }}"
+         class="rounded-lg border border-ink-700 bg-ink-800 p-4 mt-4{% if not suggestions %} hidden{% endif %}">
+  <h3 class="text-xs uppercase tracking-widest text-zinc-500 mb-3">
+    Semantically related
+    <span class="text-zinc-600">· nearest by OCR-text embedding</span>
+  </h3>
+  {% if suggestions %}
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+      {% for s in suggestions %}
+        <a href="/screenshot/{{ s.id }}"
+           data-similarity="{{ s.similarity }}"
+           class="block rounded overflow-hidden border border-ink-700 hover:border-accent-500 transition group"
+           title="{{ s.app_name or '—' }} · {{ s.captured_at }} · cosine {{ s.similarity }}">
+          <div class="aspect-video bg-ink-900 flex items-center justify-center">
+            <span class="text-[10px] text-zinc-500 font-mono">#{{ s.id }}</span>
+          </div>
+          <div class="px-2 py-1.5 flex items-center justify-between gap-1.5">
+            <span class="text-[10px] text-zinc-400 font-mono truncate">
+              {{ s.app_name or '—' }}
+            </span>
+            <span class="text-[9px] px-1 py-0.5 rounded bg-violet-500/15 text-violet-300 flex-shrink-0"
+                  title="Cosine similarity">
+              {{ '%.2f' | format(s.similarity) }}
+            </span>
+          </div>
+        </a>
+      {% endfor %}
+    </div>
+  {% endif %}
+</section>

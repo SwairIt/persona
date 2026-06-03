@@ -88,6 +88,7 @@ from app.web.routes import (
     lang_autodetect as lang_autodetect_routes,
     live_sse as live_sse_routes,
     mobile as mobile_routes,
+    monthly_digests as monthly_digests_routes,
     note_assist as note_assist_routes,
     note_templates as note_templates_routes,
     notes as notes_routes,
@@ -137,6 +138,7 @@ from app.web.routes import (
     search as search_routes,
     search_autocomplete as search_autocomplete_routes,
     search_facets as search_facets_routes,
+    semantic_similar as semantic_similar_routes,
     share as share_routes,
     share_visits_csv as share_visits_csv_routes,
     shot_of_day as shot_of_day_routes,
@@ -188,6 +190,7 @@ from app.workers import (
     run_webhook_retry_worker,
     run_weekly_stats_email_scheduler,
     run_inbox_worker,
+    run_monthly_digest_scheduler,
     run_digest_scheduler,
     run_embeddings_worker,
     run_ocr_worker,
@@ -222,7 +225,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.67.0",
+        version="0.68.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -390,6 +393,8 @@ def create_app() -> FastAPI:
     app.include_router(sticky_export_routes.router)
     app.include_router(push_notif_routes.router)
     app.include_router(app_capture_skip_routes.router)
+    app.include_router(semantic_similar_routes.router)
+    app.include_router(monthly_digests_routes.router)
 
     return app
 
@@ -413,6 +418,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         asyncio.create_task(run_saved_search_alert_worker(controller), name="saved-search-alert"),
         asyncio.create_task(run_weekly_stats_email_scheduler(controller), name="weekly-stats-email"),
         asyncio.create_task(run_webhook_retry_worker(controller), name="webhook-retry"),
+        asyncio.create_task(run_monthly_digest_scheduler(controller), name="monthly-digest-scheduler"),
     ]
 
     controller.pause()

@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto">
+  <div class="mb-6">
+    <a href="/digest/monthly-archive" class="text-accent-400 text-sm hover:underline">← all monthly digests</a>
+    <h1 class="text-2xl font-bold tracking-tight mt-2 font-mono">{{ month }}</h1>
+    <p class="text-zinc-500 text-xs mt-1 font-mono">{{ provider or '—' }} · generated {{ generated_at[:19] }}</p>
+  </div>
+  <article class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <pre class="whitespace-pre-wrap font-sans text-zinc-200 leading-relaxed">{{ body }}</pre>
+  </article>
+</div>
+{% endblock %}

@@ -7,6 +7,7 @@ from app.workers.daily_email_scheduler import run_daily_email_scheduler
 from app.workers.digest_scheduler import run_digest_scheduler
 from app.workers.embeddings_worker import run_embeddings_worker
 from app.workers.inbox_worker import run_inbox_worker
+from app.workers.monthly_digest_scheduler import run_monthly_digest_scheduler
 from app.workers.ocr_worker import run_ocr_worker
 from app.workers.retention import run_retention_worker
 from app.workers.saved_search_alert import run_saved_search_alert_worker
@@ -25,6 +26,7 @@ __all__ = [
     "run_digest_scheduler",
     "run_embeddings_worker",
     "run_inbox_worker",
+    "run_monthly_digest_scheduler",
     "run_ocr_worker",
     "run_retention_worker",
     "run_saved_search_alert_worker",

@@ -48,6 +48,8 @@ class Settings(BaseSettings):
     auto_digest_hour_local: int = Field(default=22, ge=0, le=23)
     weekly_digest_enabled: bool = Field(default=False)
     weekly_digest_hour_local: int = Field(default=8, ge=0, le=23)
+    monthly_digest_enabled: bool = Field(default=False)
+    monthly_digest_hour_local: int = Field(default=9, ge=0, le=23)
     daily_email_enabled: bool = Field(default=False)
     daily_email_hour_local: int = Field(default=8, ge=0, le=23)
     weekly_stats_email_enabled: bool = Field(default=False)
