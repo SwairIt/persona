@@ -69,6 +69,12 @@
   <script src="/static/drag_to_tag.js" defer></script>
   <script src="/static/drag_drop_import.js" defer></script>
   <script src="/static/bulk_select.js" defer></script>
+  {# v0.99 feature 2/3 — quick-pin keyboard shortcut. Press `P` on a
+     /screenshot/{id} page (body carries data-shot-id-active) or with
+     a thumbnail focused to flip its pinned state without reaching for
+     the mouse. Self-contained vanilla JS; silent no-op when no shot
+     can be resolved from the focus chain. #}
+  <script src="/static/quick_pin.js" defer></script>
   {% block head_extra %}{% endblock %}
   <script>
     tailwind.config = {

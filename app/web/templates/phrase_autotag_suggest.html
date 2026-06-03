@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-8 flex flex-wrap items-end justify-between gap-4">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Phrase auto-tag suggestions</h1>
+    <p class="text-zinc-500 text-sm mt-1 max-w-2xl">
+      High-frequency {{ n_gram }}-word phrases from the last {{ days }}
+      day{{ '' if days == 1 else 's' }} that aren&rsquo;t covered by any
+      existing rule yet. Edit the proposed tag if you like, then click
+      <em>Adopt</em> to create a real
+      <a href="/settings/phrase-tags" class="text-accent-400 hover:underline">phrase auto-tag rule</a>.
+    </p>
+  </div>
+
+  <form method="get" action="/admin/phrase-tags/suggestions"
+        class="flex flex-wrap items-end gap-3 text-sm">
+    <label class="flex flex-col gap-1">
+      <span class="text-xs uppercase tracking-widest text-zinc-500">Window</span>
+      <select name="days"
+              class="bg-ink-800 border border-ink-700 rounded-md px-2 py-1.5 text-zinc-100
+                     focus:outline-none focus:ring-2 focus:ring-accent-500">
+        {% for choice in allowed_days %}
+          <option value="{{ choice }}" {% if choice == days %}selected{% endif %}>
+            {{ choice }} days
+          </option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="flex flex-col gap-1">
+      <span class="text-xs uppercase tracking-widest text-zinc-500">Length</span>
+      <select name="n"
+              class="bg-ink-800 border border-ink-700 rounded-md px-2 py-1.5 text-zinc-100
+                     focus:outline-none focus:ring-2 focus:ring-accent-500">
+        {% for choice in allowed_n_gram %}
+          <option value="{{ choice }}" {% if choice == n_gram %}selected{% endif %}>
+            {{ choice }}-gram
+          </option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="flex flex-col gap-1">
+      <span class="text-xs uppercase tracking-widest text-zinc-500">Show</span>
+      <select name="top"
+              class="bg-ink-800 border border-ink-700 rounded-md px-2 py-1.5 text-zinc-100
+                     focus:outline-none focus:ring-2 focus:ring-accent-500">
+        {% for choice in allowed_top %}
+          <option value="{{ choice }}" {% if choice == top %}selected{% endif %}>
+            top {{ choice }}
+          </option>
+        {% endfor %}
+      </select>
+    </label>
+    <button type="submit"
+            class="px-3 py-1.5 rounded-md bg-accent-600/20 text-accent-400 hover:bg-accent-600/30
+                   border border-accent-600/40 transition">
+      Refresh
+    </button>
+  </form>
+</div>
+
+{% if suggestions %}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-ink-900 text-zinc-500 text-xs uppercase tracking-wider">
+        <tr>
+          <th class="text-left py-2 px-4">Phrase</th>
+          <th class="text-right py-2 px-4">Occurrences</th>
+          <th class="text-left py-2 px-4">Suggested tag</th>
+          <th class="py-2 px-4 text-right">Adopt</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in suggestions %}
+          <tr class="border-t border-ink-700">
+            <td class="py-2 px-4 text-zinc-200 break-all">
+              <a href="/search?q={{ item.phrase | urlencode }}"
+                 class="hover:text-accent-300 hover:underline"
+                 title="Search the archive for this phrase">
+                {{ item.phrase }}
+              </a>
+            </td>
+            <td class="py-2 px-4 text-right tabular-nums text-zinc-400">
+              {{ item.count }}
+            </td>
+            <td class="py-2 px-4">
+              <form action="/settings/phrase-tags"
+                    method="post"
+                    class="flex flex-wrap items-center gap-2">
+                <input type="hidden" name="phrase" value="{{ item.phrase }}">
+                <input name="tag"
+                       value="{{ item.suggested_tag }}"
+                       required
+                       class="px-2 py-1 bg-ink-900 border border-ink-700 rounded text-sm
+                              text-zinc-100 focus:outline-none focus:border-accent-500
+                              min-w-[10rem]">
+                <label class="flex items-center gap-1 text-xs text-zinc-400">
+                  <input type="checkbox" name="case_sensitive" value="1"
+                         class="w-3.5 h-3.5 rounded bg-ink-900 border-ink-700">
+                  <span>case</span>
+                </label>
+                <button type="submit"
+                        class="px-3 py-1 rounded bg-accent-600 hover:bg-accent-500
+                               text-sm font-medium text-white">
+                  Adopt
+                </button>
+              </form>
+            </td>
+            <td class="py-2 px-4"></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <p class="text-xs text-zinc-500 mt-4">
+    Suggestions skip phrases that already have a rule. Existing rules live on the
+    <a href="/settings/phrase-tags" class="text-accent-400 hover:underline">phrase auto-tags page</a>.
+  </p>
+{% else %}
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-10 text-center text-zinc-500">
+    <div class="text-4xl mb-3">&empty;</div>
+    <p>
+      No {{ n_gram }}-word suggestions for the last {{ days }}
+      day{{ '' if days == 1 else 's' }}.
+    </p>
+    <p class="mt-1 text-xs">
+      Either every popular phrase already has a rule, or OCR hasn&rsquo;t
+      collected enough text yet &mdash; try a longer window.
+    </p>
+  </section>
+{% endif %}
+{% endblock %}

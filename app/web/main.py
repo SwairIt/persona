@@ -126,6 +126,7 @@ from app.web.routes import (
     pdf_export as pdf_export_routes,
     per_app_digest as per_app_digest_routes,
     permalinks as permalinks_routes,
+    phrase_autotag_suggest as phrase_autotag_suggest_routes,
     phrase_frequency as phrase_frequency_routes,
     pin as pin_routes,
     ping_heatmap as ping_heatmap_routes,
@@ -289,7 +290,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.98.0",
+        version="0.99.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -521,6 +522,7 @@ def create_app() -> FastAPI:
     app.include_router(bulk_untag_routes.router)
     app.include_router(llm_usage_routes.router)
     app.include_router(shot_groups_routes.router)
+    app.include_router(phrase_autotag_suggest_routes.router)
 
     return app
 
