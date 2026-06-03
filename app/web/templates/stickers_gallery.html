@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-start justify-between gap-4 flex-wrap">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Stickers</h1>
+    <p class="text-zinc-500 text-sm mt-1 max-w-2xl">
+      Every sticky note you've pinned across every screenshot, newest first.
+      Click a tile to jump to its shot &mdash; the note will be highlighted in
+      its original pinned position over the image.
+    </p>
+  </div>
+  <div class="text-xs text-zinc-500 font-mono flex-shrink-0">
+    {{ total }} sticker{{ '' if total == 1 else 's' }}
+    {% if total >= max_tiles %}
+      &middot; showing newest {{ max_tiles }}
+    {% endif %}
+  </div>
+</div>
+
+{% if tiles %}
+  <div class="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+    {% for tile in tiles %}
+      {# The tint map is small and deliberately conservative: anything we don't
+         recognise falls back to "yellow" so a freeform hex never bleeds into
+         the CSS class set (which would be a stable-style violation anyway).
+         The text uses zinc-900 on every swatch — these are all light pastels. #}
+      {% set _swatch = {
+        'yellow': 'bg-yellow-200/90 dark:bg-yellow-200/80',
+        'pink':   'bg-pink-200/90 dark:bg-pink-200/80',
+        'blue':   'bg-sky-200/90 dark:bg-sky-200/80',
+        'green':  'bg-emerald-200/90 dark:bg-emerald-200/80',
+        'orange': 'bg-orange-200/90 dark:bg-orange-200/80',
+        'purple': 'bg-violet-200/90 dark:bg-violet-200/80',
+      } %}
+      {% set _color_key = (tile.color or 'yellow') | lower %}
+      {% set _bg_class = _swatch.get(_color_key, _swatch['yellow']) %}
+      <a href="/screenshot/{{ tile.shot_id }}#sticky-{{ tile.sticky_id }}"
+         id="sticker-tile-{{ tile.sticky_id }}"
+         data-sticky-id="{{ tile.sticky_id }}"
+         data-shot-id="{{ tile.shot_id }}"
+         data-color="{{ tile.color }}"
+         class="group block rounded-lg overflow-hidden border border-ink-700 hover:border-accent-500 shadow-sm hover:shadow-md transition transform hover:-translate-y-0.5">
+        {% if tile.thumbnail_path %}
+          <div class="aspect-video bg-ink-900 overflow-hidden">
+            <img src="{{ tile.thumbnail_path | thumbnail_url }}"
+                 alt="Screenshot #{{ tile.shot_id }}"
+                 loading="lazy"
+                 width="320"
+                 class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300">
+          </div>
+        {% else %}
+          <div class="aspect-video bg-ink-900 flex items-center justify-center text-zinc-600 text-xs flex-col gap-1">
+            <span>no thumbnail</span>
+            <span class="text-[10px] text-zinc-700 truncate px-2">
+              shot #{{ tile.shot_id }}
+            </span>
+          </div>
+        {% endif %}
+
+        <div class="{{ _bg_class }} px-3 py-3 text-zinc-900">
+          <p class="text-sm leading-snug whitespace-pre-wrap break-words"
+             title="{{ tile.body_full }}">{{ tile.body_preview }}</p>
+          <div class="mt-2 flex items-center justify-between gap-2 text-[10px] font-mono text-zinc-700">
+            <span class="truncate" title="{{ tile.window_title or '' }}">
+              {{ tile.app_name or 'shot #' ~ tile.shot_id }}
+            </span>
+            <span class="flex-shrink-0" title="created {{ tile.created_at }}">
+              {{ tile.captured_at or tile.created_at }}
+            </span>
+          </div>
+        </div>
+      </a>
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="text-center py-20 px-6 rounded-lg border border-dashed border-ink-700 bg-ink-900/40">
+    <div class="text-5xl text-zinc-700 mb-4">&#9783;</div>
+    <h2 class="text-lg font-semibold text-zinc-300">No stickers yet</h2>
+    <p class="text-sm text-zinc-500 mt-2 max-w-md mx-auto">
+      Open any screenshot and double-click on the image to pin a sticky note.
+      Notes you create from the shot view will collect here, newest first, so
+      you can browse them across shots without losing visual context.
+    </p>
+    <a href="/"
+       class="inline-block mt-5 px-4 py-2 rounded-md bg-accent-600 hover:bg-accent-500 text-white text-sm font-medium transition">
+      Browse the timeline &rarr;
+    </a>
+  </div>
+{% endif %}
+{% endblock %}

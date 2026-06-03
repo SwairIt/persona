@@ -176,6 +176,7 @@ from app.web.routes import (
     shot_share_ui as shot_share_ui_routes,
     share_collection as share_collection_routes,
     share_collection_pdf as share_collection_pdf_routes,
+    share_collection_zip as share_collection_zip_routes,
     settings as settings_routes,
     settings_backup as settings_backup_routes,
     settings_diff as settings_diff_routes,
@@ -185,6 +186,7 @@ from app.web.routes import (
     stats_csv as stats_csv_routes,
     storage_report as storage_report_routes,
     storage_savings as storage_savings_routes,
+    stickers_gallery as stickers_gallery_routes,
     sticky_export as sticky_export_routes,
     sticky_notes as sticky_notes_routes,
     streak as streak_routes,
@@ -254,7 +256,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.81.0",
+        version="0.82.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -451,6 +453,8 @@ def create_app() -> FastAPI:
     app.include_router(embeddings_stats_routes.router)
     app.include_router(dashboard_tiles_routes.router)
     app.include_router(ocr_translate_routes.router)
+    app.include_router(stickers_gallery_routes.router)
+    app.include_router(share_collection_zip_routes.router)
 
     return app
 
