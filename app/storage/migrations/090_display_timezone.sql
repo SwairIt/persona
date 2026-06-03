@@ -1,0 +1,34 @@
+-- v1.10 fix 2/3 — operator-controlled display timezone for ``captured_at``.
+--
+-- Background
+-- ----------
+-- Captures are written to ``screenshots.captured_at`` as ISO-8601 UTC
+-- strings (see :func:`app.storage.time.iso`). Until v1.10 the Jinja
+-- filters ``|clock`` / ``|humantime`` rendered the value through
+-- ``strftime`` without converting from UTC, so an operator in MSK
+-- (UTC+3) saw a 21:19 capture show as 18:19 across the timeline cards
+-- and the screenshot detail metadata. The companion Python code in
+-- :mod:`app.web.templates_engine` adds a ``localtime`` filter that
+-- resolves the rendering zone from this kv row at template-render time
+-- (with a short-lived stdlib ``sqlite3`` reader, same pattern as the
+-- existing ``theme`` / ``compact_mode`` lookups).
+--
+-- Storage shape
+-- -------------
+--   * key   = ``'display_timezone'``
+--   * value = IANA timezone name (e.g. ``'Europe/Moscow'``) **or** the
+--             empty string ``''`` meaning "use the process-local zone
+--             as reported by :py:meth:`datetime.datetime.astimezone`".
+--             Empty string is the safe default because it preserves
+--             whatever the operator's OS clock already says — no
+--             config required for the common single-user install. An
+--             unknown IANA name falls back to the same process-local
+--             zone (see :func:`_resolve_display_tz`).
+--
+-- ``INSERT OR IGNORE`` only seeds the row when it is missing so re-runs
+-- of the migration after the operator picks a zone never reset their
+-- choice — mirrors the idempotency convention established by every
+-- other ``kv_settings`` seed migration in this directory (031_theme,
+-- 077_anim_toggle, 081_ui_language, …).
+
+INSERT OR IGNORE INTO kv_settings (key, value) VALUES ('display_timezone', '');

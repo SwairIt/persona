@@ -41,7 +41,7 @@
     {% endif %}
     <div class="flex items-center justify-between mt-0.5">
       <div class="text-[10px] text-zinc-500 font-mono">
-        {{ shot.captured_at | clock }}
+        {{ shot.captured_at | localtime }}
       </div>
       <div class="flex items-center gap-1">
         {% if shot.tier == 'pinned' %}

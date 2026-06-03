@@ -30,6 +30,7 @@ _compact_log = get_logger("persona.compact")
 _grayscale_log = get_logger("persona.grayscale")
 _reduce_motion_log = get_logger("persona.reduce_motion")
 _i18n_log = get_logger("persona.i18n")
+_boot_pause_log = get_logger("persona.boot_pause")
 
 # kv key shared with ``app.llm.summariser`` and ``app.llm.weekly_summariser``.
 # Kept as a route-level constant so the checkbox form-field name and the
@@ -50,6 +51,14 @@ _GRAYSCALE_MODE_KV_KEY = "grayscale_mode"
 # ``get_reduce_motion`` Jinja global) — single source of truth so a
 # rename can't drift the writer and reader out of sync. v0.93.
 _REDUCE_MOTION_KV_KEY = "reduce_motion"
+
+# kv key shared with :mod:`app.web.main` (the ``_lifespan`` coroutine
+# reads this row once on boot and calls ``controller.pause()`` iff the
+# value is the literal ``"1"``). v1.10 fix 3/3 — the default is ``"0"``
+# so capture starts running immediately, matching the new "boot = live"
+# UX. Anything other than ``"1"`` is treated as "off" both here and in
+# the lifespan reader.
+_CAPTURE_PAUSED_ON_BOOT_KV_KEY = "capture_paused_on_boot"
 
 
 def _parse_anti_fomo_kv(raw: str | None) -> bool | None:
@@ -78,6 +87,9 @@ async def settings_page(request: Request) -> HTMLResponse:
         compact_raw = await get_kv(conn, _COMPACT_MODE_KV_KEY)
         grayscale_raw = await get_kv(conn, _GRAYSCALE_MODE_KV_KEY)
         reduce_motion_raw = await get_kv(conn, _REDUCE_MOTION_KV_KEY)
+        capture_paused_on_boot_raw = await get_kv(
+            conn, _CAPTURE_PAUSED_ON_BOOT_KV_KEY
+        )
         ui_language_raw = await get_kv(conn, UI_LANGUAGE_KV_KEY)
 
     # Effective state for the checkbox: kv override wins, env flag is the
@@ -97,6 +109,13 @@ async def settings_page(request: Request) -> HTMLResponse:
     # keeps the checkbox state aligned with the body attribute that
     # gates ``reduce_motion.css``.
     reduce_motion_enabled = (reduce_motion_raw or "").strip() == "1"
+    # ``capture_paused_on_boot`` mirrors the same kv-only ``"1"`` /
+    # ``"0"`` shape — anything else collapses to "off" so the checkbox
+    # reflects what the next boot's ``_lifespan`` will actually do (the
+    # reader there applies the same comparison).
+    capture_paused_on_boot_enabled = (
+        (capture_paused_on_boot_raw or "").strip() == "1"
+    )
     # UI language: anything outside the whitelist (or absent) collapses
     # to the default so the ``<select>`` always has a valid option
     # pre-selected and a manual kv edit can never wedge the renderer.
@@ -119,6 +138,7 @@ async def settings_page(request: Request) -> HTMLResponse:
             "compact_mode_enabled": compact_enabled,
             "grayscale_mode_enabled": grayscale_enabled,
             "reduce_motion_enabled": reduce_motion_enabled,
+            "capture_paused_on_boot_enabled": capture_paused_on_boot_enabled,
             "ui_language_current": ui_language_current,
             "ui_language_options": sorted(SUPPORTED_LANGUAGES),
         },
@@ -243,6 +263,44 @@ async def update_reduce_motion(
     invalidate_reduce_motion_cache()
     _reduce_motion_log.info(
         "reduce_motion.toggle",
+        enabled=new_value,
+        source="settings_ui",
+    )
+    return RedirectResponse(url="/settings", status_code=303)
+
+
+@router.post("/settings/capture-paused-on-boot", response_class=HTMLResponse)
+async def update_capture_paused_on_boot(
+    request: Request,
+    enabled: str = Form(default=""),
+) -> RedirectResponse:
+    """Persist the boot-time capture-paused checkbox to ``kv_settings`` (v1.10).
+
+    Default behaviour as of v1.10 is "capture runs immediately on boot"
+    — the yellow ``Пауза`` pill on first frame routinely tricked new
+    users into thinking Persona was broken. This setting is the escape
+    hatch for power users who deliberately want the old behaviour
+    (e.g. on a shared laptop where the operator wants to confirm the
+    workspace before any screen is sampled).
+
+    HTML checkboxes only POST a value when ticked, so an empty
+    ``enabled`` field is treated as "off". The kv row is normalised to
+    the literal ``"1"`` / ``"0"`` strings that :mod:`app.web.main`'s
+    ``_lifespan`` reader consumes — anything else would silently fall
+    back to "off" on the next boot.
+
+    No cache to invalidate: the value is consumed once per process
+    boot, not per request.
+    """
+    new_value = enabled.strip().lower() in {"1", "true", "yes", "on"}
+    async with get_connection() as conn:
+        await set_kv(
+            conn,
+            _CAPTURE_PAUSED_ON_BOOT_KV_KEY,
+            "1" if new_value else "0",
+        )
+    _boot_pause_log.info(
+        "boot_pause.toggle",
         enabled=new_value,
         source="settings_ui",
     )

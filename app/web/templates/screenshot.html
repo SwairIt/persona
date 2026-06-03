@@ -30,17 +30,17 @@
   <div class="flex items-center gap-2">
     {% if prev_id %}
       <a href="/screenshot/{{ prev_id }}" id="prev-shot"
-         class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700">← prev</a>
+         class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700">← {{ t('btn_prev') | lower }}</a>
     {% else %}
-      <span class="px-3 py-1.5 rounded bg-ink-900 text-zinc-600">← prev</span>
+      <span class="px-3 py-1.5 rounded bg-ink-900 text-zinc-600">← {{ t('btn_prev') | lower }}</span>
     {% endif %}
     {% if next_id %}
       <a href="/screenshot/{{ next_id }}" id="next-shot"
-         class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700">next →</a>
+         class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700">{{ t('btn_next_arrow') | lower }} →</a>
     {% else %}
-      <span class="px-3 py-1.5 rounded bg-ink-900 text-zinc-600">next →</span>
+      <span class="px-3 py-1.5 rounded bg-ink-900 text-zinc-600">{{ t('btn_next_arrow') | lower }} →</span>
     {% endif %}
-    <span class="text-xs text-zinc-500 ml-2 hidden sm:inline">use ← → keys</span>
+    <span class="text-xs text-zinc-500 ml-2 hidden sm:inline">{{ t('subtitle_screenshot_use_arrows') }}</span>
     {# v0.71 — Copy zoom link. Captures the current scale + pan offset of
        the [data-zoomable] thumbnail and copies a shareable URL
        (/screenshot/{id}?zoom=&x=&y=) to the clipboard. The button hides
@@ -50,7 +50,7 @@
     <button type="button"
             data-copy-zoom-link
             class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700 text-xs">
-      Copy zoom link
+      {{ t('btn_copy_zoom_link') }}
     </button>
     {# v0.95 — Fullscreen toggle. Calls element.requestFullscreen on the
        [data-zoomable] image (the same target the zoom deep-link uses).
@@ -60,13 +60,13 @@
        Safari in iframes, etc.). All wiring lives in image_viewer.js. #}
     <button type="button"
             data-fullscreen
-            title="Fullscreen (F)"
+            title="{{ t('btn_fullscreen') }} (F)"
             class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700 text-xs">
-      Fullscreen
+      {{ t('btn_fullscreen') }}
     </button>
   </div>
-  <a href="/?date={{ shot.captured_at.strftime('%Y-%m-%d') }}"
-     class="text-xs text-accent-400 hover:underline">back to {{ shot.captured_at.strftime('%Y-%m-%d') }} →</a>
+  <a href="/?date={{ shot.captured_at | localtime('date') }}"
+     class="text-xs text-accent-400 hover:underline">back to {{ shot.captured_at | localtime('date') }} →</a>
 </div>
 
 <script>
@@ -97,7 +97,7 @@
       </div>
     {% else %}
       <div class="aspect-video flex items-center justify-center text-zinc-500 bg-ink-900 rounded-lg border border-ink-700">
-        Thumbnail deleted by retention policy.
+        {{ t('msg_thumb_deleted') }}
       </div>
     {% endif %}
 
@@ -105,7 +105,7 @@
       <section class="rounded-lg border border-ink-700 bg-ink-800 p-4"
                x-data="ocrHistory({{ shot.id }})">
         <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
-          <h3 class="text-xs uppercase tracking-widest text-zinc-500">OCR text</h3>
+          <h3 class="text-xs uppercase tracking-widest text-zinc-500">{{ t('label_ocr_text') }}</h3>
           <div class="flex items-center gap-2 flex-wrap">
             {# v0.94 feature 3/3 — inline OCR editor toggle. Clicking
                Edit flips the [data-editable-ocr] block below to
@@ -118,21 +118,21 @@
                     data-ocr-edit
                     data-shot-id="{{ shot.id }}"
                     class="px-3 py-1 text-xs bg-ink-700 hover:bg-ink-600 rounded text-zinc-200">
-              Edit
+              {{ t('btn_edit') }}
             </button>
             <button type="button"
                     data-ocr-save
                     data-shot-id="{{ shot.id }}"
                     hidden
                     class="px-3 py-1 text-xs bg-accent-600 hover:bg-accent-500 rounded text-white">
-              Save
+              {{ t('btn_save') }}
             </button>
             <button type="button"
                     data-ocr-cancel
                     data-shot-id="{{ shot.id }}"
                     hidden
                     class="px-3 py-1 text-xs bg-ink-700 hover:bg-ink-600 rounded text-zinc-200">
-              Cancel
+              {{ t('btn_cancel') }}
             </button>
             {# v0.92 feature 3/3 — History link. Lazily fetches snapshot
                rows captured by find_replace / vision_replace / manual
@@ -142,13 +142,13 @@
             <button type="button"
                     @click="toggle()"
                     class="px-3 py-1 text-xs bg-ink-700 hover:bg-ink-600 rounded text-zinc-200">
-              <span x-text="open ? 'Hide history' : 'History'"></span>
+              <span x-text="open ? {{ t('btn_hide_history') | tojson }} : {{ t('btn_history') | tojson }}"></span>
             </button>
             <button type="button"
                     data-copy-ocr
                     data-ocr-text="{{ shot.ocr_text or '' }}"
                     class="px-3 py-1 text-xs bg-ink-700 hover:bg-ink-600 rounded text-zinc-200">
-              Copy OCR text
+              {{ t('btn_copy_ocr') }}
             </button>
             {# v0.74 feature 2/3 — Copy OCR as markdown.
                Wraps the OCR body with a `## app — timestamp` header and
@@ -162,9 +162,9 @@
                     data-ocr-text="{{ shot.ocr_text or '' }}"
                     data-shot-id="{{ shot.id }}"
                     data-app-name="{{ (shot.app_name | app_alias) if shot.app_name else 'Screenshot' }}"
-                    data-captured-at="{{ shot.captured_at | humantime }}"
+                    data-captured-at="{{ shot.captured_at | localtime('full') }}"
                     class="px-3 py-1 text-xs bg-ink-700 hover:bg-ink-600 rounded text-zinc-200">
-              Copy MD
+              {{ t('btn_copy_md') }}
             </button>
             {# v1.9 feature 3/3 — Copy OCR as JSON.
                Emits a structured {shot_id, app_name, captured_at,
@@ -181,10 +181,10 @@
                     data-ocr-text="{{ shot.ocr_text or '' }}"
                     data-shot-id="{{ shot.id }}"
                     data-app-name="{{ (shot.app_name | app_alias) if shot.app_name else '' }}"
-                    data-captured-at="{{ shot.captured_at | humantime }}"
+                    data-captured-at="{{ shot.captured_at | localtime('full') }}"
                     data-tags="{{ (attached_tags | map(attribute='name') | list) | tojson }}"
                     class="px-3 py-1 text-xs bg-ink-700 hover:bg-ink-600 rounded text-zinc-200">
-              Copy JSON
+              {{ t('btn_copy_json') }}
             </button>
           </div>
         </div>
@@ -213,10 +213,10 @@
            the restored text. Empty history shows a placeholder rather
            than a dangling section header. #}
         <div x-show="open" x-cloak class="mt-3 border-t border-ink-700 pt-3">
-          <p x-show="loading" class="text-xs text-zinc-500">loading history…</p>
+          <p x-show="loading" class="text-xs text-zinc-500">{{ t('msg_loading_history') }}</p>
           <p x-show="error" x-text="error" class="text-xs text-rose-400"></p>
           <p x-show="!loading && !error && !history.length"
-             class="text-xs text-zinc-500">no edits recorded for this screenshot yet</p>
+             class="text-xs text-zinc-500">{{ t('msg_no_edits_recorded') }}</p>
           <ul x-show="!loading && history.length" class="space-y-2 text-xs">
             <template x-for="row in history" :key="row.id">
               <li class="flex items-start justify-between gap-3 px-3 py-2 bg-ink-900 border border-ink-700 rounded">
@@ -233,7 +233,7 @@
                         @click="doRevert(row.id)"
                         :disabled="reverting"
                         class="px-2 py-1 rounded bg-amber-700/40 hover:bg-amber-700 text-amber-200 disabled:opacity-50">
-                  Revert
+                  {{ t('btn_revert') }}
                 </button>
               </li>
             </template>
@@ -337,7 +337,7 @@
               ).join('');
               host.innerHTML =
                 '<div class="flex flex-wrap items-center gap-1.5">' +
-                  '<span class="text-zinc-500 uppercase tracking-widest">Emails:</span>' +
+                  '<span class="text-zinc-500 uppercase tracking-widest">{{ t('label_emails') }}:</span>' +
                   chips +
                 '</div>';
               host.classList.remove('hidden');
@@ -382,7 +382,7 @@
               ).join('');
               host.innerHTML =
                 '<div class="flex flex-wrap items-center gap-1.5">' +
-                  '<span class="text-zinc-500 uppercase tracking-widest">Phones:</span>' +
+                  '<span class="text-zinc-500 uppercase tracking-widest">{{ t('label_phones') }}:</span>' +
                   chips +
                 '</div>';
               host.classList.remove('hidden');
@@ -394,20 +394,20 @@
 
     <section class="rounded-lg border border-ink-700 bg-ink-800 p-4">
       <h3 class="text-xs uppercase tracking-widest text-zinc-500 mb-3">
-        Note <span class="text-zinc-600">· markdown supported</span>
+        {{ t('label_note') }} <span class="text-zinc-600">· {{ t('label_note_markdown') }}</span>
       </h3>
       <form hx-post="/api/screenshots/{{ shot.id }}/note" hx-swap="none"
             x-data="{ preview: false }"
             class="space-y-2">
         <div class="flex items-center gap-2 text-xs">
           <button type="button" @click="preview = false"
-                  :class="!preview ? 'text-accent-400' : 'text-zinc-500'">Write</button>
+                  :class="!preview ? 'text-accent-400' : 'text-zinc-500'">{{ t('label_write') }}</button>
           <span class="text-zinc-700">|</span>
           <button type="button" @click="preview = true"
-                  :class="preview ? 'text-accent-400' : 'text-zinc-500'">Preview</button>
+                  :class="preview ? 'text-accent-400' : 'text-zinc-500'">{{ t('label_preview') }}</button>
         </div>
         <textarea x-show="!preview" id="note-source-{{ shot.id }}" name="body" rows="4"
-                  placeholder="why is this moment worth remembering?&#10;&#10;**bold**, _italic_, `code`, links auto-detected"
+                  placeholder="{{ t('ph_note_body') }}"
                   class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm
                          focus:outline-none focus:border-accent-500 font-mono">{{ note }}</textarea>
         <div x-show="preview"
@@ -415,21 +415,21 @@
              class="prose prose-invert prose-sm max-w-none px-3 py-2 bg-ink-900 border border-ink-700 rounded min-h-[6rem]"></div>
         <button type="submit"
                 class="px-4 py-1.5 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium">
-          Save note
+          {{ t('btn_save_note') }}
         </button>
       </form>
     </section>
 
     <section class="rounded-lg border border-ink-700 bg-ink-800 p-4">
       <h3 class="text-xs uppercase tracking-widest text-zinc-500 mb-3">
-        Annotations <span class="text-zinc-600">· per-shot scribbles</span>
+        {{ t('label_annotations') }} <span class="text-zinc-600">· {{ t('label_annotations_hint') }}</span>
       </h3>
       <div id="annotations-list-{{ shot.id }}"
            hx-get="/api/screenshot/{{ shot.id }}/annotations"
            hx-trigger="load, refresh-annotations from:body"
            hx-swap="innerHTML"
            class="space-y-2 mb-3 text-sm text-zinc-300">
-        <div class="text-xs text-zinc-500">loading…</div>
+        <div class="text-xs text-zinc-500">{{ t('status_loading') }}</div>
       </div>
       <form hx-post="/api/screenshot/{{ shot.id }}/annotations"
             hx-target="#annotations-list-{{ shot.id }}"
@@ -437,13 +437,13 @@
             hx-on::after-request="if (event.detail.successful) { this.reset(); htmx.trigger('body', 'refresh-annotations'); }"
             class="flex flex-col gap-2">
         <textarea name="body" rows="2" required
-                  placeholder="Add a quick scribble about this shot…"
+                  placeholder="{{ t('ph_annotation') }}"
                   class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm
                          focus:outline-none focus:border-accent-500"></textarea>
         <div>
           <button type="submit"
                   class="px-4 py-1.5 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium">
-            Add annotation
+            {{ t('btn_add_annotation') }}
           </button>
         </div>
       </form>
@@ -462,7 +462,7 @@
             let items = [];
             try { items = JSON.parse(e.detail.xhr.responseText); } catch (_) { items = []; }
             if (!items.length) {
-              list.innerHTML = '<div class="text-xs text-zinc-500">no annotations yet</div>';
+              list.innerHTML = '<div class="text-xs text-zinc-500">{{ t('msg_no_annotations_yet') }}</div>';
               return;
             }
             list.innerHTML = items.map(a =>
@@ -509,35 +509,35 @@
                  }
                }
              }">
-      <h3 class="text-xs uppercase tracking-widest text-zinc-500 mb-3">Remind me</h3>
+      <h3 class="text-xs uppercase tracking-widest text-zinc-500 mb-3">{{ t('label_remind_me') }}</h3>
       <form @submit.prevent="submit()" class="flex flex-wrap gap-2">
         <input type="text" x-model="body" required
-               placeholder="What to remember about this moment?"
+               placeholder="{{ t('ph_remind_what') }}"
                class="flex-1 min-w-[180px] px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
         <input type="date" x-model="due"
                class="px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono">
         <button type="submit" :disabled="saving"
                 class="px-4 py-2 bg-accent-600 hover:bg-accent-500 disabled:opacity-50 rounded text-sm font-medium">
-          <span x-show="!saving">Set reminder</span>
-          <span x-show="saving">Saving…</span>
+          <span x-show="!saving">{{ t('btn_set_reminder') }}</span>
+          <span x-show="saving">{{ t('btn_saving') }}</span>
         </button>
       </form>
     </section>
 
     <section class="rounded-lg border border-ink-700 bg-ink-800 p-4">
-      <h3 class="text-xs uppercase tracking-widest text-zinc-500 mb-3">Tags</h3>
+      <h3 class="text-xs uppercase tracking-widest text-zinc-500 mb-3">{{ t('label_tags_section') }}</h3>
       <div class="flex flex-wrap gap-2 mb-3">
-        {% for t in attached_tags %}
+        {% for tag_row in attached_tags %}
           <span class="px-3 py-1 rounded-full text-xs flex items-center gap-1.5"
-                style="background: {{ (t.color or '#8b5cf6') + '33' }}; color: {{ t.color or '#a78bfa' }};">
-            {{ t.name }}
-            <button hx-delete="/api/screenshots/{{ shot.id }}/tags/{{ t.id }}"
+                style="background: {{ (tag_row.color or '#8b5cf6') + '33' }}; color: {{ tag_row.color or '#a78bfa' }};">
+            {{ tag_row.name }}
+            <button hx-delete="/api/screenshots/{{ shot.id }}/tags/{{ tag_row.id }}"
                     hx-swap="none"
                     onclick="setTimeout(() => location.reload(), 200)"
                     class="hover:text-rose-400">×</button>
           </span>
         {% else %}
-          <span class="text-zinc-500 text-xs">no tags yet</span>
+          <span class="text-zinc-500 text-xs">{{ t('msg_no_tags_yet') }}</span>
         {% endfor %}
       </div>
       {% if all_tags %}
@@ -546,12 +546,12 @@
               class="flex gap-2">
           <select name="tag_id"
                   class="flex-1 px-3 py-1.5 bg-ink-900 border border-ink-700 rounded text-sm">
-            {% for t in all_tags %}
-              <option value="{{ t.id }}">{{ t.name }}</option>
+            {% for tag_row in all_tags %}
+              <option value="{{ tag_row.id }}">{{ tag_row.name }}</option>
             {% endfor %}
           </select>
           <button type="submit"
-                  class="px-3 py-1.5 bg-ink-700 hover:bg-ink-600 rounded text-sm">Add tag</button>
+                  class="px-3 py-1.5 bg-ink-700 hover:bg-ink-600 rounded text-sm">{{ t('btn_add_tag') }}</button>
         </form>
       {% endif %}
 
@@ -671,7 +671,7 @@
                   else { alert('Lock toggle failed: ' + r.status); }
                 })()"
                 class="px-3 py-1.5 text-xs {% if shot.locked %}bg-amber-700/40 hover:bg-amber-700 text-amber-200{% else %}bg-ink-700 hover:bg-ink-600{% endif %} rounded">
-          {% if shot.locked %}Locked{% else %}Unlocked{% endif %}
+          {% if shot.locked %}{{ t('btn_locked') }}{% else %}{{ t('btn_unlocked') }}{% endif %}
         </button>
       </div>
     </section>
@@ -804,36 +804,36 @@
     </script>
 
     <section class="rounded-lg border border-ink-700 bg-ink-800 p-4">
-      <h3 class="text-xs uppercase tracking-widest text-zinc-500 mb-3">Metadata</h3>
+      <h3 class="text-xs uppercase tracking-widest text-zinc-500 mb-3">{{ t('label_metadata') }}</h3>
       <dl class="space-y-2 text-sm">
         <div class="flex justify-between gap-3">
-          <dt class="text-zinc-500">Captured</dt>
-          <dd class="font-mono text-zinc-300 text-right">{{ shot.captured_at | humantime }}</dd>
+          <dt class="text-zinc-500">{{ t('label_captured') }}</dt>
+          <dd class="font-mono text-zinc-300 text-right">{{ shot.captured_at | localtime('full') }}</dd>
         </div>
         <div class="flex justify-between gap-3">
-          <dt class="text-zinc-500">App</dt>
+          <dt class="text-zinc-500">{{ t('label_app') }}</dt>
           <dd class="text-zinc-300 text-right">{{ (shot.app_name | app_alias) if shot.app_name else '—' }}</dd>
         </div>
         <div class="flex justify-between gap-3">
-          <dt class="text-zinc-500">Process</dt>
+          <dt class="text-zinc-500">{{ t('label_process') }}</dt>
           <dd class="font-mono text-zinc-300 text-right">{{ shot.process_name or '—' }}</dd>
         </div>
         <div class="flex justify-between gap-3">
-          <dt class="text-zinc-500">Title</dt>
+          <dt class="text-zinc-500">{{ t('label_title') }}</dt>
           <dd class="text-zinc-300 text-right truncate max-w-[200px]" title="{{ shot.window_title or '' }}">
             {{ shot.window_title or '—' }}
           </dd>
         </div>
         <div class="flex justify-between gap-3">
-          <dt class="text-zinc-500">Resolution</dt>
+          <dt class="text-zinc-500">{{ t('label_resolution') }}</dt>
           <dd class="font-mono text-zinc-300 text-right">{{ shot.width }}×{{ shot.height }}</dd>
         </div>
         <div class="flex justify-between gap-3">
-          <dt class="text-zinc-500">pHash</dt>
+          <dt class="text-zinc-500">{{ t('label_phash') }}</dt>
           <dd class="font-mono text-zinc-300 text-right text-xs">{{ shot.phash }}</dd>
         </div>
         <div class="flex justify-between gap-3">
-          <dt class="text-zinc-500">OCR</dt>
+          <dt class="text-zinc-500">{{ t('label_ocr') }}</dt>
           <dd class="text-zinc-300 text-right">{{ shot.ocr_status }}</dd>
         </div>
       </dl>
@@ -841,7 +841,7 @@
 
     {% if neighbours %}
       <section class="rounded-lg border border-ink-700 bg-ink-800 p-4">
-        <h3 class="text-xs uppercase tracking-widest text-zinc-500 mb-3">Around this time</h3>
+        <h3 class="text-xs uppercase tracking-widest text-zinc-500 mb-3">{{ t('label_around_this_time') }}</h3>
         <div class="grid grid-cols-3 gap-2">
           {% for n in neighbours if n.id != shot.id %}
             <a href="/screenshot/{{ n.id }}"
@@ -883,7 +883,7 @@
      hx-swap="outerHTML"
      class="mt-4 text-xs text-zinc-500"
      aria-live="polite">
-  <span class="opacity-60">Loading possibly related…</span>
+  <span class="opacity-60">{{ t('msg_loading_related') }}</span>
 </div>
 
 {# Semantically related — v0.68 feature 1/3.
@@ -898,6 +898,6 @@
      hx-swap="outerHTML"
      class="mt-4 text-xs text-zinc-500"
      aria-live="polite">
-  <span class="opacity-60">Loading semantically related…</span>
+  <span class="opacity-60">{{ t('msg_loading_semantic') }}</span>
 </div>
 {% endblock %}

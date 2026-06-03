@@ -2,14 +2,14 @@
 
 {% block content %}
 <div class="mb-8">
-  <h1 class="text-2xl font-bold tracking-tight">Capture streak</h1>
+  <h1 class="text-2xl font-bold tracking-tight">{{ t('title_streak') }}</h1>
   <p class="text-zinc-500 text-sm mt-1">
-    Days in a row with at least one screenshot. Skip a full day and the streak resets.
+    {{ t('subtitle_streak') }}
   </p>
 </div>
 
 <section class="rounded-lg border border-ink-700 bg-ink-800 p-10 mb-6 text-center">
-  <div class="text-xs uppercase tracking-widest text-zinc-500 mb-3">Current streak</div>
+  <div class="text-xs uppercase tracking-widest text-zinc-500 mb-3">{{ t('label_current_streak') }}</div>
   <div class="flex items-baseline justify-center gap-3">
     <span class="text-7xl font-bold tabular-nums {% if days > 0 %}text-accent-400{% else %}text-zinc-600{% endif %}">
       {{ days }}
@@ -25,12 +25,12 @@
     {% if captured_today %}
       <span class="inline-flex items-center gap-1.5 text-emerald-400">
         <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-        Captured today ({{ today_count }} frame{{ '' if today_count == 1 else 's' }})
+        {{ t('msg_captured_today') }} ({{ today_count }} {{ t('status_frame_singular') if today_count == 1 else t('status_frames') }})
       </span>
     {% else %}
       <span class="inline-flex items-center gap-1.5 text-amber-400">
         <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
-        Nothing captured today yet
+        {{ t('msg_nothing_today') }}
       </span>
     {% endif %}
   </div>
@@ -38,7 +38,7 @@
 
 <div class="grid sm:grid-cols-2 gap-4 mb-8">
   <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
-    <div class="text-xs uppercase tracking-widest text-zinc-500">Longest streak</div>
+    <div class="text-xs uppercase tracking-widest text-zinc-500">{{ t('label_longest_streak') }}</div>
     <div class="text-3xl font-bold mt-1 tabular-nums">
       {{ longest }}
       <span class="text-base font-normal text-zinc-500 ml-1">
@@ -47,7 +47,7 @@
     </div>
   </div>
   <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
-    <div class="text-xs uppercase tracking-widest text-zinc-500">Last capture</div>
+    <div class="text-xs uppercase tracking-widest text-zinc-500">{{ t('label_last_capture') }}</div>
     <div class="text-3xl font-bold mt-1 font-mono">
       {% if last_capture_date %}
         {{ last_capture_date }}
@@ -59,7 +59,7 @@
 </div>
 
 <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-8">
-  <div class="text-xs uppercase tracking-widest text-zinc-500 mb-3">Milestone badges</div>
+  <div class="text-xs uppercase tracking-widest text-zinc-500 mb-3">{{ t('label_milestone_badges') }}</div>
   {% if badges or next_badge_threshold %}
     <ul class="flex flex-wrap gap-2" aria-label="Streak milestone badges">
       {% for badge in badges %}
@@ -96,11 +96,11 @@
       </p>
     {% else %}
       <p class="mt-3 text-xs text-zinc-500">
-        No milestones yet. First badge unlocks at <span class="text-zinc-300">3 days</span>.
+        {{ t('msg_no_milestones') }} First badge unlocks at <span class="text-zinc-300">3 days</span>.
       </p>
     {% endif %}
   {% else %}
-    <p class="text-xs text-zinc-500">No milestones available.</p>
+    <p class="text-xs text-zinc-500">{{ t('msg_no_milestones_avail') }}</p>
   {% endif %}
 </section>
 

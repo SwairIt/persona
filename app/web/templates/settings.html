@@ -6,13 +6,13 @@
 
 {% block content %}
 <div class="mb-6">
-  <h1 class="text-2xl font-bold tracking-tight">Settings</h1>
+  <h1 class="text-2xl font-bold tracking-tight">{{ t('title_settings') }}</h1>
   <p class="text-zinc-500 text-sm mt-1">Read-only view of current config. Edit <code class="text-accent-400">.env</code> and restart to change.</p>
 </div>
 
 <div class="grid lg:grid-cols-2 gap-6">
   <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
-    <h2 class="text-lg font-semibold mb-4">Capture</h2>
+    <h2 class="text-lg font-semibold mb-4">{{ t('section_capture') }}</h2>
     <dl class="space-y-2 text-sm font-mono">
       <div class="flex justify-between"><dt class="text-zinc-500">Interval</dt><dd>{{ settings.capture_interval_seconds }}s</dd></div>
       <div class="flex justify-between"><dt class="text-zinc-500">Thumbnail quality</dt><dd>{{ settings.thumbnail_quality }}</dd></div>
@@ -24,7 +24,7 @@
   </section>
 
   <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
-    <h2 class="text-lg font-semibold mb-4">OCR</h2>
+    <h2 class="text-lg font-semibold mb-4">{{ t('section_ocr') }}</h2>
     <dl class="space-y-2 text-sm">
       <div class="flex justify-between">
         <dt class="text-zinc-500">Enabled in .env</dt>
@@ -70,7 +70,7 @@
   </section>
 
   <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
-    <h2 class="text-lg font-semibold mb-4">Paths</h2>
+    <h2 class="text-lg font-semibold mb-4">{{ t('section_paths') }}</h2>
     <dl class="space-y-2 text-sm font-mono text-xs">
       <div><dt class="text-zinc-500">Data dir</dt><dd class="text-zinc-300 truncate">{{ settings.data_dir }}</dd></div>
       <div><dt class="text-zinc-500">DB</dt><dd class="text-zinc-300 truncate">{{ settings.db_path }}</dd></div>
@@ -79,7 +79,7 @@
   </section>
 
   <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
-    <h2 class="text-lg font-semibold mb-4">Server</h2>
+    <h2 class="text-lg font-semibold mb-4">{{ t('section_server') }}</h2>
     <dl class="space-y-2 text-sm font-mono">
       <div class="flex justify-between"><dt class="text-zinc-500">Host</dt><dd>{{ settings.host }}</dd></div>
       <div class="flex justify-between"><dt class="text-zinc-500">Port</dt><dd>{{ settings.port }}</dd></div>
@@ -88,7 +88,7 @@
   </section>
 
   <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 lg:col-span-2">
-    <h2 class="text-lg font-semibold mb-2">Language</h2>
+    <h2 class="text-lg font-semibold mb-2">{{ t('section_language') }}</h2>
     <p class="text-zinc-500 text-xs mb-4">
       Switch the UI language. Translation tables live under
       <code>app/translations/{lang}.json</code>; missing keys fall back
@@ -114,7 +114,7 @@
   </section>
 
   <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 lg:col-span-2">
-    <h2 class="text-lg font-semibold mb-2">Appearance</h2>
+    <h2 class="text-lg font-semibold mb-2">{{ t('section_appearance') }}</h2>
     <p class="text-zinc-500 text-xs mb-4">
       Compact mode tightens row padding, shrinks the base font, and
       reduces the timeline / day-kanban thumbnail size. The setting is
@@ -132,7 +132,7 @@
         <span>Compact mode (smaller fonts, denser thumbnails)</span>
       </label>
       <button type="submit" class="px-3 py-1.5 bg-accent-600 hover:bg-accent-500 rounded text-xs font-medium">
-        Save
+        {{ t('btn_save') }}
       </button>
     </form>
 
@@ -154,7 +154,7 @@
         <span>Grayscale mode (drain colour from the whole UI)</span>
       </label>
       <button type="submit" class="px-3 py-1.5 bg-accent-600 hover:bg-accent-500 rounded text-xs font-medium">
-        Save
+        {{ t('btn_save') }}
       </button>
     </form>
 
@@ -178,13 +178,43 @@
         <span>Reduce motion (disable all transitions and animations)</span>
       </label>
       <button type="submit" class="px-3 py-1.5 bg-accent-600 hover:bg-accent-500 rounded text-xs font-medium">
-        Save
+        {{ t('btn_save') }}
       </button>
     </form>
   </section>
 
   <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 lg:col-span-2">
-    <h2 class="text-lg font-semibold mb-2">Digests</h2>
+    <h2 class="text-lg font-semibold mb-2">Capture behaviour</h2>
+    <p class="text-zinc-500 text-xs mb-4">
+      As of v1.10 Persona starts capturing immediately when the app
+      boots — the yellow <strong>Пауза</strong> pill on first frame
+      routinely tricked new users into thinking Persona was broken.
+      Enable the checkbox below if you would rather have the old
+      behaviour where every fresh boot starts paused and you have to
+      click <em>Resume</em> in the header before the first screenshot
+      is taken. Stored in <code>kv_settings</code> under
+      <code>capture_paused_on_boot</code>; read once by the FastAPI
+      lifespan on process start, so the change applies on the next
+      Persona restart (not immediately).
+    </p>
+    <form action="/settings/capture-paused-on-boot" method="post" class="flex items-center gap-3">
+      <label class="flex items-center gap-2 text-sm cursor-pointer">
+        <input
+          type="checkbox"
+          name="enabled"
+          value="true"
+          {% if capture_paused_on_boot_enabled %}checked{% endif %}
+          class="w-4 h-4 accent-accent-500 bg-ink-900 border-ink-700 rounded">
+        <span>Pause capture on app start (opt back in to pre-v1.10 behaviour)</span>
+      </label>
+      <button type="submit" class="px-3 py-1.5 bg-accent-600 hover:bg-accent-500 rounded text-xs font-medium">
+        {{ t('btn_save') }}
+      </button>
+    </form>
+  </section>
+
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 lg:col-span-2">
+    <h2 class="text-lg font-semibold mb-2">{{ t('section_digests') }}</h2>
     <p class="text-zinc-500 text-xs mb-4">
       Anti-FOMO digest mode tells the LLM to write a qualitative, themes-only
       retrospective. Shot counts, percentages, time-spent figures, and other
@@ -202,7 +232,7 @@
         <span>Anti-FOMO digest mode (themes only, no numbers)</span>
       </label>
       <button type="submit" class="px-3 py-1.5 bg-accent-600 hover:bg-accent-500 rounded text-xs font-medium">
-        Save
+        {{ t('btn_save') }}
       </button>
       {% if anti_fomo_kv_set and anti_fomo_enabled != anti_fomo_env_default %}
         <span class="text-xs text-zinc-500">
@@ -213,7 +243,7 @@
   </section>
 
   <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 lg:col-span-2">
-    <h2 class="text-lg font-semibold mb-2">Browser notifications</h2>
+    <h2 class="text-lg font-semibold mb-2">{{ t('section_browser_notif') }}</h2>
     <p class="text-zinc-500 text-xs mb-4">
       Opt in to desktop notifications for reminders that come due while
       this tab is open. The permission prompt only appears after you
@@ -226,13 +256,13 @@
       type="button"
       onclick="personaEnableNotif()"
       class="px-3 py-1.5 bg-accent-600 hover:bg-accent-500 rounded text-xs font-medium">
-      Enable browser notifications
+      {{ t('btn_enable_browser_notifications') }}
     </button>
   </section>
 </div>
 
 <section class="mt-8 rounded-lg border border-rose-700/40 bg-rose-950/20 p-5">
-  <h2 class="text-lg font-semibold mb-2 text-rose-300">Danger zone</h2>
+  <h2 class="text-lg font-semibold mb-2 text-rose-300">{{ t('section_danger_zone') }}</h2>
   <p class="text-zinc-400 text-xs mb-4">
     Bulk-delete screenshots. <strong class="text-rose-300">Irreversible.</strong> Snapshots are not affected.
   </p>
@@ -241,11 +271,11 @@
     <summary class="cursor-pointer text-sm text-zinc-300">Delete all screenshots for one app</summary>
     <form action="/api/bulk/delete-by-app" method="post" class="flex gap-2 mt-3"
           onsubmit="return confirm('Really delete every screenshot for this app?')">
-      <input name="app" placeholder="exact app name (e.g. Discord)" required
+      <input name="app" placeholder="{{ t('ph_app_exact') }}" required
              class="flex-1 px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm">
-      <input name="confirm" placeholder="repeat app name to confirm" required
+      <input name="confirm" placeholder="{{ t('ph_app_confirm') }}" required
              class="flex-1 px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm">
-      <button type="submit" class="px-4 py-2 bg-rose-700 hover:bg-rose-600 rounded text-sm font-medium">Delete</button>
+      <button type="submit" class="px-4 py-2 bg-rose-700 hover:bg-rose-600 rounded text-sm font-medium">{{ t('btn_delete') }}</button>
     </form>
   </details>
 
@@ -257,27 +287,27 @@
              class="px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm">
       <input name="until" type="datetime-local" required
              class="px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm">
-      <input name="confirm" placeholder='type "yes" to confirm' required
+      <input name="confirm" placeholder='{{ t("ph_yes_confirm") }}' required
              class="px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm">
-      <button type="submit" class="px-4 py-2 bg-rose-700 hover:bg-rose-600 rounded text-sm font-medium">Delete range</button>
+      <button type="submit" class="px-4 py-2 bg-rose-700 hover:bg-rose-600 rounded text-sm font-medium">{{ t('btn_delete_range') }}</button>
     </form>
   </details>
 </section>
 
 <section class="mt-8 rounded-lg border border-ink-700 bg-ink-800 p-5">
-  <h2 class="text-lg font-semibold mb-3">UI overrides ({{ overrides | length }})</h2>
+  <h2 class="text-lg font-semibold mb-3">{{ t('section_ui_overrides') }} ({{ overrides | length }})</h2>
   <p class="text-zinc-500 text-xs mb-4">
     Stored in <code>kv_settings</code>. These are informational for now — they will be wired into Settings in v0.2.
   </p>
   <form action="/settings/override" method="post" class="flex gap-3 mb-4">
-    <input name="key" placeholder="key" class="px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm">
-    <input name="value" placeholder="value" class="flex-1 px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm">
-    <button class="px-4 py-2 bg-accent-600 rounded text-sm font-medium hover:bg-accent-500">Save</button>
+    <input name="key" placeholder="{{ t('ph_key') }}" class="px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm">
+    <input name="value" placeholder="{{ t('ph_value') }}" class="flex-1 px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm">
+    <button class="px-4 py-2 bg-accent-600 rounded text-sm font-medium hover:bg-accent-500">{{ t('btn_save') }}</button>
   </form>
   {% if overrides %}
     <table class="w-full text-sm">
       <thead class="text-zinc-500 text-xs uppercase tracking-wider">
-        <tr><th class="text-left py-2">Key</th><th class="text-left py-2">Value</th></tr>
+        <tr><th class="text-left py-2">{{ t('table_key') }}</th><th class="text-left py-2">{{ t('table_value') }}</th></tr>
       </thead>
       <tbody class="font-mono">
         {% for key, value in overrides.items() %}

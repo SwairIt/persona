@@ -100,7 +100,11 @@
       <a href="/" class="flex items-center gap-2 hover:opacity-90">
         <span class="text-2xl">●</span>
         <span class="font-bold tracking-tight text-lg">Persona</span>
-        <span class="text-xs text-zinc-500 font-mono">v0.1</span>
+        {# v1.10 fix 2/3 — sync the header chip with the actual package
+           version exposed as a Jinja global by templates_engine. The
+           string used to be hardcoded ``v0.1`` and silently drifted past
+           a dozen releases. #}
+        <span class="text-xs text-zinc-500 font-mono">v{{ app_version }}</span>
       </a>
 
       <nav class="flex items-center gap-1 text-sm">

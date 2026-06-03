@@ -308,7 +308,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.9.0",
+        version="1.10.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -587,7 +587,17 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         asyncio.create_task(run_auto_backup_scheduler(controller), name="auto-backup"),
     ]
 
-    controller.pause()
+    # v1.10: only pause on boot if opted-in via kv_setting capture_paused_on_boot=1
+    try:
+        from app.storage.db import get_connection
+        from app.storage.repository import get_kv
+        async with get_connection() as _kv_conn:
+            _pause_flag = await get_kv(_kv_conn, "capture_paused_on_boot")
+        if (_pause_flag or "0").strip() == "1":
+            controller.pause()
+            log.info("persona.boot.paused_per_setting")
+    except Exception as exc:
+        log.warning("persona.boot.pause_check_failed", error=str(exc))
     log.info("persona.started", host=get_settings().host, port=get_settings().port)
 
     try:

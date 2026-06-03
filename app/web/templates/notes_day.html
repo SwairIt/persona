@@ -15,7 +15,7 @@
 {% block content %}
 <div class="mb-6 flex items-center justify-between flex-wrap gap-3">
   <div>
-    <h1 class="text-2xl font-bold tracking-tight">Notes — {{ day }}</h1>
+    <h1 class="text-2xl font-bold tracking-tight">{{ t('title_notes_day') }} — {{ day }}</h1>
     <p class="text-zinc-500 text-sm mt-1">
       {{ total }} note{% if total != 1 %}s{% endif %}
       {% if not markdown_available %}
@@ -35,7 +35,7 @@
 
 {% if total == 0 %}
   <div class="text-center py-24">
-    <p class="text-zinc-400">No notes on {{ day }}.</p>
+    <p class="text-zinc-400">{{ t('msg_no_notes_day') }} {{ day }}.</p>
     <p class="text-zinc-600 text-sm mt-2">
       Drop a markdown file into <code class="px-1 py-0.5 rounded bg-ink-800 text-zinc-300 font-mono">./data/inbox/</code>
       and it will appear here.
@@ -80,7 +80,7 @@
                     title="Unlock this note via the v0.45 decrypt endpoint">
                 <input type="password"
                        name="password"
-                       placeholder="master password"
+                       placeholder="{{ t('ph_master_password') }}"
                        autocomplete="off"
                        required
                        class="bg-ink-800 border border-ink-700 rounded px-2 py-1 text-xs
@@ -89,7 +89,7 @@
                 <button type="submit"
                         class="px-3 py-1 rounded bg-accent-600 hover:bg-accent-500
                                text-xs font-medium text-white">
-                  Unlock this note
+                  {{ t('btn_unlock_note') }}
                 </button>
               </form>
             </div>
@@ -169,7 +169,7 @@
 
           const del = document.createElement("button");
           del.type = "button";
-          del.textContent = "Remove";
+          del.textContent = "{{ t('msg_remove') }}";
           del.className = "px-2 py-1 text-[11px] rounded border border-ink-700 " +
                           "hover:border-red-500 text-zinc-400 hover:text-red-300 " +
                           "transition shrink-0";

@@ -13,7 +13,7 @@ from app.logging_setup import get_logger
 from app.storage.db import get_connection
 from app.storage.models import Screenshot
 from app.storage.repository import list_screenshots
-from app.web.templates_engine import templates
+from app.web.templates_engine import resolve_display_tz, templates
 
 log = get_logger("persona.grid_sort")
 
@@ -165,9 +165,15 @@ def _day_bounds(day: datetime) -> tuple[datetime, datetime]:
 
 
 def _group_by_hour(shots: list[Screenshot]) -> OrderedDict[str, list[Screenshot]]:
+    # v1.10 fix 2/3 — group header must match the per-card clock. Both
+    # paths now resolve the display timezone through the shared helper
+    # in :mod:`app.web.templates_engine` (kv ``display_timezone`` if set,
+    # otherwise the process-local zone) so a custom MSK render on the
+    # cards can't drift away from an unset/UTC header bucket.
+    display_tz = resolve_display_tz()
     out: OrderedDict[str, list[Screenshot]] = OrderedDict()
     for shot in shots:
-        local = shot.captured_at.astimezone()
+        local = shot.captured_at.astimezone(display_tz)
         key = local.strftime("%H:00")
         out.setdefault(key, []).append(shot)
     return out

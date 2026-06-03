@@ -1,0 +1,38 @@
+-- v1.10 fix 3/3 — boot-time capture-paused flag persisted in kv_settings.
+--
+-- Background
+-- ----------
+-- Until v1.10 the FastAPI ``_lifespan`` coroutine in
+-- :mod:`app.web.main` unconditionally called ``controller.pause()`` the
+-- moment workers were spawned. The intent was friendly — give the user
+-- a quiet first frame, let them click "resume" — but in practice every
+-- fresh boot showed a yellow ``Пауза`` pill in the header and the
+-- capture loop sat idle until the operator noticed. New users routinely
+-- mistook the paused state for "Persona is broken" and the support log
+-- carried the same question every week.
+--
+-- v1.10 flips the default: capture runs immediately on boot. This
+-- migration adds the escape hatch — a single kv row that power users
+-- can flip to ``"1"`` to opt back into the old behaviour (e.g. on a
+-- shared laptop where the operator wants to confirm the workspace
+-- before any screen is sampled).
+--
+-- Storage shape mirrors the established kv-toggle pattern from
+-- ``077_anim_toggle.sql`` / ``070_grayscale.sql``:
+--
+--   * One string-typed row in ``kv_settings`` keyed
+--     ``'capture_paused_on_boot'``.
+--   * Value is normalised to the literal ``"1"`` (pause on boot) or
+--     ``"0"`` (start running) by every writer; readers treat anything
+--     other than ``"1"`` as "off" so a hand-edited row cannot wedge the
+--     boot path.
+--   * Default is ``"0"`` because that's the new sensible default the
+--     fix ships — the row exists only so the settings page can render
+--     the checkbox in its unchecked state without a special-case
+--     ``None`` branch.
+--
+-- ``INSERT OR IGNORE`` keeps the migration idempotent under re-runs of
+-- :func:`app.storage.db.init_database` and, crucially, never resets a
+-- value the operator has already flipped to ``"1"``.
+
+INSERT OR IGNORE INTO kv_settings (key, value) VALUES ('capture_paused_on_boot', '0');

@@ -108,6 +108,17 @@ def _load_translations() -> dict[str, dict[str, str]]:
 # the cost of templating; translation files don't change at runtime.
 _TRANSLATIONS: Final[dict[str, dict[str, str]]] = _load_translations()
 
+# v1.10 fix 1/3 — translation coverage expanded from ~80 nav-only keys
+# to ~200+ keys covering titles, table headers, sort options, counts,
+# buttons, filter prompts, day-nav (Today/Prev/Next), empty states, and
+# subtitles across timeline / search / dashboard / heatmap / hours /
+# streak / notes_day / screenshot / welcome / settings.
+_log.info(
+    "i18n.expanded",
+    languages=sorted(_TRANSLATIONS.keys()),
+    key_counts={lang: len(table) for lang, table in _TRANSLATIONS.items()},
+)
+
 
 def t(key: str, lang: str | None = None) -> str:
     """Return the translation of ``key`` in ``lang``.

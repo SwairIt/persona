@@ -3,18 +3,18 @@
 {% block content %}
 <div class="mb-6 flex items-center justify-between flex-wrap gap-3">
   <div>
-    <h1 class="text-2xl font-bold tracking-tight">Timeline</h1>
+    <h1 class="text-2xl font-bold tracking-tight">{{ t('title_timeline') }}</h1>
     <p class="text-zinc-500 text-sm mt-1">
-      {{ target_day | humandate }} · {{ total }} captures
-      {% if app_filter %} · filtered: <span class="text-accent-400 font-mono">{{ app_filter | app_alias }}</span>{% endif %}
+      {{ target_day | humandate }} · {{ total }} {{ t('status_frames') }}
+      {% if app_filter %} · {{ t('label_filtered') }}: <span class="text-accent-400 font-mono">{{ app_filter | app_alias }}</span>{% endif %}
     </p>
   </div>
   <div class="flex items-center gap-2 text-sm">
     <a href="/?date={{ prev_day.strftime('%Y-%m-%d') }}"
-       class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700">← Prev</a>
-    <a href="/" class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700">Today</a>
+       class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700">← {{ t('btn_prev') }}</a>
+    <a href="/" class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700">{{ t('btn_today') }}</a>
     <a href="/?date={{ next_day.strftime('%Y-%m-%d') }}"
-       class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700">Next →</a>
+       class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700">{{ t('btn_next_arrow') }} →</a>
     <a href="/api/export/day?date={{ target_day.strftime('%Y-%m-%d') }}"
        class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700 text-zinc-400" title="Download JSON snapshot">↓ JSON</a>
   </div>
@@ -23,17 +23,17 @@
 <form method="get" action="/" class="mb-4 flex items-center gap-2 text-xs">
   <input type="hidden" name="date" value="{{ target_day.strftime('%Y-%m-%d') }}">
   {% if app_filter %}<input type="hidden" name="app" value="{{ app_filter }}">{% endif %}
-  <label for="timeline-sort" class="text-zinc-500 uppercase tracking-wider">Sort by</label>
+  <label for="timeline-sort" class="text-zinc-500 uppercase tracking-wider">{{ t('label_sort_by') }}</label>
   <select id="timeline-sort" name="sort_by"
           onchange="this.form.submit()"
           class="px-2 py-1.5 bg-ink-800 border border-ink-700 rounded font-mono text-xs">
-    <option value="captured_at" {% if sort_by == 'captured_at' %}selected{% endif %}>Newest first</option>
-    <option value="captured_at_asc" {% if sort_by == 'captured_at_asc' %}selected{% endif %}>Oldest first</option>
-    <option value="app_name" {% if sort_by == 'app_name' %}selected{% endif %}>App name (A–Z)</option>
-    <option value="ocr_length" {% if sort_by == 'ocr_length' %}selected{% endif %}>OCR text length</option>
+    <option value="captured_at" {% if sort_by == 'captured_at' %}selected{% endif %}>{{ t('sort_newest_first') }}</option>
+    <option value="captured_at_asc" {% if sort_by == 'captured_at_asc' %}selected{% endif %}>{{ t('sort_oldest_first') }}</option>
+    <option value="app_name" {% if sort_by == 'app_name' %}selected{% endif %}>{{ t('sort_app_name') }}</option>
+    <option value="ocr_length" {% if sort_by == 'ocr_length' %}selected{% endif %}>{{ t('sort_ocr_length') }}</option>
   </select>
   <noscript>
-    <button type="submit" class="px-2 py-1.5 bg-ink-800 border border-ink-700 rounded">apply</button>
+    <button type="submit" class="px-2 py-1.5 bg-ink-800 border border-ink-700 rounded">{{ t('btn_apply') | lower }}</button>
   </noscript>
 </form>
 
@@ -42,7 +42,7 @@
     {% if app_filter %}
       <a href="/?date={{ target_day.strftime('%Y-%m-%d') }}"
          class="px-3 py-1 rounded-full text-xs bg-accent-600/20 text-accent-300 border border-accent-600/40">
-        × clear filter
+        × {{ t('btn_clear_filter') }}
       </a>
     {% endif %}
     {% for app_name, count in apps_for_day %}
@@ -64,7 +64,7 @@
   <button x-show="newSince > 0"
           @click="window.location.reload()"
           class="px-3 py-1.5 rounded-full bg-accent-600 hover:bg-accent-500 text-sm font-medium text-white shadow">
-    <span x-text="newSince"></span> new captures — click to refresh
+    <span x-text="newSince"></span> {{ t('msg_new_captures_click') }}
   </button>
 </div>
 
@@ -92,18 +92,18 @@
 
 {% if total == 0 %}
   <div class="text-center py-24">
-    <p class="text-zinc-400">No captures for this day.</p>
+    <p class="text-zinc-400">{{ t('msg_no_captures_day') }}</p>
     <p class="text-zinc-600 text-sm mt-2">
       {% if app_filter %}
-        Try clearing the <code class="text-accent-400">{{ app_filter }}</code> filter,
-        or switching to a different day with <code class="text-zinc-400">← Prev</code> / <code class="text-zinc-400">Next →</code>.
+        {{ t('msg_try_clearing_filter') }}
+        <code class="text-accent-400">{{ app_filter }}</code>
       {% else %}
-        Click <strong>Start</strong> in the header to begin capturing, or browse other days.
+        {{ t('msg_click_start') }}
       {% endif %}
     </p>
     <p class="text-zinc-600 text-xs mt-3">
-      Press <code class="bg-ink-900 px-1.5 py-0.5 rounded">?</code> for keyboard shortcuts,
-      or <a href="/help" class="text-accent-400">visit Help</a>.
+      {{ t('msg_press_question') }}
+      <a href="/help" class="text-accent-400">{{ t('msg_visit_help') }}</a>.
     </p>
   </div>
 {% else %}
@@ -111,7 +111,7 @@
     {% for hour, shots in groups.items() %}
       <section>
         <h2 class="text-sm font-mono text-zinc-500 uppercase tracking-widest mb-3">
-          {{ hour }} · <span class="text-zinc-600">{{ shots | length }} frames</span>
+          {{ hour }} · <span class="text-zinc-600">{{ shots | length }} {{ t('status_frames') }}</span>
         </h2>
         <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
           {% for shot in shots %}

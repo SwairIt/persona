@@ -2,15 +2,15 @@
 
 {% block content %}
 <div class="mb-8">
-  <h1 class="text-2xl font-bold tracking-tight">Hour-of-day histogram</h1>
+  <h1 class="text-2xl font-bold tracking-tight">{{ t('title_hours') }}</h1>
   <p class="text-zinc-500 text-sm mt-1">
-    When do you capture most? 24 bars, one per hour of the day, summed across the last {{ days }} day{{ '' if days == 1 else 's' }}.
+    {{ t('subtitle_hours') }}
   </p>
 </div>
 
 {# Day-window selector — pure links, no JS. #}
 <div class="flex flex-wrap items-center gap-2 mb-6">
-  <span class="text-xs uppercase tracking-widest text-zinc-500 mr-1">Window</span>
+  <span class="text-xs uppercase tracking-widest text-zinc-500 mr-1">{{ t('label_window') }}</span>
   {% for choice in window_choices %}
     <a href="/hours?days={{ choice }}"
        class="px-3 py-1.5 rounded-md text-sm font-mono transition
@@ -22,33 +22,33 @@
 
 <section class="grid sm:grid-cols-2 gap-4 mb-6">
   <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
-    <div class="text-xs uppercase tracking-widest text-zinc-500">Grand total</div>
+    <div class="text-xs uppercase tracking-widest text-zinc-500">{{ t('label_grand_total') }}</div>
     <div class="text-3xl font-bold mt-1 tabular-nums">
       {{ "{:,}".format(total) }}
       <span class="text-base font-normal text-zinc-500 ml-1">
-        shot{{ '' if total == 1 else 's' }}
+        {{ t('status_shot_singular') if total == 1 else t('status_shots') }}
       </span>
     </div>
     <div class="text-xs text-zinc-500 mt-1">
-      Last {{ days }} day{{ '' if days == 1 else 's' }}.
+      {{ t('msg_last_window_days').replace('{n}', days | string) }}
     </div>
   </div>
   <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
-    <div class="text-xs uppercase tracking-widest text-zinc-500">Peak hour</div>
+    <div class="text-xs uppercase tracking-widest text-zinc-500">{{ t('label_peak_hour') }}</div>
     {% if peak %}
       <div class="text-3xl font-bold mt-1 tabular-nums">
         {{ "%02d"|format(peak.hour) }}:00
         <span class="text-base font-normal text-zinc-500 ml-1">
-          · {{ "{:,}".format(peak.count) }} shot{{ '' if peak.count == 1 else 's' }}
+          · {{ "{:,}".format(peak.count) }} {{ t('status_shot_singular') if peak.count == 1 else t('status_shots') }}
         </span>
       </div>
       <div class="text-xs text-zinc-500 mt-1 tabular-nums">
-        {{ "%.1f"|format(peak.pct) }}% of the window's captures.
+        {{ "%.1f"|format(peak.pct) }}{{ t('msg_used_percent') }}
       </div>
     {% else %}
       <div class="text-3xl font-bold mt-1 tabular-nums text-zinc-600">—</div>
       <div class="text-xs text-zinc-500 mt-1">
-        No captures in this window yet.
+        {{ t('msg_no_captures_window') }}
       </div>
     {% endif %}
   </div>
@@ -121,12 +121,12 @@
     <span class="flex items-center gap-1.5">
       <span class="inline-block rounded-sm"
             style="width: 10px; height: 10px; background-color: {{ fill_active }};"></span>
-      <span>Captured</span>
+      <span>{{ t('label_captured_label') }}</span>
     </span>
     <span class="flex items-center gap-1.5">
       <span class="inline-block rounded-sm"
             style="width: 10px; height: 10px; background-color: {{ fill_empty }};"></span>
-      <span>Empty</span>
+      <span>{{ t('label_empty') }}</span>
     </span>
   </div>
 </div>
@@ -134,14 +134,14 @@
 {# Compact table — accessibility + screen-readability for the bar data. #}
 <details class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
   <summary class="cursor-pointer text-sm text-zinc-300 hover:text-zinc-100">
-    Show all 24 hours as a table
+    {{ t('table_show_24_hours') }}
   </summary>
   <table class="mt-4 w-full text-sm font-mono tabular-nums">
     <thead>
       <tr class="text-xs uppercase tracking-widest text-zinc-500 border-b border-ink-700">
-        <th class="text-left py-1.5 pr-4 font-normal">Hour</th>
-        <th class="text-right py-1.5 px-4 font-normal">Shots</th>
-        <th class="text-right py-1.5 pl-4 font-normal">Share</th>
+        <th class="text-left py-1.5 pr-4 font-normal">{{ t('table_hour') }}</th>
+        <th class="text-right py-1.5 px-4 font-normal">{{ t('table_shots') }}</th>
+        <th class="text-right py-1.5 pl-4 font-normal">{{ t('table_share') }}</th>
       </tr>
     </thead>
     <tbody>

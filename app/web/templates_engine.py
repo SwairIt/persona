@@ -5,9 +5,10 @@ from __future__ import annotations
 import re
 import sqlite3
 from contextvars import ContextVar
+from datetime import datetime, tzinfo
 from html import escape as _html_escape
 from pathlib import Path
-from typing import TYPE_CHECKING
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
@@ -18,9 +19,6 @@ from app.i18n import get_ui_language as _get_ui_language
 from app.i18n import t as _translate
 from app.logging_setup import get_logger
 from app.settings import get_settings
-
-if TYPE_CHECKING:
-    from datetime import datetime
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
@@ -68,6 +66,31 @@ _compact_log = get_logger("persona.compact")
 _grayscale_log = get_logger("persona.grayscale")
 _reduce_motion_log = get_logger("persona.reduce_motion")
 _linkify_log = get_logger("persona.linkify")
+# v1.10 fix 2/3 — timezone-aware rendering of ``captured_at``.
+# Captures land in SQLite as ISO-8601 UTC strings (see
+# :func:`app.storage.time.iso`). The legacy ``_format_clock`` /
+# ``_format_human_time`` filters just ``strftime``'d the raw value, so a
+# user in MSK (UTC+3) saw a 21:19 capture rendered as 18:19. The new
+# ``localtime`` filter resolves the display timezone (kv_settings row
+# ``display_timezone`` if set; otherwise the process-local zone) and
+# converts before formatting. The logger is named ``persona.tz_fix`` so
+# the bug fix is greppable across structured-log pipelines.
+_tz_log = get_logger("persona.tz_fix")
+
+# Format flags for :func:`_format_localtime`. ``"short"`` is the default
+# (matches the legacy ``|clock`` rendering used on the timeline cards),
+# ``"full"`` mirrors the legacy ``|humantime`` minus the seconds
+# component which is noise at minute-grained capture rates, and
+# ``"date"`` covers the ``back to YYYY-MM-DD`` / day-navigation links
+# that used to call ``shot.captured_at.strftime('%Y-%m-%d')`` directly
+# and therefore rendered the *UTC* date — visibly wrong around midnight
+# local time.
+_LOCALTIME_FORMATS: dict[str, str] = {
+    "short": "%H:%M",
+    "full": "%Y-%m-%d %H:%M",
+    "date": "%Y-%m-%d",
+}
+_LOCALTIME_DEFAULT = "short"
 
 # v0.83 feature 2/3 — OCR URL detection.
 # When OCR text is rendered on the screenshot detail page, any
@@ -169,6 +192,100 @@ def _format_clock(value: datetime | None) -> str:
     if value is None:
         return "—"
     return value.strftime("%H:%M")
+
+
+def _read_display_timezone_from_db() -> str:
+    """Synchronous read of the ``display_timezone`` row from ``kv_settings``.
+
+    Mirrors :func:`_read_theme_from_db` — Jinja filters run synchronously
+    so the aiosqlite pool is off-limits; a short stdlib ``sqlite3``
+    reader against the WAL-mode database is safe alongside the async
+    writers. Any failure (missing DB / missing row / SQLite error) falls
+    back to ``""`` so the ``localtime`` filter degrades to the process-
+    local zone rather than 500-ing the page.
+    """
+    db_path = get_settings().db_path
+    try:
+        with sqlite3.connect(str(db_path)) as conn:
+            cursor = conn.execute(
+                "SELECT value FROM kv_settings WHERE key = ?",
+                ("display_timezone",),
+            )
+            row = cursor.fetchone()
+    except sqlite3.Error as exc:
+        _tz_log.debug("display_timezone.read.error", error=str(exc))
+        return ""
+    if row is None:
+        return ""
+    return str(row[0]).strip()
+
+
+def resolve_display_tz() -> tzinfo:
+    """Return the :class:`tzinfo` to use for rendering captured_at.
+
+    Reads the operator-controlled ``display_timezone`` kv row; if set to
+    an IANA name (e.g. ``"Europe/Moscow"``) we hand back a
+    :class:`zoneinfo.ZoneInfo`. Empty string or an unknown name falls
+    back to the process-local zone via
+    ``datetime.now().astimezone().tzinfo`` — guaranteed non-``None`` on
+    Python 3.12, matches the ``_today`` helper in
+    :mod:`app.web.routes.timeline`.
+    """
+    tz_name = _read_display_timezone_from_db()
+    if tz_name:
+        try:
+            return ZoneInfo(tz_name)
+        except ZoneInfoNotFoundError:
+            _tz_log.warning("display_timezone.unknown", tz_name=tz_name)
+    local = datetime.now().astimezone().tzinfo
+    if local is None:  # pragma: no cover — astimezone() always tags a tz
+        return ZoneInfo("UTC")
+    return local
+
+
+def _coerce_datetime(value: datetime | str | None) -> datetime | None:
+    """Normalise the input of :func:`_format_localtime`.
+
+    Accepts a :class:`~datetime.datetime` (passed by routes via the
+    Pydantic ``Screenshot`` model), an ISO-8601 string (in case a route
+    hands the raw row through), or ``None``. Returns ``None`` on empty
+    or unparseable input so the filter renders the same ``"—"``
+    placeholder the legacy filters used.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    text = value.strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        _tz_log.debug("localtime.parse.error", value=text[:40])
+        return None
+
+
+def _format_localtime(
+    value: datetime | str | None,
+    fmt: str = _LOCALTIME_DEFAULT,
+) -> str:
+    """Render a UTC ``captured_at`` in the operator's display timezone.
+
+    Jinja filter registered as ``localtime``. ``fmt`` selects between
+    the two supported strftime patterns (``"short"`` →  ``%H:%M``,
+    ``"full"`` → ``%Y-%m-%d %H:%M``). Unknown ``fmt`` flags collapse to
+    ``"short"`` so a template typo can never raise. Naive input
+    datetimes are assumed to already represent UTC — the storage layer
+    only ever writes UTC — and are tagged accordingly before conversion.
+    """
+    parsed = _coerce_datetime(value)
+    if parsed is None:
+        return "—"
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=ZoneInfo("UTC"))
+    pattern = _LOCALTIME_FORMATS.get(fmt, _LOCALTIME_FORMATS[_LOCALTIME_DEFAULT])
+    return parsed.astimezone(resolve_display_tz()).strftime(pattern)
 
 
 def _format_filesize(size_bytes: int | None) -> str:
@@ -423,6 +540,11 @@ templates.env.filters["filesize"] = _format_filesize
 templates.env.filters["thumbnail_url"] = _thumbnail_url
 templates.env.filters["app_alias"] = _resolve_app_alias
 templates.env.filters["linkify_urls"] = _linkify_urls
+# v1.10 fix 2/3 — timezone-aware capture rendering. Pipe every
+# ``captured_at`` (UTC in storage) through ``|localtime`` to convert into
+# the operator's display zone before formatting. See
+# :func:`_format_localtime` for the format flags.
+templates.env.filters["localtime"] = _format_localtime
 
 def _jinja_translate(key: str) -> str:
     """Jinja-facing wrapper around :func:`app.i18n.t`.

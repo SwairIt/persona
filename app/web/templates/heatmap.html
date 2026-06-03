@@ -2,19 +2,19 @@
 
 {% block content %}
 <div class="mb-8">
-  <h1 class="text-2xl font-bold tracking-tight">Capture heatmap</h1>
+  <h1 class="text-2xl font-bold tracking-tight">{{ t('title_heatmap') }}</h1>
   <p class="text-zinc-500 text-sm mt-1">
-    A year of screenshots — one tile per day, darker means quieter, brighter means busier.
+    {{ t('subtitle_heatmap') }}
   </p>
 </div>
 
 <section class="grid sm:grid-cols-2 gap-4 mb-6">
   <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
-    <div class="text-xs uppercase tracking-widest text-zinc-500">Grand total</div>
+    <div class="text-xs uppercase tracking-widest text-zinc-500">{{ t('label_grand_total') }}</div>
     <div class="text-3xl font-bold mt-1 tabular-nums">
       {{ "{:,}".format(total) }}
       <span class="text-base font-normal text-zinc-500 ml-1">
-        frame{{ '' if total == 1 else 's' }}
+        {{ t('status_frame_singular') if total == 1 else t('status_frames') }}
       </span>
     </div>
     <div class="text-xs text-zinc-500 mt-1 font-mono">
@@ -22,15 +22,12 @@
     </div>
   </div>
   <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
-    <div class="text-xs uppercase tracking-widest text-zinc-500">Busiest day</div>
+    <div class="text-xs uppercase tracking-widest text-zinc-500">{{ t('label_busiest_day') }}</div>
     <div class="text-3xl font-bold mt-1 tabular-nums">
       {{ "{:,}".format(max_count) }}
       <span class="text-base font-normal text-zinc-500 ml-1">
-        frame{{ '' if max_count == 1 else 's' }}
+        {{ t('status_frame_singular') if max_count == 1 else t('status_frames') }}
       </span>
-    </div>
-    <div class="text-xs text-zinc-500 mt-1">
-      Single-day peak across the last 365 days.
     </div>
   </div>
 </section>
@@ -55,7 +52,7 @@
     {% endfor %}
 
     {# Day-of-week labels (Mon / Wed / Fri) #}
-    {% set dow_rows = [(0, 'Mon'), (2, 'Wed'), (4, 'Fri')] %}
+    {% set dow_rows = [(0, t('dow_mon')), (2, t('dow_wed')), (4, t('dow_fri'))] %}
     {% for row_index, dow in dow_rows %}
       <text x="0"
             y="{{ top_pad + row_index * (tile + gap) + tile - 2 }}"
@@ -90,12 +87,12 @@
 
   {# Legend #}
   <div class="flex items-center justify-end gap-2 mt-3 text-xs text-zinc-500 font-mono">
-    <span>Less</span>
+    <span>{{ t('label_less') }}</span>
     {% for fill in level_fills %}
       <span class="inline-block rounded-sm"
             style="width: {{ tile }}px; height: {{ tile }}px; background-color: {{ fill }};"></span>
     {% endfor %}
-    <span>More</span>
+    <span>{{ t('label_more') }}</span>
   </div>
 </div>
 
