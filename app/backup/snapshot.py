@@ -36,6 +36,7 @@ from app.logging_setup import get_logger
 from app.settings import get_settings
 
 log = get_logger("persona.backup.snapshot")
+log_verify = get_logger("persona.backup.verify")
 
 SALT_BYTES: Final[int] = 16
 PBKDF2_ITERATIONS: Final[int] = 100_000
@@ -368,9 +369,132 @@ async def restore_backup(
     )
 
 
+def _verify_backup_sync(
+    *,
+    in_path: Path,
+    password: str,
+) -> dict[str, object]:
+    """Synchronous worker — runs in a thread.
+
+    Decrypt ``in_path`` to memory, extract the inner tarball to a temp
+    directory (so the live DB is *never* touched), then sanity-check the
+    contents:
+
+    * the manifest entry ``data/persona.db`` exists and is openable via
+      :mod:`sqlite3` (``PRAGMA integrity_check`` runs cleanly);
+    * every other tar entry is a safe relative path (defuses traversal);
+    * thumbnails under ``data/thumbnails/`` are counted as ``screenshots``.
+
+    Returns a mapping ``{"status", "files", "db_ok", "screenshots_count"}``
+    where ``status`` is ``"ok"`` on success.
+    """
+    if not in_path.exists():
+        msg = f"backup file not found at {in_path}"
+        raise BackupError(msg)
+
+    payload = _decrypt_blob(in_path.read_bytes(), password)
+
+    files = 0
+    screenshots_count = 0
+    db_ok = False
+
+    with tempfile.TemporaryDirectory(prefix="persona-verify-") as tmpdir:
+        extract_root = Path(tmpdir)
+        with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as tar:
+            members = tar.getmembers()
+            # Defuse path-traversal entries before extracting — same
+            # policy as :func:`_restore_backup_sync`.
+            for member in members:
+                name = member.name.replace("\\", "/")
+                if name.startswith("/") or ".." in Path(name).parts:
+                    msg = f"refusing unsafe tar entry: {member.name!r}"
+                    raise BackupError(msg)
+            tar.extractall(extract_root)  # noqa: S202 — validated above
+
+            for member in members:
+                if not member.isfile():
+                    continue
+                files += 1
+                arc = member.name.replace("\\", "/")
+                if arc.startswith("data/thumbnails/"):
+                    screenshots_count += 1
+
+        src_db = extract_root / "data" / "persona.db"
+        if not src_db.exists():
+            msg = "backup is missing data/persona.db"
+            raise BackupError(msg)
+
+        # Open the extracted DB read-only and run a fast integrity probe.
+        # ``PRAGMA integrity_check`` returns the single row ``ok`` on a
+        # clean file; anything else means the snapshot is suspect.
+        conn = sqlite3.connect(f"file:{src_db}?mode=ro", uri=True)
+        try:
+            cursor = conn.execute("PRAGMA integrity_check")
+            row = cursor.fetchone()
+            db_ok = bool(row) and str(row[0]).lower() == "ok"
+        except sqlite3.DatabaseError:
+            db_ok = False
+        finally:
+            conn.close()
+
+    result: dict[str, object] = {
+        "status": "ok",
+        "files": files,
+        "db_ok": db_ok,
+        "screenshots_count": screenshots_count,
+    }
+    log_verify.info(
+        "backup.verify.done",
+        path=str(in_path),
+        files=files,
+        db_ok=db_ok,
+        screenshots=screenshots_count,
+    )
+    return result
+
+
+async def verify_backup(
+    in_path: Path,
+    password: str,
+) -> dict[str, object]:
+    """Decrypt and inspect a snapshot without restoring it.
+
+    Opens ``in_path`` with ``password``, extracts the inner tarball into
+    a temporary directory, checks that the SQLite database is openable
+    via :mod:`sqlite3` (``PRAGMA integrity_check`` returns ``ok``), and
+    counts tar entries.  The live database and thumbnails directory are
+    never touched.
+
+    Args:
+        in_path: Source archive file (the one ``create_backup`` produced).
+        password: Passphrase used at backup time.
+
+    Returns:
+        A mapping ``{"status", "files", "db_ok", "screenshots_count"}``.
+        ``status`` is always ``"ok"`` on success; failures raise instead.
+
+    Raises:
+        BackupNotAvailable: When :mod:`cryptography` cannot be imported.
+        BackupError: Wrong password, corrupted file, unsafe tar entry,
+            or missing ``data/persona.db`` member.
+    """
+    if not password:
+        msg = "password must not be empty"
+        raise BackupError(msg)
+    _require_fernet()
+
+    return await anyio.to_thread.run_sync(
+        lambda: _verify_backup_sync(
+            in_path=in_path,
+            password=password,
+        )
+    )
+
+
 __all__ = [
     "BackupError",
     "BackupNotAvailable",
     "create_backup",
     "restore_backup",
+    "verify_backup",
 ]

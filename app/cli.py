@@ -56,6 +56,7 @@ from app.backup.snapshot import (
     BackupNotAvailable,
     create_backup,
     restore_backup,
+    verify_backup,
 )
 from app.bulk_delete import bulk_delete
 from app.bulk_pin import bulk_pin, bulk_unpin
@@ -613,6 +614,43 @@ async def _cmd_restore(src: Path, password: str | None, assume_yes: bool) -> int
     print(f"Screenshots:    {summary['screenshots_count']}")
     print(f"Restored files: {summary['restored_files']}")
     return 0
+
+
+async def _cmd_verify_backup(src: Path, password: str | None) -> int:
+    """Decrypt and inspect an encrypted snapshot without restoring it.
+
+    Mirrors :func:`_cmd_restore`'s password-resolution policy — the
+    passphrase comes from ``--password`` or ``PERSONA_BACKUP_PASSWORD``
+    and is never echoed back, even on failure.  All work happens against
+    a temp directory; the live DB and thumbnails are untouched.
+    """
+    resolved = _resolve_password(password)
+    if not resolved:
+        print(
+            "error: password required via --password or PERSONA_BACKUP_PASSWORD",
+            file=sys.stderr,
+        )
+        return 2
+
+    try:
+        summary = await verify_backup(src, resolved)
+    except BackupNotAvailable as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    except BackupError as exc:
+        # ``exc`` carries our own messages ("wrong password or corrupted
+        # backup file", "backup is missing data/persona.db", …) — none of
+        # them include the passphrase, so it stays out of the operator's
+        # terminal and any log scraper.
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"Path:        {src}")
+    print(f"Status:      {summary['status']}")
+    print(f"Files:       {summary['files']}")
+    print(f"DB ok:       {'yes' if summary['db_ok'] else 'no'}")
+    print(f"Screenshots: {summary['screenshots_count']}")
+    return 0 if summary["db_ok"] else 1
 
 
 async def _cmd_export_settings(out: Path) -> int:
@@ -1448,6 +1486,27 @@ def _build_parser() -> argparse.ArgumentParser:  # noqa: PLR0915 — flat subpar
         help="Skip the overwrite confirmation prompt.",
     )
 
+    verify_backup_parser = sub.add_parser(
+        "verify-backup",
+        help=(
+            "Decrypt + inspect a backup archive without restoring "
+            "(checks manifest, DB integrity, counts entries)."
+        ),
+    )
+    verify_backup_parser.add_argument(
+        "--in",
+        dest="src",
+        type=Path,
+        required=True,
+        help="Source archive path.",
+    )
+    verify_backup_parser.add_argument(
+        "--password",
+        dest="password",
+        default=None,
+        help="Passphrase (falls back to PERSONA_BACKUP_PASSWORD env var).",
+    )
+
     tag_parser = sub.add_parser(
         "tag",
         help="Bulk-apply a tag to every screenshot matching an FTS5 query.",
@@ -1954,6 +2013,8 @@ async def _run(args: argparse.Namespace) -> int:  # noqa: PLR0911, PLR0912 — d
         return await _cmd_backup(args.out, args.password, args.days)
     if args.command == "restore":
         return await _cmd_restore(args.src, args.password, args.assume_yes)
+    if args.command == "verify-backup":
+        return await _cmd_verify_backup(args.src, args.password)
     if args.command == "tag":
         return await _cmd_tag(args.tag_name, args.query, args.limit, args.dry_run)
     if args.command == "untag":

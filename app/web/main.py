@@ -25,6 +25,7 @@ from app.web.routes import (
     annotations_ndjson as annotations_ndjson_routes,
     api_tokens as api_tokens_routes,
     app_aliases as app_aliases_routes,
+    app_calendar as app_calendar_routes,
     app_capture_skip as app_capture_skip_routes,
     app_groups as app_groups_routes,
     app_health as app_health_routes,
@@ -206,6 +207,7 @@ from app.web.routes import (
     streak as streak_routes,
     summary as summary_routes,
     tag_colour as tag_colour_routes,
+    tag_gallery as tag_gallery_routes,
     tag_merge as tag_merge_routes,
     tag_trends as tag_trends_routes,
     tags as tags_routes,
@@ -272,7 +274,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.90.0",
+        version="0.91.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -487,6 +489,8 @@ def create_app() -> FastAPI:
     app.include_router(sticky_search_routes.router)
     app.include_router(audit_replay_routes.router)
     app.include_router(ocr_words_tsv_routes.router)
+    app.include_router(tag_gallery_routes.router)
+    app.include_router(app_calendar_routes.router)
 
     return app
 
