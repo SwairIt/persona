@@ -50,6 +50,7 @@ import re
 from typing import TypedDict
 
 from app.logging_setup import get_logger
+from app.ocr_history import record_snapshot
 from app.storage.db import get_connection
 
 log = get_logger("persona.ocr.find_replace")
@@ -216,18 +217,27 @@ async def apply(
             "ORDER BY id DESC LIMIT ?",
             (scan_cap,),
         )
-        targets: list[tuple[int, str]] = []
+        targets: list[tuple[int, str, str]] = []
         async for row in cursor:
             before = str(row["ocr_text"])
             after = regex.sub(replacement, before)
             scanned += 1
             if after == before:
                 continue
-            targets.append((int(row["id"]), after))
+            targets.append((int(row["id"]), before, after))
             if len(targets) >= safe_limit:
                 break
 
-        for shot_id, after in targets:
+        for shot_id, before, after in targets:
+            # v0.92 — capture the pre-edit text so the operator can
+            # revert a regex that ate too much. ``record_snapshot``
+            # opens its own connection (which on aiosqlite is the same
+            # underlying file-handle, serialised by the GIL + SQLite's
+            # own locking) and silently no-ops on NULL/empty bodies.
+            # We deliberately log per-shot inside the loop rather than
+            # batch — the rows are bounded by ``_APPLY_HARD_CAP`` so the
+            # extra round-trip is negligible vs. the regex work itself.
+            await record_snapshot(shot_id, before, reason="find_replace")
             await conn.execute(
                 "UPDATE screenshots SET ocr_text = ? WHERE id = ?",
                 (after, shot_id),

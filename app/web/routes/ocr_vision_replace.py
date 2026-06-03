@@ -45,6 +45,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.audit import log_action
 from app.logging_setup import get_logger
+from app.ocr_history import record_snapshot
 from app.storage.db import get_connection
 from app.web.templates_engine import templates
 
@@ -64,13 +65,18 @@ _COUNT_SQL = (
     "AND ocr_text_vision IS NOT NULL "
     "AND ocr_text_vision <> ''"
 )
-_APPLY_SQL = (
-    "UPDATE screenshots "
-    "SET ocr_text = ocr_text_vision "
+# v0.92 — the original bulk ``UPDATE … SET ocr_text = ocr_text_vision``
+# is split into a SELECT (to capture the pre-promotion text for the new
+# :mod:`app.ocr_history` snapshot table) followed by a per-row UPDATE so
+# every operator click leaves a revertible audit trail. Eligibility
+# predicate stays in lock-step with :data:`_COUNT_SQL`.
+_SELECT_ELIGIBLE_SQL = (
+    "SELECT id, ocr_text, ocr_text_vision FROM screenshots "
     "WHERE ocr_text IS NOT NULL "
     "AND ocr_text_vision IS NOT NULL "
     "AND ocr_text_vision <> ''"
 )
+_UPDATE_ONE_SQL = "UPDATE screenshots SET ocr_text = ? WHERE id = ?"
 
 
 async def _count_eligible() -> int:
@@ -111,17 +117,36 @@ async def ocr_vision_replace_page(
 async def ocr_vision_replace_apply(request: Request) -> RedirectResponse:
     """Copy ``ocr_text_vision`` into ``ocr_text`` for every eligible row.
 
-    Eligibility matches :data:`_APPLY_SQL` — both columns non-NULL,
-    vision result non-empty. The UPDATE is one statement so SQLite gives
-    us a transactional all-or-nothing swap of the affected rows.
+    Eligibility matches :data:`_SELECT_ELIGIBLE_SQL` — both columns
+    non-NULL, vision result non-empty. v0.92 split the original bulk
+    UPDATE into a SELECT + per-row UPDATE so each row's prior text is
+    captured in :mod:`app.ocr_history` before being overwritten.
 
     Returns a 303 redirect back to the preview page with ``?affected=N``
     so the page can render a confirmation banner.
     """
+    # v0.92 — snapshot every row's prior ``ocr_text`` into
+    # ``ocr_history`` *before* the per-row UPDATE so the operator can
+    # revert a click that promoted a worse vision transcription. The
+    # original bulk UPDATE could not give us the pre-edit value, so we
+    # SELECT eligible rows first, then loop. Eligibility predicate is
+    # identical to the original bulk statement (see :data:`_SELECT_ELIGIBLE_SQL`).
+    affected = 0
     async with get_connection() as conn:
-        cursor = await conn.execute(_APPLY_SQL)
+        cursor = await conn.execute(_SELECT_ELIGIBLE_SQL)
+        rows = await cursor.fetchall()
+        for row in rows:
+            shot_id = int(row["id"])
+            prev_text = row["ocr_text"]
+            vision_text = row["ocr_text_vision"]
+            await record_snapshot(
+                shot_id,
+                None if prev_text is None else str(prev_text),
+                reason="vision_replace",
+            )
+            await conn.execute(_UPDATE_ONE_SQL, (str(vision_text), shot_id))
+            affected += 1
         await conn.commit()
-        affected = cursor.rowcount or 0
 
     actor = request.client.host if request.client is not None else None
 

@@ -1,20 +1,33 @@
 """Opt-in per-note body encryption for the standalone ``notes`` table (v0.45).
 
 The user picks a master password per note. We derive a Fernet key with
-``PBKDF2-HMAC-SHA256(password, salt, 100_000)`` over a fresh 16-byte
-per-note salt, encrypt the plaintext body, and prepend the salt to the
-Fernet token so the envelope is self-contained. SQLite then holds:
+``PBKDF2-HMAC-SHA256(password, salt, 600_000)`` over a fresh 16-byte
+per-note salt, encrypt the plaintext body, and store the envelope in
+SQLite. The on-disk layout (since v0.92) is::
+
+    [ version_byte ][ salt(16) ][ Fernet token ]
+
+with ``version_byte = 0x02`` for the current 600k-iteration KDF.
+Envelopes written before v0.92 carry no version byte and use the legacy
+100k iteration count (``0x01``); the decrypt path peeks the leading byte
+to pick the iteration count so old notes keep opening, and any
+subsequent :func:`encrypt_note` call rewrites them with the strengthened
+parameters.
+
+SQLite holds:
 
     * ``encrypted = 1``           — gate flag readers MUST check first
     * ``body      = ""``          — empty (the column is ``NOT NULL`` and
                                     the v0.45 migration deliberately did
                                     not rebuild the table to drop that)
-    * ``ciphertext = salt||token`` — opaque envelope
+    * ``ciphertext = <envelope>`` — opaque envelope (see above)
 
 Decryption never persists the plaintext; callers receive it once and may
 choose to display it (and only display it). Every successful decrypt is
 written to the audit log via :func:`app.audit.log_action` so an operator
-can spot a brute-force attempt after the fact.
+can spot a brute-force attempt after the fact. Legacy-KDF reads emit an
+additional ``persona.kdf.upgrade`` audit row so the lazy migration is
+auditable.
 
 Like :mod:`app.vault`, ``cryptography`` is treated as an *optional*
 dependency. The probe lives in :func:`_cryptography_available`; every
@@ -37,13 +50,25 @@ from app.logging_setup import get_logger
 from app.storage.db import get_connection
 
 log = get_logger("persona.encrypted_notes")
+log_kdf = get_logger("persona.kdf.upgrade")
 
 # Per-note PBKDF2 salt. 16 bytes is the standard recommendation and matches
 # the kv-vault implementation in :mod:`app.vault`; longer buys no real-world
 # resistance against the parameters we use here.
 _SALT_BYTES: Final[int] = 16
-# PBKDF2 iteration count, fixed by the v0.45 task spec.
-_KDF_ITERATIONS: Final[int] = 100_000
+# PBKDF2 work factor table — keyed by the leading version byte of the
+# envelope.
+#   * ``0x01`` — legacy 100k (pre-v0.92). Decrypt path only.
+#   * ``0x02`` — current 600k. Used for every new encrypt.
+# Untagged envelopes (no version byte at all, pre-v0.92) fall through to
+# ``_KDF_VERSION_LEGACY`` for decryption.
+_KDF_VERSION_LEGACY: Final[int] = 0x01
+_KDF_VERSION_CURRENT: Final[int] = 0x02
+_KDF_ITERATIONS_BY_VERSION: Final[dict[int, int]] = {
+    _KDF_VERSION_LEGACY: 100_000,
+    _KDF_VERSION_CURRENT: 600_000,
+}
+_KDF_ITERATIONS: Final[int] = _KDF_ITERATIONS_BY_VERSION[_KDF_VERSION_CURRENT]
 # Fernet requires exactly a 32-byte secret (URL-safe base64-encoded).
 _FERNET_KEY_BYTES: Final[int] = 32
 
@@ -88,16 +113,22 @@ def _cryptography_available() -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _derive_fernet_key(password: str, salt: bytes) -> bytes:
+def _derive_fernet_key(
+    password: str,
+    salt: bytes,
+    iterations: int = _KDF_ITERATIONS,
+) -> bytes:
     """Derive a 32-byte URL-safe-base64 Fernet key from ``password`` + ``salt``.
 
-    PBKDF2-HMAC-SHA256 with the fixed iteration count. Unlike
-    :mod:`app.vault` we do *not* mix the row key (note id) into the
-    derivation: notes have no stable string handle the user would type,
-    and binding to the integer id would make backup/restore (which can
-    renumber rows) silently break decryption. The fresh per-note salt
-    plus Fernet's own authenticated encryption are sufficient to keep
-    one decrypted note from helping decrypt another.
+    PBKDF2-HMAC-SHA256 with ``iterations`` (default: the current 600k
+    work factor; the decrypt path passes 100k when it sees a legacy
+    envelope). Unlike :mod:`app.vault` we do *not* mix the row key
+    (note id) into the derivation: notes have no stable string handle
+    the user would type, and binding to the integer id would make
+    backup/restore (which can renumber rows) silently break decryption.
+    The fresh per-note salt plus Fernet's own authenticated encryption
+    are sufficient to keep one decrypted note from helping decrypt
+    another.
     """
     import base64  # noqa: PLC0415 — keep the module-level import surface tiny
 
@@ -105,10 +136,33 @@ def _derive_fernet_key(password: str, salt: bytes) -> bytes:
         "sha256",
         password.encode("utf-8"),
         salt,
-        _KDF_ITERATIONS,
+        iterations,
         dklen=_FERNET_KEY_BYTES,
     )
     return base64.urlsafe_b64encode(raw)
+
+
+def _split_envelope(envelope: bytes) -> tuple[int, bytes, bytes] | None:
+    """Return ``(version, salt, token)`` for a stored note envelope.
+
+    Recognises three on-disk shapes:
+
+    * ``[0x02][salt(16)][token]`` — current v0.92 format, 600k iterations.
+    * ``[0x01][salt(16)][token]`` — explicit legacy tag, 100k iterations.
+    * ``[salt(16)][token]``       — untagged pre-v0.92 note, 100k.
+
+    Returns ``None`` when the envelope is too short to contain a salt —
+    callers raise :class:`BadPassword` in that case to avoid a side
+    channel between "corrupt" and "wrong password".
+    """
+    if len(envelope) <= _SALT_BYTES:
+        return None
+    leading = envelope[0]
+    if leading in _KDF_ITERATIONS_BY_VERSION and len(envelope) > 1 + _SALT_BYTES:
+        salt = envelope[1 : 1 + _SALT_BYTES]
+        token = envelope[1 + _SALT_BYTES :]
+        return leading, salt, token
+    return _KDF_VERSION_LEGACY, envelope[:_SALT_BYTES], envelope[_SALT_BYTES:]
 
 
 # ---------------------------------------------------------------------------
@@ -158,9 +212,9 @@ async def encrypt_note(note_id: int, password: str) -> dict[str, Any]:
 
         plaintext = str(row["body"])
         salt = os.urandom(_SALT_BYTES)
-        key = _derive_fernet_key(password, salt)
+        key = _derive_fernet_key(password, salt, _KDF_ITERATIONS)
         token = Fernet(key).encrypt(plaintext.encode("utf-8"))
-        envelope = salt + token
+        envelope = bytes([_KDF_VERSION_CURRENT]) + salt + token
 
         await conn.execute(
             """
@@ -175,11 +229,17 @@ async def encrypt_note(note_id: int, password: str) -> dict[str, Any]:
         )
         await conn.commit()
 
-    log.info("encrypted_notes.encrypt.ok", note_id=note_id, bytes=len(envelope))
+    log.info(
+        "encrypted_notes.encrypt.ok",
+        note_id=note_id,
+        bytes=len(envelope),
+        kdf_version=_KDF_VERSION_CURRENT,
+        iterations=_KDF_ITERATIONS,
+    )
     await log_action(
         action="encrypted_notes.encrypt",
         target=f"note:{note_id}",
-        detail=f"bytes={len(envelope)}",
+        detail=f"bytes={len(envelope)} kdf_version={_KDF_VERSION_CURRENT}",
     )
     return {"status": "ok", "note_id": int(note_id), "bytes": len(envelope)}
 
@@ -250,7 +310,8 @@ async def decrypt_note(note_id: int, password: str) -> str:
         raise BadPassword(msg)
 
     envelope = bytes(row["ciphertext"])
-    if len(envelope) <= _SALT_BYTES:
+    split = _split_envelope(envelope)
+    if split is None:
         log.warning(
             "encrypted_notes.decrypt.corrupt",
             note_id=note_id,
@@ -265,9 +326,9 @@ async def decrypt_note(note_id: int, password: str) -> str:
         msg = "ciphertext envelope is too short"
         raise BadPassword(msg)
 
-    salt = envelope[:_SALT_BYTES]
-    token = envelope[_SALT_BYTES:]
-    key = _derive_fernet_key(password, salt)
+    version, salt, token = split
+    iterations = _KDF_ITERATIONS_BY_VERSION[version]
+    key = _derive_fernet_key(password, salt, iterations)
     try:
         plaintext_bytes = Fernet(key).decrypt(token)
     except InvalidToken as exc:
@@ -281,11 +342,25 @@ async def decrypt_note(note_id: int, password: str) -> str:
         msg = "wrong password or tampered ciphertext"
         raise BadPassword(msg) from exc
 
-    log.info("encrypted_notes.decrypt.ok", note_id=note_id)
+    if version != _KDF_VERSION_CURRENT:
+        log_kdf.info(
+            "encrypted_notes.kdf.legacy_read",
+            note_id=note_id,
+            kdf_version=version,
+            iterations=iterations,
+            current_iterations=_KDF_ITERATIONS,
+        )
+        await log_action(
+            action="encrypted_notes.kdf.legacy_read",
+            target=f"note:{note_id}",
+            detail=f"version={version} iterations={iterations}",
+        )
+
+    log.info("encrypted_notes.decrypt.ok", note_id=note_id, kdf_version=version)
     await log_action(
         action="encrypted_notes.decrypt",
         target=f"note:{note_id}",
-        detail="ok",
+        detail=f"ok kdf_version={version}",
         success=True,
     )
     return plaintext_bytes.decode("utf-8")

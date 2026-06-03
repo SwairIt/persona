@@ -25,6 +25,7 @@ Subcommands:
     export-monthly-stats-csv  Per-month-per-app rollup CSV (--months N, --out FILE).
     export-share-visits  v0.55 share_visit rows as CSV (--days N, --out FILE).
     export-ocr-txt     Per-day OCR text dump for grep/fzf (--day YYYY-MM-DD, --out FILE).
+    export-tag-ocr     Per-tag OCR text dump — every shot carrying a tag (--tag T, --out FILE).
     slack-summary      Compact Slack-style daily summary (--day YYYY-MM-DD, --out FILE).
     export-sticky      Dump every sticky_note row as a JSON array (--out FILE).
     export-annotations-ndjson  Stream every screenshot_annotation row as NDJSON (--out FILE).
@@ -92,6 +93,7 @@ from app.thumb_regen import regen_missing
 from app.web.routes.annotations_ndjson import _iter_annotations_ndjson
 from app.web.routes.share_visits_csv import _render_share_visits_csv
 from app.web.routes.sticky_export import _fetch_all_stickies
+from app.web.routes.tag_ocr_export import _build_tag_ocr_dump
 from app.weekly_pdf import export_week_pdf
 
 _ANSI_GREEN = "\033[32m"
@@ -1213,6 +1215,45 @@ async def _cmd_export_ocr_txt(day: str | None, out: Path) -> int:
     return 0
 
 
+async def _cmd_export_tag_ocr(tag: str, out: Path) -> int:
+    """Write the per-tag OCR text dump via :func:`_build_tag_ocr_dump`.
+
+    Shares the renderer with :mod:`app.web.routes.tag_ocr_export` so the
+    CLI and the HTTP route always emit byte-identical files — single
+    source of truth for header layout, block delimiter, and OCR
+    line-stripping. A missing tag exits non-zero (rc 1) rather than
+    silently writing an empty file so shell pipelines fail loudly.
+    """
+    cleaned_tag = tag.strip().lower()
+    if not cleaned_tag:
+        print("error: empty tag name", file=sys.stderr)
+        return 2
+
+    try:
+        tag_row, body = await _build_tag_ocr_dump(cleaned_tag)
+    except LookupError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    # ``newline=""`` keeps the lone ``\n`` separators emitted by the
+    # renderer intact instead of letting the Windows text layer rewrite
+    # them to ``\r\n`` — grep / fzf / awk all expect lone ``\n``.
+    with out.open("w", encoding="utf-8", newline="") as fh:
+        fh.write(body)
+
+    size_bytes = len(body.encode("utf-8"))
+    # Each ``\n===\n`` line separates two blocks; +1 only when the body
+    # is non-empty (a tag with zero shots produces a zero-byte file).
+    blocks = body.count("\n===\n") + 1 if body else 0
+
+    print(f"Path:   {out}")
+    print(f"Tag:    {tag_row['name']}")
+    print(f"Blocks: {blocks}")
+    print(f"Bytes:  {size_bytes}")
+    return 0
+
+
 async def _cmd_slack_summary(day: str | None, out: Path) -> int:
     """Write the Slack-style daily summary produced by :func:`slack_style_summary`.
 
@@ -1841,6 +1882,27 @@ def _build_parser() -> argparse.ArgumentParser:  # noqa: PLR0915 — flat subpar
         help="Destination text path (parent dirs are created).",
     )
 
+    tag_ocr_parser = sub.add_parser(
+        "export-tag-ocr",
+        help=(
+            "Per-tag OCR text dump as a flat .txt — one block per shot "
+            "carrying the tag, separated by ``===`` (mirrors export-ocr-txt)."
+        ),
+    )
+    tag_ocr_parser.add_argument(
+        "--tag",
+        dest="tag",
+        required=True,
+        help="Tag name to export (case-insensitive, whitespace-trimmed).",
+    )
+    tag_ocr_parser.add_argument(
+        "--out",
+        dest="out",
+        type=Path,
+        required=True,
+        help="Destination text path (parent dirs are created).",
+    )
+
     slack_summary_parser = sub.add_parser(
         "slack-summary",
         help=(
@@ -2041,6 +2103,8 @@ async def _run(args: argparse.Namespace) -> int:  # noqa: PLR0911, PLR0912 — d
         return await _cmd_export_share_visits(args.days, args.out)
     if args.command == "export-ocr-txt":
         return await _cmd_export_ocr_txt(args.day, args.out)
+    if args.command == "export-tag-ocr":
+        return await _cmd_export_tag_ocr(args.tag, args.out)
     if args.command == "slack-summary":
         return await _cmd_slack_summary(args.day, args.out)
     if args.command == "export-sticky":

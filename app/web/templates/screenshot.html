@@ -74,10 +74,21 @@
     {% endif %}
 
     {% if shot.ocr_text %}
-      <section class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+      <section class="rounded-lg border border-ink-700 bg-ink-800 p-4"
+               x-data="ocrHistory({{ shot.id }})">
         <div class="flex items-center justify-between mb-3">
           <h3 class="text-xs uppercase tracking-widest text-zinc-500">OCR text</h3>
           <div class="flex items-center gap-2">
+            {# v0.92 feature 3/3 — History link. Lazily fetches snapshot
+               rows captured by find_replace / vision_replace / manual
+               edits and renders revert buttons. The list stays hidden
+               until the operator clicks; an empty history shows a
+               friendly placeholder rather than a dangling label. #}
+            <button type="button"
+                    @click="toggle()"
+                    class="px-3 py-1 text-xs bg-ink-700 hover:bg-ink-600 rounded text-zinc-200">
+              <span x-text="open ? 'Hide history' : 'History'"></span>
+            </button>
             <button type="button"
                     data-copy-ocr
                     data-ocr-text="{{ shot.ocr_text or '' }}"
@@ -109,6 +120,102 @@
            Jinja's autoescape leaves it alone — no ``|safe`` needed and
            non-URL segments stay safely escaped. #}
         <pre class="text-sm font-mono text-zinc-200 whitespace-pre-wrap leading-relaxed">{{ shot.ocr_text | linkify_urls }}</pre>
+        {# v0.92 feature 3/3 — OCR history panel. Renders only when the
+           operator clicked "History" (``x-show="open"``). Each row
+           shows the reason slug (find_replace / vision_replace /
+           manual / revert), the wall-clock timestamp from the snapshot
+           table, and a truncated preview of the pre-edit text. A
+           Revert button POSTs to /api/ocr-history/{id}/revert and
+           reloads on success so the live OCR ``<pre>`` above reflects
+           the restored text. Empty history shows a placeholder rather
+           than a dangling section header. #}
+        <div x-show="open" x-cloak class="mt-3 border-t border-ink-700 pt-3">
+          <p x-show="loading" class="text-xs text-zinc-500">loading history…</p>
+          <p x-show="error" x-text="error" class="text-xs text-rose-400"></p>
+          <p x-show="!loading && !error && !history.length"
+             class="text-xs text-zinc-500">no edits recorded for this screenshot yet</p>
+          <ul x-show="!loading && history.length" class="space-y-2 text-xs">
+            <template x-for="row in history" :key="row.id">
+              <li class="flex items-start justify-between gap-3 px-3 py-2 bg-ink-900 border border-ink-700 rounded">
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-2 mb-1">
+                    <span class="px-1.5 py-0.5 rounded bg-ink-800 text-zinc-400 font-mono"
+                          x-text="row.reason || 'unknown'"></span>
+                    <span class="text-zinc-500 font-mono" x-text="row.replaced_at"></span>
+                  </div>
+                  <pre class="whitespace-pre-wrap break-words text-zinc-300 font-mono"
+                       x-text="(row.prev_text || '').slice(0, 400) + ((row.prev_text || '').length > 400 ? '…' : '')"></pre>
+                </div>
+                <button type="button"
+                        @click="doRevert(row.id)"
+                        :disabled="reverting"
+                        class="px-2 py-1 rounded bg-amber-700/40 hover:bg-amber-700 text-amber-200 disabled:opacity-50">
+                  Revert
+                </button>
+              </li>
+            </template>
+          </ul>
+        </div>
+        <script>
+          function ocrHistory(sid) {
+            return {
+              open: false,
+              loading: false,
+              reverting: false,
+              error: '',
+              history: [],
+              async toggle() {
+                this.open = !this.open;
+                if (this.open && !this.history.length && !this.error) {
+                  await this.load();
+                }
+              },
+              async load() {
+                this.loading = true;
+                this.error = '';
+                try {
+                  const r = await fetch(`/api/screenshot/${sid}/ocr-history.json`,
+                                        { credentials: 'same-origin' });
+                  if (!r.ok) {
+                    this.error = `Failed to load history (HTTP ${r.status})`;
+                    return;
+                  }
+                  const j = await r.json();
+                  this.history = Array.isArray(j.history) ? j.history : [];
+                } catch (e) {
+                  this.error = 'Failed to load history';
+                } finally {
+                  this.loading = false;
+                }
+              },
+              async doRevert(historyId) {
+                if (!confirm('Restore this previous OCR text? The current text will be snapshotted first so the revert is itself revertible.')) {
+                  return;
+                }
+                this.reverting = true;
+                this.error = '';
+                try {
+                  const r = await fetch(`/api/ocr-history/${historyId}/revert`,
+                                        { method: 'POST', credentials: 'same-origin' });
+                  if (!r.ok) {
+                    let detail = `HTTP ${r.status}`;
+                    try { detail = (await r.json()).detail || detail; } catch (_) {}
+                    this.error = `Revert failed: ${detail}`;
+                    return;
+                  }
+                  // Reload so the live OCR <pre> above reflects the
+                  // restored text without re-implementing the
+                  // server-side render in JS.
+                  location.reload();
+                } catch (e) {
+                  this.error = 'Revert failed';
+                } finally {
+                  this.reverting = false;
+                }
+              },
+            };
+          }
+        </script>
         {# v0.87 feature 2/3 — lazy-loaded email chip list.
            HTMX fires a GET on page load; a tiny inline script parses the
            JSON, materialises one chip per address, then reveals the host

@@ -1,11 +1,25 @@
 """Fernet-encrypted tarball snapshot of Persona state.
 
-Layout of the on-disk artefact produced by :func:`create_backup`:
+Layout of the on-disk artefact produced by :func:`create_backup`
+since v0.92::
 
-    [ 16 random salt bytes ][ Fernet token over the gzipped tarball ]
+    [ version_byte ][ 16 random salt bytes ][ Fernet token over .tar.gz ]
+
+``version_byte`` is the KDF version tag:
+
+* ``0x02`` — current 600 000-iteration PBKDF2-HMAC-SHA256 (default).
+* ``0x01`` — legacy 100 000 iterations; only emitted by pre-v0.92
+  builds. The decrypt path still understands it so old backups keep
+  restoring.
+
+Backups produced before the version byte was introduced have no leading
+tag at all — they start straight with the 16-byte salt. :func:`_decrypt_blob`
+auto-detects that shape and falls back to 100k iterations, so the upgrade
+is fully backwards compatible.
 
 The Fernet key is derived from the user passphrase via PBKDF2-HMAC-SHA256
-with 100 000 iterations.  The tarball itself contains:
+with the iteration count selected by the version byte.  The tarball
+itself contains:
 
     data/persona.db          — copy of the SQLite database (after
                                ``PRAGMA wal_checkpoint(FULL)`` so the WAL
@@ -32,14 +46,31 @@ from typing import Final
 
 import anyio
 
+from app.audit import log_action
 from app.logging_setup import get_logger
 from app.settings import get_settings
 
 log = get_logger("persona.backup.snapshot")
 log_verify = get_logger("persona.backup.verify")
+log_kdf = get_logger("persona.kdf.upgrade")
 
 SALT_BYTES: Final[int] = 16
-PBKDF2_ITERATIONS: Final[int] = 100_000
+# KDF version byte → PBKDF2 iteration count.
+#   * ``0x01`` — legacy 100k, only honoured by the decrypt path.
+#   * ``0x02`` — current 600k, written by every new backup.
+# Backups produced before any version byte existed have no leading tag;
+# :func:`_decrypt_blob` auto-detects that shape and treats it as legacy.
+KDF_VERSION_LEGACY: Final[int] = 0x01
+KDF_VERSION_CURRENT: Final[int] = 0x02
+KDF_ITERATIONS_BY_VERSION: Final[dict[int, int]] = {
+    KDF_VERSION_LEGACY: 100_000,
+    KDF_VERSION_CURRENT: 600_000,
+}
+# Public constant: the *current* work factor. Older builds imported this
+# expecting 100k; bumping it to 600k is the visible part of the v0.92
+# strengthening. Callers that read it for sanity checks / metrics will
+# automatically pick up the upgraded value.
+PBKDF2_ITERATIONS: Final[int] = KDF_ITERATIONS_BY_VERSION[KDF_VERSION_CURRENT]
 KEY_BYTES: Final[int] = 32
 _DAY_SECONDS: Final[int] = 24 * 60 * 60
 
@@ -64,16 +95,45 @@ def _require_fernet() -> None:
         raise BackupNotAvailable(msg) from exc
 
 
-def _derive_key(password: str, salt: bytes) -> bytes:
-    """Derive a urlsafe-base64 32-byte Fernet key from ``password`` + ``salt``."""
+def _derive_key(
+    password: str,
+    salt: bytes,
+    iterations: int = PBKDF2_ITERATIONS,
+) -> bytes:
+    """Derive a urlsafe-base64 32-byte Fernet key from ``password`` + ``salt``.
+
+    ``iterations`` defaults to the current work factor (600k). The
+    decrypt path passes the legacy 100k count when it spots a
+    pre-v0.92 envelope (either tagged ``0x01`` or untagged).
+    """
     raw = hashlib.pbkdf2_hmac(
         "sha256",
         password.encode("utf-8"),
         salt,
-        PBKDF2_ITERATIONS,
+        iterations,
         dklen=KEY_BYTES,
     )
     return base64.urlsafe_b64encode(raw)
+
+
+def _split_blob(blob: bytes) -> tuple[int, bytes, bytes] | None:
+    """Return ``(version, salt, token)`` for an on-disk backup blob.
+
+    Accepts both shapes:
+
+    * ``[version][salt(16)][token]`` — v0.92+.
+    * ``[salt(16)][token]``          — untagged pre-v0.92 (legacy 100k).
+
+    Returns ``None`` when the blob is too short to even hold a salt.
+    """
+    if len(blob) <= SALT_BYTES:
+        return None
+    leading = blob[0]
+    if leading in KDF_ITERATIONS_BY_VERSION and len(blob) > 1 + SALT_BYTES:
+        salt = blob[1 : 1 + SALT_BYTES]
+        token = blob[1 + SALT_BYTES :]
+        return leading, salt, token
+    return KDF_VERSION_LEGACY, blob[:SALT_BYTES], blob[SALT_BYTES:]
 
 
 def _checkpoint_db(src: Path, dst: Path) -> None:
@@ -148,11 +208,11 @@ def _write_encrypted(
     from cryptography.fernet import Fernet  # noqa: PLC0415 — guarded above
 
     salt = os.urandom(SALT_BYTES)
-    key = _derive_key(password, salt)
+    key = _derive_key(password, salt, PBKDF2_ITERATIONS)
     token = Fernet(key).encrypt(payload)
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    blob = salt + token
+    blob = bytes([KDF_VERSION_CURRENT]) + salt + token
     out_path.write_bytes(blob)
     return len(blob)
 
@@ -234,24 +294,39 @@ async def create_backup(
     )
 
 
-def _decrypt_blob(blob: bytes, password: str) -> bytes:
-    """Reverse the format written by :func:`_write_encrypted`."""
+def _decrypt_blob(blob: bytes, password: str) -> tuple[bytes, int]:
+    """Reverse the format written by :func:`_write_encrypted`.
+
+    Returns ``(payload, kdf_version)`` so the caller can surface which
+    iteration count was used — needed for the v0.92 audit trail when
+    restoring an older backup.
+    """
     _require_fernet()
     from cryptography.fernet import Fernet, InvalidToken  # noqa: PLC0415 — guarded
 
-    if len(blob) <= SALT_BYTES:
+    split = _split_blob(blob)
+    if split is None:
         msg = "backup file is truncated"
         raise BackupError(msg)
 
-    salt = blob[:SALT_BYTES]
-    token = blob[SALT_BYTES:]
-    key = _derive_key(password, salt)
+    version, salt, token = split
+    iterations = KDF_ITERATIONS_BY_VERSION[version]
+    key = _derive_key(password, salt, iterations)
 
     try:
-        return bytes(Fernet(key).decrypt(token))
+        payload = bytes(Fernet(key).decrypt(token))
     except InvalidToken as exc:
         msg = "wrong password or corrupted backup file"
         raise BackupError(msg) from exc
+
+    if version != KDF_VERSION_CURRENT:
+        log_kdf.info(
+            "backup.kdf.legacy_read",
+            kdf_version=version,
+            iterations=iterations,
+            current_iterations=PBKDF2_ITERATIONS,
+        )
+    return payload, version
 
 
 def _restore_backup_sync(
@@ -276,7 +351,7 @@ def _restore_backup_sync(
         )
         raise BackupError(msg)
 
-    payload = _decrypt_blob(in_path.read_bytes(), password)
+    payload, kdf_version = _decrypt_blob(in_path.read_bytes(), password)
 
     restored_files = 0
     screenshots_count = 0
@@ -323,12 +398,14 @@ def _restore_backup_sync(
         "size_bytes": in_path.stat().st_size,
         "screenshots_count": screenshots_count,
         "restored_files": restored_files,
+        "kdf_version": kdf_version,
     }
     log.info(
         "backup.restore.done",
         path=str(in_path),
         restored_files=restored_files,
         screenshots=screenshots_count,
+        kdf_version=kdf_version,
     )
     return result
 
@@ -360,12 +437,39 @@ async def restore_backup(
         raise BackupError(msg)
     _require_fernet()
 
-    return await anyio.to_thread.run_sync(
+    result = await anyio.to_thread.run_sync(
         lambda: _restore_backup_sync(
             in_path=in_path,
             password=password,
             force=force,
         )
+    )
+    await _audit_kdf_version(action="backup.restore", in_path=in_path, result=result)
+    return result
+
+
+async def _audit_kdf_version(
+    *,
+    action: str,
+    in_path: Path,
+    result: dict[str, object],
+) -> None:
+    """Emit a ``persona.kdf.upgrade`` audit row when a legacy backup is opened.
+
+    Reads ``result["kdf_version"]`` (set by the sync workers) and, when
+    it is anything other than :data:`KDF_VERSION_CURRENT`, files an audit
+    entry so an operator can see that a pre-v0.92 archive was decrypted
+    with the legacy 100k work factor.
+    """
+    raw_version = result.get("kdf_version", KDF_VERSION_CURRENT)
+    version = int(raw_version) if isinstance(raw_version, int) else KDF_VERSION_CURRENT
+    if version == KDF_VERSION_CURRENT:
+        return
+    iterations = KDF_ITERATIONS_BY_VERSION.get(version, 0)
+    await log_action(
+        action=f"{action}.kdf.legacy_read",
+        target=str(in_path),
+        detail=f"version={version} iterations={iterations}",
     )
 
 
@@ -392,7 +496,7 @@ def _verify_backup_sync(
         msg = f"backup file not found at {in_path}"
         raise BackupError(msg)
 
-    payload = _decrypt_blob(in_path.read_bytes(), password)
+    payload, kdf_version = _decrypt_blob(in_path.read_bytes(), password)
 
     files = 0
     screenshots_count = 0
@@ -442,6 +546,7 @@ def _verify_backup_sync(
         "files": files,
         "db_ok": db_ok,
         "screenshots_count": screenshots_count,
+        "kdf_version": kdf_version,
     }
     log_verify.info(
         "backup.verify.done",
@@ -449,6 +554,7 @@ def _verify_backup_sync(
         files=files,
         db_ok=db_ok,
         screenshots=screenshots_count,
+        kdf_version=kdf_version,
     )
     return result
 
@@ -483,12 +589,14 @@ async def verify_backup(
         raise BackupError(msg)
     _require_fernet()
 
-    return await anyio.to_thread.run_sync(
+    result = await anyio.to_thread.run_sync(
         lambda: _verify_backup_sync(
             in_path=in_path,
             password=password,
         )
     )
+    await _audit_kdf_version(action="backup.verify", in_path=in_path, result=result)
+    return result
 
 
 __all__ = [
