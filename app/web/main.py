@@ -54,6 +54,7 @@ from app.web.routes import (
     capture_api,
     clipboard as clipboard_routes,
     companion as companion_routes,
+    corpus_search as corpus_search_routes,
     csv_export,
     daily_digests as daily_digests_routes,
     dashboard as dashboard_routes,
@@ -65,6 +66,7 @@ from app.web.routes import (
     day_ocr_diff as day_ocr_diff_routes,
     day_scrubber as day_scrubber_routes,
     day_tldr as day_tldr_routes,
+    dedup_cluster as dedup_cluster_routes,
     diag_bundle as diag_bundle_routes,
     diff_picker as diff_picker_routes,
     diff_slider as diff_slider_routes,
@@ -178,6 +180,7 @@ from app.web.routes import (
     search_autocomplete as search_autocomplete_routes,
     search_facets as search_facets_routes,
     search_tag_all as search_tag_all_routes,
+    sparkline_svg as sparkline_svg_routes,
     semantic_similar as semantic_similar_routes,
     share as share_routes,
     share_analytics as share_analytics_routes,
@@ -283,7 +286,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.96.0",
+        version="0.97.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -509,6 +512,9 @@ def create_app() -> FastAPI:
     app.include_router(facet_sets_routes.router)
     app.include_router(top100_routes.router)
     app.include_router(tag_merge_wizard_routes.router)
+    app.include_router(corpus_search_routes.router)
+    app.include_router(sparkline_svg_routes.router)
+    app.include_router(dedup_cluster_routes.router)
 
     return app
 

@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-end justify-between flex-wrap gap-3">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Dedup clusters</h1>
+    <p class="text-zinc-500 text-sm mt-1 max-w-3xl">
+      Every <code class="font-mono text-xs">dedup_group</code> in the database with
+      its member shots inline. Largest clusters first &mdash; the ones most worth
+      reviewing. Use <span class="text-rose-300">Split</span> when pHash glued
+      together visually distinct frames; use <span class="text-emerald-300">Merge into</span>
+      when one logical scene fragmented across multiple groups.
+    </p>
+  </div>
+  <div class="text-xs text-zinc-500 font-mono whitespace-nowrap">
+    {{ "{:,}".format(total_clusters) }} cluster{{ "" if total_clusters == 1 else "s" }}
+    &middot; page {{ page }} / {{ total_pages }}
+  </div>
+</div>
+
+{% if clusters %}
+  <div class="grid grid-cols-1 gap-5">
+    {% for cluster in clusters %}
+      <section id="cluster-{{ cluster.group_id }}"
+               class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden">
+        <header class="px-4 py-3 border-b border-ink-700 bg-ink-900
+                       flex items-start justify-between flex-wrap gap-3">
+          <div class="min-w-0">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="text-xs uppercase tracking-widest text-zinc-500">Group</span>
+              <span class="font-mono text-sm text-accent-400">#{{ cluster.group_id }}</span>
+              <span class="px-2 py-0.5 rounded-full bg-ink-700 text-zinc-300
+                           text-[10px] font-mono uppercase tracking-wider">
+                {{ cluster.member_count }} member{{ "" if cluster.member_count == 1 else "s" }}
+              </span>
+              <span class="px-2 py-0.5 rounded-full bg-ink-700 text-sky-300
+                           text-[10px] font-mono uppercase tracking-wider"
+                    title="On-disk size summed across all member thumbnails">
+                {{ cluster.size_bytes | filesize }}
+              </span>
+              {% if cluster.rep_id %}
+                <span class="text-[10px] text-zinc-500 font-mono"
+                      title="Representative screenshot — kept as anchor on split">
+                  anchor: <a href="/screenshot/{{ cluster.rep_id }}"
+                             class="text-accent-400 hover:underline">#{{ cluster.rep_id }}</a>
+                </span>
+              {% else %}
+                <span class="text-[10px] text-amber-400 font-mono"
+                      title="Legacy group with no representative — split will pick the oldest member as anchor">
+                  no anchor
+                </span>
+              {% endif %}
+            </div>
+            <div class="mt-1 text-[10px] text-zinc-600 font-mono break-all">
+              phash {{ cluster.phash }}
+              &middot; first {{ cluster.first_seen }}
+              &middot; last {{ cluster.last_seen }}
+            </div>
+          </div>
+          <div class="flex items-center gap-2 flex-wrap"
+               x-data="{ showMerge: false, target: '' }">
+            <form action="/admin/dedup-clusters/{{ cluster.group_id }}/split"
+                  method="post"
+                  onsubmit="return confirm('Detach {{ cluster.member_count - 1 }} non-anchor member(s) from cluster #{{ cluster.group_id }}? Anchor #{{ cluster.rep_id or '?' }} stays.');"
+                  class="inline">
+              <button type="submit"
+                      {% if cluster.member_count <= 1 %}disabled{% endif %}
+                      class="px-3 py-1.5 rounded text-xs font-medium
+                             bg-rose-700 hover:bg-rose-600 text-white
+                             disabled:bg-ink-700 disabled:text-zinc-600
+                             disabled:cursor-not-allowed transition"
+                      title="Clear dedup_group_id on every non-anchor member">
+                Split
+              </button>
+            </form>
+
+            <button type="button"
+                    x-on:click="showMerge = !showMerge"
+                    class="px-3 py-1.5 rounded text-xs font-medium
+                           bg-ink-900 hover:bg-ink-700 border border-ink-700
+                           text-zinc-300 transition">
+              <span x-show="!showMerge">Merge into &hellip;</span>
+              <span x-show="showMerge" x-cloak>Cancel</span>
+            </button>
+
+            <form action="/admin/dedup-clusters/{{ cluster.group_id }}/merge"
+                  method="post"
+                  x-show="showMerge"
+                  x-cloak
+                  x-on:submit="if (!target || Number(target) === {{ cluster.group_id }}) { alert('Target must be a different cluster id.'); $event.preventDefault(); return false; } return confirm('Move ' + {{ cluster.member_count }} + ' member(s) from cluster #{{ cluster.group_id }} into cluster #' + target + '? Source cluster will be deleted.');"
+                  class="flex items-center gap-2">
+              <input type="number"
+                     name="target_id"
+                     min="1"
+                     required
+                     placeholder="target group id"
+                     x-model="target"
+                     class="w-32 px-2 py-1.5 bg-ink-900 border border-ink-700 rounded
+                            text-xs font-mono text-zinc-200
+                            focus:outline-none focus:border-accent-500">
+              <button type="submit"
+                      class="px-3 py-1.5 rounded text-xs font-medium
+                             bg-emerald-700 hover:bg-emerald-600 text-white transition">
+                Confirm merge
+              </button>
+            </form>
+          </div>
+        </header>
+
+        {% if cluster.members %}
+          <div class="p-4 grid gap-3"
+               style="grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));">
+            {% for member in cluster.members %}
+              <a href="/screenshot/{{ member.id }}"
+                 class="group block rounded overflow-hidden bg-ink-900 border border-ink-700
+                        hover:border-accent-500 transition"
+                 title="{{ member.app_name or '' }} &mdash; {{ member.window_title or '' }} &mdash; {{ member.captured_at }}">
+                <div class="aspect-video bg-ink-900 overflow-hidden relative">
+                  {% if member.thumbnail_path %}
+                    <img src="{{ member.thumbnail_path | thumbnail_url }}"
+                         alt=""
+                         loading="lazy"
+                         width="160"
+                         class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300">
+                  {% else %}
+                    <div class="w-full h-full flex items-center justify-center
+                                text-[10px] text-zinc-600">
+                      no thumbnail
+                    </div>
+                  {% endif %}
+                  {% if cluster.rep_id == member.id %}
+                    <span class="absolute top-1 left-1 px-1.5 py-0.5 rounded
+                                 bg-accent-600 text-white text-[9px] font-mono
+                                 uppercase tracking-wider"
+                          title="Anchor (representative) — survives a split">
+                      anchor
+                    </span>
+                  {% endif %}
+                </div>
+                <div class="px-2 py-1.5">
+                  <div class="text-[10px] text-zinc-500 font-mono truncate">
+                    #{{ member.id }} &middot; {{ member.captured_at }}
+                  </div>
+                  {% if member.window_title %}
+                    <div class="text-[11px] text-zinc-300 truncate">
+                      {{ member.window_title }}
+                    </div>
+                  {% endif %}
+                </div>
+              </a>
+            {% endfor %}
+          </div>
+          {% if cluster.hidden_member_count > 0 %}
+            <div class="px-4 pb-3 text-[11px] text-zinc-500">
+              + {{ cluster.hidden_member_count }} more member{{ "" if cluster.hidden_member_count == 1 else "s" }}
+              not shown (Split / Merge still affect every member, not just the visible ones).
+            </div>
+          {% endif %}
+        {% else %}
+          <div class="px-4 py-6 text-xs text-zinc-500">
+            Empty cluster &mdash; no screenshots currently point at this group.
+          </div>
+        {% endif %}
+      </section>
+    {% endfor %}
+  </div>
+
+  <nav class="flex items-center justify-between mt-6 text-xs">
+    <div class="text-zinc-500">
+      Showing clusters {{ ((page - 1) * page_size) + 1 }}&ndash;{{ ((page - 1) * page_size) + (clusters | length) }}
+      of {{ "{:,}".format(total_clusters) }}
+    </div>
+    <div class="flex gap-2">
+      {% if has_prev %}
+        <a href="/admin/dedup-clusters?page={{ page - 1 }}"
+           class="px-3 py-1.5 bg-ink-900 hover:bg-ink-700 border border-ink-700 rounded">
+          &larr; Prev
+        </a>
+      {% else %}
+        <span class="px-3 py-1.5 bg-ink-900/50 border border-ink-700 rounded text-zinc-600">
+          &larr; Prev
+        </span>
+      {% endif %}
+      {% if has_next %}
+        <a href="/admin/dedup-clusters?page={{ page + 1 }}"
+           class="px-3 py-1.5 bg-ink-900 hover:bg-ink-700 border border-ink-700 rounded">
+          Next &rarr;
+        </a>
+      {% else %}
+        <span class="px-3 py-1.5 bg-ink-900/50 border border-ink-700 rounded text-zinc-600">
+          Next &rarr;
+        </span>
+      {% endif %}
+    </div>
+  </nav>
+{% else %}
+  <p class="text-zinc-500 text-sm">
+    No dedup clusters yet &mdash; the perceptual-hash detector creates one
+    the first time it sees a near-duplicate frame.
+  </p>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,256 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Search everything</h1>
+  <p class="text-zinc-500 text-sm mt-1 max-w-2xl">
+    One query across every text artefact Persona stores —
+    screenshot OCR, notes, annotations, sticky overlays, and
+    clipboard history. Each tab is independently capped at
+    {{ limit }} rows.
+  </p>
+</div>
+
+<form action="/search/everything" method="get"
+      class="mb-8 flex items-center gap-3">
+  <input type="text" name="q" value="{{ query | e }}"
+         placeholder="deploy plan · auth bug · phone number..."
+         autofocus
+         class="flex-1 px-4 py-2.5 bg-ink-800 border border-ink-700 rounded-lg
+                placeholder:text-zinc-600 focus:outline-none focus:border-accent-500
+                font-mono text-sm">
+  <button type="submit"
+          class="px-5 py-2.5 bg-accent-600 hover:bg-accent-500 rounded-lg font-medium transition">
+    Search
+  </button>
+</form>
+
+{% if not query %}
+  <div class="rounded-lg border border-dashed border-ink-700 bg-ink-900/40 p-8 text-center">
+    <p class="text-zinc-400 text-sm">
+      Type something above to search every source at once.
+    </p>
+    <p class="text-zinc-600 text-xs mt-2">
+      Five tabs · ranked per source · capped at {{ limit }} each
+    </p>
+  </div>
+{% else %}
+  <p class="text-xs uppercase tracking-wider text-zinc-500 mb-3">
+    {{ total }} total match{{ '' if total == 1 else 'es' }} across
+    {{ counts | length }} sources
+  </p>
+
+  {#
+    Single-page tab switcher. Alpine x-data carries the active tab id;
+    each tab button updates the model and the corresponding panel is
+    revealed via x-show. The default tab is the first non-empty
+    bucket (falls back to "shots") so the user lands on a panel with
+    rows whenever possible.
+  #}
+  {% set _default_tab = 'shots' %}
+  {% for kind in ['shots', 'notes', 'annotations', 'stickies', 'clipboard'] %}
+    {% if counts[kind] > 0 and _default_tab == 'shots' and counts['shots'] == 0 %}
+      {% set _default_tab = kind %}
+    {% endif %}
+  {% endfor %}
+
+  <div x-data="{ tab: '{{ _default_tab }}' }" class="mt-2">
+    <div role="tablist"
+         class="flex flex-wrap gap-1 border-b border-ink-700 mb-4 text-sm">
+      {% set _labels = {
+        'shots':       'Screenshots',
+        'notes':       'Notes',
+        'annotations': 'Annotations',
+        'stickies':    'Stickies',
+        'clipboard':   'Clipboard'
+      } %}
+      {% for kind in ['shots', 'notes', 'annotations', 'stickies', 'clipboard'] %}
+        <button type="button"
+                role="tab"
+                :aria-selected="tab === '{{ kind }}'"
+                @click="tab = '{{ kind }}'"
+                :class="tab === '{{ kind }}'
+                  ? 'border-accent-500 text-accent-300'
+                  : 'border-transparent text-zinc-400 hover:text-zinc-200'"
+                class="px-3 py-2 border-b-2 -mb-px transition font-medium">
+          {{ _labels[kind] }}
+          <span class="ml-1 text-xs font-mono text-zinc-500">
+            {{ counts[kind] }}{% if counts[kind] >= limit %}+{% endif %}
+          </span>
+        </button>
+      {% endfor %}
+    </div>
+
+    {# ---- Screenshots tab ------------------------------------- #}
+    <section role="tabpanel" x-show="tab === 'shots'" x-cloak>
+      {% if results.shots %}
+        <ul class="space-y-3">
+          {% for hit in results.shots %}
+            <li class="rounded-lg border border-ink-700 bg-ink-800 hover:border-accent-500/60 transition">
+              <a href="/screenshot/{{ hit.id }}" class="flex items-stretch gap-4 p-3 sm:p-4">
+                <div class="flex-shrink-0 w-32 sm:w-48 aspect-video rounded-md overflow-hidden bg-ink-900 border border-ink-700">
+                  {% if hit.thumbnail_path %}
+                    <img src="{{ hit.thumbnail_path | thumbnail_url }}"
+                         alt="Screenshot #{{ hit.id }}"
+                         loading="lazy"
+                         width="192"
+                         class="w-full h-full object-cover">
+                  {% else %}
+                    <div class="w-full h-full flex items-center justify-center text-[10px] text-zinc-600">
+                      shot #{{ hit.id }}
+                    </div>
+                  {% endif %}
+                </div>
+                <div class="flex-1 min-w-0 flex flex-col justify-between gap-2">
+                  <header class="flex items-center justify-between gap-2 text-xs font-mono text-zinc-500">
+                    <span class="truncate" title="{{ hit.window_title or '' }}">
+                      {{ hit.app_name or 'shot #' ~ hit.id }}
+                    </span>
+                    <time class="flex-shrink-0">{{ hit.captured_at }}</time>
+                  </header>
+                  {# SQLite snippet() emits only literal <mark> tags +
+                     ellipsis; OCR text itself is column data. Single-tenant
+                     local app — same trade-off as notes_search.html. #}
+                  <p class="text-sm text-zinc-200 leading-snug">
+                    {{ hit.snippet | safe }}
+                  </p>
+                </div>
+              </a>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="rounded-lg border border-ink-700 bg-ink-800 p-6 text-center text-sm text-zinc-400">
+          No screenshot OCR text matches
+          <code class="text-accent-400 font-mono">{{ query | e }}</code>.
+        </p>
+      {% endif %}
+    </section>
+
+    {# ---- Notes tab ------------------------------------------- #}
+    <section role="tabpanel" x-show="tab === 'notes'" x-cloak>
+      {% if results.notes %}
+        <ul class="space-y-3">
+          {% for hit in results.notes %}
+            <li class="rounded-lg border border-ink-700 bg-ink-800 hover:border-accent-500/60 transition">
+              <a href="/screenshot/{{ hit.id }}" class="block p-4">
+                <header class="flex items-center justify-between mb-2 text-xs text-zinc-500">
+                  <span class="font-mono">note #{{ hit.id }}</span>
+                  {% if hit.created_at %}
+                    <time class="font-mono">{{ hit.created_at }}</time>
+                  {% endif %}
+                </header>
+                <p class="text-sm text-zinc-200 leading-relaxed">
+                  {{ hit.snippet | safe }}
+                </p>
+              </a>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="rounded-lg border border-ink-700 bg-ink-800 p-6 text-center text-sm text-zinc-400">
+          No screenshot notes contain
+          <code class="text-accent-400 font-mono">{{ query | e }}</code>.
+        </p>
+      {% endif %}
+    </section>
+
+    {# ---- Annotations tab ------------------------------------- #}
+    <section role="tabpanel" x-show="tab === 'annotations'" x-cloak>
+      {% if results.annotations %}
+        <ul class="space-y-3">
+          {% for hit in results.annotations %}
+            <li class="rounded-lg border border-ink-700 bg-ink-800 hover:border-accent-500/60 transition">
+              <a href="/screenshot/{{ hit.screenshot_id }}" class="block p-4">
+                <header class="flex items-center justify-between mb-2 text-xs text-zinc-500">
+                  <span class="font-mono">annotation #{{ hit.id }} · shot #{{ hit.screenshot_id }}</span>
+                  <time class="font-mono">{{ hit.created_at }}</time>
+                </header>
+                {# excerpt is HTML-escaped server-side; only literal
+                   <mark> tags are HTML. Safe to render with |safe. #}
+                <p class="text-sm text-zinc-200 leading-relaxed">
+                  {{ hit.excerpt | safe }}
+                </p>
+              </a>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="rounded-lg border border-ink-700 bg-ink-800 p-6 text-center text-sm text-zinc-400">
+          No annotations contain
+          <code class="text-accent-400 font-mono">{{ query | e }}</code>.
+        </p>
+      {% endif %}
+    </section>
+
+    {# ---- Stickies tab ---------------------------------------- #}
+    <section role="tabpanel" x-show="tab === 'stickies'" x-cloak>
+      {% if results.stickies %}
+        {% set _swatch = {
+          'yellow': 'bg-yellow-200/90 dark:bg-yellow-200/80',
+          'pink':   'bg-pink-200/90 dark:bg-pink-200/80',
+          'blue':   'bg-sky-200/90 dark:bg-sky-200/80',
+          'green':  'bg-emerald-200/90 dark:bg-emerald-200/80',
+          'orange': 'bg-orange-200/90 dark:bg-orange-200/80',
+          'purple': 'bg-violet-200/90 dark:bg-violet-200/80',
+        } %}
+        <ul class="space-y-3">
+          {% for hit in results.stickies %}
+            {% set _color_key = (hit.color or 'yellow') | lower %}
+            {% set _bg_class = _swatch.get(_color_key, _swatch['yellow']) %}
+            <li class="rounded-lg border border-ink-700 bg-ink-800 hover:border-accent-500/60 transition">
+              <a href="/screenshot/{{ hit.shot_id }}#sticky-{{ hit.sticky_id }}"
+                 class="block p-4">
+                <header class="flex items-center justify-between mb-2 text-xs text-zinc-500">
+                  <span class="font-mono">sticker #{{ hit.sticky_id }} · shot #{{ hit.shot_id }}</span>
+                  <time class="font-mono">{{ hit.created_at }}</time>
+                </header>
+                <p class="{{ _bg_class }} text-zinc-900 text-sm leading-snug rounded-md px-3 py-2 whitespace-pre-wrap break-words">
+                  {{ hit.excerpt | safe }}
+                </p>
+              </a>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="rounded-lg border border-ink-700 bg-ink-800 p-6 text-center text-sm text-zinc-400">
+          No stickies contain
+          <code class="text-accent-400 font-mono">{{ query | e }}</code>.
+        </p>
+      {% endif %}
+    </section>
+
+    {# ---- Clipboard tab --------------------------------------- #}
+    <section role="tabpanel" x-show="tab === 'clipboard'" x-cloak>
+      {% if results.clipboard %}
+        <ul class="space-y-3">
+          {% for hit in results.clipboard %}
+            <li class="rounded-lg border border-ink-700 bg-ink-800 p-4 hover:border-accent-500/60 transition">
+              <header class="flex items-center justify-between mb-2 text-xs text-zinc-500 font-mono">
+                <span class="truncate" title="{{ hit.app_name or '' }}">
+                  clip #{{ hit.id }}{% if hit.app_name %} · {{ hit.app_name }}{% endif %}
+                </span>
+                <span class="flex-shrink-0">
+                  {{ hit.length }} ch · {{ hit.captured_at }}
+                </span>
+              </header>
+              <p class="text-sm text-zinc-200 leading-relaxed whitespace-pre-wrap break-words font-mono">
+                {{ hit.preview | safe }}
+              </p>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="rounded-lg border border-ink-700 bg-ink-800 p-6 text-center text-sm text-zinc-400">
+          No clipboard entries contain
+          <code class="text-accent-400 font-mono">{{ query | e }}</code>.
+        </p>
+      {% endif %}
+    </section>
+  </div>
+
+  <style>
+    [x-cloak] { display: none !important; }
+  </style>
+{% endif %}
+{% endblock %}
