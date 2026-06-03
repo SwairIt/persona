@@ -8,6 +8,23 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{{ title }} — Persona</title>
+  <link rel="manifest" href="/static/manifest.json">
+  <meta name="theme-color" content="#6366f1">
+  <script>
+    // v0.94 — register the service worker so /timeline is installable as a
+    // PWA and cached pages stay readable offline. We only register over a
+    // secure context (https:// or http://localhost); plain http on a LAN
+    // would silently fail anyway.
+    if ('serviceWorker' in navigator && window.isSecureContext) {
+      window.addEventListener('load', function () {
+        navigator.serviceWorker.register('/static/sw.js').catch(function (err) {
+          // Surface in the console but never break the page on registration
+          // failure — the app must work fine without the SW.
+          console.warn('Persona SW registration failed:', err);
+        });
+      });
+    }
+  </script>
   {% if _persona_theme == 'auto' %}
   <script>
     // v0.32 — theme=auto: follow the OS preference and update live if
@@ -50,6 +67,7 @@
   <script defer src="/static/js/notes.js"></script>
   <script src="/static/live_status.js" defer></script>
   <script src="/static/drag_to_tag.js" defer></script>
+  <script src="/static/drag_drop_import.js" defer></script>
   <script src="/static/bulk_select.js" defer></script>
   {% block head_extra %}{% endblock %}
   <script>

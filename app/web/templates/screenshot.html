@@ -9,6 +9,12 @@
    over OCR word bboxes whose text matches. Self-contained, silent no-op
    when the param is missing or words.json has no rows. #}
 <script src="/static/ocr_highlight.js" defer></script>
+{# v0.94 feature 3/3 — inline OCR text editor. Toggles the
+   ``[data-editable-ocr]`` host between contenteditable on/off, captures
+   the pre-edit body so Cancel can revert, and POSTs the new text to
+   ``/api/screenshot/{id}/ocr`` which snapshots the prior value into the
+   v0.92 ``ocr_history`` table before writing. #}
+<script src="/static/ocr_edit.js" defer></script>
 
 <div class="mb-4 flex items-center justify-between text-sm">
   <div class="flex items-center gap-2">
@@ -76,9 +82,36 @@
     {% if shot.ocr_text %}
       <section class="rounded-lg border border-ink-700 bg-ink-800 p-4"
                x-data="ocrHistory({{ shot.id }})">
-        <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
           <h3 class="text-xs uppercase tracking-widest text-zinc-500">OCR text</h3>
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-2 flex-wrap">
+            {# v0.94 feature 3/3 — inline OCR editor toggle. Clicking
+               Edit flips the [data-editable-ocr] block below to
+               contenteditable=true and reveals the Save/Cancel pair;
+               Save POSTs the new text to /api/screenshot/{id}/ocr,
+               which snapshots the prior value into ocr_history (v0.92)
+               before overwriting and refreshes the FTS index. All
+               wiring lives in ocr_edit.js. #}
+            <button type="button"
+                    data-ocr-edit
+                    data-shot-id="{{ shot.id }}"
+                    class="px-3 py-1 text-xs bg-ink-700 hover:bg-ink-600 rounded text-zinc-200">
+              Edit
+            </button>
+            <button type="button"
+                    data-ocr-save
+                    data-shot-id="{{ shot.id }}"
+                    hidden
+                    class="px-3 py-1 text-xs bg-accent-600 hover:bg-accent-500 rounded text-white">
+              Save
+            </button>
+            <button type="button"
+                    data-ocr-cancel
+                    data-shot-id="{{ shot.id }}"
+                    hidden
+                    class="px-3 py-1 text-xs bg-ink-700 hover:bg-ink-600 rounded text-zinc-200">
+              Cancel
+            </button>
             {# v0.92 feature 3/3 — History link. Lazily fetches snapshot
                rows captured by find_replace / vision_replace / manual
                edits and renders revert buttons. The list stays hidden
@@ -119,7 +152,15 @@
            for each URL. The filter returns a ``Markup`` instance, so
            Jinja's autoescape leaves it alone — no ``|safe`` needed and
            non-URL segments stay safely escaped. #}
-        <pre class="text-sm font-mono text-zinc-200 whitespace-pre-wrap leading-relaxed">{{ shot.ocr_text | linkify_urls }}</pre>
+        {# v0.94 feature 3/3 — editable OCR host. ``ocr_edit.js`` flips
+           ``contenteditable`` on/off and POSTs the new text to
+           /api/screenshot/{id}/ocr; the surrounding <pre> styling stays
+           so the read-only render is visually identical to pre-v0.94. #}
+        <div data-editable-ocr
+             data-shot-id="{{ shot.id }}"
+             contenteditable="false">
+          <pre class="text-sm font-mono text-zinc-200 whitespace-pre-wrap leading-relaxed">{{ shot.ocr_text | linkify_urls }}</pre>
+        </div>
         {# v0.92 feature 3/3 — OCR history panel. Renders only when the
            operator clicked "History" (``x-show="open"``). Each row
            shows the reason slug (find_replace / vision_replace /
