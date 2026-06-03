@@ -27,6 +27,7 @@ Subcommands:
     export-monthly-stats-csv  Per-month-per-app rollup CSV (--months N, --out FILE).
     export-share-visits  v0.55 share_visit rows as CSV (--days N, --out FILE).
     export-words-csv   Corpus-wide top-words CSV (--days N --n N, --out FILE).
+    export-app-shots-csv  Per-app shots CSV (--app NAME, --out FILE).
     export-ocr-txt     Per-day OCR text dump for grep/fzf (--day YYYY-MM-DD, --out FILE).
     export-tag-ocr     Per-tag OCR text dump — every shot carrying a tag (--tag T, --out FILE).
     slack-summary      Compact Slack-style daily summary (--day YYYY-MM-DD, --out FILE).
@@ -97,6 +98,10 @@ from app.tag_cleanup import find_orphan_tags, purge_orphan_tags, untag_older_tha
 from app.thumb_regen import regen_missing
 from app.web.routes.annotations_csv import _iter_annotations_csv
 from app.web.routes.annotations_ndjson import _iter_annotations_ndjson
+from app.web.routes.app_shots_csv import (
+    AppNotFoundError,
+    _render_app_shots_csv,
+)
 from app.web.routes.share_visits_csv import _render_share_visits_csv
 from app.web.routes.sticky_export import _fetch_all_stickies
 from app.web.routes.tag_ocr_export import _build_tag_ocr_dump
@@ -1246,6 +1251,44 @@ async def _cmd_export_words_csv(days: int, n: int, out: Path) -> int:
     return 0
 
 
+async def _cmd_export_app_shots_csv(app_name: str, out: Path) -> int:
+    """Write every screenshot row for ``app_name`` as CSV via the shared renderer.
+
+    Reuses :func:`app.web.routes.app_shots_csv._render_app_shots_csv` so
+    the CLI and the HTTP route always agree on columns, ordering, and
+    the ``LENGTH(ocr_text)`` projection — there is exactly one query in
+    the codebase that materialises this dump for offline analysis.
+    """
+    target = app_name.strip()
+    if not target:
+        print("error: --app must be a non-empty string", file=sys.stderr)
+        return 2
+
+    try:
+        body = await _render_app_shots_csv(app_name=target)
+    except AppNotFoundError:
+        print(f"error: no screenshots found for app {target!r}", file=sys.stderr)
+        return 1
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    # ``newline=""`` keeps the stdlib csv-writer line endings (already
+    # ``\n``) intact instead of letting the platform layer rewrite them
+    # to CRLF on Windows, which would double-up to ``\r\r\n``.
+    with out.open("w", encoding="utf-8", newline="") as fh:
+        fh.write(body)
+
+    # Subtract the header line for the user-facing row count.
+    line_count = body.count("\n")
+    data_rows = max(line_count - 1, 0)
+    size_bytes = len(body.encode("utf-8"))
+
+    print(f"Path:   {out}")
+    print(f"App:    {target}")
+    print(f"Rows:   {data_rows}")
+    print(f"Bytes:  {size_bytes}")
+    return 0
+
+
 async def _cmd_export_sticky(out: Path) -> int:
     """Write every sticky-note row as a JSON array to ``out``.
 
@@ -2049,6 +2092,27 @@ def _build_parser() -> argparse.ArgumentParser:  # noqa: PLR0915 — flat subpar
         help="Destination CSV path (parent dirs are created).",
     )
 
+    app_shots_csv_parser = sub.add_parser(
+        "export-app-shots-csv",
+        help=(
+            "Per-app shots CSV — every screenshot row recorded under the "
+            "given app (id, captured_at, dominant_script, ocr_length)."
+        ),
+    )
+    app_shots_csv_parser.add_argument(
+        "--app",
+        dest="app",
+        required=True,
+        help="App name to export (exact match against screenshots.app_name).",
+    )
+    app_shots_csv_parser.add_argument(
+        "--out",
+        dest="out",
+        type=Path,
+        required=True,
+        help="Destination CSV path (parent dirs are created).",
+    )
+
     sticky_parser = sub.add_parser(
         "export-sticky",
         help=(
@@ -2342,6 +2406,8 @@ async def _run(args: argparse.Namespace) -> int:  # noqa: PLR0911, PLR0912 — d
         return await _cmd_export_share_visits(args.days, args.out)
     if args.command == "export-words-csv":
         return await _cmd_export_words_csv(args.days, args.n, args.out)
+    if args.command == "export-app-shots-csv":
+        return await _cmd_export_app_shots_csv(args.app, args.out)
     if args.command == "export-ocr-txt":
         return await _cmd_export_ocr_txt(args.day, args.out)
     if args.command == "export-tag-ocr":

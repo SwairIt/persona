@@ -28,6 +28,7 @@ from app.web.routes import (
     app_aliases as app_aliases_routes,
     app_calendar as app_calendar_routes,
     app_capture_skip as app_capture_skip_routes,
+    app_shots_csv as app_shots_csv_routes,
     app_groups as app_groups_routes,
     app_health as app_health_routes,
     app_icons as app_icons_routes,
@@ -56,6 +57,7 @@ from app.web.routes import (
     calendar as calendar_routes,
     capture_api,
     clipboard as clipboard_routes,
+    collection_visit_stats as collection_visit_stats_routes,
     companion as companion_routes,
     corpus_search as corpus_search_routes,
     csv_export,
@@ -197,6 +199,7 @@ from app.web.routes import (
     shot_of_day as shot_of_day_routes,
     shot_of_week as shot_of_week_routes,
     shot_share as shot_share_routes,
+    shot_summary as shot_summary_routes,
     shot_token_cloud as shot_token_cloud_routes,
     sitemap as sitemap_routes,
     slack_summary as slack_summary_routes,
@@ -302,7 +305,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.6.0",
+        version="1.7.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -547,6 +550,9 @@ def create_app() -> FastAPI:
     app.include_router(personal_metrics_routes.router)
     app.include_router(tag_tree_routes.router)
     app.include_router(sentiment_stats_routes.router)
+    app.include_router(app_shots_csv_routes.router)
+    app.include_router(collection_visit_stats_routes.router)
+    app.include_router(shot_summary_routes.router)
 
     return app
 

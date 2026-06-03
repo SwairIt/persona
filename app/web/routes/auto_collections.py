@@ -27,10 +27,21 @@ from app.web.templates_engine import templates
 
 router = APIRouter(tags=["collections"])
 log = get_logger("persona.auto_collections")
+# v1.7 feature 2/3 — dedicated structlog channel for the per-collection
+# visit receipts written below. Kept separate from the generic ``log``
+# above so an operator can grep just the visit-flow noise alongside the
+# matching :mod:`app.web.routes.collection_visit_stats` aggregator.
+visit_log = get_logger("persona.collection.visits")
 
 # Slug constraint mirrors the spec: lowercase alphanumeric + hyphen, 1..40 chars.
 _SLUG_RE = re.compile(r"^[a-z0-9-]{1,40}$")
 _MAX_SHOTS_PER_COLLECTION = 500
+
+# v1.7 feature 2/3 — cap the User-Agent we persist into ``collection_visit``.
+# The header is unbounded by spec and some bots ship multi-kB junk; 200
+# chars is enough to recognise real browsers and short enough to keep
+# the journal row small. Matches :mod:`app.web.routes.shot_share`.
+_UA_MAX_CHARS = 200
 
 
 def _parse_public_flag(raw: str | None) -> int:
@@ -64,6 +75,82 @@ def _is_loopback_client(request: Request) -> bool:
         return ip_address(client.host).is_loopback
     except ValueError:
         return False
+
+
+def _truncate_ua(raw: str | None) -> str | None:
+    """Clip an arbitrarily long ``User-Agent`` to :data:`_UA_MAX_CHARS`.
+
+    Returns ``None`` for missing or whitespace-only headers so the DB
+    column stays NULL rather than holding an empty string. Mirrors the
+    helper in :mod:`app.web.routes.shot_share` — kept local to avoid an
+    inter-route import.
+    """
+    if raw is None:
+        return None
+    stripped = raw.strip()
+    if not stripped:
+        return None
+    if len(stripped) <= _UA_MAX_CHARS:
+        return stripped
+    return stripped[:_UA_MAX_CHARS]
+
+
+def _coarse_ip_prefix(host: str | None) -> str | None:
+    """Reduce a client IP to its first two segments for privacy.
+
+    IPv4 ``192.168.1.42`` becomes ``192.168``; IPv6
+    ``2001:db8:abcd:1234::1`` becomes ``2001:db8``. Anything we cannot
+    confidently classify (None, empty, malformed) returns ``None`` so we
+    never accidentally persist a full address. Mirrors the same helper
+    in :mod:`app.web.routes.shot_share`.
+    """
+    if not host:
+        return None
+    if ":" in host:
+        parts = [segment for segment in host.split(":") if segment]
+        if len(parts) >= 2:
+            return f"{parts[0]}:{parts[1]}"
+        if parts:
+            return parts[0]
+        return None
+    parts = host.split(".")
+    if len(parts) >= 2 and all(parts[:2]):
+        return f"{parts[0]}.{parts[1]}"
+    return None
+
+
+async def _record_collection_visit(
+    conn: aiosqlite.Connection,
+    *,
+    slug: str,
+    ua: str | None,
+    ip_prefix: str | None,
+) -> None:
+    """Insert one row into ``collection_visit`` for a successful render.
+
+    Parametrised SQL only — never interpolate the UA or IP into the
+    statement. Errors are logged and swallowed so a write failure on the
+    audit trail never breaks the public viewer (matches the v0.55
+    ``share_visit`` contract).
+    """
+    try:
+        await conn.execute(
+            "INSERT INTO collection_visit (slug, ua, ip_prefix) VALUES (?, ?, ?)",
+            (slug, ua, ip_prefix),
+        )
+        await conn.commit()
+    except aiosqlite.Error as exc:
+        visit_log.error(
+            "collection_visit_record_failed",
+            slug=slug,
+            error=str(exc),
+        )
+        return
+    visit_log.info(
+        "collection_visit_recorded",
+        slug=slug,
+        ip_prefix=ip_prefix,
+    )
 
 
 async def _fetch_rule(
@@ -180,6 +267,9 @@ async def collections_create(
 async def collection_view(request: Request, slug: str) -> HTMLResponse:
     """Render the screenshots currently carrying the rule's tag."""
     clean_slug = _validate_slug(slug)
+    client = request.client
+    ua = _truncate_ua(request.headers.get("user-agent"))
+    ip_prefix = _coarse_ip_prefix(client.host if client else None)
     async with get_connection() as conn:
         rule = await _fetch_rule(conn, clean_slug)
         if rule is None:
@@ -198,6 +288,12 @@ async def collection_view(request: Request, slug: str) -> HTMLResponse:
             shot = await get_screenshot(conn, sid)
             if shot is not None:
                 shots.append(shot)
+        # Visit receipt: only after every gate (404 / 403) has been
+        # cleared so the journal counts real renders rather than rejected
+        # probes. The helper swallows insert failures internally.
+        await _record_collection_visit(
+            conn, slug=clean_slug, ua=ua, ip_prefix=ip_prefix
+        )
 
     return templates.TemplateResponse(
         request,
