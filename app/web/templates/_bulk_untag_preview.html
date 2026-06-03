@@ -1,0 +1,71 @@
+{# Fragment returned by /admin/bulk-untag/preview and /confirm.
+   Receives either `preview` (dry-run summary + HMAC token) or `result`
+   (actual outcome of bulk_untag). Swapped into #bulk-untag-preview by
+   HTMX so the operator never loses the form above.
+
+   Mirrors _bulk_pin_preview.html and _bulk_delete_preview.html so the
+   three admin bulk pages share the same look. #}
+
+{% if result is defined %}
+  <div class="rounded-lg border border-emerald-700/60 bg-emerald-900/20 p-5">
+    <h2 class="text-lg font-semibold text-emerald-200 mb-2">Untagged.</h2>
+    <p class="text-emerald-100 text-sm">
+      Removed tag
+      <code class="font-mono text-xs bg-ink-900 px-1.5 py-0.5 rounded">{{ result.tag }}</code>
+      from <strong>{{ result.affected }}</strong> screenshot(s) matching
+      <code class="font-mono text-xs bg-ink-900 px-1.5 py-0.5 rounded">{{ result.query }}</code>
+      (matched {{ result.matched }}).
+    </p>
+    <p class="text-emerald-200/70 text-xs mt-3">
+      Run another query above, or
+      <a href="/admin/bulk-untag" class="underline hover:text-emerald-100">reset the page</a>.
+    </p>
+  </div>
+{% elif preview is defined %}
+  {% if preview.matched == 0 %}
+    <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+      <p class="text-zinc-300 text-sm">
+        No screenshots matched
+        <code class="font-mono text-xs bg-ink-900 px-1.5 py-0.5 rounded">{{ preview.query }}</code>.
+        Nothing to untag.
+      </p>
+    </div>
+  {% else %}
+    <div class="rounded-lg border border-sky-700 bg-sky-900/30 p-5 space-y-4">
+      <h2 class="text-lg font-semibold text-sky-100">
+        Tag <code class="font-mono text-sm bg-ink-900 px-1.5 py-0.5 rounded">{{ preview.tag }}</code>
+        will be removed from {{ preview.matched }} screenshot{{ "s" if preview.matched != 1 else "" }}
+      </h2>
+      <p class="text-sky-100/80 text-sm">
+        Query:
+        <code class="font-mono text-xs bg-ink-900 px-1.5 py-0.5 rounded">{{ preview.query }}</code>
+        · limit {{ preview.limit }}
+      </p>
+
+      {% if preview.ids %}
+        <details class="text-xs text-sky-100/70">
+          <summary class="cursor-pointer hover:text-sky-50">Show first {{ preview.ids|length }} ids</summary>
+          <div class="mt-2 font-mono break-all">
+            {{ preview.ids|join(", ") }}
+          </div>
+        </details>
+      {% endif %}
+
+      <form hx-post="/admin/bulk-untag/confirm"
+            hx-target="#bulk-untag-preview"
+            hx-swap="innerHTML"
+            hx-confirm="Remove tag &quot;{{ preview.tag }}&quot; from {{ preview.matched }} screenshot(s)?"
+            class="pt-2 border-t border-sky-700/60">
+        <input type="hidden" name="tag"     value="{{ preview.tag }}">
+        <input type="hidden" name="query"   value="{{ preview.query }}">
+        <input type="hidden" name="limit"   value="{{ preview.limit }}">
+        <input type="hidden" name="matched" value="{{ preview.matched }}">
+        <input type="hidden" name="token"   value="{{ preview.token }}">
+        <button type="submit"
+                class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded text-sm font-bold tracking-wide">
+          Remove tag from {{ preview.matched }} match{{ "es" if preview.matched != 1 else "" }}
+        </button>
+      </form>
+    </div>
+  {% endif %}
+{% endif %}

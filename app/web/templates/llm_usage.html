@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+
+{% block content %}
+{# ---- helpers ---- #}
+{% macro fmt_tokens(n) -%}
+  {%- if n is none or n == 0 -%}0
+  {%- elif n < 1000 -%}{{ n }}
+  {%- elif n < 1000000 -%}{{ (n / 1000) | round(1) }}k
+  {%- else -%}{{ (n / 1000000) | round(2) }}M
+  {%- endif -%}
+{%- endmacro %}
+
+<div class="mb-6 flex items-end justify-between flex-wrap gap-3">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">LLM usage</h1>
+    <p class="text-zinc-500 text-sm mt-1 max-w-2xl">
+      Per-day token spend across every BYO-API feature:
+      <strong class="text-zinc-300">digest</strong>,
+      <strong class="text-zinc-300">vision</strong>,
+      <strong class="text-zinc-300">translate</strong>,
+      <strong class="text-zinc-300">day_tldr</strong>, and any other path
+      that resolves a client via <code class="text-zinc-400">make_client()</code>.
+      Window: <strong class="text-zinc-300">{{ days_window }}</strong> days.
+    </p>
+  </div>
+  <a href="/stats" class="text-xs text-zinc-500 hover:text-accent-400 underline">
+    &larr; back to stats
+  </a>
+</div>
+
+{# ---- summary cards ---- #}
+<section class="mb-6 grid grid-cols-2 md:grid-cols-4 gap-3">
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs text-zinc-500">Total tokens</div>
+    <div class="text-2xl font-bold mt-1 text-accent-300">{{ fmt_tokens(total_tokens) }}</div>
+    <div class="text-xs text-zinc-500 mt-1">input + output</div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs text-zinc-500">Input tokens</div>
+    <div class="text-2xl font-bold mt-1 text-sky-300">{{ fmt_tokens(total_input_tokens) }}</div>
+    <div class="text-xs text-zinc-500 mt-1">prompt / system</div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs text-zinc-500">Output tokens</div>
+    <div class="text-2xl font-bold mt-1 text-emerald-300">{{ fmt_tokens(total_output_tokens) }}</div>
+    <div class="text-xs text-zinc-500 mt-1">completion</div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs text-zinc-500">Total calls</div>
+    <div class="text-2xl font-bold mt-1 text-zinc-200">{{ "{:,}".format(total_calls) }}</div>
+    <div class="text-xs text-zinc-500 mt-1">
+      {% if total_failed > 0 %}
+        <span class="text-rose-300">{{ total_failed }}</span> failed
+      {% else %}
+        all succeeded
+      {% endif %}
+    </div>
+  </div>
+</section>
+
+{# ---- 30-day line chart (pure SVG, oldest -> newest) ---- #}
+<section class="mb-8 rounded-lg border border-ink-700 bg-ink-800 p-5">
+  <div class="flex items-center justify-between mb-3">
+    <div>
+      <h2 class="text-sm font-semibold text-zinc-300">Tokens per day</h2>
+      <p class="text-zinc-500 text-xs mt-0.5">
+        Oldest left &rarr; newest right. Peak day:
+        <strong class="text-zinc-300">{{ fmt_tokens(max_total) }}</strong>.
+      </p>
+    </div>
+  </div>
+
+  {% if series and max_total > 0 %}
+    {% set svg_w = 640 %}
+    {% set svg_h = 160 %}
+    {% set pad = 4 %}
+    {% set inner_h = svg_h - 2 * pad %}
+    {% set step = (svg_w / (series | length - 1)) if (series | length) > 1 else 0 %}
+
+    <svg viewBox="0 0 {{ svg_w }} {{ svg_h }}" width="100%" height="{{ svg_h }}"
+         class="block" preserveAspectRatio="none" role="img"
+         aria-label="Daily LLM token usage line chart">
+
+      <line x1="0" x2="{{ svg_w }}" y1="{{ svg_h - pad }}" y2="{{ svg_h - pad }}"
+            stroke="#26262e" stroke-width="0.5"/>
+
+      {%- set pts = [] %}
+      {%- for row in series %}
+        {%- set x = (loop.index0 * step) if (series | length) > 1 else (svg_w / 2) %}
+        {%- set y = (svg_h - pad) - ((row.total_tokens / max_total) * inner_h) %}
+        {%- set _ = pts.append("%.2f,%.2f" | format(x, y)) %}
+      {%- endfor %}
+
+      <polygon fill="#a78bfa" fill-opacity="0.12"
+               points="0,{{ svg_h - pad }} {{ pts | join(' ') }} {{ svg_w }},{{ svg_h - pad }}"/>
+
+      <polyline fill="none" stroke="#a78bfa" stroke-width="1.5"
+                stroke-linejoin="round" stroke-linecap="round"
+                points="{{ pts | join(' ') }}"/>
+
+      {%- for row in series %}
+        {%- set x = (loop.index0 * step) if (series | length) > 1 else (svg_w / 2) %}
+        {%- set y = (svg_h - pad) - ((row.total_tokens / max_total) * inner_h) %}
+        <circle cx="{{ x | round(2) }}" cy="{{ y | round(2) }}" r="2" fill="#a78bfa">
+          <title>{{ row.day }} &mdash; {{ fmt_tokens(row.total_tokens) }} tokens ({{ row.calls }} calls)</title>
+        </circle>
+      {%- endfor %}
+    </svg>
+
+    <div class="flex justify-between text-[10px] text-zinc-500 mt-1 font-mono">
+      <span>{{ series[0].day }}</span>
+      <span>{{ series[-1].day }}</span>
+    </div>
+  {% else %}
+    <p class="text-zinc-500 text-xs">No LLM calls recorded yet &mdash; trigger a digest or TL;DR to populate the chart.</p>
+  {% endif %}
+</section>
+
+{# ---- per-kind breakdown ---- #}
+<section class="mb-8 rounded-lg border border-ink-700 bg-ink-800 overflow-hidden">
+  <div class="px-4 py-3 border-b border-ink-700">
+    <h2 class="text-sm font-semibold text-zinc-300">By feature</h2>
+    <p class="text-zinc-500 text-xs mt-0.5">Which code path is the biggest token consumer in the window.</p>
+  </div>
+  <table class="w-full text-sm">
+    <thead class="bg-ink-900/60 text-xs uppercase tracking-wide text-zinc-500">
+      <tr>
+        <th class="px-4 py-2 text-left font-medium">Kind</th>
+        <th class="px-4 py-2 text-right font-medium">Calls</th>
+        <th class="px-4 py-2 text-right font-medium">Input</th>
+        <th class="px-4 py-2 text-right font-medium">Output</th>
+        <th class="px-4 py-2 text-right font-medium">Total</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-ink-700">
+      {% for row in by_kind %}
+        <tr class="hover:bg-ink-700/40">
+          <td class="px-4 py-2 font-mono text-zinc-300">{{ row.kind }}</td>
+          <td class="px-4 py-2 text-right font-mono text-zinc-300">{{ "{:,}".format(row.calls) }}</td>
+          <td class="px-4 py-2 text-right font-mono text-sky-300">{{ fmt_tokens(row.input_tokens) }}</td>
+          <td class="px-4 py-2 text-right font-mono text-emerald-300">{{ fmt_tokens(row.output_tokens) }}</td>
+          <td class="px-4 py-2 text-right font-mono font-semibold text-zinc-200">{{ fmt_tokens(row.total_tokens) }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5" class="px-4 py-6 text-center text-zinc-500 text-xs">No calls in window.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+{# ---- per-day table (newest first) ---- #}
+<section class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden">
+  <div class="px-4 py-3 border-b border-ink-700">
+    <h2 class="text-sm font-semibold text-zinc-300">By day</h2>
+    <p class="text-zinc-500 text-xs mt-0.5">Newest day first. Bar width is relative to the peak day in the window.</p>
+  </div>
+  <table class="w-full text-sm">
+    <thead class="bg-ink-900/60 text-xs uppercase tracking-wide text-zinc-500">
+      <tr>
+        <th class="px-4 py-2 text-left font-medium">Date</th>
+        <th class="px-4 py-2 text-right font-medium">Calls</th>
+        <th class="px-4 py-2 text-right font-medium">Input</th>
+        <th class="px-4 py-2 text-right font-medium">Output</th>
+        <th class="px-4 py-2 text-right font-medium">Total</th>
+        <th class="px-4 py-2 text-left font-medium w-40">Bar</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-ink-700">
+      {% for row in series | reverse %}
+        {% set has_data = row.total_tokens > 0 %}
+        {% set bar_pct = ((row.total_tokens / max_total) * 100) if max_total else 0 %}
+        <tr class="hover:bg-ink-700/40">
+          <td class="px-4 py-2 font-mono text-zinc-400">{{ row.day }}</td>
+          <td class="px-4 py-2 text-right font-mono text-zinc-300">{{ row.calls }}</td>
+          <td class="px-4 py-2 text-right font-mono text-sky-300">{{ fmt_tokens(row.input_tokens) }}</td>
+          <td class="px-4 py-2 text-right font-mono text-emerald-300">{{ fmt_tokens(row.output_tokens) }}</td>
+          <td class="px-4 py-2 text-right font-mono font-semibold
+                     {% if not has_data %}text-zinc-600{% else %}text-zinc-200{% endif %}">
+            {{ fmt_tokens(row.total_tokens) }}
+          </td>
+          <td class="px-4 py-2">
+            <div class="bg-ink-900 rounded h-2 overflow-hidden"
+                 title="{{ fmt_tokens(row.total_tokens) }} tokens">
+              <div class="h-full bg-accent-500/70" style="width: {{ bar_pct | round(2) }}%"></div>
+            </div>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6" class="px-4 py-6 text-center text-zinc-500 text-xs">No data.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<p class="text-xs text-zinc-500 mt-4">
+  Token counts come straight from each provider's <code class="text-zinc-400">usage</code> block.
+  Recorded by <code class="text-zinc-400">app.llm.client._UsageRecordingClient</code>;
+  raw JSON at <a href="/api/llm-usage.json?days={{ days_window }}"
+    class="hover:text-accent-400 underline">/api/llm-usage.json</a>.
+</p>
+{% endblock %}

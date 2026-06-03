@@ -48,6 +48,7 @@ from app.web.routes import (
     bulk as bulk_routes,
     bulk_collection_add as bulk_collection_add_routes,
     bulk_pin as bulk_pin_routes,
+    bulk_untag as bulk_untag_routes,
     bulk_delete as bulk_delete_routes,
     cal_nav as cal_nav_routes,
     calendar as calendar_routes,
@@ -107,6 +108,7 @@ from app.web.routes import (
     lang_autodetect as lang_autodetect_routes,
     live_sse as live_sse_routes,
     llm_switcher as llm_switcher_routes,
+    llm_usage as llm_usage_routes,
     mobile as mobile_routes,
     monthly_digest_card as monthly_digest_card_routes,
     monthly_digests as monthly_digests_routes,
@@ -193,6 +195,7 @@ from app.web.routes import (
     slack_summary as slack_summary_routes,
     shot_dimensions as shot_dimensions_routes,
     shot_embed as shot_embed_routes,
+    shot_groups as shot_groups_routes,
     shot_lock as shot_lock_routes,
     shot_share_ui as shot_share_ui_routes,
     share_collection as share_collection_routes,
@@ -286,7 +289,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.97.0",
+        version="0.98.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -515,6 +518,9 @@ def create_app() -> FastAPI:
     app.include_router(corpus_search_routes.router)
     app.include_router(sparkline_svg_routes.router)
     app.include_router(dedup_cluster_routes.router)
+    app.include_router(bulk_untag_routes.router)
+    app.include_router(llm_usage_routes.router)
+    app.include_router(shot_groups_routes.router)
 
     return app
 

@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Screenshot groups</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Hand-picked bundles of shots &mdash; you add and remove members one by one,
+    membership stays put even if you re-tag or re-query later.
+    Different from
+    <a href="/collections" class="text-accent-400 hover:underline">auto-collections</a>
+    (tag-driven, membership recomputed on every visit) and
+    <a href="/searches/facets" class="text-accent-400 hover:underline">saved facet sets</a>
+    (query-driven). Use a group when you need a specific, frozen-in-time set.
+  </p>
+</div>
+
+<form action="/groups" method="post"
+      class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-8">
+  <h2 class="text-lg font-semibold mb-3">Create a group</h2>
+  <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+    <label class="md:col-span-4 block text-sm">
+      <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">Slug</span>
+      <input name="slug" required pattern="^[a-z0-9-]{1,40}$" maxlength="40"
+             placeholder="customer-deck-tue"
+             title="Lowercase letters, digits, hyphen; 1&ndash;40 chars"
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
+      <span class="block text-[11px] text-zinc-500 mt-1">lowercase, digits, hyphen; 1&ndash;40 chars</span>
+    </label>
+    <label class="md:col-span-7 block text-sm">
+      <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">Title</span>
+      <input name="title" required minlength="1" maxlength="120"
+             placeholder="Customer deck (Tuesday)"
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
+    </label>
+    <button type="submit"
+            class="md:col-span-1 px-4 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
+      Create
+    </button>
+  </div>
+  <p class="text-xs text-zinc-500 mt-3">
+    After the group exists, open any screenshot and use the
+    <em>Add to group</em> control to drop it in.
+  </p>
+</form>
+
+{% if groups %}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-ink-900 text-zinc-500 text-xs uppercase tracking-wider">
+        <tr>
+          <th class="text-left py-2 px-4">Slug</th>
+          <th class="text-left py-2 px-4">Title</th>
+          <th class="text-right py-2 px-4">Members</th>
+          <th class="text-left py-2 px-4">Created</th>
+          <th class="py-2 px-4"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for g in groups %}
+          <tr class="border-t border-ink-700">
+            <td class="py-2 px-4 font-mono text-xs">
+              <a href="/groups/{{ g.slug }}" class="text-accent-400 hover:text-accent-300">
+                {{ g.slug }}
+              </a>
+            </td>
+            <td class="py-2 px-4 text-zinc-200">{{ g.title }}</td>
+            <td class="py-2 px-4 text-right text-zinc-300 font-mono">
+              {{ g.member_count }}
+            </td>
+            <td class="py-2 px-4 text-zinc-400 text-xs font-mono">{{ g.created_at }}</td>
+            <td class="py-2 px-4 text-right">
+              <form action="/groups/{{ g.slug }}/delete" method="post" class="inline"
+                    onsubmit="return confirm('Delete group {{ g.slug }}? Screenshots stay untouched.');">
+                <button class="text-xs px-2 py-1 rounded bg-rose-900/40 hover:bg-rose-900 text-rose-300">
+                  remove
+                </button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  <p class="text-zinc-500 text-sm">
+    No groups yet. Create one above and start cherry-picking shots into it.
+  </p>
+{% endif %}
+{% endblock %}

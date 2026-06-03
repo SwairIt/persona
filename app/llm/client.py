@@ -14,6 +14,7 @@ from app.settings import get_settings
 Provider = Literal["anthropic", "openai", "groq"]
 
 log = get_logger("persona.llm.switcher")
+usage_log = get_logger("persona.llm_usage")
 
 # ---------------------------------------------------------------------------
 # kv_setting + vault key names (mirrored from app.web.routes.llm_switcher)
@@ -64,8 +65,17 @@ class AnthropicClient:
         self._api_key = api_key
         self._model = model
         self._base_url = "https://api.anthropic.com/v1/messages"
+        #: Token counts pulled out of the most recent response payload so
+        #: the :class:`_UsageRecordingClient` wrapper can persist a row
+        #: without re-parsing the body. ``None`` until the first call,
+        #: and reset on every :meth:`complete` invocation so a stale
+        #: count from a previous request cannot leak forward.
+        self.last_input_tokens: int | None = None
+        self.last_output_tokens: int | None = None
 
     async def complete(self, request: CompletionRequest) -> str:
+        self.last_input_tokens = None
+        self.last_output_tokens = None
         headers = {
             "x-api-key": self._api_key,
             "anthropic-version": "2023-06-01",
@@ -83,6 +93,10 @@ class AnthropicClient:
             response.raise_for_status()
             data = response.json()
 
+        usage = data.get("usage") or {}
+        self.last_input_tokens = _coerce_token_count(usage.get("input_tokens"))
+        self.last_output_tokens = _coerce_token_count(usage.get("output_tokens"))
+
         for block in data.get("content", []):
             if block.get("type") == "text":
                 return str(block.get("text", "")).strip()
@@ -96,8 +110,16 @@ class OpenAIClient:
         self._api_key = api_key
         self._model = model
         self._base_url = "https://api.openai.com/v1/chat/completions"
+        #: See :class:`AnthropicClient` for the contract. OpenAI emits
+        #: ``usage.prompt_tokens`` / ``usage.completion_tokens`` rather
+        #: than the Anthropic key names, but we surface both through the
+        #: same two ``last_*`` attributes so the wrapper stays uniform.
+        self.last_input_tokens: int | None = None
+        self.last_output_tokens: int | None = None
 
     async def complete(self, request: CompletionRequest) -> str:
+        self.last_input_tokens = None
+        self.last_output_tokens = None
         headers = {
             "Authorization": f"Bearer {self._api_key}",
             "content-type": "application/json",
@@ -115,6 +137,10 @@ class OpenAIClient:
             response = await client.post(self._base_url, json=payload, headers=headers)
             response.raise_for_status()
             data = response.json()
+
+        usage = data.get("usage") or {}
+        self.last_input_tokens = _coerce_token_count(usage.get("prompt_tokens"))
+        self.last_output_tokens = _coerce_token_count(usage.get("completion_tokens"))
 
         choices = data.get("choices", [])
         if not choices:
@@ -129,8 +155,14 @@ class GroqClient:
         self._api_key = api_key
         self._model = model
         self._base_url = "https://api.groq.com/openai/v1/chat/completions"
+        #: See :class:`AnthropicClient`. Groq is OpenAI-compatible so the
+        #: token keys mirror :class:`OpenAIClient` exactly.
+        self.last_input_tokens: int | None = None
+        self.last_output_tokens: int | None = None
 
     async def complete(self, request: CompletionRequest) -> str:
+        self.last_input_tokens = None
+        self.last_output_tokens = None
         headers = {
             "Authorization": f"Bearer {self._api_key}",
             "content-type": "application/json",
@@ -149,10 +181,41 @@ class GroqClient:
             response.raise_for_status()
             data = response.json()
 
+        usage = data.get("usage") or {}
+        self.last_input_tokens = _coerce_token_count(usage.get("prompt_tokens"))
+        self.last_output_tokens = _coerce_token_count(usage.get("completion_tokens"))
+
         choices = data.get("choices", [])
         if not choices:
             return ""
         return str(choices[0]["message"]["content"]).strip()
+
+
+def _coerce_token_count(value: object) -> int | None:
+    """Normalise a provider-reported token count.
+
+    Provider responses are user-controlled JSON and we deliberately
+    don't trust them: the value may be missing, ``None``, a non-numeric
+    string, or a negative number. Anything we can't honestly parse as a
+    non-negative integer collapses to ``None`` so the ledger row records
+    ``NULL`` rather than a misleading ``0`` or a fabricated guess.
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        # ``bool`` is an ``int`` subclass; collapse it to None so a
+        # provider that erroneously sent ``true`` doesn't get recorded
+        # as a 1-token call.
+        return None
+    if isinstance(value, int):
+        return value if value >= 0 else None
+    if isinstance(value, str):
+        try:
+            coerced = int(value)
+        except ValueError:
+            return None
+        return coerced if coerced >= 0 else None
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -266,9 +329,109 @@ def _resolve_provider_and_key_sync() -> tuple[str | None, str | None]:
         return future.result()
 
 
+class _UsageRecordingClient:
+    """Thin wrapper that persists a ``llm_usage`` row after every call.
+
+    Wraps any concrete :class:`LLMClient` (Anthropic / OpenAI / Groq)
+    and forwards :meth:`complete` to it. After the inner call returns
+    — successful or not — a single row is written to ``llm_usage`` so
+    ``/stats/llm-usage`` can render the per-day burn chart.
+
+    The wrapper deliberately swallows ledger-write failures: if the
+    SQLite write blows up for any reason (disk full, schema drift,
+    concurrent migration) we structlog the error and let the original
+    completion result propagate. Token bookkeeping must never break a
+    user-facing feature.
+    """
+
+    def __init__(self, inner: LLMClient, kind: str) -> None:
+        self._inner = inner
+        self._kind = kind
+        # Surface the provider through the protocol so callers that
+        # introspect ``client.provider`` (e.g. /settings/llm health
+        # check) see the same value they would have got from the bare
+        # underlying client.
+        self.provider: Provider = inner.provider
+
+    async def complete(self, request: CompletionRequest) -> str:
+        try:
+            text = await self._inner.complete(request)
+        except Exception:
+            await _record_usage(
+                kind=self._kind,
+                provider=self._inner.provider,
+                input_tokens=None,
+                output_tokens=None,
+                success=False,
+            )
+            raise
+
+        # ``last_input_tokens`` / ``last_output_tokens`` are the protocol
+        # we just added to every concrete client. ``getattr`` with a
+        # ``None`` default keeps the wrapper duck-typed — a future
+        # third-party LLMClient that hasn't been updated still records a
+        # row, just with NULL tokens.
+        input_tokens = getattr(self._inner, "last_input_tokens", None)
+        output_tokens = getattr(self._inner, "last_output_tokens", None)
+        await _record_usage(
+            kind=self._kind,
+            provider=self._inner.provider,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            success=True,
+        )
+        return text
+
+
+async def _record_usage(
+    *,
+    kind: str,
+    provider: str,
+    input_tokens: int | None,
+    output_tokens: int | None,
+    success: bool,
+) -> None:
+    """Append a single row to ``llm_usage``.
+
+    Parametrised SQL — never string-interpolates the values — and the
+    whole block is wrapped in ``try/except`` so a ledger-write failure
+    can never poison the calling feature. Logs at INFO on success and
+    WARNING on failure (without the raw exception's traceback in the
+    log payload — structlog's ``exception`` adds it once).
+    """
+    try:
+        from app.storage.db import get_connection  # noqa: PLC0415 — circular guard
+
+        async with get_connection() as conn:
+            await conn.execute(
+                "INSERT INTO llm_usage (kind, provider, input_tokens, "
+                "output_tokens, success) VALUES (?, ?, ?, ?, ?)",
+                (kind, provider, input_tokens, output_tokens, 1 if success else 0),
+            )
+            await conn.commit()
+    except Exception as exc:
+        usage_log.warning(
+            "llm_usage.record.failed",
+            kind=kind,
+            provider=provider,
+            error=str(exc),
+        )
+        return
+
+    usage_log.info(
+        "llm_usage.recorded",
+        kind=kind,
+        provider=provider,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        success=success,
+    )
+
+
 def make_client(
     provider: Provider | None = None,
     api_key: str | None = None,
+    kind: str = "unknown",
 ) -> LLMClient:
     """Construct a client from kv_settings (or explicit args).
 
@@ -318,12 +481,20 @@ def make_client(
         )
         raise LLMNotConfigured(msg)
 
+    inner: LLMClient
     if use_provider == "anthropic":
-        return AnthropicClient(use_key)
-    if use_provider == "openai":
-        return OpenAIClient(use_key)
-    if use_provider == "groq":
-        return GroqClient(use_key)
+        inner = AnthropicClient(use_key)
+    elif use_provider == "openai":
+        inner = OpenAIClient(use_key)
+    elif use_provider == "groq":
+        inner = GroqClient(use_key)
+    else:
+        msg = f"Unsupported LLM provider: {use_provider}"
+        raise LLMNotConfigured(msg)
 
-    msg = f"Unsupported LLM provider: {use_provider}"
-    raise LLMNotConfigured(msg)
+    # Every concrete client is wrapped so /stats/llm-usage can read the
+    # per-day burn chart no matter which feature triggered the call.
+    # Existing callers that don't pass ``kind`` show up as ``"unknown"``
+    # — better than dropping the row, since the chart total still adds
+    # up to the operator's actual provider bill.
+    return _UsageRecordingClient(inner, kind=kind)
