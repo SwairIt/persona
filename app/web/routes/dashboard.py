@@ -18,6 +18,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from app.logging_setup import get_logger
 from app.storage.db import get_connection
 from app.streak import current_streak
+from app.web.routes.dashboard_tiles import load_tile_order
 from app.web.templates_engine import templates
 from app.workers.control import get_controller
 
@@ -132,12 +133,18 @@ async def _collect_dashboard() -> dict[str, Any]:
 @router.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_page(request: Request) -> HTMLResponse:
     payload = await _collect_dashboard()
+    # v0.81 — tile order comes from kv_settings via /settings/dashboard.
+    # ``load_tile_order`` already filters against the server-side
+    # whitelist + appends any newly-shipped tiles, so the template can
+    # iterate it directly without re-validating each name.
+    tile_order = await load_tile_order()
     return templates.TemplateResponse(
         request,
         "dashboard.html",
         {
             "title": "Dashboard",
             "active_nav": "stats",
+            "tile_order": tile_order,
             **payload,
         },
     )

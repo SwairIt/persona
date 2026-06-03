@@ -28,20 +28,14 @@
   </svg>
 {%- endmacro %}
 
-{% block content %}
-<div class="mb-6 flex items-end justify-between">
-  <div>
-    <h1 class="text-2xl font-bold tracking-tight">Dashboard</h1>
-    <p class="text-zinc-500 text-sm mt-1">
-      Last {{ today.axis | length }} days at a glance. Machine-readable mirror at
-      <a href="/api/dashboard.json" class="font-mono text-accent-400 hover:underline">/api/dashboard.json</a>.
-    </p>
-  </div>
-</div>
+{# ── Per-tile macros ─────────────────────────────────────────────────────
+  Each tile lives in its own macro so the v0.81 dynamic dispatch loop
+  below can render them in whatever order ``tile_order`` lists. The
+  macro bodies are byte-for-byte the same markup the dashboard rendered
+  before v0.81 — only the dispatch around them is new.
+#}
 
-<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-
-  {# ── Today ───────────────────────────────────────────────────────────── #}
+{% macro tile_today(today) %}
   <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
     <div class="text-xs uppercase tracking-widest text-zinc-500">Today</div>
     <div class="mt-1 flex items-baseline gap-2">
@@ -60,8 +54,9 @@
       {{ sparkline(today.series) }}
     </div>
   </section>
+{% endmacro %}
 
-  {# ── Streak ──────────────────────────────────────────────────────────── #}
+{% macro tile_streak(streak, today) %}
   <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
     <div class="text-xs uppercase tracking-widest text-zinc-500">Streak</div>
     <div class="mt-1 flex items-baseline gap-2">
@@ -88,8 +83,9 @@
       <a href="/streak" class="text-xs text-accent-400 hover:underline">Open streak →</a>
     </div>
   </section>
+{% endmacro %}
 
-  {# ── Top apps (7d) ───────────────────────────────────────────────────── #}
+{% macro tile_top_apps(top_apps) %}
   <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
     <div class="text-xs uppercase tracking-widest text-zinc-500">Top apps · 7d</div>
     {% if not top_apps %}
@@ -115,8 +111,9 @@
       </ul>
     {% endif %}
   </section>
+{% endmacro %}
 
-  {# ── Latest weekly digest ────────────────────────────────────────────── #}
+{% macro tile_latest_digest(latest_digest) %}
   <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
     <div class="text-xs uppercase tracking-widest text-zinc-500">Latest digest</div>
     {% if latest_digest %}
@@ -141,8 +138,9 @@
       </a>
     {% endif %}
   </section>
+{% endmacro %}
 
-  {# ── Capture status ──────────────────────────────────────────────────── #}
+{% macro tile_capture_status(capture) %}
   <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 sm:col-span-2 lg:col-span-1">
     <div class="text-xs uppercase tracking-widest text-zinc-500">Capture status</div>
     <div class="mt-2 flex items-center gap-2 text-sm">
@@ -170,6 +168,38 @@
       </dd>
     </dl>
   </section>
+{% endmacro %}
 
+{% block content %}
+<div class="mb-6 flex items-end justify-between">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Dashboard</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Last {{ today.axis | length }} days at a glance. Machine-readable mirror at
+      <a href="/api/dashboard.json" class="font-mono text-accent-400 hover:underline">/api/dashboard.json</a>.
+    </p>
+  </div>
+  <a href="/settings/dashboard"
+     class="text-xs text-zinc-500 hover:text-accent-400 hover:underline whitespace-nowrap">
+    Customise tiles →
+  </a>
+</div>
+
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+  {#
+    v0.81 — render only the tiles ``tile_order`` lists, in that exact
+    order. The route layer (:mod:`app.web.routes.dashboard_tiles`) has
+    already filtered the list against a server-side whitelist, so the
+    ``elif`` chain below is closed by construction — an unknown name
+    here would silently render nothing.
+  #}
+  {% for tile in (tile_order or ['today', 'streak', 'top_apps', 'latest_digest', 'capture_status']) %}
+    {% if tile == 'today' %}{{ tile_today(today) }}
+    {% elif tile == 'streak' %}{{ tile_streak(streak, today) }}
+    {% elif tile == 'top_apps' %}{{ tile_top_apps(top_apps) }}
+    {% elif tile == 'latest_digest' %}{{ tile_latest_digest(latest_digest) }}
+    {% elif tile == 'capture_status' %}{{ tile_capture_status(capture) }}
+    {% endif %}
+  {% endfor %}
 </div>
 {% endblock %}

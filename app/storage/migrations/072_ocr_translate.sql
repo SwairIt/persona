@@ -1,0 +1,36 @@
+-- v0.81 — OCR translate via BYO LLM.
+--
+-- Persona's OCR pipeline writes the canonical transcription into
+-- ``screenshots.ocr_text`` (Tesseract) with an optional sidecar in
+-- ``ocr_text_vision`` (multimodal fallback, see migration 056). Neither
+-- column is translated — both reflect whatever language the user's
+-- screen was rendered in. This migration adds a third sidecar that
+-- caches a translation of ``ocr_text`` into the language the user
+-- chose at translate time:
+--
+--   * ``ocr_text_translated``  — the translated string, or ``NULL``
+--     when no translation has ever been run for the row. An empty
+--     string means "translation succeeded but came back blank" and
+--     is treated as a cached negative result so a second click does
+--     not re-invoice the user's BYO API key.
+--   * ``ocr_translate_lang``   — the target language code/name the
+--     user requested (free-form text; we pass it verbatim to the LLM
+--     prompt, so anything the model understands is fine — ``"ru"``,
+--     ``"Russian"``, ``"Español"`` all work). ``NULL`` mirrors the
+--     ``ocr_text_translated IS NULL`` state.
+--
+-- ``ocr_text`` (Tesseract) is NEVER touched from this code path —
+-- translation is a strict sidecar, identical contract to migration
+-- 056's vision column. The admin page (``/admin/ocr-translate``)
+-- surfaces rows where ``ocr_text_translated IS NULL`` so the user can
+-- bulk-translate up to 50 at a time without ever overwriting an
+-- existing translation.
+--
+-- SQLite has no ``ALTER TABLE ... ADD COLUMN IF NOT EXISTS``. The
+-- migration runner (:func:`app.storage.db.init_database`) splits the
+-- file statement-by-statement and silently swallows the
+-- ``duplicate column name`` error, so this migration is idempotent
+-- across re-runs.
+
+ALTER TABLE screenshots ADD COLUMN ocr_text_translated TEXT;
+ALTER TABLE screenshots ADD COLUMN ocr_translate_lang TEXT;

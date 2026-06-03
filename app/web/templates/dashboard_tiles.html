@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+
+{#
+  v0.81 — Dashboard tile editor.
+
+  Two columns: ordered list of currently-visible tiles (with up/down
+  arrows + an unchecked toggle that moves the tile to "hidden"), and a
+  list of hidden tiles (checkbox re-adds them to the bottom of the
+  visible list).
+
+  The form posts a single ``order`` CSV holding the user's final visible
+  list in order. We build that CSV client-side from the Alpine state
+  right before submit — that way the server-side handler is dumb (one
+  POST field, one whitelist check) and the page degrades gracefully:
+  even with JavaScript disabled the rendered ``visible`` list is the
+  current saved state, so worst case the user re-submits unchanged.
+#}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Dashboard tiles</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Pick which cards appear on <a href="/dashboard" class="text-accent-400 hover:underline">/dashboard</a>
+    and the order they render in.
+  </p>
+</div>
+
+<form method="post"
+      action="/settings/dashboard"
+      x-data='{
+        visible: {{ visible_tiles | tojson }},
+        hidden: {{ hidden_tiles | tojson }},
+        labels: {{ tile_labels | tojson }},
+        moveUp(index) {
+          if (index <= 0) { return; }
+          const next = this.visible.slice();
+          [next[index - 1], next[index]] = [next[index], next[index - 1]];
+          this.visible = next;
+        },
+        moveDown(index) {
+          if (index >= this.visible.length - 1) { return; }
+          const next = this.visible.slice();
+          [next[index], next[index + 1]] = [next[index + 1], next[index]];
+          this.visible = next;
+        },
+        hide(index) {
+          const name = this.visible[index];
+          this.visible = this.visible.filter((_, i) => i !== index);
+          this.hidden = this.hidden.concat([name]);
+        },
+        show(name) {
+          this.hidden = this.hidden.filter(n => n !== name);
+          this.visible = this.visible.concat([name]);
+        },
+        get csv() { return this.visible.join(","); }
+      }'
+      @submit="$refs.orderField.value = csv"
+      class="grid lg:grid-cols-2 gap-6">
+
+  <input type="hidden" name="order" x-ref="orderField" :value="csv">
+
+  {# ── Visible (ordered) ───────────────────────────────────────────── #}
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <h2 class="text-lg font-semibold mb-1">Visible tiles</h2>
+    <p class="text-xs text-zinc-500 mb-4">
+      Drag with arrows. Untick to hide.
+    </p>
+    <ul class="space-y-2"
+        x-show="visible.length > 0">
+      <template x-for="(tile, index) in visible" :key="tile">
+        <li class="flex items-center gap-2 rounded border border-ink-700 bg-ink-900 px-3 py-2">
+          <input type="checkbox"
+                 checked
+                 @change="hide(index)"
+                 class="accent-accent-500"
+                 :aria-label="'Hide ' + (labels[tile] || tile)">
+          <span class="flex-1 text-sm text-zinc-200"
+                x-text="labels[tile] || tile"></span>
+          <span class="font-mono text-xs text-zinc-600"
+                x-text="tile"></span>
+          <button type="button"
+                  @click="moveUp(index)"
+                  :disabled="index === 0"
+                  class="px-2 py-1 text-xs rounded border border-ink-700 text-zinc-300 hover:text-accent-400 hover:border-accent-500 disabled:opacity-30 disabled:hover:text-zinc-300 disabled:hover:border-ink-700"
+                  aria-label="Move up">↑</button>
+          <button type="button"
+                  @click="moveDown(index)"
+                  :disabled="index === visible.length - 1"
+                  class="px-2 py-1 text-xs rounded border border-ink-700 text-zinc-300 hover:text-accent-400 hover:border-accent-500 disabled:opacity-30 disabled:hover:text-zinc-300 disabled:hover:border-ink-700"
+                  aria-label="Move down">↓</button>
+        </li>
+      </template>
+    </ul>
+    <p class="text-sm text-zinc-500"
+       x-show="visible.length === 0">
+      All tiles hidden — saving now will restore the default order
+      so /dashboard never renders empty.
+    </p>
+  </section>
+
+  {# ── Hidden ──────────────────────────────────────────────────────── #}
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <h2 class="text-lg font-semibold mb-1">Hidden tiles</h2>
+    <p class="text-xs text-zinc-500 mb-4">
+      Tick to add back at the end of the visible list — reorder after.
+    </p>
+    <ul class="space-y-2"
+        x-show="hidden.length > 0">
+      <template x-for="tile in hidden" :key="tile">
+        <li class="flex items-center gap-2 rounded border border-ink-700 bg-ink-900 px-3 py-2">
+          <input type="checkbox"
+                 @change="show(tile)"
+                 class="accent-accent-500"
+                 :aria-label="'Show ' + (labels[tile] || tile)">
+          <span class="flex-1 text-sm text-zinc-400"
+                x-text="labels[tile] || tile"></span>
+          <span class="font-mono text-xs text-zinc-600"
+                x-text="tile"></span>
+        </li>
+      </template>
+    </ul>
+    <p class="text-sm text-zinc-500"
+       x-show="hidden.length === 0">
+      No hidden tiles — every shipping card is currently visible.
+    </p>
+  </section>
+
+  <div class="lg:col-span-2 flex items-center gap-3">
+    <button type="submit"
+            class="px-4 py-2 rounded bg-accent-600 hover:bg-accent-500 text-white text-sm font-semibold">
+      Save order
+    </button>
+    <a href="/dashboard"
+       class="text-sm text-zinc-500 hover:text-zinc-300">
+      Cancel
+    </a>
+    <span class="text-xs text-zinc-600 ml-auto font-mono"
+          x-text="'order: ' + (csv || '(empty)')"></span>
+  </div>
+</form>
+{% endblock %}

@@ -1,0 +1,248 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">OCR translate</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Translate the OCRed text of each screenshot into a target language
+    using your configured BYO LLM. Results are cached in a dedicated
+    <code class="font-mono text-xs">ocr_text_translated</code> column
+    (the language landing in
+    <code class="font-mono text-xs">ocr_translate_lang</code>) &mdash;
+    Tesseract's <code class="font-mono text-xs">ocr_text</code> is
+    never overwritten so the source signal stays intact.
+  </p>
+</div>
+
+<section class="mb-6 rounded-lg border border-ink-700 bg-ink-800 p-4">
+  <div class="flex flex-wrap items-center gap-4">
+    <div>
+      <div class="text-xs uppercase tracking-widest text-zinc-500">LLM</div>
+      <div class="mt-1 text-sm">
+        {% if feature_ready %}
+          <span class="inline-block px-2 py-0.5 rounded bg-emerald-900/40 text-emerald-300 font-medium">
+            Ready
+          </span>
+          <span class="text-zinc-400 ml-2">
+            Provider: <code class="font-mono text-xs">{{ provider }}</code>
+          </span>
+        {% else %}
+          <span class="inline-block px-2 py-0.5 rounded bg-rose-900/40 text-rose-300 font-medium">
+            Missing key
+          </span>
+          <span class="text-zinc-400 ml-2">
+            Configure your BYO provider at
+            <a href="/settings/llm" class="text-accent-400 hover:text-accent-300 underline">/settings/llm</a>.
+          </span>
+        {% endif %}
+      </div>
+    </div>
+    <div class="ml-auto text-xs text-zinc-500">
+      <strong class="text-zinc-300">{{ total }}</strong> shot(s) awaiting translation
+      &middot; showing first <strong class="text-zinc-300">{{ shown }}</strong>
+      {% if shown < total %}<span class="text-zinc-600">(page cap {{ page_limit }})</span>{% endif %}
+    </div>
+  </div>
+
+  <div class="mt-4 flex flex-wrap items-center gap-3 pt-4 border-t border-ink-700">
+    <label class="text-xs uppercase tracking-widest text-zinc-500" for="target-lang">
+      Target language
+    </label>
+    <input id="target-lang"
+           type="text"
+           value="{{ default_target_lang }}"
+           class="px-3 py-1.5 rounded bg-ink-900 border border-ink-700 text-sm w-40 focus:outline-none focus:border-accent-500"
+           placeholder="ru / Russian / Español">
+    <button type="button"
+            id="bulk-translate-btn"
+            {% if not feature_ready or shown == 0 %}disabled{% endif %}
+            class="px-4 py-1.5 rounded text-sm font-medium transition
+                   {% if feature_ready and shown > 0 %}bg-accent-600 hover:bg-accent-500 text-white
+                   {% else %}bg-ink-700 text-zinc-500 cursor-not-allowed{% endif %}">
+      Translate all shown ({{ shown }})
+    </button>
+    <div id="bulk-progress" class="text-xs text-zinc-500"></div>
+  </div>
+</section>
+
+{% if rows %}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden mb-6">
+    <table class="w-full text-sm">
+      <thead class="bg-ink-900 text-zinc-500 text-xs uppercase tracking-wider">
+        <tr>
+          <th class="text-left py-2 px-4 w-24">Shot</th>
+          <th class="text-left py-2 px-4 w-56">App / window</th>
+          <th class="text-left py-2 px-4">OCR preview</th>
+          <th class="text-left py-2 px-4 w-44">Captured</th>
+          <th class="text-right py-2 px-4 w-56">Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          <tr class="border-t border-ink-700 hover:bg-ink-900/50"
+              id="ocr-translate-row-{{ row.id }}">
+            <td class="py-2 px-4 align-top">
+              {% if row.thumbnail_path %}
+                <a href="/screenshot/{{ row.id }}" class="block">
+                  <img src="{{ row.thumbnail_path | thumbnail_url }}"
+                       alt="shot {{ row.id }}"
+                       loading="lazy"
+                       class="w-20 h-12 object-cover rounded border border-ink-700">
+                </a>
+              {% else %}
+                <span class="text-zinc-600 text-xs">no thumb</span>
+              {% endif %}
+            </td>
+            <td class="py-2 px-4 align-top">
+              <div class="font-medium text-zinc-200">
+                {{ row.app_name or '&mdash;' }}
+              </div>
+              {% if row.window_title %}
+                <div class="text-zinc-500 text-xs truncate max-w-xs">
+                  {{ row.window_title }}
+                </div>
+              {% endif %}
+            </td>
+            <td class="py-2 px-4 align-top">
+              <div class="text-zinc-300 text-xs whitespace-pre-wrap max-w-md">
+                {{ row.ocr_text_preview }}
+              </div>
+            </td>
+            <td class="py-2 px-4 align-top text-zinc-400 text-xs font-mono">
+              {{ row.captured_at }}
+            </td>
+            <td class="py-2 px-4 align-top text-right">
+              <button type="button"
+                      data-translate-trigger
+                      data-shot-id="{{ row.id }}"
+                      {% if not feature_ready %}disabled{% endif %}
+                      class="px-3 py-1.5 rounded text-xs font-medium transition
+                             {% if feature_ready %}bg-accent-600 hover:bg-accent-500 text-white
+                             {% else %}bg-ink-700 text-zinc-500 cursor-not-allowed{% endif %}">
+                Translate
+              </button>
+              <div data-translate-status
+                   class="mt-1 text-xs text-zinc-500 min-h-[1rem]"></div>
+              <div data-translate-text
+                   class="mt-1 text-xs text-zinc-300 whitespace-pre-wrap text-left max-w-md ml-auto"></div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-8 text-center text-zinc-500">
+    <div class="text-4xl mb-2">&#10003;</div>
+    <p>Every screenshot with OCR text already has a translation cached.</p>
+  </div>
+{% endif %}
+
+<script>
+  // Plain fetch + per-row status — no Alpine, no HTMX. Both the per-row
+  // button and the bulk button route through the same POST endpoint so
+  // there's only one network code path to reason about.
+
+  function getTargetLang() {
+    var el = document.getElementById('target-lang');
+    var value = el ? el.value : '';
+    return (value || '').trim();
+  }
+
+  function statusClassFor(status) {
+    if (status === 'ok') { return 'text-emerald-300'; }
+    if (status === 'empty' || status === 'no_source') { return 'text-amber-300'; }
+    return 'text-rose-300';
+  }
+
+  async function translateOne(shotId, targetLang) {
+    var row = document.getElementById('ocr-translate-row-' + shotId);
+    var statusEl = row ? row.querySelector('[data-translate-status]') : null;
+    var textEl = row ? row.querySelector('[data-translate-text]') : null;
+    var btn = row ? row.querySelector('button[data-translate-trigger]') : null;
+    if (btn) { btn.disabled = true; }
+    if (statusEl) {
+      statusEl.textContent = 'Translating…';
+      statusEl.className = 'mt-1 text-xs text-zinc-500 min-h-[1rem]';
+    }
+    if (textEl) { textEl.textContent = ''; }
+    try {
+      var body = new URLSearchParams();
+      body.append('target_lang', targetLang);
+      var response = await fetch(
+        '/api/screenshot/' + encodeURIComponent(shotId) + '/translate',
+        {
+          method: 'POST',
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/x-www-form-urlencoded'
+          },
+          body: body.toString()
+        }
+      );
+      var data = await response.json();
+      var status = (data && data.status) || 'error';
+      var text = (data && data.text) || '';
+      if (statusEl) {
+        statusEl.textContent = 'Status: ' + status;
+        statusEl.className = 'mt-1 text-xs min-h-[1rem] ' + statusClassFor(status);
+      }
+      if (textEl) { textEl.textContent = text; }
+      return status;
+    } catch (err) {
+      if (statusEl) {
+        statusEl.textContent = 'Status: error (' + err + ')';
+        statusEl.className = 'mt-1 text-xs text-rose-300 min-h-[1rem]';
+      }
+      return 'error';
+    } finally {
+      if (btn) { btn.disabled = false; }
+    }
+  }
+
+  document.querySelectorAll('button[data-translate-trigger]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var shotId = btn.getAttribute('data-shot-id');
+      var targetLang = getTargetLang();
+      if (!shotId || !targetLang) { return; }
+      translateOne(shotId, targetLang);
+    });
+  });
+
+  var bulkBtn = document.getElementById('bulk-translate-btn');
+  if (bulkBtn) {
+    bulkBtn.addEventListener('click', async function () {
+      var targetLang = getTargetLang();
+      var progress = document.getElementById('bulk-progress');
+      if (!targetLang) {
+        if (progress) {
+          progress.textContent = 'Please set a target language first.';
+          progress.className = 'text-xs text-rose-300';
+        }
+        return;
+      }
+      var rows = document.querySelectorAll('tr[id^="ocr-translate-row-"]');
+      bulkBtn.disabled = true;
+      var done = 0;
+      var ok = 0;
+      for (var i = 0; i < rows.length; i++) {
+        var rid = rows[i].id.replace('ocr-translate-row-', '');
+        if (progress) {
+          progress.textContent =
+            'Translating ' + (i + 1) + ' / ' + rows.length + '…';
+          progress.className = 'text-xs text-zinc-400';
+        }
+        var s = await translateOne(rid, targetLang);
+        done += 1;
+        if (s === 'ok') { ok += 1; }
+      }
+      if (progress) {
+        progress.textContent =
+          'Done. ' + ok + ' / ' + done + ' translated successfully.';
+        progress.className = 'text-xs text-emerald-300';
+      }
+      bulkBtn.disabled = false;
+    });
+  }
+</script>
+{% endblock %}
