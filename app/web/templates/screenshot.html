@@ -457,7 +457,7 @@
         </div>
         <div class="flex justify-between gap-3">
           <dt class="text-zinc-500">App</dt>
-          <dd class="text-zinc-300 text-right">{{ shot.app_name or '—' }}</dd>
+          <dd class="text-zinc-300 text-right">{{ (shot.app_name | app_alias) if shot.app_name else '—' }}</dd>
         </div>
         <div class="flex justify-between gap-3">
           <dt class="text-zinc-500">Process</dt>

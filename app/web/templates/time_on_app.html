@@ -54,7 +54,7 @@
                 <img src="/icons/{{ item.app_name | replace(' ', '_') }}.png" alt=""
                      onerror="this.style.display='none'"
                      class="w-4 h-4 rounded">
-                <span class="truncate">{{ item.app_name }}</span>
+                <span class="truncate">{{ item.app_name | app_alias }}</span>
               </a>
             </td>
             <td class="px-4 py-2 text-right font-mono text-zinc-300">{{ item.duration }}</td>

@@ -6,7 +6,7 @@
     <h1 class="text-2xl font-bold tracking-tight">Timeline</h1>
     <p class="text-zinc-500 text-sm mt-1">
       {{ target_day | humandate }} · {{ total }} captures
-      {% if app_filter %} · filtered: <span class="text-accent-400 font-mono">{{ app_filter }}</span>{% endif %}
+      {% if app_filter %} · filtered: <span class="text-accent-400 font-mono">{{ app_filter | app_alias }}</span>{% endif %}
     </p>
   </div>
   <div class="flex items-center gap-2 text-sm">
@@ -34,7 +34,7 @@
                 {% if app_filter == app_name %}bg-accent-600/30 border-accent-500 text-accent-200{% else %}bg-ink-800 border-ink-700 hover:border-zinc-500 text-zinc-400{% endif %}">
         <img src="/app-icon/{{ app_name | urlencode }}.png" alt="" loading="lazy"
              class="w-3.5 h-3.5 rounded-sm flex-shrink-0">
-        {{ app_name }} <span class="text-zinc-500">· {{ count }}</span>
+        {{ app_name | app_alias }} <span class="text-zinc-500">· {{ count }}</span>
       </a>
     {% endfor %}
   </div>

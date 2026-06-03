@@ -3,7 +3,7 @@
 {% block content %}
 <div class="mb-6 flex items-center justify-between flex-wrap gap-3">
   <div>
-    <h1 class="text-2xl font-bold tracking-tight">{{ app_name }}</h1>
+    <h1 class="text-2xl font-bold tracking-tight">{{ app_name | app_alias }}</h1>
     <p class="text-zinc-500 text-sm mt-1">
       {{ total }} captures · first: <code class="text-zinc-400">{{ first_seen[:19] }}</code>
       · last: <code class="text-zinc-400">{{ last_seen[:19] }}</code>

@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 from fastapi.templating import Jinja2Templates
 
+from app.app_aliases import resolve as _resolve_app_alias
 from app.settings import get_settings
 
 if TYPE_CHECKING:
@@ -132,5 +133,6 @@ templates.env.filters["humandate"] = _format_human_date
 templates.env.filters["clock"] = _format_clock
 templates.env.filters["filesize"] = _format_filesize
 templates.env.filters["thumbnail_url"] = _thumbnail_url
+templates.env.filters["app_alias"] = _resolve_app_alias
 
 templates.env.globals["get_theme"] = get_theme

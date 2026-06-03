@@ -31,7 +31,7 @@
                   <img src="/icons/{{ a.name | replace(' ', '_') }}.png" alt=""
                        onerror="this.style.display='none'"
                        class="w-5 h-5 rounded">
-                  {{ a.name }}
+                  {{ a.name | app_alias }}
                 </a>
               </td>
               <td class="py-2 px-4 text-right font-mono text-zinc-300">{{ a.count }}</td>

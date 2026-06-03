@@ -16,24 +16,90 @@
   </div>
 </div>
 
-<form method="get" action="/clipboard" class="mb-6 flex items-center gap-2">
+<form method="get" action="/clipboard" class="mb-3 flex items-center gap-2 flex-wrap">
   <input type="search"
          name="q"
          value="{{ query }}"
          placeholder="Search clipboard text…"
          autocomplete="off"
-         class="flex-1 px-3 py-2 rounded-md bg-ink-900 border border-ink-700 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-accent-500">
+         class="flex-1 min-w-[12rem] px-3 py-2 rounded-md bg-ink-900 border border-ink-700 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-accent-500">
   <button type="submit"
           class="px-4 py-2 rounded-md bg-accent-600 hover:bg-accent-500 text-white text-sm font-medium transition">
     Search
   </button>
-  {% if query %}
+  {% if query or facets_active %}
     <a href="/clipboard"
        class="px-3 py-2 rounded-md bg-ink-800 hover:bg-ink-700 text-zinc-300 text-sm">
-      Clear
+      Clear all
     </a>
   {% endif %}
+
+  <details class="w-full mt-3 rounded-md border border-ink-700 bg-ink-900/40"
+           {% if facets_active %}open{% endif %}>
+    <summary class="cursor-pointer select-none px-3 py-2 text-sm text-zinc-300 hover:bg-ink-800/60 transition flex items-center gap-2">
+      <span>Filters</span>
+      {% if facets_active %}
+        <span class="text-[10px] uppercase tracking-wider text-accent-400 font-mono">active</span>
+      {% endif %}
+      <span class="ml-auto text-xs text-zinc-500">date range &middot; length</span>
+    </summary>
+    <div class="px-3 py-3 border-t border-ink-700 grid grid-cols-2 md:grid-cols-4 gap-3">
+      <label class="flex flex-col gap-1 text-xs text-zinc-500">
+        <span>From</span>
+        <input type="date"
+               name="date_from"
+               value="{{ date_from }}"
+               class="px-2 py-1.5 rounded-md bg-ink-900 border border-ink-700 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-accent-500">
+      </label>
+      <label class="flex flex-col gap-1 text-xs text-zinc-500">
+        <span>To</span>
+        <input type="date"
+               name="date_to"
+               value="{{ date_to }}"
+               class="px-2 py-1.5 rounded-md bg-ink-900 border border-ink-700 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-accent-500">
+      </label>
+      <label class="flex flex-col gap-1 text-xs text-zinc-500">
+        <span>Min length</span>
+        <input type="number"
+               name="min_length"
+               value="{{ min_length }}"
+               min="0"
+               step="1"
+               inputmode="numeric"
+               placeholder="0"
+               class="px-2 py-1.5 rounded-md bg-ink-900 border border-ink-700 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-accent-500">
+      </label>
+      <label class="flex flex-col gap-1 text-xs text-zinc-500">
+        <span>Max length</span>
+        <input type="number"
+               name="max_length"
+               value="{{ max_length }}"
+               min="0"
+               step="1"
+               inputmode="numeric"
+               placeholder="∞"
+               class="px-2 py-1.5 rounded-md bg-ink-900 border border-ink-700 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-accent-500">
+      </label>
+    </div>
+    <div class="px-3 pb-3 flex items-center gap-2">
+      <button type="submit"
+              class="px-3 py-1.5 rounded-md bg-accent-600 hover:bg-accent-500 text-white text-xs font-medium transition">
+        Apply filters
+      </button>
+      {% if facets_active %}
+        <a href="/clipboard{% if query %}?q={{ query | urlencode }}{% endif %}"
+           class="px-3 py-1.5 rounded-md bg-ink-800 hover:bg-ink-700 text-zinc-300 text-xs">
+          Reset filters
+        </a>
+      {% endif %}
+      <span class="ml-auto text-[11px] text-zinc-500 font-mono">
+        date range is inclusive &middot; lengths count pre-redaction chars
+      </span>
+    </div>
+  </details>
 </form>
+
+{% set qs_filters %}{% if query %}&q={{ query | urlencode }}{% endif %}{% if date_from %}&date_from={{ date_from | urlencode }}{% endif %}{% if date_to %}&date_to={{ date_to | urlencode }}{% endif %}{% if min_length != "" %}&min_length={{ min_length }}{% endif %}{% if max_length != "" %}&max_length={{ max_length }}{% endif %}{% endset %}
 
 {% if items %}
   <div class="rounded-lg border border-ink-700 bg-ink-900/40 overflow-hidden">
@@ -84,7 +150,7 @@
   {% if has_prev or has_next %}
     <nav class="mt-6 flex items-center justify-between text-sm">
       {% if has_prev %}
-        <a href="/clipboard?page={{ page - 1 }}{% if query %}&q={{ query | urlencode }}{% endif %}"
+        <a href="/clipboard?page={{ page - 1 }}{{ qs_filters }}"
            class="px-4 py-2 rounded-md bg-ink-800 hover:bg-ink-700 text-zinc-300">
           &larr; Newer
         </a>
@@ -93,7 +159,7 @@
       {% endif %}
       <span class="text-xs text-zinc-500 font-mono">page {{ page }} / {{ total_pages }}</span>
       {% if has_next %}
-        <a href="/clipboard?page={{ page + 1 }}{% if query %}&q={{ query | urlencode }}{% endif %}"
+        <a href="/clipboard?page={{ page + 1 }}{{ qs_filters }}"
            class="px-4 py-2 rounded-md bg-ink-800 hover:bg-ink-700 text-zinc-300">
           Older &rarr;
         </a>
@@ -106,12 +172,13 @@
   <div class="text-center py-20 px-6 rounded-lg border border-dashed border-ink-700 bg-ink-900/40">
     <div class="text-5xl text-zinc-700 mb-4">&#9112;</div>
     <h2 class="text-lg font-semibold text-zinc-300">
-      {% if query %}No matches for &ldquo;{{ query }}&rdquo;{% else %}No clipboard history yet{% endif %}
+      {% if query or facets_active %}No matches for the current filters{% else %}No clipboard history yet{% endif %}
     </h2>
     <p class="text-sm text-zinc-500 mt-2 max-w-md mx-auto">
-      {% if query %}
-        Try a shorter or different search term. The search runs against the
-        redacted text, so masked secrets won&rsquo;t match their original value.
+      {% if query or facets_active %}
+        Try a shorter search term, a wider date range, or relaxed length
+        bounds. The search runs against the redacted text, so masked
+        secrets won&rsquo;t match their original value.
       {% else %}
         Enable <span class="text-accent-400">clipboard_history_enabled</span>
         in your <a href="/settings" class="underline hover:text-zinc-300">settings</a>

@@ -1,0 +1,212 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-center justify-between flex-wrap gap-3">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Idle week</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      {{ start_date_iso }} &rarr; {{ end_date_iso }} ·
+      attended total
+      <strong class="text-zinc-300 font-mono">{{ total_attended_duration }}</strong>
+      <span class="text-zinc-600">(active + idle, gap &le; 5&nbsp;min)</span>
+    </p>
+  </div>
+  <div class="flex items-center gap-2 text-sm">
+    <a href="/stats/idle-week?end_date={{ prev_end }}&amp;threshold={{ threshold }}"
+       class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700">&larr; Prev week</a>
+    <a href="/stats/idle-week?end_date={{ today_iso }}&amp;threshold={{ threshold }}"
+       class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700">This week</a>
+    <a href="/stats/idle-week?end_date={{ next_end }}&amp;threshold={{ threshold }}"
+       class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700">Next week &rarr;</a>
+  </div>
+</div>
+
+<form action="/stats/idle-week" method="get"
+      class="mb-6 flex flex-wrap items-center gap-3 text-sm">
+  <label for="end_date" class="text-zinc-400">Week ending</label>
+  <input type="date" id="end_date" name="end_date" value="{{ end_date_iso }}" max="{{ today_iso }}"
+         class="bg-ink-800 border border-ink-700 rounded px-2 py-1 text-zinc-100">
+
+  <label for="threshold" class="text-zinc-400 ml-2">Idle threshold (s)</label>
+  <input type="number" id="threshold" name="threshold" min="1" max="86400"
+         value="{{ threshold }}"
+         class="bg-ink-800 border border-ink-700 rounded px-2 py-1 w-24 text-zinc-100">
+
+  <button type="submit"
+          class="px-3 py-1 rounded bg-accent-600 hover:bg-accent-500 text-white">Go</button>
+</form>
+
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <div class="text-xs uppercase tracking-wider text-zinc-500 mb-2">Active (7d)</div>
+    <div class="font-mono text-4xl text-emerald-400 leading-none">{{ total_active_duration }}</div>
+    <div class="text-xs text-zinc-500 mt-3">
+      {{ '%.1f' | format(active_percent) }}% of attended time
+    </div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <div class="text-xs uppercase tracking-wider text-zinc-500 mb-2">Idle / AFK (7d)</div>
+    <div class="font-mono text-4xl text-amber-400 leading-none">{{ total_idle_duration }}</div>
+    <div class="text-xs text-zinc-500 mt-3">
+      {{ '%.1f' | format(idle_percent) }}% of attended time
+    </div>
+  </div>
+</div>
+
+<div class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6 overflow-x-auto">
+  <svg xmlns="http://www.w3.org/2000/svg"
+       width="{{ svg_width }}"
+       height="{{ svg_height }}"
+       viewBox="0 0 {{ svg_width }} {{ svg_height }}"
+       role="img"
+       aria-label="Active vs idle minutes per day over the 7 days ending {{ end_date_iso }}">
+
+    {# Y-axis baseline #}
+    <line x1="{{ pad_left }}"
+          y1="{{ baseline_y }}"
+          x2="{{ svg_width - pad_right }}"
+          y2="{{ baseline_y }}"
+          stroke="#52525b"
+          stroke-width="1" />
+
+    {# Y-axis ticks + labels (H:MM) #}
+    {% for tick in y_ticks %}
+      <line x1="{{ pad_left - 3 }}"
+            y1="{{ '%.2f' | format(tick.y) }}"
+            x2="{{ pad_left }}"
+            y2="{{ '%.2f' | format(tick.y) }}"
+            stroke="#52525b"
+            stroke-width="1" />
+      <text x="{{ pad_left - 5 }}"
+            y="{{ '%.2f' | format(tick.y + 3) }}"
+            fill="#71717a"
+            font-size="9"
+            text-anchor="end"
+            font-family="JetBrains Mono, Cascadia Code, Consolas, monospace">
+        {{ tick.label }}
+      </text>
+    {% endfor %}
+
+    {# Stacked bars — empty-day stubs first, then active (bottom), then idle (top) #}
+    {% for bar in bars %}
+      {% if bar.empty_visible %}
+        <rect x="{{ '%.2f' | format(bar.x) }}"
+              y="{{ '%.2f' | format(bar.empty_y) }}"
+              width="{{ '%.2f' | format(bar.width) }}"
+              height="{{ '%.2f' | format(bar.empty_height) }}"
+              fill="{{ fill_empty }}">
+          <title>{{ bar.tooltip }}</title>
+        </rect>
+      {% else %}
+        {% if bar.active_height > 0 %}
+          <rect x="{{ '%.2f' | format(bar.x) }}"
+                y="{{ '%.2f' | format(bar.active_y) }}"
+                width="{{ '%.2f' | format(bar.width) }}"
+                height="{{ '%.2f' | format(bar.active_height) }}"
+                rx="1"
+                ry="1"
+                fill="{{ fill_active }}">
+            <title>{{ bar.tooltip }}</title>
+          </rect>
+        {% endif %}
+        {% if bar.idle_height > 0 %}
+          <rect x="{{ '%.2f' | format(bar.x) }}"
+                y="{{ '%.2f' | format(bar.idle_y) }}"
+                width="{{ '%.2f' | format(bar.width) }}"
+                height="{{ '%.2f' | format(bar.idle_height) }}"
+                rx="1"
+                ry="1"
+                fill="{{ fill_idle }}">
+            <title>{{ bar.tooltip }}</title>
+          </rect>
+        {% endif %}
+      {% endif %}
+    {% endfor %}
+
+    {# X-axis labels — weekday on top line, MM-DD beneath #}
+    {% for bar in bars %}
+      <text x="{{ '%.2f' | format(bar.label_x) }}"
+            y="{{ svg_height - pad_bottom + 14 }}"
+            fill="#a1a1aa"
+            font-size="11"
+            text-anchor="middle"
+            font-family="JetBrains Mono, Cascadia Code, Consolas, monospace">
+        {{ bar.label_weekday }}
+      </text>
+      <text x="{{ '%.2f' | format(bar.label_x) }}"
+            y="{{ svg_height - pad_bottom + 26 }}"
+            fill="#71717a"
+            font-size="9"
+            text-anchor="middle"
+            font-family="JetBrains Mono, Cascadia Code, Consolas, monospace">
+        {{ bar.label_date }}
+      </text>
+    {% endfor %}
+  </svg>
+
+  {# Legend #}
+  <div class="flex items-center justify-end gap-3 mt-3 text-xs text-zinc-500 font-mono">
+    <span class="flex items-center gap-1.5">
+      <span class="inline-block rounded-sm"
+            style="width: 10px; height: 10px; background-color: {{ fill_active }};"></span>
+      <span>Active</span>
+    </span>
+    <span class="flex items-center gap-1.5">
+      <span class="inline-block rounded-sm"
+            style="width: 10px; height: 10px; background-color: {{ fill_idle }};"></span>
+      <span>Idle</span>
+    </span>
+    <span class="flex items-center gap-1.5">
+      <span class="inline-block rounded-sm"
+            style="width: 10px; height: 10px; background-color: {{ fill_empty }};"></span>
+      <span>Empty</span>
+    </span>
+  </div>
+</div>
+
+{# Compact table — accessibility + screen-readability for the bar data. #}
+<details class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
+  <summary class="cursor-pointer text-sm text-zinc-300 hover:text-zinc-100">
+    Show all 7 days as a table
+  </summary>
+  <table class="mt-4 w-full text-sm font-mono tabular-nums">
+    <thead>
+      <tr class="text-xs uppercase tracking-widest text-zinc-500 border-b border-ink-700">
+        <th class="text-left py-1.5 pr-4 font-normal">Date</th>
+        <th class="text-right py-1.5 px-4 font-normal">Active</th>
+        <th class="text-right py-1.5 px-4 font-normal">Idle</th>
+        <th class="text-right py-1.5 pl-4 font-normal">Open</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for bar in bars %}
+        <tr class="border-b border-ink-700/50 last:border-0">
+          <td class="py-1 pr-4 text-zinc-400">{{ bar.weekday }} {{ bar.date }}</td>
+          <td class="py-1 px-4 text-right text-emerald-300">
+            {% set h = (bar.active_seconds // 3600) %}
+            {% set m = ((bar.active_seconds % 3600) // 60) %}
+            {{ h }}:{{ '%02d' | format(m) }}
+          </td>
+          <td class="py-1 px-4 text-right text-amber-300">
+            {% set h = (bar.idle_seconds // 3600) %}
+            {% set m = ((bar.idle_seconds % 3600) // 60) %}
+            {{ h }}:{{ '%02d' | format(m) }}
+          </td>
+          <td class="py-1 pl-4 text-right">
+            <a class="text-accent-400 hover:underline"
+               href="/idle?day={{ bar.date }}&amp;threshold={{ threshold }}">view day</a>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</details>
+
+<p class="text-xs text-zinc-500">
+  Active = shots with <span class="font-mono">idle_seconds &lt; {{ threshold }}</span>.
+  Bars stack active (bottom, emerald) on idle (top, amber); height is scaled to the busiest day in the window.
+  Machine-readable counterpart at
+  <a class="font-mono text-accent-400 hover:underline"
+     href="/api/idle-week.json?end_date={{ end_date_iso }}&amp;threshold={{ threshold }}">/api/idle-week.json</a>.
+</p>
+{% endblock %}

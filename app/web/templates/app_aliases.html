@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">App name aliases</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Rename raw window-class / executable names (<code>devenv.exe</code>, <code>Code.exe</code>)
+    to something readable (<code>Visual Studio</code>, <code>VS Code</code>). The change is
+    display-only — screenshots keep their original <code>app_name</code> so search, dedup
+    and the capture loop are untouched. Clear the display field to remove an alias.
+  </p>
+</div>
+
+<form action="/settings/app-aliases" method="post" class="flex gap-2 mb-6">
+  <input name="original_name" placeholder="devenv.exe" required
+         class="w-64 px-3 py-2 bg-ink-800 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
+  <input name="display_name" placeholder="Visual Studio" required
+         class="flex-1 px-3 py-2 bg-ink-800 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
+  <button type="submit" class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium">Save alias</button>
+</form>
+
+{% if aliases %}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden mb-8">
+    <table class="w-full text-sm">
+      <thead class="bg-ink-900 text-zinc-500 text-xs uppercase tracking-wider">
+        <tr>
+          <th class="text-left py-2 px-4 w-1/3">Original</th>
+          <th class="text-left py-2 px-4">Display name</th>
+          <th class="py-2 px-4 w-32"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in aliases %}
+          <tr class="border-t border-ink-700">
+            <td class="py-2 px-4 font-mono text-xs text-zinc-300">{{ item.original_name }}</td>
+            <td class="py-2 px-4">
+              <form action="/settings/app-aliases" method="post" class="flex gap-2 items-center">
+                <input type="hidden" name="original_name" value="{{ item.original_name }}">
+                <input name="display_name" value="{{ item.display_name }}" required
+                       class="flex-1 px-3 py-1.5 bg-ink-900 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
+                <button class="px-3 py-1.5 bg-ink-700 hover:bg-ink-600 rounded text-xs">Update</button>
+              </form>
+            </td>
+            <td class="py-2 px-4 text-right">
+              <form action="/settings/app-aliases" method="post" class="inline">
+                <input type="hidden" name="original_name" value="{{ item.original_name }}">
+                <input type="hidden" name="display_name" value="">
+                <button class="text-xs px-2 py-1 rounded bg-rose-900/40 hover:bg-rose-900 text-rose-300">remove</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  <p class="text-zinc-500 text-sm mb-8">No aliases yet — add one above, or use the suggestions below.</p>
+{% endif %}
+
+{% if suggested %}
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">
+      Suggested (your most-captured apps without an alias)
+    </h2>
+    <div class="space-y-2">
+      {% for s in suggested %}
+        <form action="/settings/app-aliases" method="post" class="flex gap-2 items-center">
+          <input type="hidden" name="original_name" value="{{ s.app_name }}">
+          <span class="text-zinc-300 text-xs font-mono w-64 truncate" title="{{ s.app_name }}">{{ s.app_name }}</span>
+          <span class="text-zinc-500 text-xs w-12 font-mono">{{ s.count }}</span>
+          <input name="display_name" placeholder="Display name"
+                 required
+                 class="flex-1 px-3 py-1.5 bg-ink-900 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
+          <button class="px-3 py-1.5 bg-ink-700 hover:bg-ink-600 rounded text-xs">Add</button>
+        </form>
+      {% endfor %}
+    </div>
+  </section>
+{% endif %}
+{% endblock %}

@@ -23,6 +23,7 @@ from app.web.routes import (
     analysis as analysis_routes,
     annotations as annotations_routes,
     api_tokens as api_tokens_routes,
+    app_aliases as app_aliases_routes,
     app_icons as app_icons_routes,
     app_icons_admin as app_icons_admin_routes,
     app_overrides as app_overrides_routes,
@@ -74,6 +75,7 @@ from app.web.routes import (
     ics_export as ics_export_routes,
     icons as icons_routes,
     idle_stats as idle_stats_routes,
+    idle_week as idle_week_routes,
     inbox as inbox_routes,
     journal as journal_routes,
     journal_export as journal_export_routes,
@@ -204,7 +206,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.59.0",
+        version="0.60.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -355,6 +357,8 @@ def create_app() -> FastAPI:
     app.include_router(pinmap_routes.router)
     app.include_router(cal_nav_routes.router)
     app.include_router(sitemap_routes.router)
+    app.include_router(app_aliases_routes.router)
+    app.include_router(idle_week_routes.router)
 
     return app
 
