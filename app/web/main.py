@@ -185,7 +185,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.50.0",
+        version="0.51.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,

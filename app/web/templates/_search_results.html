@@ -36,7 +36,8 @@
     </div>
     <div class="space-y-3">
       {% for hit in hits %}
-        <label class="flex gap-3 p-3 rounded-lg bg-ink-800 border border-ink-700 hover:border-accent-500 transition cursor-pointer">
+        <label data-search-result
+               class="flex gap-3 p-3 rounded-lg bg-ink-800 border border-ink-700 hover:border-accent-500 transition cursor-pointer">
           <input type="checkbox" :value="{{ hit.screenshot_id }}" x-model.number="selected"
                  @click.stop
                  class="mt-1 self-start flex-shrink-0">

@@ -1,6 +1,16 @@
 {% extends "base.html" %}
 
 {% block content %}
+<style>
+  /* Keyboard-jump highlight applied by /static/search_keyboard.js
+     (vanilla, no Tailwind class manipulation needed). */
+  .search-result-active {
+    outline: 2px solid #6366f1;
+    outline-offset: 2px;
+    border-radius: 0.5rem;
+  }
+</style>
+<script src="/static/search_keyboard.js" defer></script>
 <div class="mb-6">
   <h1 class="text-2xl font-bold tracking-tight">Search</h1>
   <p class="text-zinc-500 text-sm mt-1">
