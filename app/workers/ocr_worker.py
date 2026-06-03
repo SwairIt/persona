@@ -5,11 +5,13 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+import anyio
 from PIL import Image
 
 from app.image_blur import blur_sensitive_regions
 from app.logging_setup import get_logger
 from app.ocr import OCRNotAvailable, extract_text, is_available, redact
+from app.ocr.colour_sample import sample_colours
 from app.ocr.languages import refresh_ocr_lang_string
 from app.ocr_phrase_tags import apply_phrase_rules
 from app.redaction import apply_redaction
@@ -27,9 +29,27 @@ from app.workers.control import CaptureController, get_controller
 from app.workers.heartbeat import beat
 
 log = get_logger("persona.ocr_worker")
+colour_log = get_logger("persona.ocr.colour")
 
 POLL_INTERVAL_SECONDS = 2.0
 BATCH_SIZE = 5
+COLOUR_SAMPLE_CAP = 200
+"""Per-shot upper bound on how many ocr_word rows get colour-sampled.
+
+Quantizing every word on a dense desktop screenshot (1000+ words) would
+dominate the worker's CPU budget for a UI side-channel. The cap keeps
+the cost bounded; rows beyond it stay ``NULL`` and search code already
+tolerates that (see ``049_ocr_word_colours.sql``).
+"""
+
+_colour_columns_present: bool | None = None
+"""Module-level cache for the migration-049 column probe.
+
+``None`` until the first probe lands; set to ``True`` when both
+``bg_hex`` and ``fg_hex`` exist on ``ocr_word``, ``False`` if the
+migration has not run (e.g. an older deployment that skipped 049).
+Probed once and reused — the schema doesn't change at runtime.
+"""
 
 
 async def run_ocr_worker(controller: CaptureController | None = None) -> None:
@@ -351,3 +371,152 @@ async def _store_word_confidences(
         return
 
     log.info("ocr.words_stored", screenshot_id=screenshot_id, count=len(rows))
+
+    await _store_word_colours(
+        screenshot_id=screenshot_id,
+        thumbnail_path=thumbnail_path,
+    )
+
+
+async def _colour_columns_available() -> bool:
+    """Return ``True`` iff ``ocr_word`` has the migration-049 colour columns.
+
+    Probes ``PRAGMA table_info(ocr_word)`` exactly once and caches the
+    answer in :data:`_colour_columns_present`. A missing migration
+    silently disables colour sampling — the rest of the OCR pipeline is
+    unaffected.
+    """
+    global _colour_columns_present  # noqa: PLW0603 — module-level probe cache
+    if _colour_columns_present is not None:
+        return _colour_columns_present
+    try:
+        async with get_connection() as conn:
+            cursor = await conn.execute("PRAGMA table_info(ocr_word)")
+            rows = await cursor.fetchall()
+    except Exception as exc:
+        colour_log.warning("ocr.colour.probe_failed", error=str(exc))
+        _colour_columns_present = False
+        return False
+    cols = {str(row["name"]) for row in rows}
+    _colour_columns_present = "bg_hex" in cols and "fg_hex" in cols
+    if not _colour_columns_present:
+        colour_log.info("ocr.colour.disabled", reason="migration_049_missing")
+    return _colour_columns_present
+
+
+def _sample_colours_batch(
+    thumbnail_path: Path,
+    rows: list[tuple[int, int, int, int, int]],
+) -> list[tuple[int, str | None, str | None]]:
+    """Open the image once and sample colours for each ``(word_id, l, t, w, h)``.
+
+    Sync (PIL crop + quantize per word); invoke via ``anyio.to_thread``.
+    Errors per-row collapse to ``(None, None)`` inside
+    :func:`sample_colours`, so the batch always returns a result for
+    every input row — even if every individual crop fails.
+    """
+    out: list[tuple[int, str | None, str | None]] = []
+    try:
+        with Image.open(thumbnail_path) as image:
+            image.load()
+            for word_id, left, top, width, height in rows:
+                bg, fg = sample_colours(image, left, top, width, height)
+                out.append((word_id, bg, fg))
+    except Exception as exc:
+        colour_log.warning(
+            "ocr.colour.batch_failed",
+            thumbnail_path=str(thumbnail_path),
+            error=str(exc),
+        )
+    return out
+
+
+async def _store_word_colours(
+    *,
+    screenshot_id: int,
+    thumbnail_path: Path,
+) -> None:
+    """Sample bg/fg hex for up to :data:`COLOUR_SAMPLE_CAP` words of a shot.
+
+    Reads the freshly-inserted ``ocr_word`` rows for ``screenshot_id``,
+    sampled in insertion order (the same order Tesseract emits) so the
+    cap deterministically picks the first N words on the screen.
+    Updates each row with ``bg_hex`` / ``fg_hex``; rows where sampling
+    failed get a ``NULL`` write (still valid per migration 049).
+    """
+    if not await _colour_columns_available():
+        return
+
+    try:
+        async with get_connection() as conn:
+            cursor = await conn.execute(
+                "SELECT id, left, top, width, height FROM ocr_word "
+                "WHERE screenshot_id = ? "
+                "AND left IS NOT NULL AND top IS NOT NULL "
+                "AND width IS NOT NULL AND height IS NOT NULL "
+                "ORDER BY id "
+                "LIMIT ?",
+                (screenshot_id, COLOUR_SAMPLE_CAP),
+            )
+            db_rows = await cursor.fetchall()
+    except Exception as exc:
+        colour_log.warning(
+            "ocr.colour.select_failed",
+            screenshot_id=screenshot_id,
+            error=str(exc),
+        )
+        return
+
+    if not db_rows:
+        return
+
+    bbox_rows: list[tuple[int, int, int, int, int]] = [
+        (
+            int(row["id"]),
+            int(row["left"]),
+            int(row["top"]),
+            int(row["width"]),
+            int(row["height"]),
+        )
+        for row in db_rows
+    ]
+
+    try:
+        sampled = await anyio.to_thread.run_sync(
+            _sample_colours_batch,
+            thumbnail_path,
+            bbox_rows,
+        )
+    except Exception as exc:
+        colour_log.warning(
+            "ocr.colour.thread_failed",
+            screenshot_id=screenshot_id,
+            error=str(exc),
+        )
+        return
+
+    if not sampled:
+        return
+
+    try:
+        async with get_connection() as conn:
+            await conn.executemany(
+                "UPDATE ocr_word SET bg_hex = ?, fg_hex = ? WHERE id = ?",
+                [(bg, fg, word_id) for word_id, bg, fg in sampled],
+            )
+            await conn.commit()
+    except Exception as exc:
+        colour_log.warning(
+            "ocr.colour.update_failed",
+            screenshot_id=screenshot_id,
+            error=str(exc),
+        )
+        return
+
+    hit = sum(1 for _, bg, fg in sampled if bg is not None and fg is not None)
+    colour_log.info(
+        "ocr.colour.stored",
+        screenshot_id=screenshot_id,
+        sampled=len(sampled),
+        hit=hit,
+    )

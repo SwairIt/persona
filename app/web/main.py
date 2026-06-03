@@ -117,6 +117,7 @@ from app.web.routes import (
     shot_of_day as shot_of_day_routes,
     shot_of_week as shot_of_week_routes,
     shot_share as shot_share_routes,
+    shot_dimensions as shot_dimensions_routes,
     shot_share_ui as shot_share_ui_routes,
     share_collection as share_collection_routes,
     settings as settings_routes,
@@ -150,6 +151,7 @@ from app.workers import (
     get_controller,
     run_capture_loop,
     run_clipboard_worker,
+    run_daily_email_scheduler,
     run_inbox_worker,
     run_digest_scheduler,
     run_embeddings_worker,
@@ -185,7 +187,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.51.0",
+        version="0.52.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -320,6 +322,7 @@ def create_app() -> FastAPI:
     app.include_router(feature_index_routes.router)
     app.include_router(query_api_routes.router)
     app.include_router(setup_routes.router)
+    app.include_router(shot_dimensions_routes.router)
 
     return app
 
@@ -339,6 +342,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         asyncio.create_task(run_weekly_digest_scheduler(controller), name="weekly-digest-scheduler"),
         asyncio.create_task(run_clipboard_worker(controller), name="clipboard-worker"),
         asyncio.create_task(run_inbox_worker(controller), name="inbox-worker"),
+        asyncio.create_task(run_daily_email_scheduler(controller), name="daily-email-scheduler"),
     ]
 
     controller.pause()

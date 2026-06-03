@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Shot dimensions backfill</h1>
+  <p class="text-zinc-500 text-sm mt-1 max-w-2xl">
+    Reads pixel <code class="font-mono text-xs">width</code> /
+    <code class="font-mono text-xs">height</code> from each thumbnail and writes them
+    back to the <code class="font-mono text-xs">screenshots</code> row so the
+    <code class="font-mono text-xs">min_w</code> / <code class="font-mono text-xs">min_h</code>
+    search filter can include legacy rows. Safe to run repeatedly — each batch
+    processes up to 500 rows whose dimensions are still <code class="font-mono text-xs">NULL</code>.
+  </p>
+</div>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5 max-w-2xl"
+         x-data="{ running: false, result: null, error: null }">
+  <h2 class="text-lg font-semibold text-accent-400">Run one batch</h2>
+  <p class="text-zinc-400 text-sm mt-2">
+    Click below to scan the next 500 rows missing dimensions. Re-click to keep going
+    until the result reports <code class="font-mono text-xs">scanned: 0</code>.
+  </p>
+
+  <button type="button"
+          x-bind:disabled="running"
+          x-on:click="
+            running = true;
+            error = null;
+            fetch('/admin/shot-dimensions/backfill', { method: 'POST' })
+              .then(function (r) { if (!r.ok) { throw new Error('HTTP ' + r.status); } return r.json(); })
+              .then(function (data) { result = data; })
+              .catch(function (err) { error = String(err); })
+              .finally(function () { running = false; });
+          "
+          class="mt-4 px-5 py-2 rounded text-sm font-medium bg-accent-600 hover:bg-accent-500 text-white disabled:bg-ink-700 disabled:text-zinc-500 disabled:cursor-not-allowed">
+    <span x-show="!running">Run backfill batch</span>
+    <span x-show="running">Running…</span>
+  </button>
+
+  <div x-show="result" x-cloak class="mt-5 grid grid-cols-3 gap-3 text-sm">
+    <div class="rounded border border-ink-700 bg-ink-900 p-3">
+      <div class="text-xs uppercase tracking-widest text-zinc-500">Scanned</div>
+      <div class="text-xl font-semibold mt-1" x-text="result ? result.scanned : ''"></div>
+    </div>
+    <div class="rounded border border-ink-700 bg-ink-900 p-3">
+      <div class="text-xs uppercase tracking-widest text-emerald-400">Updated</div>
+      <div class="text-xl font-semibold mt-1 text-emerald-300" x-text="result ? result.updated : ''"></div>
+    </div>
+    <div class="rounded border border-ink-700 bg-ink-900 p-3">
+      <div class="text-xs uppercase tracking-widest text-amber-400">Skipped</div>
+      <div class="text-xl font-semibold mt-1 text-amber-300" x-text="result ? result.skipped : ''"></div>
+    </div>
+  </div>
+
+  <div x-show="error" x-cloak class="mt-4 rounded border border-rose-700 bg-rose-900/40 p-3 text-sm text-rose-200" x-text="error"></div>
+</section>
+
+<p class="text-zinc-500 text-xs mt-8 max-w-2xl">
+  Filtering by size is exposed on <code class="font-mono">/search</code> via the
+  <code class="font-mono">min_w</code> and <code class="font-mono">min_h</code> query params
+  (e.g. <code class="font-mono">?q=slack&amp;min_w=2560</code>). Rows with <code class="font-mono">NULL</code>
+  dimensions are excluded by those filters until this backfill records their size.
+</p>
+{% endblock %}

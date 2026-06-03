@@ -1,9 +1,11 @@
 """Search route — FTS5 keyword + optional semantic ranking.
 
 v0.41 adds rich filter facets: ``app`` (string), ``date_from``/``date_to``
-(``YYYY-MM-DD``) and ``tag`` (repeatable). When any of these are set we
-post-filter the merged hit list against the SQLite catalogue using bind
-parameters only — no string interpolation of user input ever reaches SQL.
+(``YYYY-MM-DD``) and ``tag`` (repeatable). v0.52 adds ``min_w`` /
+``min_h`` (integer pixels) backed by :mod:`app.shot_dimensions`. When any
+of these are set we post-filter the merged hit list against the SQLite
+catalogue using bind parameters only — no string interpolation of user
+input ever reaches SQL.
 """
 
 from __future__ import annotations
@@ -40,8 +42,10 @@ async def search_page(
     mode: str = Query(default="hybrid"),
     tier: str | None = Query(default=None),
     tag: Annotated[list[str] | None, Query()] = None,
+    min_w: int | None = Query(default=None, ge=1),
+    min_h: int | None = Query(default=None, ge=1),
 ) -> HTMLResponse:
-    """Render search page with optional tier / tag / app / date post-filters."""
+    """Render search page with optional tier / tag / app / date / size post-filters."""
     since_dt = _parse_iso_or_none(since)
     until_dt = _parse_iso_or_none(until)
 
@@ -100,7 +104,7 @@ async def search_page(
 
         recent_searches = await list_recent(conn)
 
-    if q and (tier or tags or app_name or date_from_norm or date_to_norm):
+    if q and (tier or tags or app_name or date_from_norm or date_to_norm or min_w or min_h):
         hits = await _apply_post_filters(
             hits,
             tier=tier,
@@ -108,6 +112,8 @@ async def search_page(
             app_name=app_name,
             date_from=date_from_norm,
             date_to=date_to_norm,
+            min_w=min_w,
+            min_h=min_h,
         )
         log.debug(
             "search.facets.applied",
@@ -117,6 +123,8 @@ async def search_page(
             app_name=app_name,
             date_from=date_from_norm,
             date_to=date_to_norm,
+            min_w=min_w,
+            min_h=min_h,
             remaining=len(hits),
         )
 
@@ -139,6 +147,8 @@ async def search_page(
             "tier": tier,
             "tag": tag_single,
             "tags": tags,
+            "min_w": min_w,
+            "min_h": min_h,
             "hits": hits,
             "total": len(hits),
             "embeddings_enabled": settings.embeddings_enabled,
@@ -223,12 +233,20 @@ async def _apply_post_filters(
     app_name: str | None,
     date_from: str | None,
     date_to: str | None,
+    min_w: int | None = None,
+    min_h: int | None = None,
 ) -> list[dict[str, Any]]:
-    """Filter merged hits by tier / tags / app / date range via DB lookups.
+    """Filter merged hits by tier / tags / app / date / size via DB lookups.
 
     All SQL uses ``?`` bind parameters; no user input is interpolated.
     Each filter independently narrows ``keep_ids`` so a hit must satisfy
     *every* active facet to survive (AND semantics, like the form UI).
+
+    ``min_w`` / ``min_h`` filter on the pixel dimensions written by
+    :mod:`app.shot_dimensions` (v0.52). Rows with ``NULL`` width or
+    height — legacy captures the backfill hasn't visited yet — drop out
+    of the result set, mirroring the SQL ``>= ?`` comparison semantics
+    against an unknown left-hand side.
     """
     if not hits:
         return hits
@@ -271,6 +289,26 @@ async def _apply_post_filters(
                 f"SELECT id FROM screenshots WHERE id IN ({placeholders}) "  # noqa: S608
                 "AND DATE(captured_at) <= DATE(?)",
                 (*ids, date_to),
+            )
+            rows = await cursor.fetchall()
+            keep_ids &= {int(row["id"]) for row in rows}
+
+        if min_w is not None:
+            placeholders = ",".join("?" * len(ids))
+            cursor = await conn.execute(
+                f"SELECT id FROM screenshots WHERE id IN ({placeholders}) "  # noqa: S608
+                "AND width IS NOT NULL AND width >= ?",
+                (*ids, min_w),
+            )
+            rows = await cursor.fetchall()
+            keep_ids &= {int(row["id"]) for row in rows}
+
+        if min_h is not None:
+            placeholders = ",".join("?" * len(ids))
+            cursor = await conn.execute(
+                f"SELECT id FROM screenshots WHERE id IN ({placeholders}) "  # noqa: S608
+                "AND height IS NOT NULL AND height >= ?",
+                (*ids, min_h),
             )
             rows = await cursor.fetchall()
             keep_ids &= {int(row["id"]) for row in rows}

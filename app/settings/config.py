@@ -48,6 +48,8 @@ class Settings(BaseSettings):
     auto_digest_hour_local: int = Field(default=22, ge=0, le=23)
     weekly_digest_enabled: bool = Field(default=False)
     weekly_digest_hour_local: int = Field(default=8, ge=0, le=23)
+    daily_email_enabled: bool = Field(default=False)
+    daily_email_hour_local: int = Field(default=8, ge=0, le=23)
 
     host: str = Field(default="127.0.0.1")
     port: int = Field(default=8765, ge=1, le=65535)
