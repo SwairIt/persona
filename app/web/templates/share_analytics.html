@@ -1,0 +1,220 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-end justify-between flex-wrap gap-3">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Share analytics</h1>
+    <p class="text-zinc-500 text-sm mt-1 max-w-2xl">
+      Every successful open of a signed
+      <code class="text-zinc-400">/shot/share/&hellip;</code> link
+      is recorded by the v0.55 viewer. This page rolls up the last
+      <strong class="text-zinc-300">{{ days_window }}</strong> days:
+      most-visited shots, top IP-prefix buckets, and a per-day timeline.
+    </p>
+  </div>
+  <a href="/stats" class="text-xs text-zinc-500 hover:text-accent-400 underline">
+    &larr; back to stats
+  </a>
+</div>
+
+{# ---- summary cards ---- #}
+<section class="mb-6 grid grid-cols-2 md:grid-cols-4 gap-3">
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs text-zinc-500">Total visits</div>
+    <div class="text-2xl font-bold mt-1 text-emerald-300">
+      {{ "{:,}".format(total_visits) }}
+    </div>
+    <div class="text-xs text-zinc-500 mt-1">in window</div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs text-zinc-500">Unique shots</div>
+    <div class="text-2xl font-bold mt-1 text-accent-400">
+      {{ "{:,}".format(top_shots | length) }}
+    </div>
+    <div class="text-xs text-zinc-500 mt-1">(top {{ top_shots | length }})</div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs text-zinc-500">IP-prefix buckets</div>
+    <div class="text-2xl font-bold mt-1 text-sky-300">
+      {{ "{:,}".format(top_ip_prefixes | length) }}
+    </div>
+    <div class="text-xs text-zinc-500 mt-1">first two octets</div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs text-zinc-500">Peak day</div>
+    <div class="text-2xl font-bold mt-1 text-amber-300">
+      {{ "{:,}".format(max_daily) }}
+    </div>
+    <div class="text-xs text-zinc-500 mt-1">visits in a single day</div>
+  </div>
+</section>
+
+{# ---- 3-column layout: top shots | top IPs | daily SVG ---- #}
+<section class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-8">
+
+  {# ---- col 1: top shots ---- #}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden">
+    <header class="px-4 py-3 border-b border-ink-700">
+      <h2 class="text-sm font-semibold text-zinc-300">Top shots</h2>
+      <p class="text-zinc-500 text-xs mt-0.5">
+        Most-visited shots in window. Bar = share of peak.
+      </p>
+    </header>
+    {% if top_shots %}
+      <table class="w-full text-sm">
+        <thead class="bg-ink-900/60 text-[10px] uppercase tracking-wide text-zinc-500">
+          <tr>
+            <th class="px-3 py-2 text-left font-medium">Shot</th>
+            <th class="px-3 py-2 text-left font-medium">App</th>
+            <th class="px-3 py-2 text-right font-medium">Visits</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-ink-700">
+          {% for row in top_shots %}
+            {% set bar_pct = ((row.visits / max_top_shot_visits) * 100) if max_top_shot_visits else 0 %}
+            <tr class="hover:bg-ink-700/40">
+              <td class="px-3 py-2 font-mono text-xs">
+                <a href="/screenshot/{{ row.shot_id }}"
+                   class="text-zinc-300 hover:text-accent-400 underline">
+                  #{{ row.shot_id }}
+                </a>
+                {% if row.captured_at %}
+                  <div class="text-[10px] text-zinc-500 mt-0.5">{{ row.captured_at }}</div>
+                {% endif %}
+              </td>
+              <td class="px-3 py-2 text-xs text-zinc-400">
+                {% if row.app %}{{ row.app }}{% else %}<span class="text-zinc-600">&mdash;</span>{% endif %}
+              </td>
+              <td class="px-3 py-2 text-right font-mono text-emerald-300 font-semibold">
+                {{ "{:,}".format(row.visits) }}
+                <div class="bg-ink-900 rounded h-1 mt-1 overflow-hidden">
+                  <div class="h-full bg-emerald-400/60" style="width: {{ bar_pct | round(2) }}%"></div>
+                </div>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="px-4 py-6 text-center text-zinc-500 text-xs">
+        No share visits in the last {{ days_window }} days.
+      </p>
+    {% endif %}
+  </div>
+
+  {# ---- col 2: top IP-prefixes ---- #}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden">
+    <header class="px-4 py-3 border-b border-ink-700">
+      <h2 class="text-sm font-semibold text-zinc-300">Top IP-prefixes</h2>
+      <p class="text-zinc-500 text-xs mt-0.5">
+        First two octets per the v0.55 viewer. Empty buckets excluded.
+      </p>
+    </header>
+    {% if top_ip_prefixes %}
+      <table class="w-full text-sm">
+        <thead class="bg-ink-900/60 text-[10px] uppercase tracking-wide text-zinc-500">
+          <tr>
+            <th class="px-3 py-2 text-left font-medium">Prefix</th>
+            <th class="px-3 py-2 text-right font-medium">Visits</th>
+            <th class="px-3 py-2 text-left font-medium w-1/3">Share</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-ink-700">
+          {% for row in top_ip_prefixes %}
+            {% set bar_pct = ((row.count / max_top_ip_count) * 100) if max_top_ip_count else 0 %}
+            <tr class="hover:bg-ink-700/40">
+              <td class="px-3 py-2 font-mono text-xs text-zinc-300">{{ row.ip }}</td>
+              <td class="px-3 py-2 text-right font-mono text-sky-300 font-semibold">
+                {{ "{:,}".format(row.count) }}
+              </td>
+              <td class="px-3 py-2">
+                <div class="bg-ink-900 rounded h-2 overflow-hidden"
+                     title="{{ bar_pct | round(1) }}% of peak">
+                  <div class="h-full bg-sky-400/60" style="width: {{ bar_pct | round(2) }}%"></div>
+                </div>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="px-4 py-6 text-center text-zinc-500 text-xs">
+        No IP-prefix data &mdash; visits have no parseable client IP.
+      </p>
+    {% endif %}
+  </div>
+
+  {# ---- col 3: daily SVG line ---- #}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden">
+    <header class="px-4 py-3 border-b border-ink-700">
+      <h2 class="text-sm font-semibold text-zinc-300">Daily timeline</h2>
+      <p class="text-zinc-500 text-xs mt-0.5">
+        Oldest left &rarr; newest right. Peak:
+        <strong class="text-zinc-300">{{ "{:,}".format(max_daily) }}</strong> visits.
+      </p>
+    </header>
+
+    <div class="p-4">
+      {% if daily and max_daily > 0 %}
+        {% set svg_w = 320 %}
+        {% set svg_h = 160 %}
+        {% set pad = 4 %}
+        {% set inner_h = svg_h - 2 * pad %}
+        {% set step = (svg_w / (daily | length - 1)) if (daily | length) > 1 else 0 %}
+
+        <svg viewBox="0 0 {{ svg_w }} {{ svg_h }}" width="100%" height="{{ svg_h }}"
+             class="block" preserveAspectRatio="none" role="img"
+             aria-label="Daily share-visit line chart">
+
+          {# baseline #}
+          <line x1="0" x2="{{ svg_w }}" y1="{{ svg_h - pad }}" y2="{{ svg_h - pad }}"
+                stroke="#26262e" stroke-width="0.5"/>
+
+          {%- set pts = [] %}
+          {%- for row in daily %}
+            {%- set x = (loop.index0 * step) if (daily | length) > 1 else (svg_w / 2) %}
+            {%- set y = (svg_h - pad) - ((row.visits / max_daily) * inner_h) %}
+            {%- set _ = pts.append("%.2f,%.2f" | format(x, y)) %}
+          {%- endfor %}
+
+          {# area fill under line #}
+          <polygon fill="#34d399" fill-opacity="0.12"
+                   points="0,{{ svg_h - pad }} {{ pts | join(' ') }} {{ svg_w }},{{ svg_h - pad }}"/>
+
+          <polyline fill="none" stroke="#34d399" stroke-width="1.5"
+                    stroke-linejoin="round" stroke-linecap="round"
+                    points="{{ pts | join(' ') }}"/>
+
+          {%- for row in daily %}
+            {%- set x = (loop.index0 * step) if (daily | length) > 1 else (svg_w / 2) %}
+            {%- set y = (svg_h - pad) - ((row.visits / max_daily) * inner_h) %}
+            <circle cx="{{ x | round(2) }}" cy="{{ y | round(2) }}" r="2" fill="#34d399">
+              <title>{{ row.date }} &mdash; {{ row.visits }} visits</title>
+            </circle>
+          {%- endfor %}
+        </svg>
+
+        <div class="flex justify-between text-[10px] text-zinc-500 mt-1 font-mono">
+          <span>{{ daily[0].date }}</span>
+          <span>{{ daily[-1].date }}</span>
+        </div>
+      {% else %}
+        <p class="text-zinc-500 text-xs text-center py-6">
+          No visits in the last {{ days_window }} days.
+        </p>
+      {% endif %}
+    </div>
+  </div>
+
+</section>
+
+<p class="text-xs text-zinc-500 mt-4">
+  Aggregated by <code class="text-zinc-400">app.share_analytics</code>;
+  raw JSON at
+  <a href="/api/share-analytics.json?days={{ days_window }}"
+     class="hover:text-accent-400 underline">/api/share-analytics.json</a>.
+  Per-visit CSV at
+  <a href="/export/share-visits.csv?days={{ days_window }}"
+     class="hover:text-accent-400 underline">/export/share-visits.csv</a>.
+</p>
+{% endblock %}

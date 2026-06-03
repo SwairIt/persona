@@ -1,0 +1,128 @@
+{# Fragment returned by /admin/ocr-find-replace/preview and /apply.
+   Receives one of three context bundles:
+
+     * preview_error  — regex failed to compile; render the error banner
+       and keep the typed pattern around so the user can fix it.
+     * preview_rows   — dry-run diff table + Apply form. Shows up to N
+       before/after pairs; Apply posts the same pattern+replacement back
+       to /apply with the user-chosen apply-limit.
+     * apply_result   — destructive write happened; show the summary.
+
+   Always swapped into #ocr-fr-preview by HTMX innerHTML. #}
+
+{% if preview_error is defined %}
+  <div class="rounded-lg border border-rose-700 bg-rose-900/30 p-5">
+    <h2 class="text-lg font-semibold text-rose-100 mb-2">
+      Regex did not compile
+    </h2>
+    <p class="text-rose-100/80 text-sm font-mono break-all">
+      {{ preview_error }}
+    </p>
+    <p class="text-rose-200/70 text-xs mt-3">
+      Fix the pattern above and click Preview again. Nothing was
+      touched.
+    </p>
+  </div>
+{% elif apply_result is defined %}
+  <div class="rounded-lg border border-emerald-700 bg-emerald-900/30 p-5">
+    <h2 class="text-lg font-semibold text-emerald-200 mb-2">
+      Done &mdash; {{ apply_result.changed }} row(s) updated
+    </h2>
+    <p class="text-emerald-100 text-sm">
+      Pattern
+      <code class="font-mono text-xs bg-ink-900 px-1.5 py-0.5 rounded">{{ apply_result.pattern }}</code>
+      rewritten to
+      <code class="font-mono text-xs bg-ink-900 px-1.5 py-0.5 rounded">{{ apply_result.replacement }}</code>.
+      Scanned {{ apply_result.scanned }} candidate row(s); changed
+      <strong>{{ apply_result.changed }}</strong>. Full-text search
+      index was refreshed.
+    </p>
+    <p class="text-emerald-200/70 text-xs mt-3">
+      Run another pattern above, or check the
+      <a href="/audit?action=ocr.find_replace" class="underline hover:text-emerald-100">Audit log</a>
+      for the recorded entry.
+    </p>
+  </div>
+{% elif preview_rows is defined %}
+  {% if preview_rows|length == 0 %}
+    <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+      <p class="text-zinc-300 text-sm">
+        Pattern
+        <code class="font-mono text-xs bg-ink-900 px-1.5 py-0.5 rounded">{{ preview_pattern }}</code>
+        matched no rows that would actually change. Nothing to do.
+      </p>
+    </div>
+  {% else %}
+    <div class="rounded-lg border border-rose-700 bg-rose-900/30 p-5 space-y-4">
+      <h2 class="text-lg font-semibold text-rose-100">
+        {{ preview_rows|length }} row(s) will change
+      </h2>
+      <p class="text-rose-100/80 text-sm">
+        Pattern:
+        <code class="font-mono text-xs bg-ink-900 px-1.5 py-0.5 rounded">{{ preview_pattern }}</code>
+        &middot; replacement:
+        <code class="font-mono text-xs bg-ink-900 px-1.5 py-0.5 rounded">{{ preview_replacement }}</code>
+        &middot; preview limit {{ preview_limit }}.
+      </p>
+
+      <details class="text-xs text-rose-100/80" open>
+        <summary class="cursor-pointer hover:text-rose-50 text-sm font-medium">
+          Show before / after diff
+        </summary>
+        <div class="mt-3 overflow-x-auto">
+          <table class="w-full text-xs font-mono">
+            <thead class="text-rose-200/80">
+              <tr class="border-b border-rose-700/60">
+                <th class="text-left py-1 pr-3">shot</th>
+                <th class="text-left py-1 pr-3">before</th>
+                <th class="text-left py-1">after</th>
+              </tr>
+            </thead>
+            <tbody class="text-rose-50/90 align-top">
+              {% for row in preview_rows %}
+                <tr class="border-b border-rose-700/30">
+                  <td class="py-1.5 pr-3">
+                    <a href="/screenshot/{{ row.shot_id }}"
+                       class="underline hover:text-white">#{{ row.shot_id }}</a>
+                  </td>
+                  <td class="py-1.5 pr-3 whitespace-pre-wrap break-words max-w-md text-rose-200/80">
+                    {{ row.before }}
+                  </td>
+                  <td class="py-1.5 whitespace-pre-wrap break-words max-w-md text-emerald-200/90">
+                    {{ row.after }}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </details>
+
+      <form hx-post="/admin/ocr-find-replace/apply"
+            hx-target="#ocr-fr-preview"
+            hx-swap="innerHTML"
+            hx-confirm="Really overwrite ocr_text for up to {{ apply_max }} matching row(s)? There is no undo."
+            class="pt-2 border-t border-rose-700/60 space-y-3">
+        <input type="hidden" name="pattern"     value="{{ preview_pattern }}">
+        <input type="hidden" name="replacement" value="{{ preview_replacement }}">
+        <label class="block max-w-xs">
+          <span class="block text-xs uppercase tracking-wider text-rose-200/70 mb-1">
+            Apply limit (max {{ apply_max }})
+          </span>
+          <input name="limit" type="number" min="1" max="{{ apply_max }}"
+                 value="{{ apply_default }}"
+                 class="w-full px-3 py-2 bg-ink-900 border border-rose-700/60 rounded font-mono text-sm focus:outline-none focus:border-rose-400">
+        </label>
+        <button type="submit"
+                class="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded text-sm font-bold tracking-wide">
+          Apply &mdash; rewrite ocr_text
+        </button>
+        <p class="text-rose-200/70 text-xs">
+          The preview above was capped at {{ preview_limit }} rows; the
+          real apply scans up to the apply-limit you choose here and
+          may touch additional rows that did not fit in the preview.
+        </p>
+      </form>
+    </div>
+  {% endif %}
+{% endif %}

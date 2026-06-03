@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-start justify-between gap-4 flex-wrap">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Notes link check</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Scans every plaintext note for <span class="font-mono text-accent-400">http(s)://</span>
+      URLs and probes each one with HEAD (falling back to GET on 405/501).
+      Anything that doesn&rsquo;t come back as a 2xx is flagged below so you can
+      clean up rot in your own knowledge base. Encrypted notes are skipped.
+    </p>
+  </div>
+  <div class="text-xs text-zinc-500 font-mono flex-shrink-0 text-right">
+    {% if ran_at %}
+      last run: <span class="text-zinc-300">{{ ran_at }}</span><br>
+      {{ total }} URLs &middot;
+      <span class="{% if bad > 0 %}text-rose-400{% else %}text-emerald-400{% endif %}">
+        {{ bad }} bad
+      </span>
+    {% else %}
+      never run
+    {% endif %}
+  </div>
+</div>
+
+{% if just_ran %}
+  <div class="mb-5 rounded-lg border border-emerald-700/40 bg-emerald-900/20 px-4 py-3 text-sm text-emerald-300">
+    Run complete. {{ total }} URLs probed, {{ bad }} flagged as bad.
+  </div>
+{% endif %}
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-4 mb-5">
+  <form action="/admin/notes-link-check/run" method="post"
+        class="flex flex-wrap items-end gap-3">
+    <label class="flex flex-col gap-1 w-32">
+      <span class="text-xs uppercase tracking-widest text-zinc-500">Timeout (s)</span>
+      <input type="number" name="timeout"
+             value="{{ default_timeout }}"
+             min="{{ min_timeout }}" max="{{ max_timeout }}" step="1"
+             class="px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
+    </label>
+    <label class="flex flex-col gap-1 w-36">
+      <span class="text-xs uppercase tracking-widest text-zinc-500">Max links</span>
+      <input type="number" name="max_links"
+             value="{{ default_max_links }}"
+             min="{{ min_max_links }}" max="{{ max_max_links }}" step="1"
+             class="px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
+    </label>
+    <div class="flex gap-2">
+      <button type="submit"
+              class="px-4 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
+        Run check
+      </button>
+      <a href="/admin/notes-link-check/last"
+         class="px-4 py-2 bg-ink-900 hover:bg-ink-700 border border-ink-700 rounded text-sm">
+        Reload last
+      </a>
+    </div>
+    <p class="text-xs text-zinc-500 mt-2 basis-full">
+      The check runs inline &mdash; this page will sit on the POST until
+      every URL has been probed (worst case roughly
+      <span class="font-mono">timeout &times; max_links</span> seconds).
+    </p>
+  </form>
+</section>
+
+{% if items %}
+  <div class="rounded-lg border border-ink-700 bg-ink-900/40 overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-ink-900 border-b border-ink-700 text-xs uppercase tracking-wider text-zinc-500">
+        <tr>
+          <th class="px-3 py-2 text-right font-medium w-20">Note</th>
+          <th class="px-3 py-2 text-right font-medium w-20">Status</th>
+          <th class="px-3 py-2 text-left font-medium">URL</th>
+          <th class="px-3 py-2 text-left font-medium w-64">Error</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-ink-700">
+        {% for entry in items %}
+          {% set is_bad = not (entry.status >= 200 and entry.status < 300) %}
+          <tr class="{% if is_bad %}bg-rose-950/30 hover:bg-rose-950/50{% else %}hover:bg-ink-800/40{% endif %} transition">
+            <td class="px-3 py-2 align-top text-right font-mono text-[11px] text-zinc-400">
+              #{{ entry.note_id }}
+            </td>
+            <td class="px-3 py-2 align-top text-right font-mono text-xs whitespace-nowrap
+                       {% if is_bad %}text-rose-300 font-semibold{% else %}text-emerald-400{% endif %}">
+              {% if entry.status == 0 %}
+                ERR
+              {% else %}
+                {{ entry.status }}
+              {% endif %}
+            </td>
+            <td class="px-3 py-2 align-top break-all
+                       {% if is_bad %}text-rose-200{% else %}text-zinc-200{% endif %}">
+              <a href="{{ entry.url }}" target="_blank" rel="noopener noreferrer"
+                 class="hover:underline font-mono text-xs">
+                {{ entry.url }}
+              </a>
+            </td>
+            <td class="px-3 py-2 align-top text-xs text-zinc-400 break-words">
+              {% if entry.error %}
+                <span class="font-mono">{{ entry.error }}</span>
+              {% else %}
+                <span class="text-zinc-600">&mdash;</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  <div class="text-center py-20 px-6 rounded-lg border border-dashed border-ink-700 bg-ink-900/40">
+    <div class="text-5xl text-zinc-700 mb-4">&#128279;</div>
+    <h2 class="text-lg font-semibold text-zinc-300">
+      {% if ran_at %}
+        No URLs found in any note
+      {% else %}
+        No run on record yet
+      {% endif %}
+    </h2>
+    <p class="text-sm text-zinc-500 mt-2 max-w-md mx-auto">
+      {% if ran_at %}
+        The last run scanned every plaintext note and didn&rsquo;t find a single
+        <span class="font-mono">http(s)://</span> URL. Add some links to your
+        notes and try again.
+      {% else %}
+        Click <span class="font-medium text-zinc-300">Run check</span> above to
+        kick off the first scan. Results are persisted between runs so you can
+        come back to this page without re-running.
+      {% endif %}
+    </p>
+  </div>
+{% endif %}
+{% endblock %}

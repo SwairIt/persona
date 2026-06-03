@@ -101,6 +101,7 @@ from app.web.routes import (
     note_assist as note_assist_routes,
     note_templates as note_templates_routes,
     notes as notes_routes,
+    notes_link_checker as notes_link_checker_routes,
     notes_search as notes_search_routes,
     notes_timeline as notes_timeline_routes,
     ocr_status,
@@ -134,6 +135,7 @@ from app.web.routes import (
     ocr_languages as ocr_languages_routes,
     ocr_diff as ocr_diff_routes,
     ocr_error_rate as ocr_error_rate_routes,
+    ocr_find_replace as ocr_find_replace_routes,
     ocr_length_chart as ocr_length_chart_routes,
     ocr_near_dup as ocr_near_dup_routes,
     ocr_overlay as ocr_overlay_routes,
@@ -154,6 +156,7 @@ from app.web.routes import (
     search_facets as search_facets_routes,
     semantic_similar as semantic_similar_routes,
     share as share_routes,
+    share_analytics as share_analytics_routes,
     share_visits_csv as share_visits_csv_routes,
     shot_of_day as shot_of_day_routes,
     shot_of_week as shot_of_week_routes,
@@ -243,7 +246,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.76.0",
+        version="0.77.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -429,6 +432,9 @@ def create_app() -> FastAPI:
     app.include_router(ocr_vision_replace_routes.router)
     app.include_router(annotations_ndjson_routes.router)
     app.include_router(audit_timeline_routes.router)
+    app.include_router(notes_link_checker_routes.router)
+    app.include_router(share_analytics_routes.router)
+    app.include_router(ocr_find_replace_routes.router)
 
     return app
 

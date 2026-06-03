@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight flex items-center gap-3">
+    <span class="text-rose-500">&#9888;</span> OCR find &amp; replace
+  </h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Bulk Python <code class="font-mono text-xs">re.sub</code> across
+    <code class="font-mono text-xs">screenshots.ocr_text</code>. Use this
+    to repair systematic Tesseract mis-reads, redact a leaked secret
+    that landed in OCR text, or normalise a name that came out three
+    different ways. There is <strong>no undo</strong> &mdash; preview
+    first.
+  </p>
+</div>
+
+<div class="rounded-lg border border-rose-700/60 bg-rose-900/20 p-4 mb-8">
+  <p class="text-rose-200 text-sm">
+    <strong class="font-semibold">Heads up.</strong>
+    Every Apply rewrites the canonical
+    <code class="font-mono text-xs">ocr_text</code> column for matched
+    rows. Search, embeddings, exports and digests will reflect the new
+    text immediately. The action is audit-logged under
+    <code class="font-mono text-xs">ocr.find_replace</code> &mdash; the
+    full pattern, replacement, scanned count and changed count are
+    captured for forensics.
+  </p>
+</div>
+
+<form id="ocr-fr-form"
+      hx-post="/admin/ocr-find-replace/preview"
+      hx-target="#ocr-fr-preview"
+      hx-swap="innerHTML"
+      class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6 space-y-4">
+  <label class="block">
+    <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">
+      Regex pattern (Python <code class="font-mono">re</code> syntax)
+    </span>
+    <input name="pattern" required minlength="1" maxlength="1000"
+           autocomplete="off" spellcheck="false"
+           placeholder='e.g. \bP@ssw0rd\b   or   (?i)\bacme\s+corp\b'
+           class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm focus:outline-none focus:border-rose-500">
+  </label>
+  <label class="block">
+    <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">
+      Replacement (supports <code class="font-mono">\1</code>,
+      <code class="font-mono">\g&lt;name&gt;</code>)
+    </span>
+    <input name="replacement" maxlength="1000"
+           autocomplete="off" spellcheck="false"
+           placeholder="e.g. [REDACTED]   or   Acme Corp"
+           class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm focus:outline-none focus:border-rose-500">
+  </label>
+  <label class="block max-w-xs">
+    <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">
+      Preview limit (max {{ preview_max }})
+    </span>
+    <input name="limit" type="number" min="1" max="{{ preview_max }}"
+           value="{{ preview_default }}"
+           class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm focus:outline-none focus:border-rose-500">
+  </label>
+  <div class="flex items-center gap-3">
+    <button type="submit"
+            class="px-4 py-2 bg-zinc-700 hover:bg-zinc-600 rounded text-sm font-medium">
+      Preview matches
+    </button>
+    <span class="text-xs text-zinc-500">
+      Preview is always dry-run &mdash; no rows are touched until you
+      click Apply on the result below.
+    </span>
+  </div>
+</form>
+
+<div id="ocr-fr-preview"></div>
+
+<p class="text-zinc-500 text-xs mt-8">
+  Related admin pages:
+  <a href="/admin/ocr-vision-replace" class="hover:text-zinc-300 underline">OCR vision replace</a>
+  (promote multimodal-vision OCR into the canonical column),
+  <a href="/ocr-admin" class="hover:text-zinc-300 underline">OCR admin</a>
+  (reset entire <code class="font-mono">skipped</code> /
+  <code class="font-mono">failed</code> buckets),
+  <a href="/audit?action=ocr.find_replace" class="hover:text-zinc-300 underline">Audit log</a>
+  (every Apply is recorded here).
+</p>
+{% endblock %}
