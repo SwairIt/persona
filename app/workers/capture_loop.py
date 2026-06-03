@@ -17,6 +17,8 @@ from app.capture.adaptive_cadence import compute_interval
 from app.capture.power_state import get_power_state_async
 from app.capture.session_state import is_session_locked
 from app.dedup import compute_phash, find_or_create_dedup_group
+from app.focus import current_session as current_focus_session
+from app.focus_blocklist import is_blocked as is_focus_blocked
 from app.logging_setup import get_logger
 from app.settings import get_settings
 from app.storage.app_overrides import lookup_override
@@ -152,6 +154,22 @@ async def _single_iteration(ctrl: CaptureController) -> float | None:  # noqa: P
         log.debug("capture.app_skipped", app=window.app_name)
         ctrl.mark_idle_skip()
         return idle_seconds
+
+    if window is not None:
+        # v0.85 distraction blocker: only consult the focus blocklist when a
+        # session is actually running. Probing ``focus_session`` first keeps
+        # the hot path cheap when no session is active (the common case) —
+        # the indexed ``ended_at IS NULL`` lookup is O(log n) and the
+        # blocklist query is skipped entirely.
+        active_session = await current_focus_session()
+        if active_session is not None and await is_focus_blocked(window.app_name):
+            log.debug(
+                "capture.focus_blocked",
+                app=window.app_name,
+                session_id=active_session["id"],
+            )
+            ctrl.mark_idle_skip()
+            return idle_seconds
 
     if settings.multi_monitor:
         results = await asyncio.to_thread(capture_all_monitors)

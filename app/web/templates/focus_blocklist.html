@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Focus blocklist</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Apps the capture loop will <em>ignore while a focus session is running</em> &mdash; Slack,
+    Telegram, your news tab. Outside a session they're captured normally; the block only
+    applies while a Pomodoro timer (v0.36) is active. This is the conditional sibling of the
+    <a href="/settings/app-capture-skip" class="text-accent-400 hover:underline">always-paused list</a>.
+    Matching is case-insensitive and ignores surrounding whitespace.
+  </p>
+</div>
+
+<form action="/settings/focus-blocklist" method="post" class="flex gap-2 mb-6">
+  <input name="app_name" placeholder="e.g. Slack" required
+         list="focus-blocklist-suggestions"
+         autocomplete="off"
+         class="flex-1 px-3 py-2 bg-ink-800 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
+  <datalist id="focus-blocklist-suggestions">
+    {% for s in suggestions %}
+      <option value="{{ s }}"></option>
+    {% endfor %}
+  </datalist>
+  <button type="submit" class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
+    Block during focus
+  </button>
+</form>
+
+{% if blocked %}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden mb-8">
+    <table class="w-full text-sm">
+      <thead class="bg-ink-900 text-zinc-500 text-xs uppercase tracking-wider">
+        <tr>
+          <th class="text-left py-2 px-4">App</th>
+          <th class="py-2 px-4"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for name in blocked %}
+          <tr class="border-t border-ink-700">
+            <td class="py-2 px-4 font-mono text-zinc-200">{{ name }}</td>
+            <td class="py-2 px-4 text-right">
+              <form action="/settings/focus-blocklist/{{ name|urlencode }}/delete" method="post" class="inline"
+                    onsubmit="return confirm('Unblock {{ name }} during focus sessions?')">
+                <button class="text-xs px-2 py-1 rounded bg-rose-900/40 hover:bg-rose-900 text-rose-300">remove</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  <p class="text-zinc-500 text-sm mb-8">No apps are blocked &mdash; focus sessions capture every window.</p>
+{% endif %}
+
+{% if suggestions %}
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">Apps seen on your timeline</h2>
+    <p class="text-zinc-500 text-xs mb-3">
+      Click <em>block</em> next to any app whose screenshots should be skipped during focus sessions.
+    </p>
+    <div class="flex flex-wrap gap-2">
+      {% for s in suggestions %}
+        <form action="/settings/focus-blocklist" method="post" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-ink-900 border border-ink-700">
+          <input type="hidden" name="app_name" value="{{ s }}">
+          <span class="text-zinc-300 text-xs truncate max-w-[14rem]">{{ s }}</span>
+          <button class="text-xs px-1.5 py-0.5 rounded bg-ink-700 hover:bg-accent-600 text-zinc-200">block</button>
+        </form>
+      {% endfor %}
+    </div>
+  </section>
+{% endif %}
+{% endblock %}

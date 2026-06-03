@@ -131,6 +131,14 @@ class Settings(BaseSettings):
     # *require* a valid token on every ``/api/*`` call.
     api_auth_required: bool = Field(default=False)
 
+    # v0.85 — when False (default) ``/feeds/*`` RSS/Atom endpoints keep
+    # their legacy open-access behaviour, so existing feed-reader
+    # subscriptions keep working across the upgrade. Flip to True to
+    # require a ``?token=…`` query param matched against the
+    # ``feed_token`` table (migration 074); shareable per-feed tokens
+    # are minted on the ``/settings/feed-tokens`` page.
+    feed_auth_required: bool = Field(default=False)
+
     # v0.40 — soft-delete recycle bin. Screenshots and notes deleted
     # via the UI go into ``recycle_bin`` first; the retention worker
     # hard-deletes anything older than this many days (and unlinks any

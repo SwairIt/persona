@@ -11,6 +11,7 @@ from xml.sax.saxutils import escape as xml_escape
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
 
+from app.feed_tokens import verify_token as verify_feed_token
 from app.logging_setup import get_logger
 from app.redaction import apply_redaction
 from app.settings import get_settings
@@ -19,6 +20,49 @@ from app.storage.repository import get_screenshot
 from app.storage.time import parse_iso
 
 router = APIRouter(prefix="/feeds", tags=["feeds"])
+
+_auth_log = get_logger("persona.feed_tokens")
+
+
+async def _enforce_feed_token(request: Request) -> None:
+    """Reject the request unless a valid ``?token=…`` covers the path.
+
+    No-op when :attr:`Settings.feed_auth_required` is ``False`` — that's
+    the legacy open-access mode, preserved so an upgrade-in-place
+    doesn't break anyone's existing feed-reader subscriptions until
+    they're ready to flip the switch.
+
+    When enforcement is on the request path (e.g.
+    ``/feeds/tags/cooking.rss``) is matched against the token's
+    ``feed_pattern`` via :func:`fnmatch.fnmatchcase` inside
+    :func:`app.feed_tokens.verify_token`. Missing token → 401; known
+    but wrong-pattern / revoked → 403; both responses are tagged in
+    structlog so the operator can spot probing in the access log.
+    """
+    settings = get_settings()
+    if not settings.feed_auth_required:
+        return
+
+    raw = request.query_params.get("token", "").strip()
+    if not raw:
+        _auth_log.info(
+            "feed_token.gate_missing",
+            path=request.url.path,
+        )
+        raise HTTPException(status_code=401, detail="Feed token required")
+
+    verdict = await verify_feed_token(raw, request.url.path)
+    if not verdict.get("ok"):
+        # ``unknown`` collapses "no row" / "hash mismatch" — both look
+        # the same to the client by design so we can't be probed for
+        # token existence. ``revoked`` / ``pattern_mismatch`` deserve
+        # 403 because the caller *did* present a real credential, it
+        # just isn't authorised for this path right now.
+        reason = verdict.get("reason", "unknown")
+        if reason == "unknown":
+            raise HTTPException(status_code=401, detail="Invalid feed token")
+        raise HTTPException(status_code=403, detail="Feed token not authorised for this path")
+
 
 # Mirror of auto_collections._MAX_SHOTS_PER_COLLECTION but capped tighter:
 # RSS readers don't need 500 items per poll, 50 is the spec.
@@ -38,6 +82,7 @@ _WEEKLY_SNIPPET_LEN = 400
 
 @router.get("/journal.rss")
 async def journal_rss(request: Request) -> Response:
+    await _enforce_feed_token(request)
     settings = get_settings()
     base = f"http://{settings.host}:{settings.port}"
 
@@ -108,8 +153,10 @@ def _rss_item(title: str, body: str, link: str, pub: datetime, sid: int) -> str:
 
 
 @router.get("/saved-search/{search_id}.rss")
-async def saved_search_rss(search_id: int) -> Response:
+async def saved_search_rss(request: Request, search_id: int) -> Response:
     """RSS feed for one saved search — subscribe in any reader."""
+    await _enforce_feed_token(request)
+
     from app.search import search as run_search
 
     settings = get_settings()
@@ -159,6 +206,7 @@ async def collection_rss(request: Request, slug: str) -> Response:
     Private rules (``public = 0``) are gated to loopback, matching the gate
     on the HTML view in :mod:`app.web.routes.auto_collections`.
     """
+    await _enforce_feed_token(request)
     settings = get_settings()
     base = f"http://{settings.host}:{settings.port}"
 
@@ -243,7 +291,7 @@ async def collection_rss(request: Request, slug: str) -> Response:
 
 
 @router.get("/tags/{tag_name}.rss")
-async def tag_rss(tag_name: str) -> Response:
+async def tag_rss(request: Request, tag_name: str) -> Response:
     """RSS feed of the most-recent shots carrying ``#tag_name``.
 
     Mirrors :func:`collection_rss` but resolves the tag by name (rather
@@ -255,6 +303,7 @@ async def tag_rss(tag_name: str) -> Response:
     user-configured mask (emails, tokens, …) is honoured before the
     text ever leaves the host.
     """
+    await _enforce_feed_token(request)
     settings = get_settings()
     base = f"http://{settings.host}:{settings.port}"
 
@@ -321,7 +370,7 @@ async def tag_rss(tag_name: str) -> Response:
 
 
 @router.get("/digest/weekly.rss")
-async def weekly_digest_rss() -> Response:
+async def weekly_digest_rss(request: Request) -> Response:
     """RSS 2.0 feed of the most-recent weekly LLM digests.
 
     Surfaces the same archive served at ``/digest/weekly-archive`` so any
@@ -331,6 +380,7 @@ async def weekly_digest_rss() -> Response:
     keeps the payload audit-safe even if a future provider sneaks ``<``
     or ``&`` into the output.
     """
+    await _enforce_feed_token(request)
     settings = get_settings()
     base = f"http://{settings.host}:{settings.port}"
 

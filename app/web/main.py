@@ -78,7 +78,9 @@ from app.web.routes import (
     external_ping as external_ping_routes,
     favourites as favourites_routes,
     feature_index as feature_index_routes,
+    feed_tokens as feed_tokens_routes,
     focus as focus_routes,
+    focus_blocklist as focus_blocklist_routes,
     full_export as full_export_routes,
     health,
     health_dashboard as health_dashboard_routes,
@@ -157,6 +159,7 @@ from app.web.routes import (
     rss_index as rss_index_routes,
     saved_searches as saved_searches_routes,
     screenshot,
+    screenshot_crop as screenshot_crop_routes,
     screenshot_frame as screenshot_frame_routes,
     search as search_routes,
     search_autocomplete as search_autocomplete_routes,
@@ -258,7 +261,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="0.84.0",
+        version="0.85.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -459,6 +462,9 @@ def create_app() -> FastAPI:
     app.include_router(share_collection_zip_routes.router)
     app.include_router(slack_summary_routes.router)
     app.include_router(thumb_regen_routes.router)
+    app.include_router(focus_blocklist_routes.router)
+    app.include_router(feed_tokens_routes.router)
+    app.include_router(screenshot_crop_routes.router)
 
     return app
 
