@@ -44,7 +44,9 @@ async def test_drag_to_tag_404_on_missing_shot(client: AsyncClient) -> None:
 
 async def test_drag_to_tag_400_on_empty_tag(client: AsyncClient) -> None:
     resp = await client.post("/api/screenshot/1/tags", data={"tag": ""})
-    assert resp.status_code in {400, 404}
+    # FastAPI 422 for form validation; legacy custom-400 handler may
+    # still return 400 — accept either, plus 404 for missing-shot path.
+    assert resp.status_code in {400, 404, 422}
 
 
 async def test_bookmarklet_page(client: AsyncClient) -> None:

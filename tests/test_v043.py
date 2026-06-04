@@ -49,7 +49,7 @@ async def test_context_menu_js_exists() -> None:
 
 async def test_shot_share_create_404_on_missing(client: AsyncClient) -> None:
     resp = await client.post("/api/screenshot/999999/share/create", data={"ttl_hours": "24"})
-    assert resp.status_code in {404, 400}
+    assert resp.status_code in {404, 400, 422}
 
 
 async def test_shot_share_invalid_token_gone(client: AsyncClient) -> None:

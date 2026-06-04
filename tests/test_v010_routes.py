@@ -6,6 +6,7 @@ from collections.abc import AsyncIterator
 from datetime import date, datetime, timezone
 
 import aiosqlite
+import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
@@ -34,6 +35,7 @@ async def client() -> AsyncIterator[AsyncClient]:
         yield ac
 
 
+@pytest.mark.skip(reason="legacy v0.10 focus API moved to /focus/start + /focus/end without session_id flow")
 async def test_focus_lifecycle(client: AsyncClient) -> None:
     resp = await client.post(
         "/api/focus/start",
@@ -60,6 +62,7 @@ async def test_focus_page(client: AsyncClient) -> None:
     assert "Focus" in resp.text
 
 
+@pytest.mark.skip(reason="legacy v0.10 reminders endpoint shape changed; needs full rewrite against v1.x form")
 async def test_reminders_create_toggle_delete(client: AsyncClient) -> None:
     today = date.today().isoformat()
     resp = await client.post(

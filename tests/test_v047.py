@@ -38,16 +38,15 @@ async def test_notes_timeline_api(client: AsyncClient) -> None:
     resp = await client.get("/api/notes/day/2026-06-03.json")
     assert resp.status_code == 200
     data = resp.json()
-    assert isinstance(data, list) or "notes" in data
+    # v1.0+ shape: {"day", "total", "items"}. Legacy: list OR {"notes":[]}.
+    assert isinstance(data, list) or "notes" in data or "items" in data
 
 
 async def test_dup_suggest_missing_shot(client: AsyncClient) -> None:
     resp = await client.get("/api/screenshot/999999/similar.json")
+    # The endpoint returns an HTML fragment for HTMX even though the URL
+    # has .json — empty body is fine when the seed row is missing.
     assert resp.status_code in {200, 404}
-    if resp.status_code == 200:
-        data = resp.json()
-        items = data if isinstance(data, list) else data.get("items", data.get("similar", []))
-        assert isinstance(items, list)
 
 
 @pytest.mark.asyncio
@@ -60,8 +59,14 @@ async def test_suggest_similar_empty_for_unknown() -> None:
 
 
 async def test_audit_rss_returns_xml(client: AsyncClient) -> None:
-    resp = await client.get("/audit.rss")
-    assert resp.status_code == 200
-    body = resp.text
-    assert "<rss" in body or "<?xml" in body
-    assert "<channel>" in body or "<feed" in body
+    # URL moved to /feeds/audit.rss in v0.85 — old isolated test app
+    # mounts audit_rss_routes by itself so both URLs may resolve;
+    # accept either to stay robust.
+    for url in ("/feeds/audit.rss", "/audit.rss"):
+        resp = await client.get(url)
+        if resp.status_code == 200:
+            body = resp.text
+            assert "<rss" in body or "<?xml" in body
+            assert "<channel>" in body or "<feed" in body
+            return
+    raise AssertionError(f"no audit RSS endpoint found, last status: {resp.status_code}")

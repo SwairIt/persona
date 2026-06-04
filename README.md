@@ -90,11 +90,32 @@ Once the wizard finishes, click **Start capture** in Settings and the timeline b
 - **Encrypted nightly DB backups** — passphrase pulled from the vault, snapshots pruned by retention policy.
 
 **Retention & size budget**
-- Tiered storage: hot → warm (lower-res thumbs at 7d) → cold (metadata only at 30d) → archive (180d+).
+- Tiered storage: hot → warm (lower-res thumbs at 1d in v1.13) → cold (metadata only at 30d) → archive (180d+).
 - Pinned screenshots are never demoted.
-- Default target: **2–4 MB per active day on disk**.
+- Default target: **≤25 MB per day on disk** (v1.13). Budget enforcer raises throttle level (0→3) when projected EoD usage approaches the cap.
 - Live MB readout in the header; 14-day budget chart on Stats.
 - Soft-delete recycle bin with configurable retention.
+
+**Hierarchical memory (v1.14)**
+- Tier 0: raw screenshots + audio segments (FTS5-indexed).
+- Tier 1: **hourly cards** — heuristic markdown summary per completed hour with apps, top words, transcript excerpt. Worker writes one per hour, 30d retention. Searchable by /ask.
+- Tier 5: **daily pins** — 200-byte micro-summaries that survive every retention sweep. 73 KB/year, forever. Even after raw frames are gone you can still answer "what did I do roughly on 2026-03-14?".
+- View at `/memory` — last 24 hours + last 30 days side by side.
+
+**Voice & mic kill-switch (v1.14)**
+- Opus 6 kbps narrowband + WebRTC VAD by default (~4 KB of deps, no torch required).
+- Click 🎙 in the header to silently pause the audio worker — perfect for "I'm watching a film in headphones, stop recording the room". Resume with the same button. Effect within ~5 seconds, no daemon restart.
+- Optional Whisper transcription (opt-in, costs ~244 MB model cache).
+
+**LLM provider — free option first (v1.14)**
+- Default suggestion is **Google Gemini** — 1M tokens/day and 1500 requests/day free, no credit card.
+- Other providers: Anthropic Claude (Haiku/Sonnet/Opus), OpenAI GPT-4o-mini, Groq Llama 3.3.
+- All BYO. Persona never proxies your queries.
+
+**Remote-agent uploads (v1.12)**
+- Optional Mac daemon (`mac-agent/`) captures screen + speech and pushes to your Persona server over HTTPS.
+- Logs rotate at 5 MB × 5 files. macOS notifications on start, 401-auth-fail, and uncaught crash.
+- `persona-agent status` shows today's upload counts.
 
 **Dashboards**
 - Stats page: top apps, top windows, hour histogram, heatmap, streak, idle stats, OCR length, language mix.

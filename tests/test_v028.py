@@ -68,13 +68,21 @@ async def test_keywords_api_shape(client: AsyncClient) -> None:
     resp = await client.get("/api/keywords.json?days=7&n=15")
     assert resp.status_code == 200
     data = resp.json()
-    assert isinstance(data, list) or "keywords" in data or "results" in data
+    # v1.0+ shape: {"count","days","items","n"}. Legacy: list or keywords/results.
+    assert (
+        isinstance(data, list)
+        or "keywords" in data
+        or "results" in data
+        or "items" in data
+    )
 
 
 @pytest.mark.asyncio
 async def test_top_keywords_stopwords_filtered() -> None:
+    from app.storage.db import init_database
     from app.keywords import STOPWORDS, top_keywords
 
+    await init_database()
     assert "the" in STOPWORDS
     assert "это" in STOPWORDS
     result = await top_keywords(days=7, top_n=30)

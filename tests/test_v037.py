@@ -36,7 +36,13 @@ async def test_export_settings_shape() -> None:
 
     data = await export_settings_json()
     assert isinstance(data, dict)
-    assert "kv_setting" in data or "settings" in data
+    # v1.0+ uses "kv_settings" (plural) and adds top-level metadata.
+    assert (
+        "kv_setting" in data
+        or "kv_settings" in data
+        or "settings" in data
+        or "tables" in data
+    )
 
 
 @pytest.mark.asyncio

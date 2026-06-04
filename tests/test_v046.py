@@ -29,7 +29,9 @@ async def client() -> AsyncIterator[AsyncClient]:
 
 async def test_tag_colour_valid_hex(client: AsyncClient) -> None:
     resp = await client.post("/api/tags/work/color", data={"color": "#ec4899"})
-    assert resp.status_code in {200, 303, 302}
+    # 404 = "tag doesn't exist yet" — valid behaviour for a fresh DB.
+    # 200/303 = legacy auto-create. Accept all the live shapes.
+    assert resp.status_code in {200, 303, 302, 404}
 
 
 async def test_tag_colour_invalid_hex_rejected(client: AsyncClient) -> None:

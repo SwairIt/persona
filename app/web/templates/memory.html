@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-8">
+  <h1 class="text-2xl font-bold tracking-tight">Memory</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Tiered summaries of your captures. Hourly cards distill each completed hour;
+    daily pins are ~200-byte snapshots that survive every retention sweep.
+  </p>
+</div>
+
+<section class="mb-12">
+  <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">
+    Last {{ cards|length }} hours
+  </h2>
+  {% if cards %}
+    <div class="space-y-3">
+      {% for card in cards %}
+        <article class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+          <div class="flex items-baseline justify-between mb-2">
+            <span class="text-zinc-200 font-mono text-sm">{{ card.hour_start }}</span>
+            <span class="text-zinc-500 text-xs">
+              {{ card.screen_count }} shots
+              {% if card.audio_seconds %}· {{ (card.audio_seconds // 60) }}m voice{% endif %}
+            </span>
+          </div>
+          <div class="text-zinc-300 text-sm whitespace-pre-line">{{ card.summary }}</div>
+          {% if card.top_words %}
+            <div class="text-zinc-500 text-xs mt-2">
+              keywords: <span class="text-zinc-400">{{ card.top_words }}</span>
+            </div>
+          {% endif %}
+        </article>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="text-zinc-500 text-sm">
+      No hourly cards yet — the worker writes the first one ~10 minutes after
+      the first hour with captures ends.
+    </p>
+  {% endif %}
+</section>
+
+<section class="mb-12">
+  <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">
+    Last {{ pins|length }} days — micro-pins
+  </h2>
+  {% if pins %}
+    <div class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-ink-900 text-zinc-500 text-xs uppercase tracking-wider">
+          <tr>
+            <th class="text-left py-2 px-4">Day</th>
+            <th class="text-left py-2 px-4">Pin</th>
+            <th class="text-right py-2 px-4">Shots</th>
+            <th class="text-right py-2 px-4">Voice</th>
+            <th class="text-right py-2 px-4">Source</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in pins %}
+            <tr class="border-t border-ink-700">
+              <td class="py-2 px-4 text-zinc-200 font-mono">{{ p.day }}</td>
+              <td class="py-2 px-4 text-zinc-300">{{ p.pin }}</td>
+              <td class="py-2 px-4 text-right text-zinc-400">{{ p.screen_count }}</td>
+              <td class="py-2 px-4 text-right text-zinc-400">
+                {% if p.voice_minutes %}{{ p.voice_minutes }}m{% else %}—{% endif %}
+              </td>
+              <td class="py-2 px-4 text-right text-zinc-500 text-xs">{{ p.source }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="text-zinc-500 text-sm">
+      No daily pins yet — the worker writes yesterday's pin after midnight UTC.
+    </p>
+  {% endif %}
+</section>
+
+<section class="text-zinc-500 text-xs">
+  Tier 0 (raw): screenshots / audio_segment tables.
+  Tier 1: hourly_card (~10 KB/hour, 30d retention).
+  Tier 5: daily_pin (~200 B/day, <strong>never deleted</strong>).
+  Long-term compression tiers 2-4 will be added in a future release.
+</section>
+{% endblock %}

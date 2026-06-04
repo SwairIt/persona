@@ -64,7 +64,9 @@ log = get_logger("persona.setup")
 _VALID_THEMES: Final[frozenset[str]] = frozenset({"dark", "light", "auto"})
 _DEFAULT_THEME: Final[str] = "dark"
 
-_VALID_PROVIDERS: Final[frozenset[str]] = frozenset({"anthropic", "openai", "groq"})
+_VALID_PROVIDERS: Final[frozenset[str]] = frozenset(
+    {"anthropic", "openai", "groq", "gemini"}
+)
 
 # Match the validators on ``Settings`` so the wizard never persists a
 # value the running config would reject on the next process boot.

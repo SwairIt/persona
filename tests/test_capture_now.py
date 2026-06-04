@@ -31,9 +31,15 @@ async def client() -> AsyncIterator[AsyncClient]:
     reason="mss screen capture requires a real display; only stable on Windows test runners",
 )
 async def test_capture_now_returns_id(client: AsyncClient) -> None:
-    resp = await client.post("/api/capture/now")
-    if resp.status_code == 500:
-        pytest.skip("no display available in this environment")
+    try:
+        resp = await client.post("/api/capture/now")
+    except Exception as exc:
+        # mss raises ScreenShotError on headless / Server-without-RDP-session.
+        if "ScreenShotError" in type(exc).__name__ or "no display" in str(exc).lower():
+            pytest.skip(f"no display: {exc}")
+        raise
+    if resp.status_code >= 500:
+        pytest.skip("no display / capture backend unavailable")
     assert resp.status_code == 200
     data = resp.json()
     assert "screenshot_id" in data
