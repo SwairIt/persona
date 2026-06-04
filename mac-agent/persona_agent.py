@@ -157,15 +157,29 @@ class RuntimeState:
     config: AgentConfig
     client: httpx.AsyncClient
     paused: bool = False
+    # v1.39 — cached remote audio-pause state from /api/audio/mic.
+    # A separate poller task refreshes this every 30 s. When True the
+    # audio loop CLOSES its InputStream (so macOS turns off the
+    # orange microphone indicator and stops draining battery) instead
+    # of just dropping blocks.
+    remote_audio_paused: bool = False
     stop: asyncio.Event = field(default_factory=asyncio.Event)
     phash_history: deque[str] = field(default_factory=lambda: deque(maxlen=200))
     agent_id: str = field(default_factory=lambda: f"mac-{uuid.uuid4().hex[:12]}")
 
     def should_pause(self) -> bool:
-        """True if either SIGUSR1 toggled the flag or the control file exists."""
+        """True if either SIGUSR1 toggled the flag or the control file exists.
+
+        This is the GLOBAL pause — affects both screen and audio loops.
+        For audio-only pause use :meth:`should_pause_audio`.
+        """
         if self.paused:
             return True
         return self.config.pause_file.exists()
+
+    def should_pause_audio(self) -> bool:
+        """True when audio capture must stop — global pause OR remote mic pause."""
+        return self.should_pause() or self.remote_audio_paused
 
 
 # --------------------------------------------------------------------------- #
@@ -522,8 +536,60 @@ def _encode_with_encodec(samples: Any, sample_rate: int, bandwidth_kbps: float) 
     return buf.getvalue()
 
 
+async def remote_pause_poller(state: RuntimeState) -> None:
+    """Poll the server's mic kill-switch every 30 s; update state.remote_audio_paused.
+
+    v1.39 — when the user clicks 🎙 in the web UI, the SERVER flips
+    ``kv.audio_capture_paused_live``. The Mac agent learns about it
+    through this poller and reflects the change in ``state.remote_audio_paused``.
+    The audio loop reads that flag every iteration and closes its
+    ``sd.InputStream`` when True — that is what actually turns off the
+    orange macOS microphone indicator and stops the battery drain.
+
+    Failures (network, 401, server down) are silent: we just log debug
+    and keep polling. We DO NOT change the cached value on error, so a
+    temporarily-unreachable server doesn't flap pause state back to its
+    last-known value.
+    """
+    url = _server_endpoint(state.config, "/api/audio/mic")
+    interval_s = 30.0
+    logger.info("agent.remote_pause.poller_start", endpoint=url, interval_s=interval_s)
+
+    while not state.stop.is_set():
+        try:
+            response = await state.client.get(url, timeout=10.0)
+            if response.status_code == 200:
+                payload = response.json()
+                new_value = bool(payload.get("paused", False))
+                if new_value != state.remote_audio_paused:
+                    logger.info("agent.remote_pause.changed", paused=new_value)
+                    state.remote_audio_paused = new_value
+            else:
+                logger.debug(
+                    "agent.remote_pause.unexpected_status",
+                    status=response.status_code,
+                )
+        except Exception as exc:  # noqa: BLE001 — never break the agent
+            logger.debug("agent.remote_pause.poll_failed", error=str(exc))
+
+        try:
+            await asyncio.wait_for(state.stop.wait(), timeout=interval_s)
+        except TimeoutError:
+            continue
+
+    logger.info("agent.remote_pause.poller_stopped")
+
+
 async def audio_loop(state: RuntimeState) -> None:
-    """Capture mic audio, detect speech, encode + transcribe, upload."""
+    """Capture mic audio, detect speech, encode + transcribe, upload.
+
+    v1.39 — the ``sd.InputStream`` is now opened/closed dynamically based
+    on :meth:`RuntimeState.should_pause_audio`. When the user pauses the
+    mic from the web UI, the cached server flag flips, this loop exits
+    the ``with stream:`` block, and macOS releases the microphone (the
+    orange indicator disappears, battery drain stops). When the flag
+    flips back, the loop reopens the stream within ``_PAUSE_POLL_S``.
+    """
     import numpy as np
     import sounddevice as sd
 
@@ -568,87 +634,120 @@ async def audio_loop(state: RuntimeState) -> None:
         block = indata[:, 0].copy() if indata.ndim == 2 else indata.copy()
         main_loop.call_soon_threadsafe(_enqueue, block)
 
-    try:
-        stream = sd.InputStream(
-            samplerate=sample_rate,
-            channels=1,
-            dtype="float32",
-            blocksize=block_size,
-            callback=_callback,
-        )
-    except Exception as exc:  # sounddevice raises platform-specific errors
-        logger.error("agent.audio.stream_open_failed", error=str(exc))
-        return
+    # v1.39 — how often to recheck pause state while idle (no stream open).
+    _PAUSE_POLL_S = 5.0
 
-    rolling = np.zeros(0, dtype=np.float32)
-    last_speech_end = 0  # absolute sample index inside the current rolling buffer
-    absolute_start = time.time()  # wall clock t0 of rolling[0]
-
-    with stream:
-        while not state.stop.is_set():
+    while not state.stop.is_set():
+        # Idle while paused — DO NOT open the InputStream. That is what
+        # keeps macOS quiet (no LED, no battery cost).
+        if state.should_pause_audio():
             try:
-                block = await asyncio.wait_for(pending_blocks.get(), timeout=1.0)
+                await asyncio.wait_for(state.stop.wait(), timeout=_PAUSE_POLL_S)
             except TimeoutError:
-                continue
+                pass
+            continue
 
-            if state.should_pause():
-                # Drop accumulated audio rather than re-uploading it on resume.
-                rolling = np.zeros(0, dtype=np.float32)
-                last_speech_end = 0
-                absolute_start = time.time()
-                continue
+        # Open a fresh InputStream and run the capture inner-loop until
+        # either the global stop fires OR the pause flag flips True.
+        try:
+            stream = sd.InputStream(
+                samplerate=sample_rate,
+                channels=1,
+                dtype="float32",
+                blocksize=block_size,
+                callback=_callback,
+            )
+        except Exception as exc:  # sounddevice raises platform-specific errors
+            logger.error("agent.audio.stream_open_failed", error=str(exc))
+            await asyncio.sleep(_PAUSE_POLL_S)
+            continue
 
-            rolling = np.concatenate([rolling, block])
-
-            # Keep the rolling buffer to ``audio_buffer_seconds`` of audio.
-            if rolling.size > buffer_samples:
-                overflow = rolling.size - buffer_samples
-                rolling = rolling[overflow:]
-                last_speech_end = max(0, last_speech_end - overflow)
-                absolute_start += overflow / sample_rate
-
-            if rolling.size < sample_rate * 2:
-                # Need at least ~2 s of audio before the VAD is informative.
-                continue
-
+        # Drop any stale blocks that snuck into the queue during a
+        # previous open-cycle so we don't replay old audio on resume.
+        while not pending_blocks.empty():
             try:
-                speech = await asyncio.to_thread(vad.find_speech, rolling)
-            except Exception as exc:  # silero failures are logged + segment dropped
-                logger.error("agent.audio.vad_failed", error=str(exc))
-                continue
+                pending_blocks.get_nowait()
+            except asyncio.QueueEmpty:
+                break
 
-            # Process only segments that have ended (i.e. a clear silence
-            # boundary after them); the trailing in-progress segment is
-            # left in the buffer for the next iteration.
-            min_speech = int(sample_rate * cfg.audio_min_speech_ms / 1000)
-            min_silence = int(sample_rate * cfg.audio_min_silence_ms / 1000)
-            settled: list[dict[str, int]] = []
-            for seg in speech:
-                if seg["start"] < last_speech_end:
-                    continue
-                if rolling.size - seg["end"] < min_silence:
-                    continue
-                if seg["end"] - seg["start"] < min_speech:
-                    continue
-                settled.append(seg)
+        rolling = np.zeros(0, dtype=np.float32)
+        last_speech_end = 0
+        absolute_start = time.time()
+        logger.info("agent.audio.stream_open")
 
-            for seg in settled:
-                samples = rolling[seg["start"] : seg["end"]]
-                started_at = datetime.fromtimestamp(
-                    absolute_start + seg["start"] / sample_rate,
-                    tz=UTC,
-                )
-                duration = samples.size / sample_rate
-                await _process_speech_segment(
-                    state,
-                    samples=samples,
-                    sample_rate=sample_rate,
-                    started_at=started_at,
-                    duration_s=duration,
-                    url=url,
-                    whisper=whisper,
-                )
-                last_speech_end = seg["end"]
+        with stream:
+            while not state.stop.is_set() and not state.should_pause_audio():
+                try:
+                    block = await asyncio.wait_for(pending_blocks.get(), timeout=1.0)
+                except TimeoutError:
+                    continue
+
+                if state.should_pause():
+                    # Drop accumulated audio rather than re-uploading it on resume.
+                    rolling = np.zeros(0, dtype=np.float32)
+                    last_speech_end = 0
+                    absolute_start = time.time()
+                    continue
+
+                rolling = np.concatenate([rolling, block])
+
+                # Keep the rolling buffer to ``audio_buffer_seconds`` of audio.
+                if rolling.size > buffer_samples:
+                    overflow = rolling.size - buffer_samples
+                    rolling = rolling[overflow:]
+                    last_speech_end = max(0, last_speech_end - overflow)
+                    absolute_start += overflow / sample_rate
+
+                if rolling.size < sample_rate * 2:
+                    # Need at least ~2 s of audio before the VAD is informative.
+                    continue
+
+                try:
+                    speech = await asyncio.to_thread(vad.find_speech, rolling)
+                except Exception as exc:  # silero failures are logged + segment dropped
+                    logger.error("agent.audio.vad_failed", error=str(exc))
+                    continue
+
+                # Process only segments that have ended (i.e. a clear silence
+                # boundary after them); the trailing in-progress segment is
+                # left in the buffer for the next iteration.
+                min_speech = int(sample_rate * cfg.audio_min_speech_ms / 1000)
+                min_silence = int(sample_rate * cfg.audio_min_silence_ms / 1000)
+                settled: list[dict[str, int]] = []
+                for seg in speech:
+                    if seg["start"] < last_speech_end:
+                        continue
+                    if rolling.size - seg["end"] < min_silence:
+                        continue
+                    if seg["end"] - seg["start"] < min_speech:
+                        continue
+                    settled.append(seg)
+
+                for seg in settled:
+                    samples = rolling[seg["start"] : seg["end"]]
+                    started_at = datetime.fromtimestamp(
+                        absolute_start + seg["start"] / sample_rate,
+                        tz=UTC,
+                    )
+                    duration = samples.size / sample_rate
+                    await _process_speech_segment(
+                        state,
+                        samples=samples,
+                        sample_rate=sample_rate,
+                        started_at=started_at,
+                        duration_s=duration,
+                        url=url,
+                        whisper=whisper,
+                    )
+                    last_speech_end = seg["end"]
+
+        # v1.39 — exited the with-block → InputStream closed → macOS releases
+        # the mic and the orange indicator turns off. Outer while loop will
+        # decide whether to reopen the stream or keep sleeping.
+        logger.info(
+            "agent.audio.stream_closed",
+            reason="paused" if state.should_pause_audio() else "stop",
+        )
 
     logger.info("agent.audio.loop_stopped")
 
@@ -788,6 +887,16 @@ async def _run_async(config: AgentConfig) -> int:
             tasks.append(asyncio.create_task(screen_loop(state), name="screen_loop"))
         if config.capture.audio:
             tasks.append(asyncio.create_task(audio_loop(state), name="audio_loop"))
+            # v1.39 — only meaningful when audio is enabled; the poller
+            # tells the audio loop to close its InputStream when the
+            # server's web 🎙 toggle is set, freeing the macOS mic
+            # indicator + stopping battery drain.
+            tasks.append(
+                asyncio.create_task(
+                    remote_pause_poller(state),
+                    name="remote_pause_poller",
+                )
+            )
 
         if not tasks:
             logger.warning("agent.no_loops_enabled — exiting")
