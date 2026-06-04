@@ -9,6 +9,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware import Middleware
 from starlette.middleware.gzip import GZipMiddleware
@@ -327,6 +328,24 @@ def create_app() -> FastAPI:
     )
 
     if STATIC_DIR.exists():
+        # Serve /static/sw.js with no-cache headers so a CACHE_VERSION
+        # bump propagates to browsers within minutes instead of the
+        # browser-default ~24h sw.js stale window. The rest of /static/*
+        # keeps the default StaticFiles caching.
+        @app.get("/static/sw.js")
+        async def serve_service_worker() -> FileResponse:  # noqa: D401
+            sw_path = STATIC_DIR / "sw.js"
+            return FileResponse(
+                sw_path,
+                media_type="application/javascript",
+                headers={
+                    "Cache-Control": "no-cache, no-store, must-revalidate",
+                    "Pragma": "no-cache",
+                    "Expires": "0",
+                    "Service-Worker-Allowed": "/",
+                },
+            )
+
         app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
     app.include_router(timeline.router)
