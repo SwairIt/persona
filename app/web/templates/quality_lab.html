@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-center justify-between flex-wrap gap-3">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Качество захвата</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Офлайн-замер читабельности миниатюр по бэндам
+      <code class="font-mono text-zinc-400">(quality, width)</code> —
+      чтобы видеть, не теряем&nbsp;ли мы OCR из-за слишком агрессивных
+      настроек сжатия.
+    </p>
+  </div>
+  <div class="flex items-center gap-2 text-sm">
+    <a href="/api/quality-sample/bands.json"
+       class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700 font-mono text-xs">JSON</a>
+  </div>
+</div>
+
+<section class="mb-6">
+  <button type="button"
+          id="quality-sample-run-btn"
+          class="px-5 py-3 rounded-lg bg-accent-600 hover:bg-accent-500
+                 text-white text-base font-semibold tracking-tight
+                 transition disabled:opacity-50 disabled:cursor-not-allowed">
+    Запустить замер
+  </button>
+  <span id="quality-sample-status"
+        class="ml-3 text-sm text-zinc-500"></span>
+</section>
+
+<section class="mb-6">
+  {% if bands %}
+    <div class="overflow-x-auto rounded-lg border border-ink-700">
+      <table class="w-full text-sm">
+        <thead class="bg-ink-800 text-xs uppercase tracking-wider text-zinc-400">
+          <tr>
+            <th class="px-3 py-2 text-left">Quality</th>
+            <th class="px-3 py-2 text-left">Width, px</th>
+            <th class="px-3 py-2 text-right">Avg sharpness</th>
+            <th class="px-3 py-2 text-right">Avg OCR chars</th>
+            <th class="px-3 py-2 text-right">Avg file size</th>
+            <th class="px-3 py-2 text-right">Sample count</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-ink-800">
+          {% for band in bands %}
+          <tr class="hover:bg-ink-800/60">
+            <td class="px-3 py-2 font-mono text-zinc-200">{{ band.quality_used }}</td>
+            <td class="px-3 py-2 font-mono text-zinc-200">{{ band.width_used }}</td>
+            <td class="px-3 py-2 text-right font-mono text-emerald-400">
+              {{ band.avg_sharpness_display }}
+            </td>
+            <td class="px-3 py-2 text-right font-mono text-zinc-300">
+              {{ band.avg_ocr_chars_display }}
+            </td>
+            <td class="px-3 py-2 text-right font-mono text-zinc-300">
+              {{ band.avg_file_size_display }}
+            </td>
+            <td class="px-3 py-2 text-right font-mono text-zinc-400">
+              {{ band.sample_count }}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="text-zinc-500 text-sm">
+      Пока нет ни одного замера. Нажмите
+      <em class="text-zinc-300">«Запустить замер»</em>, чтобы собрать
+      первую партию по текущим настройкам качества.
+    </p>
+  {% endif %}
+</section>
+
+<section class="text-sm text-zinc-400 leading-relaxed max-w-2xl">
+  <h2 class="text-zinc-200 font-semibold mb-2">Что значат метрики</h2>
+  <p class="mb-2">
+    <strong class="text-zinc-200">Avg sharpness</strong> — средняя
+    дисперсия 3×3 Лапласиана по grayscale-миниатюре. Чем выше число,
+    тем чётче края символов на скриншоте — то есть тем легче OCR
+    извлечь текст. Резкое падение этого числа после понижения
+    <code class="font-mono">thumbnail_quality</code> или
+    <code class="font-mono">thumbnail_max_width</code> — сигнал, что
+    мы слишком сильно сжали кадр.
+  </p>
+  <p class="mb-2">
+    <strong class="text-zinc-200">Avg OCR chars</strong> — среднее
+    количество символов, которое OCR смог поднять с миниатюры.
+    Сравнивайте бэнды между собой: если при q=35/640px вы получаете
+    заметно меньше символов, чем раньше при q=45/900px на том же типе
+    рабочего стола — настройки качества режут текст.
+  </p>
+  <p class="mb-2">
+    <strong class="text-zinc-200">Avg file size</strong> — средний
+    вес одной миниатюры на диске. Это то, ради чего вы крутите ручки
+    качества; смотрите его рядом с двумя метриками выше, чтобы
+    понять цену экономии.
+  </p>
+  <p class="text-zinc-500 text-xs mt-3">
+    Замер берёт последние ~50 скриншотов с готовым thumbnail и
+    непустым OCR, и пишет по строке на каждый исходник
+    (повторный запуск те же кадры не пересчитывает). NumPy
+    опционален: без него столбец sharpness останется пустым, но
+    остальные метрики всё равно соберутся.
+  </p>
+</section>
+
+<script>
+  // Vanilla fetch — мы не подгружаем htmx-фрагмент, нам достаточно
+  // получить 202 и показать его пользователю текстом. Кнопка
+  // блокируется на время запроса, чтобы двойной клик не плодил
+  // фоновых задач.
+  (function () {
+    var btn = document.getElementById('quality-sample-run-btn');
+    var statusEl = document.getElementById('quality-sample-status');
+    if (!btn || !statusEl) {
+      return;
+    }
+    btn.addEventListener('click', function () {
+      btn.disabled = true;
+      statusEl.textContent = 'Запускаем…';
+      fetch('/api/quality-sample/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ limit: 50 })
+      })
+        .then(function (response) {
+          return response.json().then(function (data) {
+            return { ok: response.ok, status: response.status, data: data };
+          });
+        })
+        .then(function (result) {
+          if (result.ok) {
+            statusEl.textContent =
+              'Запущено (limit=' + (result.data.limit || 50) +
+              '). Обновите страницу через пару секунд, чтобы увидеть свежие бэнды.';
+            window.alert('Замер запущен в фоне. Обновите страницу через несколько секунд.');
+          } else {
+            statusEl.textContent = 'Ошибка ' + result.status;
+            window.alert('Не удалось запустить замер: HTTP ' + result.status);
+          }
+        })
+        .catch(function (err) {
+          statusEl.textContent = 'Сетевая ошибка';
+          window.alert('Сетевая ошибка: ' + err);
+        })
+        .finally(function () {
+          btn.disabled = false;
+        });
+    });
+  })();
+</script>
+{% endblock %}

@@ -285,6 +285,9 @@ from app.web.routes import (
     shortcuts_help as shortcuts_help_routes,
     shot_annotations as shot_annotations_routes,
     opml_export as opml_export_routes,
+    quality_lab as quality_lab_routes,
+    capture_blocklist_admin as capture_blocklist_admin_routes,
+    auto_translate_settings as auto_translate_settings_routes,
 )
 from app.workers import (
     get_controller,
@@ -334,7 +337,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.22.0",
+        version="1.23.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -581,6 +584,9 @@ def create_app() -> FastAPI:
     app.include_router(shortcuts_help_routes.router)
     app.include_router(shot_annotations_routes.router)
     app.include_router(opml_export_routes.router)
+    app.include_router(quality_lab_routes.router)
+    app.include_router(capture_blocklist_admin_routes.router)
+    app.include_router(auto_translate_settings_routes.router)
     app.include_router(sticky_search_routes.router)
     app.include_router(audit_replay_routes.router)
     app.include_router(tag_gallery_routes.router)
@@ -670,6 +676,13 @@ async def _run_weekly_card_worker(controller: object) -> None:
     await run_weekly_card_worker()
 
 
+async def _run_auto_translate_worker(controller: object) -> None:
+    """Adapter for the v1.23 voice-segment auto-translate worker."""
+    from app.workers.auto_translate_worker import run_auto_translate_worker  # noqa: PLC0415
+
+    await run_auto_translate_worker()
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialise DB, start workers, and tear them down on shutdown."""
@@ -713,6 +726,10 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         asyncio.create_task(
             _run_weekly_card_worker(controller),
             name="weekly-card-worker",
+        ),
+        asyncio.create_task(
+            _run_auto_translate_worker(controller),
+            name="auto-translate-worker",
         ),
     ]
 

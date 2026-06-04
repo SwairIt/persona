@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from app.app_capture_skip import is_skipped as is_capture_skipped
 from app.capture import (
@@ -22,6 +22,15 @@ from app.capture.meeting_detector import (
 )
 from app.capture.power_state import get_power_state_async
 from app.capture.session_state import is_session_locked
+from app.capture_blocklist import (
+    find_matching_rule as find_blocklist_match,
+)
+from app.capture_blocklist import (
+    is_blocked as is_capture_regex_blocked,
+)
+from app.capture_blocklist import (
+    list_active_rules as list_blocklist_rules,
+)
 from app.dedup import compute_phash, find_or_create_dedup_group
 from app.focus import current_session as current_focus_session
 from app.focus_blocklist import is_blocked as is_focus_blocked
@@ -100,7 +109,7 @@ async def run_capture_loop(controller: CaptureController | None = None) -> None:
                 except TimeoutError:
                     continue
                 continue
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             log.debug("capture_loop.live_kv_check_failed", error=str(exc))
 
         # v1.19 — smart-pause for Zoom/Teams/Meet/Discord/etc.
@@ -196,7 +205,7 @@ async def run_capture_loop(controller: CaptureController | None = None) -> None:
                 ctrl.stop_event.wait(),
                 timeout=sleep_for,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             continue
 
     async with get_connection() as conn:
@@ -204,7 +213,7 @@ async def run_capture_loop(controller: CaptureController | None = None) -> None:
     log.info("capture_loop.stopped")
 
 
-async def _single_iteration(ctrl: CaptureController) -> float | None:  # noqa: PLR0911
+async def _single_iteration(ctrl: CaptureController) -> float | None:  # noqa: PLR0911, PLR0912
     """Run one capture iteration. Returns the observed idle_seconds, or
     ``None`` if the iteration short-circuited before idle was sampled.
     """
@@ -238,6 +247,13 @@ async def _single_iteration(ctrl: CaptureController) -> float | None:  # noqa: P
         ctrl.mark_idle_skip()
         return idle_seconds
 
+    # v1.21 — regex blocklist. Stricter sibling of ``app_capture_skip``.
+    # Extracted into a helper so this iteration body stays under the
+    # branch-count lint cap.
+    if window is not None and await _regex_blocklist_blocks(window):
+        ctrl.mark_idle_skip()
+        return idle_seconds
+
     if window is not None:
         # v0.85 distraction blocker: only consult the focus blocklist when a
         # session is actually running. Probing ``focus_session`` first keeps
@@ -264,6 +280,43 @@ async def _single_iteration(ctrl: CaptureController) -> float | None:  # noqa: P
     for result in results:
         await _persist_capture(ctrl, result, window, idle_seconds)
     return idle_seconds
+
+
+async def _regex_blocklist_blocks(window: object) -> bool:
+    """Consult the regex blocklist for the current foreground ``window``.
+
+    Returns ``True`` when at least one enabled rule matches the active
+    app name or window title, ``False`` otherwise. Failure modes (DB
+    error, regex compile error inside the helper) never raise — a
+    broken blocklist must not stop the capture loop, so any exception
+    here downgrades to "not blocked" and is logged at DEBUG.
+
+    The helper exists to keep :func:`_single_iteration` under the
+    ``PLR0912`` branch-count cap; inlining the same code costs three
+    extra branches in the caller.
+    """
+    # ``window`` is typed as ``object`` to avoid a hard import-time
+    # dependency on the ``ActiveWindow`` dataclass here — the caller
+    # already verified the value is not ``None`` before invoking us.
+    app_name = getattr(window, "app_name", None)
+    title = getattr(window, "title", None)
+    try:
+        async with get_connection() as conn:
+            rules = await list_blocklist_rules(conn)
+    except Exception as exc:
+        log.debug("capture_loop.blocklist_load_failed", error=str(exc))
+        return False
+    if not rules or not is_capture_regex_blocked(app_name, title, rules):
+        return False
+    matched = find_blocklist_match(app_name, title, rules)
+    log.info(
+        "capture.blocked_by_regex",
+        app=app_name,
+        title=(title or "")[:80],
+        pattern=matched[0].pattern if matched else None,
+        field=matched[1] if matched else None,
+    )
+    return True
 
 
 async def _persist_capture(
@@ -339,12 +392,13 @@ async def _persist_capture(
         # to raise the throttle level on subsequent captures. Failures
         # MUST NOT break capture — wrap in try/except.
         try:
-            from app import budget as _budget  # noqa: PLC0415
             from pathlib import Path as _Path  # noqa: PLC0415
+
+            from app import budget as _budget  # noqa: PLC0415
 
             written = _Path(thumbnail_path).stat().st_size
             await _budget.add_bytes("thumbnails", written)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             log.debug("capture_loop.budget_bump_failed", error=str(exc))
         await dispatch_event(
             "capture.saved",
@@ -404,7 +458,7 @@ def _timedelta_seconds(seconds: float) -> timedelta:
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 async def _check_meeting_pause() -> bool:
