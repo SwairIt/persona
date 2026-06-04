@@ -302,6 +302,9 @@ from app.web.routes import (
     entities as entities_routes,
     shot_compare as shot_compare_routes,
     outbox_admin as outbox_admin_routes,
+    focus_ics_export as focus_ics_export_routes,
+    obsidian_settings as obsidian_settings_routes,
+    dashboard_widget_editor as dashboard_widget_editor_routes,
 )
 from app.workers import (
     get_controller,
@@ -351,7 +354,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.37.0",
+        version="1.38.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -615,6 +618,9 @@ def create_app() -> FastAPI:
     app.include_router(entities_routes.router)
     app.include_router(shot_compare_routes.router)
     app.include_router(outbox_admin_routes.router)
+    app.include_router(focus_ics_export_routes.router)
+    app.include_router(obsidian_settings_routes.router)
+    app.include_router(dashboard_widget_editor_routes.router)
     app.include_router(sticky_search_routes.router)
     app.include_router(audit_replay_routes.router)
     app.include_router(tag_gallery_routes.router)
@@ -732,6 +738,13 @@ async def _run_entity_extractor_worker(controller: object) -> None:
     await run_entity_extractor_worker()
 
 
+async def _run_obsidian_sync_worker(controller: object) -> None:
+    """Adapter for the v1.38 Obsidian vault sync worker."""
+    from app.workers.obsidian_sync_worker import run_obsidian_sync_worker  # noqa: PLC0415
+
+    await run_obsidian_sync_worker()
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialise DB, start workers, and tear them down on shutdown."""
@@ -791,6 +804,10 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         asyncio.create_task(
             _run_entity_extractor_worker(controller),
             name="entity-extractor-worker",
+        ),
+        asyncio.create_task(
+            _run_obsidian_sync_worker(controller),
+            name="obsidian-sync-worker",
         ),
     ]
 

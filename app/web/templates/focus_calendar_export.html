@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Calendar export</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Download completed focus sessions as an <code class="text-zinc-400">.ics</code>
+    file. Import into Google Calendar / Apple Calendar / Outlook to overlay
+    your deep-work blocks against regular meetings. Only sessions marked
+    <span class="text-emerald-400">Done</span> are exported &mdash; bailed-out
+    blocks are skipped.
+  </p>
+</div>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-6 max-w-xl">
+  <h2 class="text-lg font-semibold mb-1">Pick a window</h2>
+  <p class="text-zinc-500 text-sm mb-4">
+    The default <span class="text-zinc-300">{{ default_days }} days</span>
+    covers a quarter of focus history. Pick a longer window for end-of-year
+    review, or a shorter one to keep the import light.
+  </p>
+
+  <div class="flex flex-wrap gap-2">
+    {% for days in window_options %}
+      <a href="/focus/calendar.ics?days={{ days }}"
+         class="px-4 py-2 rounded-lg text-sm font-medium
+                {% if days == default_days %}
+                  bg-accent-600 hover:bg-accent-500 text-white
+                {% else %}
+                  bg-ink-900 hover:bg-ink-700 text-zinc-200 border border-ink-700
+                {% endif %}">
+        Last {{ days }} days
+      </a>
+    {% endfor %}
+  </div>
+
+  <p class="text-zinc-500 text-xs mt-5">
+    Tip: in Google Calendar use
+    <span class="text-zinc-300">Settings &rarr; Import &amp; export</span>
+    and upload the downloaded file into a dedicated &ldquo;Persona focus&rdquo;
+    calendar so the events stay separate from your meeting schedule.
+  </p>
+</section>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-6 max-w-xl mt-6">
+  <h2 class="text-lg font-semibold mb-1">What ends up in each event</h2>
+  <ul class="text-sm text-zinc-400 space-y-1 list-disc list-inside">
+    <li><span class="text-zinc-200">Title</span> &mdash; the focus session label, or
+      <span class="font-mono text-zinc-300">Focus session</span> if you didn't set one.</li>
+    <li><span class="text-zinc-200">Start &amp; end</span> &mdash; the actual UTC timestamps
+      captured by the Pomodoro timer.</li>
+    <li><span class="text-zinc-200">Description</span> &mdash; work/break minutes and the
+      session ID so you can cross-reference back to the dashboard.</li>
+  </ul>
+</section>
+{% endblock %}

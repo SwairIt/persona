@@ -1,0 +1,194 @@
+{% extends "base.html" %}
+
+{#
+  obsidian_settings.html — Obsidian vault sync configuration.
+
+  Three knobs persisted in kv_settings:
+    * obsidian_sync_enabled   — checkbox
+    * obsidian_vault_path     — absolute path text input
+    * obsidian_lookback_days  — slider (1-90)
+
+  Plus a "Run now" button that POSTs /api/obsidian/sync-now and renders
+  the JSON result inline.
+#}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Obsidian-синхронизация</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Persona записывает ежедневное summary, hourly-карточки, заметки и
+    закреплённые скриншоты в виде markdown-файлов в выбранную папку
+    Obsidian Vault. Синхронизация <strong>только запись</strong> —
+    Persona не читает из vault и пересоздаёт файлы целиком на каждом
+    цикле. Файл с тем же содержанием не перезаписывается (хэш-сравнение).
+  </p>
+</div>
+
+<div class="rounded-lg border border-amber-700/40 bg-amber-900/20 text-amber-200 px-4 py-3 mb-6 text-xs">
+  Vault path должен быть <strong>абсолютным</strong> и существующей
+  директорией. Persona откажется сохранить путь, который ведёт внутрь
+  её собственной data-папки или репозитория — иначе sync рискует
+  перезаписать вашу базу данных.
+</div>
+
+<form action="/settings/obsidian" method="post"
+      class="space-y-6 max-w-2xl">
+
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <h2 class="text-lg font-semibold mb-4">Status</h2>
+
+    <label class="flex items-start gap-3 cursor-pointer">
+      <input type="checkbox"
+             name="enabled"
+             value="1"
+             {% if enabled %}checked{% endif %}
+             class="mt-1 h-4 w-4 rounded border-ink-700 bg-ink-900 accent-accent-500">
+      <span>
+        <span class="block text-sm text-zinc-200 font-medium">Включить периодическую синхронизацию</span>
+        <span class="block text-xs text-zinc-500 mt-0.5">
+          Раз в час фоновой воркер пройдёт по последним 14 дням и
+          обновит файлы в vault. Когда выключено — воркер просыпается,
+          логирует "disabled" и засыпает обратно.
+        </span>
+      </span>
+    </label>
+  </section>
+
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 space-y-4">
+    <h2 class="text-lg font-semibold">Vault</h2>
+
+    <div>
+      <label for="vault-path" class="block text-sm text-zinc-300 mb-1.5">Полный путь к Vault</label>
+      <input id="vault-path"
+             type="text"
+             name="vault_path"
+             value="{{ vault_path }}"
+             placeholder="C:\Users\you\Documents\MyVault или /home/you/vault"
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded-lg
+                    focus:outline-none focus:border-accent-500 font-mono text-sm">
+      <p class="text-xs text-zinc-500 mt-1.5">
+        Persona будет писать в подпапку <code class="font-mono">Persona/</code>
+        внутри этого vault — по одному файлу на день
+        (<code class="font-mono">YYYY-MM-DD.md</code>). Пустая строка
+        отключает запись даже при включённой галке.
+      </p>
+    </div>
+  </section>
+
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 space-y-4">
+    <h2 class="text-lg font-semibold">Окно "Run now"</h2>
+
+    <div>
+      <label for="lookback-days" class="block text-sm text-zinc-300 mb-1.5">
+        Сколько последних дней пересобирать одноразово:
+        <span id="lookback-value" class="font-mono text-accent-400">{{ lookback_days }}</span>
+      </label>
+      <input id="lookback-days"
+             type="range"
+             name="lookback_days"
+             value="{{ lookback_days }}"
+             min="{{ lookback_min }}"
+             max="{{ lookback_max }}"
+             step="1"
+             class="w-full accent-accent-500">
+      <p class="text-xs text-zinc-500 mt-1.5">
+        Этим значением пользуется кнопка <em>Run now</em> ниже.
+        Периодический воркер всегда смотрит на последние 14 дней —
+        слайдер на эту константу не влияет, только на одноразовый запуск.
+        Диапазон: {{ lookback_min }}–{{ lookback_max }} дней.
+      </p>
+    </div>
+  </section>
+
+  <div class="flex items-center gap-3 pt-2">
+    <button type="submit"
+            class="px-5 py-2.5 bg-accent-600 hover:bg-accent-500 rounded-lg font-medium transition">
+      Сохранить
+    </button>
+    <a href="/settings"
+       class="px-4 py-2.5 rounded-lg border border-ink-700 hover:border-zinc-500 text-zinc-400 transition text-sm">
+      Назад к настройкам
+    </a>
+  </div>
+</form>
+
+<section class="mt-8 rounded-lg border border-ink-700 bg-ink-800 p-5 max-w-2xl">
+  <h2 class="text-lg font-semibold mb-3">Запустить синхронизацию сейчас</h2>
+  <p class="text-xs text-zinc-500 mb-3">
+    Использует уже сохранённый путь и слайдер выше. Сохраните форму
+    перед нажатием, иначе кнопка возьмёт предыдущие значения.
+  </p>
+  <button type="button"
+          id="obsidian-run-now"
+          class="px-4 py-2 border border-ink-700 hover:border-accent-500 rounded text-sm transition">
+    Run now
+  </button>
+
+  <div id="obsidian-result"
+       class="mt-4 hidden rounded-lg border px-4 py-3 text-sm font-mono whitespace-pre-wrap"></div>
+</section>
+
+<script>
+  (function () {
+    const slider = document.getElementById('lookback-days');
+    const sliderLabel = document.getElementById('lookback-value');
+    if (slider && sliderLabel) {
+      slider.addEventListener('input', function () {
+        sliderLabel.textContent = slider.value;
+      });
+    }
+
+    const btn = document.getElementById('obsidian-run-now');
+    const out = document.getElementById('obsidian-result');
+    if (!btn || !out) {
+      return;
+    }
+    function paint(kind, text) {
+      out.classList.remove('hidden',
+        'border-emerald-700/40', 'bg-emerald-900/20', 'text-emerald-200',
+        'border-rose-700/40',    'bg-rose-900/20',    'text-rose-200',
+        'border-amber-700/40',   'bg-amber-900/20',   'text-amber-200');
+      const palette = {
+        ok:   ['border-emerald-700/40', 'bg-emerald-900/20', 'text-emerald-200'],
+        bad:  ['border-rose-700/40',    'bg-rose-900/20',    'text-rose-200'],
+        warn: ['border-amber-700/40',   'bg-amber-900/20',   'text-amber-200']
+      }[kind];
+      palette.forEach(function (cls) { out.classList.add(cls); });
+      out.textContent = text;
+    }
+    btn.addEventListener('click', async function () {
+      btn.disabled = true;
+      const original = btn.textContent;
+      btn.textContent = 'Запускаю…';
+      try {
+        const r = await fetch('/api/obsidian/sync-now', { method: 'POST' });
+        let body = null;
+        try { body = await r.json(); } catch (_e) { body = null; }
+        if (r.ok && body && body.ok) {
+          const lines = [
+            'Vault: ' + body.vault_path,
+            'Lookback: ' + body.lookback_days + ' дн.',
+            'Записано файлов: ' + body.files_written,
+            'Пропущено (без изменений): ' + body.files_skipped,
+            'Ошибок: ' + (body.errors ? body.errors.length : 0)
+          ];
+          if (body.errors && body.errors.length) {
+            lines.push('');
+            lines.push('— ' + body.errors.join('\n— '));
+          }
+          paint('ok', lines.join('\n'));
+        } else if (body && body.detail) {
+          paint('warn', body.detail);
+        } else {
+          paint('bad', 'Не удалось выполнить sync (HTTP ' + r.status + ')');
+        }
+      } catch (e) {
+        paint('bad', 'Сеть: ' + (e && e.message ? e.message : e));
+      } finally {
+        btn.disabled = false;
+        btn.textContent = original;
+      }
+    });
+  })();
+</script>
+{% endblock %}

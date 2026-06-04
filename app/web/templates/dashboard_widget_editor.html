@@ -1,0 +1,246 @@
+{% extends "base.html" %}
+
+{#
+  v1.37 — Dashboard grid editor.
+
+  Two columns: Active (sortable via SortableJS) and Available (click to
+  add). Position is implicit by render order in the Active column;
+  Available entries appear in catalogue order. The Save button POSTs
+  ``{"widgets": [{key, enabled, slot_id?}, ...]}`` to
+  ``/settings/dashboard-grid`` — slot_id is omitted for entries that
+  came from Available (the server inserts them).
+
+  SortableJS is loaded from a CDN; Alpine owns the array state for the
+  Active list and the toggle-eye buttons, and a vanilla ``fetch`` posts
+  the JSON on submit (htmx's form encoding would force an extra
+  serialisation step for very little gain).
+#}
+
+{% block head_extra %}
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js" defer></script>
+{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Сетка дашборда</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Перетаскивайте виджеты в колонке <em>Активные</em>, переключайте
+    видимость иконкой глаза. Виджеты из <em>Доступных</em> добавляются
+    одним кликом и встают в конец списка.
+  </p>
+</div>
+
+<div
+  x-data='{
+    active: {{ active_widgets | tojson }},
+    available: {{ available_widgets | tojson }},
+    saving: false,
+    message: null,
+    error: null,
+    addWidget(key) {
+      const idx = this.available.findIndex(w => w.key === key);
+      if (idx < 0) { return; }
+      const [picked] = this.available.splice(idx, 1);
+      this.active.push({
+        slot_id: null,
+        key: picked.key,
+        title: picked.title,
+        description: picked.description,
+        enabled: true,
+        known: true
+      });
+    },
+    removeWidget(index) {
+      const [picked] = this.active.splice(index, 1);
+      if (!picked) { return; }
+      // Push back into Available so the user can re-add without a
+      // reload; reorder by default_position to keep the picker tidy.
+      this.available.push({
+        key: picked.key,
+        title: picked.title,
+        description: picked.description,
+        default_position: 9999
+      });
+    },
+    toggle(index) {
+      this.active[index].enabled = !this.active[index].enabled;
+    },
+    payload() {
+      // SortableJS mutates the DOM order but Alpine x-for keeps the
+      // ``active`` array authoritative via the :key binding, so we
+      // read straight from ``active`` rather than walking the DOM.
+      return {
+        widgets: this.active.map(w => {
+          const row = { key: w.key, enabled: !!w.enabled };
+          if (w.slot_id) { row.slot_id = w.slot_id; }
+          return row;
+        })
+      };
+    },
+    async save() {
+      if (this.saving) { return; }
+      this.saving = true;
+      this.message = null;
+      this.error = null;
+      try {
+        const res = await fetch("/settings/dashboard-grid", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(this.payload())
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error("HTTP " + res.status + ": " + text);
+        }
+        const data = await res.json();
+        this.message = "Saved " + (data.count || 0) + " widgets.";
+      } catch (err) {
+        this.error = String(err && err.message ? err.message : err);
+      } finally {
+        this.saving = false;
+      }
+    },
+    initSortable($el) {
+      // Defer to next tick so the SortableJS CDN script (loaded with
+      // ``defer``) is guaranteed to have executed by the time Alpine
+      // fires this x-init.
+      const start = () => {
+        if (typeof Sortable === "undefined") {
+          setTimeout(start, 30);
+          return;
+        }
+        Sortable.create($el, {
+          animation: 150,
+          handle: ".js-drag-handle",
+          ghostClass: "opacity-40",
+          onEnd: (evt) => {
+            if (evt.oldIndex === evt.newIndex) { return; }
+            const next = this.active.slice();
+            const [moved] = next.splice(evt.oldIndex, 1);
+            next.splice(evt.newIndex, 0, moved);
+            this.active = next;
+          }
+        });
+      };
+      start();
+    }
+  }'
+  class="grid lg:grid-cols-2 gap-6"
+>
+  {# ── Active column ─────────────────────────────────────────────── #}
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <h2 class="text-lg font-semibold mb-1">Активные</h2>
+    <p class="text-xs text-zinc-500 mb-4">
+      Порядок сверху вниз = порядок на <a href="/dashboard" class="text-accent-400 hover:underline">/dashboard</a>.
+      Глаз — видимость, крестик — убрать в «Доступные».
+    </p>
+
+    <ul
+      x-ref="activeList"
+      x-init="initSortable($refs.activeList)"
+      class="space-y-2"
+      x-show="active.length > 0"
+    >
+      <template x-for="(widget, index) in active" :key="widget.key">
+        <li
+          class="flex items-center gap-2 rounded border border-ink-700 bg-ink-900 px-3 py-2"
+          :class="!widget.enabled ? 'opacity-50' : ''"
+        >
+          <button
+            type="button"
+            class="js-drag-handle cursor-grab text-zinc-500 hover:text-zinc-200 px-1"
+            aria-label="Drag to reorder"
+            title="Перетащить"
+          >&#x2630;</button>
+
+          <div class="flex-1 min-w-0">
+            <div class="text-sm text-zinc-200" x-text="widget.title"></div>
+            <div
+              class="text-xs text-zinc-500 truncate"
+              x-text="widget.description"
+            ></div>
+            <div
+              class="text-[10px] font-mono text-zinc-600"
+              x-text="widget.key + (widget.known ? '' : ' (unknown)')"
+            ></div>
+          </div>
+
+          <button
+            type="button"
+            @click="toggle(index)"
+            class="px-2 py-1 text-xs rounded border border-ink-700 text-zinc-300 hover:text-accent-400 hover:border-accent-500"
+            :aria-label="widget.enabled ? 'Скрыть' : 'Показать'"
+            :title="widget.enabled ? 'Скрыть' : 'Показать'"
+            x-text="widget.enabled ? '✓' : '✕'"
+          ></button>
+
+          <button
+            type="button"
+            @click="removeWidget(index)"
+            class="px-2 py-1 text-xs rounded border border-ink-700 text-zinc-400 hover:text-red-400 hover:border-red-500"
+            aria-label="Убрать из активных"
+            title="Убрать"
+          >&times;</button>
+        </li>
+      </template>
+    </ul>
+
+    <p class="text-sm text-zinc-500" x-show="active.length === 0">
+      Активных виджетов нет — выберите из «Доступных» справа.
+    </p>
+  </section>
+
+  {# ── Available column ──────────────────────────────────────────── #}
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <h2 class="text-lg font-semibold mb-1">Доступные</h2>
+    <p class="text-xs text-zinc-500 mb-4">
+      Кликните по виджету, чтобы добавить его в конец списка активных.
+    </p>
+
+    <ul class="space-y-2" x-show="available.length > 0">
+      <template x-for="widget in available" :key="widget.key">
+        <li>
+          <button
+            type="button"
+            @click="addWidget(widget.key)"
+            class="w-full text-left rounded border border-ink-700 bg-ink-900 px-3 py-2 hover:border-accent-500 hover:bg-ink-800"
+          >
+            <div class="text-sm text-zinc-200" x-text="widget.title"></div>
+            <div
+              class="text-xs text-zinc-500"
+              x-text="widget.description"
+            ></div>
+            <div class="text-[10px] font-mono text-zinc-600" x-text="widget.key"></div>
+          </button>
+        </li>
+      </template>
+    </ul>
+
+    <p class="text-sm text-zinc-500" x-show="available.length === 0">
+      Все доступные виджеты уже добавлены.
+    </p>
+  </section>
+
+  {# ── Save bar ──────────────────────────────────────────────────── #}
+  <div class="lg:col-span-2 flex items-center gap-3">
+    <button
+      type="button"
+      @click="save()"
+      :disabled="saving"
+      class="px-4 py-2 rounded bg-accent-600 hover:bg-accent-500 text-white text-sm font-semibold disabled:opacity-50"
+    >
+      <span x-show="!saving">Сохранить</span>
+      <span x-show="saving">Сохраняем…</span>
+    </button>
+    <a href="/dashboard" class="text-sm text-zinc-500 hover:text-zinc-300">
+      Назад к дашборду
+    </a>
+    <span
+      class="text-xs ml-auto"
+      :class="error ? 'text-red-400' : 'text-emerald-400'"
+      x-text="error || message"
+      x-show="error || message"
+    ></span>
+  </div>
+</div>
+{% endblock %}
