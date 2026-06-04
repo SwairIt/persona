@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-8">
+  <h1 class="text-2xl font-bold tracking-tight">Память — недели</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Tier 2: одна карточка на ISO-неделю. Сворачивает ~168 часовых
+    карточек и 7 daily-пинов в один ~5&nbsp;КБ markdown. Хранится
+    бессрочно — ретеншн их не трогает.
+  </p>
+  <p class="text-zinc-500 text-xs mt-2">
+    <a href="/memory" class="hover:text-zinc-300 underline">← к часам и дням</a>
+  </p>
+</div>
+
+<section class="mb-12">
+  <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">
+    Last {{ cards|length }} weeks
+  </h2>
+  {% if cards %}
+    <div class="space-y-3">
+      {% for card in cards %}
+        <article class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+          <div class="flex items-baseline justify-between mb-2 gap-3 flex-wrap">
+            <span class="text-zinc-200 font-mono text-sm">
+              {{ card.week_start }} — {{ card.week_end }}
+            </span>
+            <span class="flex items-center gap-2 text-xs">
+              <span class="px-2 py-0.5 rounded-full bg-accent-600/20 text-accent-400 whitespace-nowrap">
+                {{ card.days_active }}/7 дней
+              </span>
+              <span class="text-zinc-500 whitespace-nowrap">
+                {{ card.total_screens }} shots
+                {% if card.total_voice_minutes %}· {{ card.total_voice_minutes }}m voice{% endif %}
+              </span>
+            </span>
+          </div>
+          {% if card.top_apps %}
+            <div class="text-zinc-400 text-xs mb-2">
+              {% for app in card.top_apps %}
+                <span class="inline-block mr-2">
+                  <span class="text-zinc-200">{{ app.app }}</span>
+                  <span class="text-zinc-500">({{ app.shots }})</span>
+                </span>
+              {% endfor %}
+            </div>
+          {% endif %}
+          <div class="text-zinc-300 text-sm whitespace-pre-line">{{ card.summary }}</div>
+          <div class="text-zinc-600 text-xs mt-2">source: {{ card.source }}</div>
+        </article>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="text-zinc-500 text-sm">
+      Ещё нет недельных карточек — worker напишет первую через час
+      после того, как накопятся часовые карточки за полную ISO-неделю.
+    </p>
+  {% endif %}
+</section>
+
+<section class="text-zinc-500 text-xs">
+  Tier 0 (raw): screenshots / audio_segment.
+  Tier 1: hourly_card (~10 KB/час, 30д).
+  Tier 2: weekly_card (~5 KB/неделя, <strong>навсегда</strong>).
+  Tier 5: daily_pin (~200 B/день, <strong>навсегда</strong>).
+</section>
+{% endblock %}

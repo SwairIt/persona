@@ -279,6 +279,9 @@ from app.web.routes import (
     per_app_digest_pdf as per_app_digest_pdf_routes,
     tag_rule_stats as tag_rule_stats_routes,
     clipboard_semantic as clipboard_semantic_routes,
+    weekly_cards as weekly_cards_routes,
+    meeting_pause as meeting_pause_routes,
+    llm_cost as llm_cost_routes,
 )
 from app.workers import (
     get_controller,
@@ -328,7 +331,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.20.0",
+        version="1.21.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -569,6 +572,9 @@ def create_app() -> FastAPI:
     app.include_router(per_app_digest_pdf_routes.router)
     app.include_router(tag_rule_stats_routes.router)
     app.include_router(clipboard_semantic_routes.router)
+    app.include_router(weekly_cards_routes.router)
+    app.include_router(meeting_pause_routes.router)
+    app.include_router(llm_cost_routes.router)
     app.include_router(sticky_search_routes.router)
     app.include_router(audit_replay_routes.router)
     app.include_router(tag_gallery_routes.router)
@@ -651,6 +657,13 @@ async def _run_tag_rule_worker(controller: object) -> None:
     await run_tag_rule_worker()
 
 
+async def _run_weekly_card_worker(controller: object) -> None:
+    """Adapter for the v1.21 tier-2 weekly summary card worker."""
+    from app.workers.weekly_card_worker import run_weekly_card_worker  # noqa: PLC0415
+
+    await run_weekly_card_worker()
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialise DB, start workers, and tear them down on shutdown."""
@@ -690,6 +703,10 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         asyncio.create_task(
             _run_tag_rule_worker(controller),
             name="tag-rule-worker",
+        ),
+        asyncio.create_task(
+            _run_weekly_card_worker(controller),
+            name="weekly-card-worker",
         ),
     ]
 

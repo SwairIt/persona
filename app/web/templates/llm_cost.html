@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+
+{% block content %}
+{# ---- helpers ---- #}
+{% macro fmt_tokens(n) -%}
+  {%- if n is none or n == 0 -%}0
+  {%- elif n < 1000 -%}{{ n }}
+  {%- elif n < 1000000 -%}{{ (n / 1000) | round(1) }}k
+  {%- else -%}{{ (n / 1000000) | round(2) }}M
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro fmt_usd(v) -%}
+  {%- if v is none -%}$0.00
+  {%- elif v >= 1 -%}${{ "%.2f"|format(v) }}
+  {%- elif v >= 0.01 -%}${{ "%.3f"|format(v) }}
+  {%- else -%}${{ "%.5f"|format(v) }}
+  {%- endif -%}
+{%- endmacro %}
+
+<div class="mb-6 flex items-end justify-between flex-wrap gap-3">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Стоимость LLM</h1>
+    <p class="text-zinc-500 text-sm mt-1 max-w-2xl">
+      Оценка трат на BYO-API за последние
+      <strong class="text-zinc-300">{{ days_window }}</strong> дней.
+      Считается из таблицы <code class="text-zinc-400">llm_usage</code>
+      по прайс-листу из <code class="text-zinc-400">app.llm_cost</code> —
+      приблизительно, не сверка с биллингом провайдера.
+    </p>
+  </div>
+  <a href="/stats/llm-usage" class="text-xs text-zinc-500 hover:text-accent-400 underline">
+    &larr; токены по дням
+  </a>
+</div>
+
+{# ---- 3 big numbers ---- #}
+<section class="mb-6 grid grid-cols-1 sm:grid-cols-3 gap-3">
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <div class="text-xs text-zinc-500 uppercase tracking-wide">Всего $</div>
+    <div class="text-4xl font-bold mt-2 text-accent-300">{{ fmt_usd(total_usd) }}</div>
+    <div class="text-xs text-zinc-500 mt-1">оценка за окно</div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <div class="text-xs text-zinc-500 uppercase tracking-wide">Запросов</div>
+    <div class="text-4xl font-bold mt-2 text-sky-300">{{ "{:,}".format(total_calls) }}</div>
+    <div class="text-xs text-zinc-500 mt-1">всех видов (успех + ошибки)</div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <div class="text-xs text-zinc-500 uppercase tracking-wide">Дней с использованием</div>
+    <div class="text-4xl font-bold mt-2 text-emerald-300">{{ active_days }}</div>
+    <div class="text-xs text-zinc-500 mt-1">из {{ days_window }} в окне</div>
+  </div>
+</section>
+
+{# ---- inline SVG bar chart, 30 days, $ per day ---- #}
+<section class="mb-8 rounded-lg border border-ink-700 bg-ink-800 p-5">
+  <div class="mb-3">
+    <h2 class="text-sm font-semibold text-zinc-300">$ в день</h2>
+    <p class="text-zinc-500 text-xs mt-0.5">
+      Слева — самый старый день, справа — сегодня. Пиковый день:
+      <strong class="text-zinc-300">{{ fmt_usd(max_day_usd) }}</strong>.
+    </p>
+  </div>
+
+  {% if by_day and max_day_usd > 0 %}
+    {%- set svg_w = 1000 -%}
+    {%- set svg_h = 200 -%}
+    {%- set pad_x = 4 -%}
+    {%- set pad_y = 8 -%}
+    {%- set inner_h = svg_h - 2 * pad_y -%}
+    {%- set n = by_day | length -%}
+    {%- set bar_slot = (svg_w - 2 * pad_x) / n -%}
+    {%- set bar_w = bar_slot * 0.7 -%}
+    {%- set bar_gap = bar_slot * 0.3 -%}
+
+    <svg viewBox="0 0 {{ svg_w }} {{ svg_h }}" width="100%" height="{{ svg_h }}"
+         class="block" preserveAspectRatio="none" role="img"
+         aria-label="Стоимость LLM по дням">
+
+      {# baseline #}
+      <line x1="0" x2="{{ svg_w }}" y1="{{ svg_h - pad_y }}" y2="{{ svg_h - pad_y }}"
+            stroke="#26262e" stroke-width="0.5"/>
+
+      {%- for d in by_day %}
+        {%- set x = pad_x + loop.index0 * bar_slot + bar_gap / 2 -%}
+        {%- set h = (d.est_cost_usd / max_day_usd) * inner_h if max_day_usd else 0 -%}
+        {%- set y = svg_h - pad_y - h -%}
+        <rect x="{{ "%.2f"|format(x) }}" y="{{ "%.2f"|format(y) }}"
+              width="{{ "%.2f"|format(bar_w) }}" height="{{ "%.2f"|format(h) }}"
+              fill="{% if d.est_cost_usd > 0 %}#a78bfa{% else %}#26262e{% endif %}"
+              rx="1">
+          <title>{{ d.day }} &mdash; {{ fmt_usd(d.est_cost_usd) }} ({{ d.calls }} запросов)</title>
+        </rect>
+      {%- endfor %}
+    </svg>
+
+    <div class="flex justify-between text-[10px] text-zinc-500 mt-1 font-mono">
+      <span>{{ by_day[0].day }}</span>
+      <span>{{ by_day[-1].day }}</span>
+    </div>
+  {% else %}
+    <p class="text-zinc-500 text-xs">
+      Пока нет данных в окне. Сделайте любой LLM-запрос (digest, TL;DR, авто-теги) — и здесь появится бар.
+    </p>
+  {% endif %}
+</section>
+
+{# ---- breakdown table ---- #}
+<section class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden">
+  <div class="px-4 py-3 border-b border-ink-700">
+    <h2 class="text-sm font-semibold text-zinc-300">Подробная разбивка</h2>
+    <p class="text-zinc-500 text-xs mt-0.5">
+      По дню, провайдеру, модели и виду запроса. Модель — это default из
+      <code class="text-zinc-400">app.llm.client</code> (в ledger поле
+      <code class="text-zinc-400">model</code> не хранится).
+    </p>
+  </div>
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="bg-ink-900/60 text-xs uppercase tracking-wide text-zinc-500">
+        <tr>
+          <th class="px-4 py-2 text-left font-medium">День</th>
+          <th class="px-4 py-2 text-left font-medium">Провайдер</th>
+          <th class="px-4 py-2 text-left font-medium">Модель</th>
+          <th class="px-4 py-2 text-left font-medium">Kind</th>
+          <th class="px-4 py-2 text-right font-medium">Запросов</th>
+          <th class="px-4 py-2 text-right font-medium">Input</th>
+          <th class="px-4 py-2 text-right font-medium">Output</th>
+          <th class="px-4 py-2 text-right font-medium">$</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-ink-700">
+        {% for row in rows %}
+          <tr class="hover:bg-ink-700/40">
+            <td class="px-4 py-2 font-mono text-zinc-400">{{ row.day }}</td>
+            <td class="px-4 py-2 text-zinc-300">{{ row.provider }}</td>
+            <td class="px-4 py-2 font-mono text-zinc-400">{{ row.model }}</td>
+            <td class="px-4 py-2 font-mono text-zinc-300">{{ row.kind }}</td>
+            <td class="px-4 py-2 text-right font-mono text-zinc-300">{{ "{:,}".format(row.calls) }}</td>
+            <td class="px-4 py-2 text-right font-mono text-sky-300">{{ fmt_tokens(row.input_total) }}</td>
+            <td class="px-4 py-2 text-right font-mono text-emerald-300">{{ fmt_tokens(row.output_total) }}</td>
+            <td class="px-4 py-2 text-right font-mono font-semibold text-accent-300">{{ fmt_usd(row.est_cost_usd) }}</td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="8" class="px-4 py-6 text-center text-zinc-500 text-xs">
+              Нет данных за окно {{ days_window }} дней.
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<p class="text-xs text-zinc-500 mt-4">
+  JSON: <a href="/api/stats/llm-cost.json?days={{ days_window }}"
+    class="hover:text-accent-400 underline">/api/stats/llm-cost.json</a>.
+  Цены &mdash; снапшот, не сверка с биллингом.
+</p>
+{% endblock %}

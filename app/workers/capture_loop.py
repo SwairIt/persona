@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 from datetime import datetime, timedelta, timezone
 
 from app.app_capture_skip import is_skipped as is_capture_skipped
@@ -14,6 +15,11 @@ from app.capture import (
     should_capture,
 )
 from app.capture.adaptive_cadence import compute_interval
+from app.capture.meeting_detector import (
+    detect_meeting,
+    record_event_end,
+    record_event_start,
+)
 from app.capture.power_state import get_power_state_async
 from app.capture.session_state import is_session_locked
 from app.dedup import compute_phash, find_or_create_dedup_group
@@ -39,8 +45,23 @@ from app.workers.heartbeat import beat
 log = get_logger("persona.capture_loop")
 rate_guard_log = get_logger("persona.capture.rate_guard")
 
+# v1.19 — smart-pause meeting detector ring buffer + active-meeting cursor.
+#
+# The detector wants the *recently seen* app names, not just the
+# currently-active one — when the user alt-tabs from Zoom to their
+# notes for a second the active window momentarily stops matching but
+# the meeting is still on. A length-3 deque covers that without
+# growing unbounded.
+#
+# ``_active_meeting_event_id`` tracks the row id of the currently-open
+# ``meeting_event`` row so we know which row to stamp ``ended_at`` on
+# when the meeting ends. ``None`` when we are not currently paused
+# for a meeting.
+_recent_app_names: deque[str] = deque(maxlen=3)
+_active_meeting_event_id: int | None = None
 
-async def run_capture_loop(controller: CaptureController | None = None) -> None:
+
+async def run_capture_loop(controller: CaptureController | None = None) -> None:  # noqa: PLR0912, PLR0915
     """Main capture-loop entry point. Runs until stop_event is set."""
     ctrl = controller or get_controller()
     settings = get_settings()
@@ -81,6 +102,35 @@ async def run_capture_loop(controller: CaptureController | None = None) -> None:
                 continue
         except Exception as exc:  # noqa: BLE001
             log.debug("capture_loop.live_kv_check_failed", error=str(exc))
+
+        # v1.19 — smart-pause for Zoom/Teams/Meet/Discord/etc.
+        #
+        # Read the kv flag in the same iteration (cheap: same SQLite
+        # connection pool we just used for the screens_kill check).
+        # When ``meeting_pause_enabled=1`` AND the detector matches
+        # the active/recent windows against its hard-coded pattern
+        # list, skip the iteration — mirrors the screens_kill
+        # short-circuit above so the sleep schedule stays identical.
+        #
+        # Transitions (entered / left a meeting) are logged at INFO
+        # and persisted to ``meeting_event``; the per-tick steady
+        # state is silent so we don't spam the log when a meeting
+        # runs for an hour.
+        try:
+            meeting_active = await _check_meeting_pause()
+        except Exception as exc:
+            log.debug("capture_loop.meeting_check_failed", error=str(exc))
+            meeting_active = False
+        if meeting_active:
+            sleep_for = live_interval or settings.capture_interval_seconds
+            try:
+                await asyncio.wait_for(
+                    ctrl.stop_event.wait(),
+                    timeout=sleep_for,
+                )
+            except TimeoutError:
+                continue
+            continue
 
         rate_pause = await _enforce_rate_guard()
         battery_pause = False
@@ -355,6 +405,72 @@ def _timedelta_seconds(seconds: float) -> timedelta:
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+async def _check_meeting_pause() -> bool:
+    """Update the recent-app ring and decide whether to pause for a meeting.
+
+    Returns ``True`` when the smart-pause is engaged this iteration
+    (caller should skip capture and sleep). Returns ``False`` when the
+    feature is disabled, when no pattern matched, or when sampling the
+    active window failed — failure modes never block capture, by
+    design: a broken detector must not silently stop screenshots.
+
+    Side effects:
+
+    * Pushes the current active app name into ``_recent_app_names``.
+    * Inserts a ``meeting_event`` row on entering a meeting (with the
+      row id cached in ``_active_meeting_event_id``).
+    * Stamps ``ended_at`` on that row when the meeting ends.
+    """
+    global _active_meeting_event_id  # noqa: PLW0603
+
+    from app.storage.repository import get_kv  # noqa: PLC0415
+
+    async with get_connection() as conn:
+        flag = await get_kv(conn, "meeting_pause_enabled")
+    enabled = (flag or "0").strip() == "1"
+
+    # Even when disabled we still sample the window so that, the
+    # moment the user flips the flag on, the ring buffer is already
+    # warm — otherwise the first three ticks after enabling would be
+    # blind.
+    window = await asyncio.to_thread(get_active_window)
+    active_app = window.app_name if window is not None else None
+    if active_app:
+        _recent_app_names.append(active_app)
+
+    result = detect_meeting(
+        active_app,
+        list(_recent_app_names),
+        enabled=enabled,
+    )
+
+    if result["in_meeting"]:
+        if _active_meeting_event_id is None:
+            matched_app = result["matched_app"] or "unknown"
+            matched_pattern = result["matched_pattern"] or "unknown"
+            async with get_connection() as conn:
+                _active_meeting_event_id = await record_event_start(
+                    conn,
+                    app_name=matched_app,
+                    pattern=matched_pattern,
+                )
+            log.info(
+                "capture_loop.meeting_entered",
+                app=matched_app,
+                pattern=matched_pattern,
+            )
+        return True
+
+    # Not in a meeting right now — close out the previous one if any.
+    if _active_meeting_event_id is not None:
+        closed_id = _active_meeting_event_id
+        _active_meeting_event_id = None
+        async with get_connection() as conn:
+            await record_event_end(conn, closed_id)
+        log.info("capture_loop.meeting_left", event_id=closed_id)
+    return False
 
 
 async def _enforce_rate_guard() -> bool:
