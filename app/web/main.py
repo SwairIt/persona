@@ -295,6 +295,10 @@ from app.web.routes import (
     shot_alt_text_settings as shot_alt_text_settings_routes,
     auto_pin_admin as auto_pin_admin_routes,
     today_vs_average as today_vs_average_routes,
+    pinned_feed as pinned_feed_routes,
+    ocr_confidence_chart as ocr_confidence_chart_routes,
+    voice_note as voice_note_routes,
+    voice_note_widget as voice_note_widget_routes,
 )
 from app.workers import (
     get_controller,
@@ -344,7 +348,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.35.0",
+        version="1.36.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -601,6 +605,10 @@ def create_app() -> FastAPI:
     app.include_router(shot_alt_text_settings_routes.router)
     app.include_router(auto_pin_admin_routes.router)
     app.include_router(today_vs_average_routes.router)
+    app.include_router(pinned_feed_routes.router)
+    app.include_router(ocr_confidence_chart_routes.router)
+    app.include_router(voice_note_routes.router)
+    app.include_router(voice_note_widget_routes.router)
     app.include_router(sticky_search_routes.router)
     app.include_router(audit_replay_routes.router)
     app.include_router(tag_gallery_routes.router)

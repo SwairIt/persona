@@ -1,0 +1,256 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-8 flex flex-wrap items-end justify-between gap-4">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Качество OCR по приложениям</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Средняя уверенность Tesseract по каждому приложению за последние
+      {{ days }} {% if days == 1 %}день{% elif days < 5 %}дня{% else %}дней{% endif %}.
+      Красный (&lt; 50) — OCR работает плохо, кандидат на vision-fallback
+      или пропуск. Жёлтый (50–75) — пограничная зона. Зелёный (&gt; 75) —
+      читается надёжно. Приложения с &lt; 100 слов сведены в «other».
+    </p>
+  </div>
+
+  <form method="get" action="/stats/ocr-confidence"
+        class="flex flex-wrap items-end gap-3 text-sm">
+    <label class="flex flex-col gap-1">
+      <span class="text-xs uppercase tracking-widest text-zinc-500">Окно (дней)</span>
+      <input type="number" name="days" value="{{ days }}"
+             min="{{ min_days }}" max="{{ max_days }}"
+             class="bg-ink-800 border border-ink-700 rounded-md px-2 py-1.5 w-24 text-zinc-100
+                    focus:outline-none focus:ring-2 focus:ring-accent-500 tabular-nums">
+    </label>
+    <button type="submit"
+            class="px-3 py-1.5 rounded-md bg-accent-600/20 text-accent-400 hover:bg-accent-600/30
+                   border border-accent-600/40 transition">
+      Обновить
+    </button>
+  </form>
+</div>
+
+{# Quick window switcher — pure links. #}
+<div class="flex flex-wrap items-center gap-2 mb-6">
+  <span class="text-xs uppercase tracking-widest text-zinc-500 mr-1">Быстро</span>
+  {% for choice in window_choices %}
+    <a href="/stats/ocr-confidence?days={{ choice }}"
+       class="px-3 py-1.5 rounded-md text-sm font-mono transition
+              {% if choice == days %}bg-accent-600/20 text-accent-400 border border-accent-600/40{% else %}text-zinc-400 hover:text-zinc-100 hover:bg-ink-800 border border-ink-700{% endif %}">
+      {{ choice }}d
+    </a>
+  {% endfor %}
+</div>
+
+<section class="grid sm:grid-cols-4 gap-4 mb-8">
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Приложений</div>
+    <div class="text-2xl font-bold mt-1 tabular-nums">
+      {{ summary.total_apps }}
+    </div>
+    <div class="text-xs text-zinc-500 mt-1">в окне</div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Всего слов</div>
+    <div class="text-2xl font-bold mt-1 tabular-nums">
+      {{ "{:,}".format(summary.total_words) }}
+    </div>
+    <div class="text-xs text-zinc-500 mt-1">по всем приложениям</div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Средняя уверенность</div>
+    <div class="text-2xl font-bold mt-1 tabular-nums">
+      {{ "%.1f"|format(summary.overall_avg) }}
+    </div>
+    <div class="text-xs text-zinc-500 mt-1">взвешенная по словам</div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Худшее приложение</div>
+    {% if summary.worst %}
+      <div class="text-2xl font-bold mt-1 tabular-nums">
+        {{ "%.1f"|format(summary.worst.avg) }}
+      </div>
+      <div class="text-xs text-zinc-500 mt-1 font-mono truncate">
+        {{ summary.worst.app_name }}
+      </div>
+    {% else %}
+      <div class="text-2xl font-bold mt-1 tabular-nums text-zinc-600">—</div>
+      <div class="text-xs text-zinc-500 mt-1">нет данных</div>
+    {% endif %}
+  </div>
+</section>
+
+<div class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-8 overflow-x-auto">
+  <h2 class="text-xs uppercase tracking-widest text-zinc-500 mb-3">
+    Средняя уверенность по приложениям (горизонтальные бары, худшие сверху)
+  </h2>
+
+  {% if rows %}
+    <svg xmlns="http://www.w3.org/2000/svg"
+         width="{{ chart.width }}"
+         height="{{ chart.height }}"
+         viewBox="0 0 {{ chart.width }} {{ chart.height }}"
+         role="img"
+         aria-label="Per-app OCR confidence bar chart"
+         class="block">
+
+      {# Cutoff gridlines + x-axis labels (0 / 50 / 75 / 100). #}
+      {% for line in chart.gridlines %}
+        <line x1="{{ "%.2f"|format(line.x) }}"
+              y1="{{ "%.2f"|format(line.y1) }}"
+              x2="{{ "%.2f"|format(line.x) }}"
+              y2="{{ "%.2f"|format(line.y2) }}"
+              stroke="{{ chart.grid_colour }}"
+              stroke-width="1"
+              stroke-dasharray="2,4"
+              opacity="0.7" />
+        <text x="{{ "%.2f"|format(line.x) }}"
+              y="{{ "%.2f"|format(line.label_y) }}"
+              fill="{{ chart.axis_text }}"
+              font-size="10"
+              text-anchor="middle"
+              font-family="JetBrains Mono, Cascadia Code, Consolas, monospace">
+          {{ line.label }}
+        </text>
+      {% endfor %}
+
+      {# One row per app — label on the left, bar in the middle, words badge on the right. #}
+      {% for bar in chart.bars %}
+        {# Background track so the bar's max extent is visually anchored. #}
+        <rect x="{{ chart.bar_left }}"
+              y="{{ "%.2f"|format(bar.bar_y) }}"
+              width="{{ chart.bar_right - chart.bar_left }}"
+              height="{{ bar.bar_height }}"
+              fill="{{ chart.bar_track }}"
+              rx="2" ry="2" />
+
+        {# The filled bar — width proportional to mean conf (0..100). #}
+        <rect x="{{ "%.2f"|format(bar.bar_x) }}"
+              y="{{ "%.2f"|format(bar.bar_y) }}"
+              width="{{ "%.2f"|format(bar.bar_width) }}"
+              height="{{ bar.bar_height }}"
+              fill="{{ bar.fill }}"
+              rx="2" ry="2">
+          <title>{{ bar.tooltip }}</title>
+        </rect>
+
+        {# Left-side app-name label. #}
+        <text x="{{ chart.bar_left - 8 }}"
+              y="{{ "%.2f"|format(bar.label_y) }}"
+              fill="{{ chart.label_text }}"
+              font-size="11"
+              text-anchor="end"
+              font-family="JetBrains Mono, Cascadia Code, Consolas, monospace">
+          <title>{{ bar.label_full }}</title>
+          {{ bar.label }}
+        </text>
+
+        {# Numeric avg label, sitting just to the right of the bar's end. #}
+        <text x="{{ "%.2f"|format(bar.value_x) }}"
+              y="{{ "%.2f"|format(bar.value_y) }}"
+              fill="{{ chart.label_text }}"
+              font-size="10"
+              text-anchor="start"
+              font-family="JetBrains Mono, Cascadia Code, Consolas, monospace">
+          {{ "%.1f"|format(bar.avg) }}
+        </text>
+
+        {# Right-edge word-count badge. #}
+        <text x="{{ "%.2f"|format(bar.badge_x) }}"
+              y="{{ "%.2f"|format(bar.badge_y) }}"
+              fill="{{ chart.axis_text }}"
+              font-size="10"
+              text-anchor="start"
+              font-family="JetBrains Mono, Cascadia Code, Consolas, monospace">
+          {{ "{:,}".format(bar.words) }}w
+        </text>
+      {% endfor %}
+    </svg>
+  {% else %}
+    <div class="flex items-center justify-center text-sm text-zinc-500"
+         style="height: {{ chart.height }}px;">
+      Нет распознанных слов в выбранном окне.
+    </div>
+  {% endif %}
+
+  <div class="flex items-center justify-between gap-4 mt-3 text-xs text-zinc-500 font-mono">
+    <span class="flex items-center gap-3 flex-wrap">
+      <span class="flex items-center gap-1.5">
+        <span class="inline-block rounded-sm"
+              style="width: 10px; height: 10px; background-color: {{ chart.colour_low }};"></span>
+        <span>&lt; {{ "%.0f"|format(chart.low_cutoff) }} — плохо</span>
+      </span>
+      <span class="flex items-center gap-1.5">
+        <span class="inline-block rounded-sm"
+              style="width: 10px; height: 10px; background-color: {{ chart.colour_mid }};"></span>
+        <span>{{ "%.0f"|format(chart.low_cutoff) }}–{{ "%.0f"|format(chart.high_cutoff) }} — пограничная</span>
+      </span>
+      <span class="flex items-center gap-1.5">
+        <span class="inline-block rounded-sm"
+              style="width: 10px; height: 10px; background-color: {{ chart.colour_high }};"></span>
+        <span>&gt; {{ "%.0f"|format(chart.high_cutoff) }} — хорошо</span>
+      </span>
+    </span>
+    <span class="text-zinc-600">справа: количество слов</span>
+  </div>
+</div>
+
+<details class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
+  <summary class="cursor-pointer text-sm text-zinc-300 hover:text-zinc-100">
+    Подробная таблица ({{ rows | length }} прилож.)
+  </summary>
+  <table class="mt-4 w-full text-sm font-mono tabular-nums">
+    <thead>
+      <tr class="text-xs uppercase tracking-widest text-zinc-500 border-b border-ink-700">
+        <th class="text-left  py-1.5 pr-4 font-normal">Приложение</th>
+        <th class="text-right py-1.5 px-4 font-normal">Слов</th>
+        <th class="text-right py-1.5 px-4 font-normal">avg</th>
+        <th class="text-right py-1.5 px-4 font-normal">p10</th>
+        <th class="text-right py-1.5 px-4 font-normal">p90</th>
+        <th class="text-left  py-1.5 pl-4 font-normal w-full">Шкала</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+        <tr class="border-b border-ink-700/50 last:border-0">
+          <td class="py-1 pr-4 text-zinc-300 truncate max-w-[14rem]"
+              title="{{ row.app_name }}">
+            {{ row.app_name }}
+          </td>
+          <td class="py-1 px-4 text-right text-zinc-300">
+            {{ "{:,}".format(row.words) }}
+          </td>
+          <td class="py-1 px-4 text-right text-zinc-100">
+            {{ "%.1f"|format(row.avg) }}
+          </td>
+          <td class="py-1 px-4 text-right text-zinc-400">
+            {{ "%.1f"|format(row.p10) }}
+          </td>
+          <td class="py-1 px-4 text-right text-zinc-400">
+            {{ "%.1f"|format(row.p90) }}
+          </td>
+          <td class="py-1 pl-4">
+            <div class="bg-ink-900 rounded h-2 overflow-hidden">
+              <div class="h-full"
+                   style="width: {{ row.avg if row.avg <= 100 else 100 }}%;
+                          background: {% if row.avg < chart.low_cutoff %}{{ chart.colour_low }}{% elif row.avg <= chart.high_cutoff %}{{ chart.colour_mid }}{% else %}{{ chart.colour_high }}{% endif %};"></div>
+            </div>
+          </td>
+        </tr>
+      {% else %}
+        <tr>
+          <td colspan="6" class="py-3 text-zinc-500 text-center">
+            Нет данных за выбранное окно.
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</details>
+
+<p class="text-xs text-zinc-500">
+  JSON-вариант:
+  <a href="/api/stats/ocr-confidence.json?days={{ days }}"
+     class="font-mono text-accent-400 hover:underline">/api/stats/ocr-confidence.json?days={{ days }}</a>.
+</p>
+{% endblock %}

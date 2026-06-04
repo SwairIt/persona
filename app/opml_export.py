@@ -88,6 +88,11 @@ _CANONICAL_FEEDS: tuple[_FeedEntry, ...] = (
         ),
     ),
     _FeedEntry(
+        title="Pinned",
+        relative_url="/feeds/pinned.rss",
+        description="Your pinned moments",
+    ),
+    _FeedEntry(
         title="Persona — Weekly digests",
         relative_url="/feeds/digest/weekly.rss",
         description="Most-recent weekly LLM retrospectives, newest first.",
