@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+
+{#
+  audio_settings.html — v1.11 feature 3/3.
+
+  Six-knob configuration form for the audio capture pipeline. All values
+  are persisted in kv_settings; the route reads them back on the next
+  render so the form always reflects what was actually saved (not what
+  the form submitted).
+#}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Audio settings</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Configure microphone capture, encoding, voice-activity detection,
+    retention, and the Whisper transcription model. Stored in
+    <code class="text-accent-400">kv_settings</code> — changes take
+    effect on the next worker tick.
+  </p>
+</div>
+
+<form action="/settings/audio" method="post"
+      class="space-y-6 max-w-2xl">
+
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <h2 class="text-lg font-semibold mb-4">Capture</h2>
+
+    <label class="flex items-start gap-3 cursor-pointer">
+      <input type="checkbox"
+             name="audio_capture_enabled"
+             value="1"
+             {% if capture_enabled %}checked{% endif %}
+             class="mt-1 h-4 w-4 rounded border-ink-700 bg-ink-900 accent-accent-500">
+      <span>
+        <span class="block text-sm text-zinc-200 font-medium">Enable audio capture</span>
+        <span class="block text-xs text-zinc-500 mt-0.5">
+          When off, the capture worker stays idle and no microphone
+          access is attempted.
+        </span>
+      </span>
+    </label>
+  </section>
+
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 space-y-4">
+    <h2 class="text-lg font-semibold">Encoding</h2>
+
+    <div>
+      <label for="audio-codec" class="block text-sm text-zinc-300 mb-1.5">Codec</label>
+      <select id="audio-codec"
+              name="codec"
+              class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded-lg
+                     focus:outline-none focus:border-accent-500 font-mono text-sm">
+        {% for option in codec_options %}
+          <option value="{{ option }}" {% if option == codec %}selected{% endif %}>
+            {{ option }}
+          </option>
+        {% endfor %}
+      </select>
+      <p class="text-xs text-zinc-500 mt-1.5">
+        Existing segments keep the codec they were originally written
+        with — this only affects new captures.
+      </p>
+    </div>
+
+    <div>
+      <label for="audio-bitrate" class="block text-sm text-zinc-300 mb-1.5">Bitrate (kbps)</label>
+      <input id="audio-bitrate"
+             type="number"
+             name="bitrate"
+             value="{{ bitrate }}"
+             min="{{ bitrate_min }}"
+             max="{{ bitrate_max }}"
+             step="1"
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded-lg
+                    focus:outline-none focus:border-accent-500 font-mono text-sm">
+      <p class="text-xs text-zinc-500 mt-1.5">
+        Range: {{ bitrate_min }}–{{ bitrate_max }} kbps. Out-of-range
+        values are clamped on save.
+      </p>
+    </div>
+  </section>
+
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 space-y-4">
+    <h2 class="text-lg font-semibold">Voice activity</h2>
+
+    <div>
+      <label for="audio-vad" class="block text-sm text-zinc-300 mb-1.5">VAD threshold</label>
+      <input id="audio-vad"
+             type="number"
+             name="vad_threshold"
+             value="{{ "%.4f"|format(vad_threshold) }}"
+             min="{{ vad_threshold_min }}"
+             max="{{ vad_threshold_max }}"
+             step="0.05"
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded-lg
+                    focus:outline-none focus:border-accent-500 font-mono text-sm">
+      <p class="text-xs text-zinc-500 mt-1.5">
+        Range: {{ "%.2f"|format(vad_threshold_min) }}–{{ "%.2f"|format(vad_threshold_max) }}.
+        Higher values trigger less often (only louder / clearer speech
+        is recorded); lower values pick up more but include ambient noise.
+      </p>
+    </div>
+  </section>
+
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 space-y-4">
+    <h2 class="text-lg font-semibold">Retention</h2>
+
+    <div>
+      <label for="audio-retention" class="block text-sm text-zinc-300 mb-1.5">Hot-tier retention (days)</label>
+      <input id="audio-retention"
+             type="number"
+             name="retention_hot_days"
+             value="{{ retention_hot_days }}"
+             min="{{ retention_hot_days_min }}"
+             max="{{ retention_hot_days_max }}"
+             step="1"
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded-lg
+                    focus:outline-none focus:border-accent-500 font-mono text-sm">
+      <p class="text-xs text-zinc-500 mt-1.5">
+        Segments older than this lose their on-disk audio file. The
+        database row (id + timestamp + transcript) is kept indefinitely
+        so transcripts remain searchable. Range:
+        {{ retention_hot_days_min }}–{{ retention_hot_days_max }} days.
+      </p>
+    </div>
+  </section>
+
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 space-y-4">
+    <h2 class="text-lg font-semibold">Transcription</h2>
+
+    <div>
+      <label for="audio-whisper" class="block text-sm text-zinc-300 mb-1.5">Whisper model</label>
+      <select id="audio-whisper"
+              name="whisper_model"
+              class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded-lg
+                     focus:outline-none focus:border-accent-500 font-mono text-sm">
+        {% for option in whisper_model_options %}
+          <option value="{{ option }}" {% if option == whisper_model %}selected{% endif %}>
+            {{ option }}
+          </option>
+        {% endfor %}
+      </select>
+      <p class="text-xs text-zinc-500 mt-1.5">
+        Larger models transcribe more accurately but cost more RAM and
+        wall-clock time per segment. Changing the model only affects
+        future transcriptions — existing rows keep their transcript.
+      </p>
+    </div>
+  </section>
+
+  <div class="flex items-center gap-3 pt-2">
+    <button type="submit"
+            class="px-5 py-2.5 bg-accent-600 hover:bg-accent-500 rounded-lg font-medium transition">
+      Save
+    </button>
+    <a href="/settings"
+       class="px-4 py-2.5 rounded-lg border border-ink-700 hover:border-zinc-500 text-zinc-400 transition text-sm">
+      Back to main settings
+    </a>
+  </div>
+</form>
+{% endblock %}

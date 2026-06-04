@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+
+{#
+  audio_day.html — v1.11 feature 3/3.
+
+  Per-day audio segment timeline. Hour-grouped vertical list:
+    * one section per hour, heading carries the local "HH:00" label
+    * one row per segment, anchored as #audio-{id}
+    * <audio controls> rendered only when has_audio is true
+      (the retention purge clears `path` once the bytes are reaped;
+       the row survives transcript-only and we don't want a dead player)
+    * transcript inline; "transcript pending" hint when empty
+#}
+
+{% block content %}
+<div class="mb-6 flex items-center justify-between flex-wrap gap-3">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Audio — {{ day }}</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      {{ total }} segment{% if total != 1 %}s{% endif %}
+      · {{ "%.1f"|format(total_duration_seconds / 60.0) }} min recorded
+      · {{ total_bytes | filesize }} on disk
+      {% if with_audio != total %}
+        · <span class="text-zinc-400">{{ with_audio }} playable</span>
+      {% endif %}
+      {% if truncated %}
+        · <span class="text-amber-400">truncated</span>
+      {% endif %}
+    </p>
+  </div>
+  <div class="flex items-center gap-2 text-xs">
+    <a href="/audio/search"
+       class="px-3 py-1 rounded-full border bg-ink-800 border-ink-700 hover:border-zinc-500 text-zinc-400 transition">
+      Search transcripts
+    </a>
+    <a href="/stats/audio"
+       class="px-3 py-1 rounded-full border bg-ink-800 border-ink-700 hover:border-zinc-500 text-zinc-400 transition">
+      Audio stats
+    </a>
+    <a href="/settings/audio"
+       class="px-3 py-1 rounded-full border bg-ink-800 border-ink-700 hover:border-zinc-500 text-zinc-400 transition">
+      Settings
+    </a>
+  </div>
+</div>
+
+{% if total == 0 %}
+  <div class="text-center py-24 rounded-lg border border-dashed border-ink-700 bg-ink-900/40">
+    <p class="text-zinc-300">No audio captured on {{ day }}.</p>
+    <p class="text-zinc-500 text-sm mt-2">
+      Enable capture under
+      <a href="/settings/audio" class="text-accent-400 underline">Settings → Audio</a>
+      to start recording.
+    </p>
+  </div>
+{% else %}
+  <div class="space-y-10">
+    {% for group in hour_groups %}
+      <section>
+        <header class="flex items-center gap-3 mb-3">
+          <h2 class="text-sm font-mono uppercase tracking-widest text-zinc-500">
+            {{ group.hour }}
+          </h2>
+          <span class="text-xs text-zinc-600">
+            · {{ group["items"] | length }} segment{% if group["items"] | length != 1 %}s{% endif %}
+          </span>
+          <div class="flex-1 border-t border-ink-800"></div>
+        </header>
+
+        <ol class="relative border-l border-ink-700 ml-3 pl-6 space-y-4">
+          {% for seg in group["items"] %}
+            <li id="audio-{{ seg.id }}" class="relative scroll-mt-24">
+              {# Rail dot — colour-coded for has_audio so the eye can scan
+                 for transcript-only rows once retention has kicked in. #}
+              <span class="absolute -left-[31px] top-3 w-3 h-3 rounded-full
+                           {% if seg.has_audio %}bg-accent-500 ring-4 ring-accent-500/15
+                           {% else %}bg-zinc-600 ring-4 ring-zinc-600/15{% endif %}"
+                    aria-hidden="true"></span>
+
+              <article class="bg-ink-900/60 border border-ink-700 rounded-lg p-4
+                              target:border-accent-500 target:ring-1 target:ring-accent-500/30
+                              transition-colors">
+                <header class="flex items-baseline justify-between gap-3 mb-2 flex-wrap">
+                  <div class="flex items-baseline gap-3 min-w-0">
+                    <a href="#audio-{{ seg.id }}"
+                       class="font-mono text-xs text-zinc-500 hover:text-accent-400 tabular-nums shrink-0"
+                       title="Permalink to this segment">
+                      {{ seg.captured_at | localtime("short") }}
+                    </a>
+                    <span class="text-xs text-zinc-500 font-mono">
+                      #{{ seg.id }}
+                    </span>
+                  </div>
+                  <div class="flex items-center gap-3 text-xs text-zinc-500 font-mono shrink-0">
+                    <span title="Duration">
+                      {{ "%.1f"|format(seg.duration_seconds) }}s
+                    </span>
+                    {% if seg.codec %}
+                      <span title="Codec / bitrate">
+                        {{ seg.codec }}{% if seg.bitrate %} @ {{ seg.bitrate }} kbps{% endif %}
+                      </span>
+                    {% endif %}
+                    <span title="On-disk size">
+                      {{ seg.size_bytes | filesize }}
+                    </span>
+                    {% if not seg.has_audio %}
+                      <span class="text-amber-400/80" title="Audio purged by retention; transcript still available">
+                        text-only
+                      </span>
+                    {% endif %}
+                  </div>
+                </header>
+
+                {% if seg.has_audio %}
+                  <audio controls preload="none"
+                         src="/audio/segment/{{ seg.id }}"
+                         class="w-full mt-2 mb-3"></audio>
+                {% endif %}
+
+                {% if seg.transcript %}
+                  <p class="text-sm text-zinc-200 leading-relaxed whitespace-pre-wrap">
+                    {{ seg.transcript }}
+                  </p>
+                {% else %}
+                  <p class="text-xs text-zinc-500 italic">
+                    Transcript pending — the Whisper worker hasn't processed this segment yet.
+                  </p>
+                {% endif %}
+              </article>
+            </li>
+          {% endfor %}
+        </ol>
+      </section>
+    {% endfor %}
+  </div>
+{% endif %}
+{% endblock %}

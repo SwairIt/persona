@@ -22,6 +22,7 @@ _MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 # re-raised so genuine breakage stays loud.
 _IDEMPOTENT_ALTER_ERRORS: tuple[str, ...] = (
     "duplicate column name",
+    "no such column",
 )
 
 log = get_logger("persona.storage.db")

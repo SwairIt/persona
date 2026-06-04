@@ -179,6 +179,43 @@ class Settings(BaseSettings):
     capture_rate_warn_per_hour: int = Field(default=60, ge=0, le=1_000_000)
     capture_rate_pause_per_hour: int = Field(default=200, ge=0, le=1_000_000)
 
+    # v1.11 — speech-only audio capture + Whisper transcription.
+    # ``audio_retention_hot_days`` is the "hot" tier window for the
+    # audio_segment table: rows older than this lose their on-disk
+    # ``.wav`` / ``.opus`` payload (size_bytes := 0, path := "") but
+    # keep their transcript forever — the lossless content track. A
+    # random sample of segments equal to ``audio_keep_sample_pct``
+    # bypasses the purge so a long-tail voice-signature corpus is
+    # retained for future speaker-identification work.
+    # ``audio_whisper_model`` selects the Whisper model size: ``"small"``
+    # (~244 MB) hits the sweet spot between latency, RAM, and accuracy
+    # on commodity desktop CPUs; ``"base"`` or ``"medium"`` are valid
+    # overrides for users with more / less hardware budget.
+    audio_retention_hot_days: int = Field(default=7, ge=1, le=365)
+    audio_whisper_model: str = Field(default="small")
+    audio_keep_sample_pct: float = Field(default=0.05, ge=0.0, le=1.0)
+
+    # v1.11 feature 1/3 — speech-only audio capture worker. Hard-gated
+    # by ``audio_capture_enabled`` (default False — opt-in for privacy,
+    # same posture as the clipboard-history worker). The worker re-reads
+    # the flag at startup but *not* on every iteration, so flipping it
+    # requires a restart. ``audio_target_bitrate`` is the nominal
+    # bits-per-second the encoder cascade aims for: Encodec is pinned
+    # at 1500 bps in code, Opus narrowband sits at 4000 bps; this value
+    # is stored on each ``audio_segment`` row so the dashboard can
+    # render "opus @ 4 kbps" without re-deriving from the codec name.
+    # ``audio_preferred_codec`` selects the first encoder the cascade
+    # tries (one of ``"encodec"`` / ``"opus"`` / ``"opus_ffmpeg"``);
+    # missing-backend cases fall through to the next candidate.
+    # ``audio_vad_threshold`` is silero-vad's confidence cutoff in
+    # ``[0.0, 1.0]`` — upstream default is 0.5, raise it to reject
+    # background TV noise more aggressively, lower it for whispered
+    # speech.
+    audio_capture_enabled: bool = Field(default=False)
+    audio_target_bitrate: int = Field(default=1500, ge=500, le=320_000)
+    audio_preferred_codec: str = Field(default="encodec")
+    audio_vad_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
+
     @model_validator(mode="after")
     def _validate_adaptive_bounds(self) -> Settings:
         if self.adaptive_max_seconds < self.adaptive_min_seconds:

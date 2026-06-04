@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+
+{#
+  audio_stats.html — v1.11 feature 3/3.
+
+  Aggregate dashboard over audio_segment:
+    * three duration tiles (today / 7d / lifetime)
+    * two storage tiles (MB on disk, on-disk segment count)
+    * lifetime row count
+    * top transcript words (reusing the OCR-side keyword filter)
+#}
+
+{% block content %}
+<div class="mb-6 flex items-center justify-between flex-wrap gap-3">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Audio stats</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Aggregate view of every audio segment the capture worker has
+      written. Disk numbers exclude rows whose audio has been purged
+      by retention; transcript counts include them.
+    </p>
+  </div>
+  <div class="flex items-center gap-2 text-xs">
+    <a href="/api/audio-stats.json"
+       class="px-3 py-1 rounded-full border bg-ink-800 border-ink-700 hover:border-zinc-500 text-zinc-400 transition">
+      JSON
+    </a>
+    <a href="/audio/search"
+       class="px-3 py-1 rounded-full border bg-ink-800 border-ink-700 hover:border-zinc-500 text-zinc-400 transition">
+      Search transcripts
+    </a>
+    <a href="/settings/audio"
+       class="px-3 py-1 rounded-full border bg-ink-800 border-ink-700 hover:border-zinc-500 text-zinc-400 transition">
+      Settings
+    </a>
+  </div>
+</div>
+
+<section class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Today</div>
+    <div class="text-3xl font-bold mt-1 text-accent-400">
+      {{ "%.1f"|format(today_minutes) }}<span class="text-base text-zinc-500 font-normal ml-1">min</span>
+    </div>
+    <div class="text-xs text-zinc-500 mt-1 font-mono">
+      {{ "%.0f"|format(today_seconds) }} s
+    </div>
+  </div>
+
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Last 7 days</div>
+    <div class="text-3xl font-bold mt-1 text-accent-400">
+      {{ "%.1f"|format(week_minutes) }}<span class="text-base text-zinc-500 font-normal ml-1">min</span>
+    </div>
+    <div class="text-xs text-zinc-500 mt-1 font-mono">
+      {{ "%.0f"|format(week_seconds) }} s
+    </div>
+  </div>
+
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Lifetime</div>
+    <div class="text-3xl font-bold mt-1 text-accent-400">
+      {{ "%.1f"|format(lifetime_minutes) }}<span class="text-base text-zinc-500 font-normal ml-1">min</span>
+    </div>
+    <div class="text-xs text-zinc-500 mt-1 font-mono">
+      {{ "%.0f"|format(lifetime_seconds) }} s
+    </div>
+  </div>
+</section>
+
+<section class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">On disk</div>
+    <div class="text-3xl font-bold mt-1 text-emerald-400">
+      {{ "%.1f"|format(disk_mb) }}<span class="text-base text-zinc-500 font-normal ml-1">MB</span>
+    </div>
+    <div class="text-xs text-zinc-500 mt-1 font-mono">
+      {{ disk_bytes }} bytes
+    </div>
+  </div>
+
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Segments (on disk)</div>
+    <div class="text-3xl font-bold mt-1 text-zinc-100">
+      {{ on_disk_count }}
+    </div>
+    <div class="text-xs text-zinc-500 mt-1 font-mono">
+      audio files still kept hot
+    </div>
+  </div>
+
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Segments (lifetime)</div>
+    <div class="text-3xl font-bold mt-1 text-zinc-100">
+      {{ lifetime_count }}
+    </div>
+    <div class="text-xs text-zinc-500 mt-1 font-mono">
+      transcripts retained
+    </div>
+  </div>
+</section>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+  <h2 class="text-lg font-semibold mb-3">Top words in transcripts</h2>
+  <p class="text-zinc-500 text-xs mb-4">
+    Frequency-ranked, shared stopword filter with the OCR-side word
+    cloud. Tokens shorter than 4 characters are dropped.
+  </p>
+
+  {% if top_words %}
+    {% set max_count = top_words | map(attribute='count') | max %}
+    <ul class="space-y-1">
+      {% for entry in top_words %}
+        {% set bar_pct = ((entry.count / max_count) * 100) if max_count else 0 %}
+        <li class="flex items-center gap-3 text-xs">
+          <span class="font-mono text-zinc-300 w-32 truncate">{{ entry.word }}</span>
+          <div class="flex-1 bg-ink-900 rounded h-3 overflow-hidden">
+            <div class="h-full bg-accent-500/70"
+                 style="width: {{ bar_pct | round(1) }}%"></div>
+          </div>
+          <span class="font-mono text-zinc-500 w-10 text-right">{{ entry.count }}</span>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="text-zinc-500 text-sm">
+      No transcripts yet. Once the Whisper worker has processed at
+      least one segment, the top words appear here.
+    </p>
+  {% endif %}
+</section>
+{% endblock %}

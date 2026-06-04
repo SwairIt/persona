@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+
+{#
+  audio_search.html — v1.11 feature 3/3.
+
+  Substring search over audio_segment.transcript. Each result row
+  shows a thumbnail-style band: timestamp, duration, codec, size,
+  matched snippet, and an inline play button when the segment is
+  still on disk.
+#}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Search audio transcripts</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Substring match against every transcript recorded by the audio
+    capture worker. Matches are highlighted; click an entry to jump
+    to that segment in its day view.
+  </p>
+</div>
+
+<form action="/audio/search" method="get"
+      class="mb-8 flex items-center gap-3">
+  <input type="text" name="q" value="{{ query | e }}"
+         placeholder="meeting · standup · idea · …"
+         autofocus
+         class="flex-1 px-4 py-2.5 bg-ink-800 border border-ink-700 rounded-lg
+                placeholder:text-zinc-600 focus:outline-none focus:border-accent-500
+                font-mono text-sm">
+  <button type="submit"
+          class="px-5 py-2.5 bg-accent-600 hover:bg-accent-500 rounded-lg font-medium transition">
+    Search
+  </button>
+</form>
+
+{% if not query %}
+  <div class="rounded-lg border border-dashed border-ink-700 bg-ink-900/40 p-8 text-center">
+    <p class="text-zinc-400 text-sm">
+      Type something above to search your audio transcripts.
+    </p>
+    <p class="text-zinc-600 text-xs mt-2">
+      Plain substring match · case-insensitive
+    </p>
+  </div>
+{% elif not results %}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-6 text-center">
+    <p class="text-zinc-300 text-sm">
+      No transcripts match
+      <code class="text-accent-400 font-mono">{{ query | e }}</code>.
+    </p>
+    <p class="text-zinc-500 text-xs mt-2">
+      Try a shorter phrase, or check that the Whisper worker has had
+      time to process recent segments.
+    </p>
+  </div>
+{% else %}
+  <p class="text-xs uppercase tracking-wider text-zinc-500 mb-3">
+    {{ total }} match{% if total != 1 %}es{% endif %}
+    {% if truncated %} · capped — refine your query{% endif %}
+  </p>
+  <ul class="space-y-3">
+    {% for hit in results %}
+      <li class="rounded-lg border border-ink-700 bg-ink-800 hover:border-accent-500/60 transition">
+        <div class="flex items-stretch gap-4 p-4">
+          {# Thumbnail-style left rail: timestamp + duration stacked,
+             plus a play button when the on-disk file still exists. #}
+          <div class="flex flex-col items-center justify-center gap-2 w-28 shrink-0
+                      border-r border-ink-700 pr-4">
+            <span class="font-mono text-sm text-zinc-200 tabular-nums">
+              {{ hit.captured_at | localtime("short") }}
+            </span>
+            <span class="font-mono text-xs text-zinc-500 tabular-nums">
+              {{ "%.1f"|format(hit.duration_seconds) }}s
+            </span>
+            {% if hit.has_audio %}
+              <audio controls preload="none"
+                     src="/audio/segment/{{ hit.id }}"
+                     class="w-full"></audio>
+            {% else %}
+              <span class="text-xs text-amber-400/80 italic">text-only</span>
+            {% endif %}
+          </div>
+
+          <div class="flex-1 min-w-0">
+            <header class="flex items-baseline justify-between gap-3 mb-2 flex-wrap">
+              <a href="/audio/day/{{ hit.captured_at[:10] }}#audio-{{ hit.id }}"
+                 class="font-mono text-xs text-zinc-500 hover:text-accent-400">
+                segment #{{ hit.id }}
+                <span class="text-zinc-600">· {{ hit.captured_at | localtime("date") }}</span>
+              </a>
+              <div class="flex items-center gap-3 text-xs text-zinc-500 font-mono">
+                {% if hit.codec %}
+                  <span>{{ hit.codec }}{% if hit.bitrate %} @ {{ hit.bitrate }} kbps{% endif %}</span>
+                {% endif %}
+                <span>{{ hit.size_bytes | filesize }}</span>
+              </div>
+            </header>
+            <p class="text-sm text-zinc-200 leading-relaxed whitespace-pre-wrap">
+              {{ hit.snippet }}
+            </p>
+          </div>
+        </div>
+      </li>
+    {% endfor %}
+  </ul>
+{% endif %}
+{% endblock %}

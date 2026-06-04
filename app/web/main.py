@@ -40,6 +40,11 @@ from app.web.routes import (
     archive_bundle as archive_bundle_routes,
     archive_browse as archive_browse_routes,
     auto_collections as auto_collections_routes,
+    audio_day as audio_day_routes,
+    audio_search as audio_search_routes,
+    audio_segment as audio_segment_routes,
+    audio_settings as audio_settings_routes,
+    audio_stats as audio_stats_routes,
     audit as audit_routes,
     audit_replay as audit_replay_routes,
     audit_rss as audit_rss_routes,
@@ -264,6 +269,8 @@ from app.web.routes import (
 )
 from app.workers import (
     get_controller,
+    run_audio_retention_worker,
+    run_audio_worker,
     run_auto_backup_scheduler,
     run_capture_loop,
     run_clipboard_worker,
@@ -308,7 +315,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.10.0",
+        version="1.11.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -559,6 +566,11 @@ def create_app() -> FastAPI:
     app.include_router(shot_colours_routes.router)
     app.include_router(notes_csv_import_routes.router)
     app.include_router(capture_weekly_trend_routes.router)
+    app.include_router(audio_day_routes.router)
+    app.include_router(audio_segment_routes.router)
+    app.include_router(audio_settings_routes.router)
+    app.include_router(audio_search_routes.router)
+    app.include_router(audio_stats_routes.router)
 
     return app
 
@@ -585,6 +597,8 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         asyncio.create_task(run_monthly_digest_scheduler(controller), name="monthly-digest-scheduler"),
         asyncio.create_task(run_day_end_summary_scheduler(controller), name="day-end-summary"),
         asyncio.create_task(run_auto_backup_scheduler(controller), name="auto-backup"),
+        asyncio.create_task(run_audio_worker(controller), name="audio-worker"),
+        asyncio.create_task(run_audio_retention_worker(controller), name="audio-retention"),
     ]
 
     # v1.10: only pause on boot if opted-in via kv_setting capture_paused_on_boot=1
