@@ -299,6 +299,9 @@ from app.web.routes import (
     ocr_confidence_chart as ocr_confidence_chart_routes,
     voice_note as voice_note_routes,
     voice_note_widget as voice_note_widget_routes,
+    entities as entities_routes,
+    shot_compare as shot_compare_routes,
+    outbox_admin as outbox_admin_routes,
 )
 from app.workers import (
     get_controller,
@@ -348,7 +351,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.36.0",
+        version="1.37.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -609,6 +612,9 @@ def create_app() -> FastAPI:
     app.include_router(ocr_confidence_chart_routes.router)
     app.include_router(voice_note_routes.router)
     app.include_router(voice_note_widget_routes.router)
+    app.include_router(entities_routes.router)
+    app.include_router(shot_compare_routes.router)
+    app.include_router(outbox_admin_routes.router)
     app.include_router(sticky_search_routes.router)
     app.include_router(audit_replay_routes.router)
     app.include_router(tag_gallery_routes.router)
@@ -719,6 +725,13 @@ async def _run_auto_pin_worker(controller: object) -> None:
     await run_auto_pin_worker()
 
 
+async def _run_entity_extractor_worker(controller: object) -> None:
+    """Adapter for the v1.37 cross-day entity extraction worker."""
+    from app.workers.entity_extractor_worker import run_entity_extractor_worker  # noqa: PLC0415
+
+    await run_entity_extractor_worker()
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialise DB, start workers, and tear them down on shutdown."""
@@ -774,6 +787,10 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         asyncio.create_task(
             _run_auto_pin_worker(controller),
             name="auto-pin-worker",
+        ),
+        asyncio.create_task(
+            _run_entity_extractor_worker(controller),
+            name="entity-extractor-worker",
         ),
     ]
 

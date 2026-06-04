@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Webhook outbox</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Готовые шаблоны исходящих запросов в Linear, Notion, Slack и любые
+    свои URL. Подписанный конверт Persona сюда <strong>не отправляется</strong>:
+    тело рендерится из <code>body_template</code> через
+    <code>str.format</code> с полями события и POST-ится с вашим
+    <code>Authorization</code> заголовком. Для собственных приёмников,
+    которые умеют разбирать подписанный конверт, используйте обычные
+    <a href="/settings/webhooks" class="text-accent-400 hover:underline">webhooks</a>.
+  </p>
+  <p class="text-zinc-500 text-xs mt-2">
+    Доставка best-effort: одна попытка, без подписи. При ошибке (5xx,
+    timeout) запись попадёт в <code>webhook_retry_queue</code> для
+    диагностики, но повторно не отправится&nbsp;&mdash; модель ретраев
+    у внешних сервисов отличается от нашей.
+  </p>
+</div>
+
+<form action="/settings/outbox/new" method="post"
+      x-data="{ service: 'linear', target_url: '', body: '' }"
+      x-init="$watch('service', s => {
+        if (s === 'linear') {
+          target_url = 'https://api.linear.app/graphql';
+          body = '{&quot;query&quot;: &quot;mutation { commentCreate(input: { issueId: \\&quot;ISSUE_ID\\&quot;, body: \\&quot;Pinned shot {shot_id} captured at {captured_at} in {app}\\&quot; }) { success } }&quot;}';
+        } else if (s === 'notion') {
+          target_url = 'https://api.notion.com/v1/pages';
+          body = '{&quot;parent&quot;: {&quot;database_id&quot;: &quot;DB_ID&quot;}, &quot;properties&quot;: {&quot;Name&quot;: {&quot;title&quot;: [{&quot;text&quot;: {&quot;content&quot;: &quot;Pinned shot {shot_id}&quot;}}]}}}';
+        } else if (s === 'slack') {
+          target_url = 'https://hooks.slack.com/services/T000/B000/XXX';
+          body = '{&quot;text&quot;: &quot;Pinned shot {shot_id} ({app}) at {captured_at}&quot;}';
+        } else {
+          target_url = '';
+          body = '';
+        }
+      })"
+      class="grid grid-cols-1 gap-3 mb-8 p-4 rounded-lg border border-ink-700 bg-ink-800">
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+    <label class="block">
+      <span class="text-xs text-zinc-500 uppercase tracking-wider">Название</span>
+      <input name="name" required autocomplete="off"
+             placeholder="например, Linear inbox comment"
+             class="mt-1 w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
+    </label>
+    <label class="block">
+      <span class="text-xs text-zinc-500 uppercase tracking-wider">Сервис</span>
+      <select name="service" x-model="service"
+              class="mt-1 w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
+        {% for svc in services %}
+          <option value="{{ svc }}">{{ svc }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+    <label class="block">
+      <span class="text-xs text-zinc-500 uppercase tracking-wider">Event kind</span>
+      <input name="event_kind" required autocomplete="off" list="event-kind-options"
+             placeholder="shot_pinned"
+             class="mt-1 w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
+      <datalist id="event-kind-options">
+        {% for ek in event_kinds %}
+          <option value="{{ ek }}"></option>
+        {% endfor %}
+      </datalist>
+    </label>
+    <label class="block">
+      <span class="text-xs text-zinc-500 uppercase tracking-wider">Target URL</span>
+      <input name="target_url" required autocomplete="off" x-model="target_url"
+             placeholder="https://api.linear.app/graphql"
+             class="mt-1 w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
+    </label>
+  </div>
+
+  <label class="block">
+    <span class="text-xs text-zinc-500 uppercase tracking-wider">Authorization header (необязательно)</span>
+    <input name="auth_header" autocomplete="off"
+           placeholder="Bearer lin_api_xxx&nbsp;или&nbsp;Bearer secret_xxx (Notion)"
+           class="mt-1 w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
+  </label>
+
+  <label class="block">
+    <span class="text-xs text-zinc-500 uppercase tracking-wider">Body template (str.format)</span>
+    <textarea name="body_template" required rows="6" x-model="body"
+              class="mt-1 w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500"></textarea>
+    <p class="text-xs text-zinc-500 mt-1">
+      Плейсхолдеры&nbsp;&mdash; поля payload события. Список ниже.
+    </p>
+  </label>
+
+  <div class="flex justify-end">
+    <button type="submit"
+            class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
+      Добавить шаблон
+    </button>
+  </div>
+</form>
+
+{% if templates_rows %}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden mb-8">
+    <table class="w-full text-sm">
+      <thead class="bg-ink-900 text-zinc-500 text-xs uppercase tracking-wider">
+        <tr>
+          <th class="text-left py-2 px-4">Название</th>
+          <th class="text-left py-2 px-4">Сервис</th>
+          <th class="text-left py-2 px-4">Event kind</th>
+          <th class="text-left py-2 px-4">Target URL</th>
+          <th class="text-left py-2 px-4 w-32">Создано</th>
+          <th class="py-2 px-4 w-40"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for tmpl in templates_rows %}
+          <tr class="border-t border-ink-700 {% if not tmpl.enabled %}opacity-50{% endif %}">
+            <td class="py-2 px-4 text-zinc-200 break-all">{{ tmpl.name }}</td>
+            <td class="py-2 px-4 text-zinc-300 font-mono text-xs">{{ tmpl.service }}</td>
+            <td class="py-2 px-4 text-zinc-300 font-mono text-xs">{{ tmpl.event_kind }}</td>
+            <td class="py-2 px-4 text-zinc-400 break-all text-xs">{{ tmpl.target_url }}</td>
+            <td class="py-2 px-4 text-zinc-500 text-xs whitespace-nowrap">{{ tmpl.created_at }}</td>
+            <td class="py-2 px-4 text-right whitespace-nowrap">
+              <form action="/settings/outbox/{{ tmpl.id }}/toggle" method="post" class="inline">
+                <button class="text-xs px-2 py-1 rounded bg-ink-700 hover:bg-accent-600 text-zinc-200">
+                  {% if tmpl.enabled %}выкл{% else %}вкл{% endif %}
+                </button>
+              </form>
+              <form action="/settings/outbox/{{ tmpl.id }}/delete" method="post" class="inline"
+                    onsubmit="return confirm('Удалить шаблон {{ tmpl.name }}?')">
+                <button class="text-xs px-2 py-1 rounded bg-rose-900/40 hover:bg-rose-900 text-rose-300">
+                  удалить
+                </button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  <p class="text-zinc-500 text-sm mb-8">Шаблонов пока нет&nbsp;&mdash; добавьте первый выше.</p>
+{% endif %}
+
+<div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+  <h2 class="text-sm font-semibold text-zinc-300 mb-2">Доступные event kinds</h2>
+  <ul class="text-xs text-zinc-400 space-y-1 font-mono">
+    <li><code class="text-accent-400">shot_pinned</code> &mdash; <code>{shot_id}</code>, <code>{captured_at}</code>, <code>{app}</code></li>
+    <li><code class="text-accent-400">weekly_digest_ready</code> &mdash; <code>{week_iso}</code>, <code>{url}</code></li>
+    <li><code class="text-accent-400">daily_digest_ready</code> &mdash; <code>{date}</code>, <code>{url}</code></li>
+    <li><code class="text-accent-400">note_created</code> &mdash; <code>{note_id}</code>, <code>{title}</code></li>
+    <li><code class="text-accent-400">alt_text_added</code> &mdash; <code>{shot_id}</code>, <code>{alt_text}</code></li>
+  </ul>
+</div>
+{% endblock %}

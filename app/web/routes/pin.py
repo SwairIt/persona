@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Form, HTTPException
 from fastapi.responses import JSONResponse
 
+from app.outbox import dispatch_event as outbox_dispatch
 from app.storage.db import get_connection
 from app.storage.repository import get_screenshot
 from app.storage.tiers import pin_screenshot, unpin_screenshot
@@ -19,6 +20,14 @@ async def pin(screenshot_id: int) -> JSONResponse:
         if shot is None:
             raise HTTPException(status_code=404, detail="Screenshot not found")
         await pin_screenshot(conn, screenshot_id)
+    await outbox_dispatch(
+        "shot_pinned",
+        {
+            "shot_id": screenshot_id,
+            "captured_at": shot.captured_at.isoformat(),
+            "app": shot.app_name or "",
+        },
+    )
     return JSONResponse({"screenshot_id": screenshot_id, "tier": "pinned"})
 
 

@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-8">
+  <h1 class="text-2xl font-bold tracking-tight">People + projects + topics</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Recurring names extracted from your hourly cards. Anyone or anything
+    mentioned three or more times accumulates here permanently — survives
+    every retention sweep and powers cross-day Q&amp;A.
+  </p>
+</div>
+
+{# Tabs by kind — Alpine drives the visible column. Default = People.
+   On wide screens all three columns sit side-by-side; tabs collapse to
+   accordion-style on narrow viewports for thumb scrolling. #}
+<div x-data="{ tab: 'people' }" class="mb-6">
+  <nav class="flex items-center gap-1 border-b border-ink-700 text-sm">
+    <button @click="tab = 'people'"
+            :class="tab === 'people' ? 'text-accent-400 border-accent-500' : 'text-zinc-400 border-transparent hover:text-zinc-200'"
+            class="px-4 py-2 border-b-2 transition">
+      People <span class="ml-1 text-xs text-zinc-500">{{ people | length }}</span>
+    </button>
+    <button @click="tab = 'projects'"
+            :class="tab === 'projects' ? 'text-accent-400 border-accent-500' : 'text-zinc-400 border-transparent hover:text-zinc-200'"
+            class="px-4 py-2 border-b-2 transition">
+      Projects <span class="ml-1 text-xs text-zinc-500">{{ projects | length }}</span>
+    </button>
+    <button @click="tab = 'topics'"
+            :class="tab === 'topics' ? 'text-accent-400 border-accent-500' : 'text-zinc-400 border-transparent hover:text-zinc-200'"
+            class="px-4 py-2 border-b-2 transition">
+      Topics <span class="ml-1 text-xs text-zinc-500">{{ topics | length }}</span>
+    </button>
+    <span class="ml-auto text-xs text-zinc-500 hidden md:inline">tip: lg+ shows all three columns side-by-side</span>
+  </nav>
+
+  <div class="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+    {% set _columns = [
+      ('people',   'People',   people,   'No people detected yet. The extractor needs at least one hourly card with a capitalised name (e.g. "Met with Denis").'),
+      ('projects', 'Projects', projects, 'No project entities yet. Project classification needs LLM refinement (coming in a follow-up).'),
+      ('topics',   'Topics',   topics,   'No topics yet. Watch this fill once a few hourly cards exist.'),
+    ] %}
+    {% for slug, label, rows, empty in _columns %}
+      <section :class="tab === '{{ slug }}' ? 'block' : 'hidden lg:block'"
+               class="rounded-lg border border-ink-700 bg-ink-800">
+        <header class="flex items-baseline justify-between px-4 py-3 border-b border-ink-700">
+          <h2 class="text-sm uppercase tracking-widest text-zinc-400">{{ label }}</h2>
+          <span class="text-xs text-zinc-500 font-mono">{{ rows | length }}</span>
+        </header>
+        {% if rows %}
+          <ul class="divide-y divide-ink-700">
+            {% for e in rows %}
+              <li>
+                <a href="/entity/{{ e.id }}"
+                   class="flex items-center justify-between px-4 py-2.5 hover:bg-ink-700/40 transition">
+                  <span class="text-zinc-200 truncate pr-3">{{ e.name }}</span>
+                  <span class="flex items-center gap-3 shrink-0 text-xs">
+                    <span class="text-zinc-500 font-mono" title="last seen {{ e.last_seen }}">
+                      {{ e.last_seen[:10] }}
+                    </span>
+                    <span class="rounded bg-ink-900 text-accent-400 px-2 py-0.5 font-mono">
+                      {{ e.mention_count }}
+                    </span>
+                  </span>
+                </a>
+              </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="px-4 py-6 text-sm text-zinc-500">{{ empty }}</p>
+        {% endif %}
+      </section>
+    {% endfor %}
+  </div>
+</div>
+
+<section class="text-zinc-500 text-xs">
+  Heuristic-first: capitalised name tokens, sentence-start demoted, deny-list
+  filters weekday/month/interjection noise. LLM-assisted refinement is an
+  opt-in follow-up — until then expect occasional false positives in Topics.
+</section>
+{% endblock %}

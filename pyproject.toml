@@ -1,6 +1,6 @@
 [project]
 name = "persona"
-version = "1.36.0"
+version = "1.37.0"
 description = "Persona — open-source personal AI memory. Captures screen + builds searchable life log. 100% local, zero cloud."
 readme = "README.md"
 requires-python = ">=3.12"
