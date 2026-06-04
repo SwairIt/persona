@@ -1,11 +1,20 @@
 """Time-limited signed share links for individual screenshots.
 
-The host machine runs on 127.0.0.1 — these links only work when accessed
-from the same machine OR via a tunnel the user explicitly sets up. The
-signature simply ensures nobody else on the same box can guess URLs.
+**v1.28 — deprecation status.** The POST writer endpoint
+``/api/screenshots/{id}/share`` is **removed** (returns 410 Gone) — use
+:mod:`app.web.routes.shot_share` (``POST
+/api/screenshot/{id}/share/create``) instead. That newer endpoint
+stores a DB row + supports revocation; this one minted opaque HMAC
+tokens that could not be invalidated until they expired.
 
-Token format: base64(payload).hex(hmac_sha256(secret, payload))
-payload = "{screenshot_id}|{expires_unix}|{purpose}"
+The HMAC primitives (``_secret`` / ``_sign`` / ``_verify`` /
+``create_share_token``) stay public because ``shot_share.py``,
+``share_collection.py`` and ``recycle.py`` reuse them. Likewise the
+read endpoint ``GET /share/{token}`` stays alive so any pre-v1.28
+link a user emailed continues to work until it naturally expires.
+
+Token format: ``base64(payload).hex(hmac_sha256(secret, payload))``
+where ``payload = "{screenshot_id}|{expires_unix}|{purpose}"``.
 """
 
 from __future__ import annotations
@@ -77,18 +86,25 @@ def create_share_token(screenshot_id: int, *, ttl_hours: int = 24, purpose: str 
     return _sign(payload)
 
 
-@router.post("/api/screenshots/{screenshot_id}/share", response_class=HTMLResponse)
-async def create_share(screenshot_id: int, ttl_hours: int = 24) -> dict:
-    async with get_connection() as conn:
-        shot = await get_screenshot(conn, screenshot_id)
-        if shot is None:
-            raise HTTPException(status_code=404, detail="Screenshot not found")
-    token = create_share_token(screenshot_id, ttl_hours=ttl_hours)
-    return {
-        "url": f"/share/{token}",
-        "thumbnail_url": f"/share/{token}/thumbnail",
-        "expires_in_hours": ttl_hours,
-    }
+@router.post("/api/screenshots/{screenshot_id}/share")
+async def create_share_deprecated(screenshot_id: int, ttl_hours: int = 24) -> dict:
+    """**Deprecated since v1.28** — use ``shot_share`` instead.
+
+    Returns 410 Gone with a JSON body that points clients at the new
+    endpoint. The old client just sees a hard failure — we deliberately
+    do not auto-forward because that masks integrations the operator
+    needs to audit and migrate.
+    """
+    raise HTTPException(
+        status_code=410,
+        detail={
+            "error": "endpoint_deprecated",
+            "replaced_by": "POST /api/screenshot/{shot_id}/share/create",
+            "since": "v1.28",
+            "screenshot_id": screenshot_id,
+            "ttl_hours_requested": ttl_hours,
+        },
+    )
 
 
 @router.get("/share/{token}", response_class=HTMLResponse)
