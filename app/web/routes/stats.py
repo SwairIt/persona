@@ -124,7 +124,11 @@ async def _collect_stats() -> dict[str, object]:
         "captures_skipped_dedup": controller.captures_skipped_dedup,
         "captures_skipped_idle": controller.captures_skipped_idle,
         "captures_failed": controller.captures_failed,
-        "last_capture_at": controller.last_capture_at,
+        "last_capture_at": (
+            controller.last_capture_at.isoformat()
+            if controller.last_capture_at is not None
+            else None
+        ),
         "paused": controller.paused,
         "events_by_day": [
             {"day": row["day"], "count": int(row["n"])} for row in events_by_day_rows
