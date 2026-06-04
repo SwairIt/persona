@@ -77,7 +77,7 @@ _PREVIEW_CHARS = 200
 
 # Names of every kind in the response payload — exported so callers
 # (template loops, tests) can iterate without repeating the literal.
-KINDS: tuple[str, ...] = ("shots", "notes", "annotations", "stickies", "clipboard")
+KINDS: tuple[str, ...] = ("shots", "notes", "annotations", "stickies", "clipboard", "audio")
 
 # FTS5 specials that, left raw in user input, either change the query
 # semantics (operators) or trip the FTS5 parser (unbalanced quotes,
@@ -347,6 +347,60 @@ async def _search_clipboard(
     return items
 
 
+async def _search_audio(
+    conn: aiosqlite.Connection,
+    *,
+    term: str,
+    limit: int,
+) -> list[dict[str, Any]]:
+    """v1.29 — search voice-segment transcripts (both original + translated).
+
+    audio_segment.transcript carries the source-language Whisper output;
+    ``transcript_translated`` (added in migration 107 / v1.23) is the
+    optional UI-language translation. Both are searched LIKE (the
+    column is short — typically <2 KB — and there is no FTS5 mirror
+    for audio yet).
+    """
+    if not term:
+        return []
+    pattern = f"%{_escape_like(term)}%"
+    sql = (
+        "SELECT id, captured_at, duration_seconds, codec, transcript, "
+        "       transcript_translated "
+        "FROM audio_segment "
+        "WHERE (transcript IS NOT NULL AND LOWER(transcript) LIKE LOWER(?) ESCAPE '\\') "
+        "   OR (transcript_translated IS NOT NULL "
+        "       AND LOWER(transcript_translated) LIKE LOWER(?) ESCAPE '\\') "
+        "ORDER BY captured_at DESC, id DESC "
+        "LIMIT ?"
+    )
+    try:
+        cursor = await conn.execute(sql, (pattern, pattern, limit))
+        rows = await cursor.fetchall()
+    except Exception as exc:
+        log.warning("corpus_search.audio.failed", error=str(exc))
+        return []
+    items: list[dict[str, Any]] = []
+    for row in rows:
+        # Prefer translated text for the excerpt if the original didn't
+        # match — that way the user sees the language they searched in.
+        text = str(row["transcript"] or "")
+        translated = str(row["transcript_translated"] or "")
+        if term.lower() not in text.lower() and term.lower() in translated.lower():
+            text = translated
+        preview = text if len(text) <= _PREVIEW_CHARS else text[:_PREVIEW_CHARS] + "…"
+        items.append(
+            {
+                "id": int(row["id"]),
+                "captured_at": str(row["captured_at"]),
+                "duration_seconds": float(row["duration_seconds"] or 0),
+                "codec": str(row["codec"] or ""),
+                "excerpt": _build_excerpt(preview, term, _EXCERPT_RADIUS),
+            }
+        )
+    return items
+
+
 def _empty_result() -> dict[str, list[dict[str, Any]]]:
     """Empty payload with every key present so callers can iterate fearlessly."""
     return {kind: [] for kind in KINDS}
@@ -379,12 +433,13 @@ async def corpus_search(q: str, limit: int = 50) -> dict[str, list[dict[str, Any
     fts_query = _sanitize_fts_query(term)
 
     async with get_connection() as conn:
-        shots, notes, annotations, stickies, clipboard = await asyncio.gather(
+        shots, notes, annotations, stickies, clipboard, audio = await asyncio.gather(
             _search_shots(conn, fts_query=fts_query, limit=capped_limit),
             _search_notes(conn, fts_query=fts_query, limit=capped_limit),
             _search_annotations(conn, term=term, limit=capped_limit),
             _search_stickies(conn, term=term, limit=capped_limit),
             _search_clipboard(conn, term=term, limit=capped_limit),
+            _search_audio(conn, term=term, limit=capped_limit),
         )
 
     result: dict[str, list[dict[str, Any]]] = {
@@ -393,6 +448,7 @@ async def corpus_search(q: str, limit: int = 50) -> dict[str, list[dict[str, Any
         "annotations": annotations,
         "stickies": stickies,
         "clipboard": clipboard,
+        "audio": audio,
     }
     log.info(
         "corpus_search.done",

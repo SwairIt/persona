@@ -48,7 +48,7 @@
     rows whenever possible.
   #}
   {% set _default_tab = 'shots' %}
-  {% for kind in ['shots', 'notes', 'annotations', 'stickies', 'clipboard'] %}
+  {% for kind in ['shots', 'notes', 'annotations', 'stickies', 'clipboard', 'audio'] %}
     {% if counts[kind] > 0 and _default_tab == 'shots' and counts['shots'] == 0 %}
       {% set _default_tab = kind %}
     {% endif %}
@@ -62,9 +62,10 @@
         'notes':       'Notes',
         'annotations': 'Annotations',
         'stickies':    'Stickies',
-        'clipboard':   'Clipboard'
+        'clipboard':   'Clipboard',
+        'audio':       'Voice'
       } %}
-      {% for kind in ['shots', 'notes', 'annotations', 'stickies', 'clipboard'] %}
+      {% for kind in ['shots', 'notes', 'annotations', 'stickies', 'clipboard', 'audio'] %}
         <button type="button"
                 role="tab"
                 :aria-selected="tab === '{{ kind }}'"
@@ -243,6 +244,33 @@
       {% else %}
         <p class="rounded-lg border border-ink-700 bg-ink-800 p-6 text-center text-sm text-zinc-400">
           No clipboard entries contain
+          <code class="text-accent-400 font-mono">{{ query | e }}</code>.
+        </p>
+      {% endif %}
+    </section>
+
+    {# ---- Audio tab (v1.29) ---------------------------------- #}
+    <section role="tabpanel" x-show="tab === 'audio'" x-cloak>
+      {% if results.audio %}
+        <ul class="space-y-3">
+          {% for hit in results.audio %}
+            <li class="rounded-lg border border-ink-700 bg-ink-800 p-4 hover:border-accent-500/60 transition">
+              <header class="flex items-center justify-between gap-2 text-xs font-mono text-zinc-500 mb-2">
+                <a href="/audio-segment/{{ hit.id }}/player" class="text-accent-400 hover:underline">
+                  🔊 segment #{{ hit.id }}
+                </a>
+                <span>
+                  {{ '%.1f'|format(hit.duration_seconds) }}s · {{ hit.codec }}
+                </span>
+                <time>{{ hit.captured_at }}</time>
+              </header>
+              <p class="text-sm text-zinc-200 leading-snug">{{ hit.excerpt | safe }}</p>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="rounded-lg border border-ink-700 bg-ink-800 p-6 text-center text-sm text-zinc-400">
+          No voice transcripts contain
           <code class="text-accent-400 font-mono">{{ query | e }}</code>.
         </p>
       {% endif %}
