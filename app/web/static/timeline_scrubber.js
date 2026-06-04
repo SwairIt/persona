@@ -79,6 +79,38 @@
       removeTooltip();
     });
 
+    // v1.24.1 — touch fallback: на iPhone hover не существует, и
+    // mousemove не фейерит. Прицепляемся к touchstart + touchmove,
+    // используя первый touch-point. touchend закрывает превью.
+    function touchHandler(ev) {
+      if (!ev.touches || !ev.touches[0]) return;
+      var t = ev.touches[0];
+      var fakeEv = { clientX: t.clientX, clientY: t.clientY };
+      var hhmm = computeHhmm(barEl, t.clientX);
+      if (hhmm === null) return;
+      if (hhmm !== lastHhmm) {
+        lastHhmm = hhmm;
+        if (debounceTimer !== null) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(function () {
+          debounceTimer = null;
+          handleHover(hhmm, fakeEv);
+        }, DEBOUNCE_MS);
+      } else if (tooltipEl) {
+        positionTooltip(tooltipEl, fakeEv);
+      }
+      ev.preventDefault(); // prevent the scroll while finger is on the bar
+    }
+    barEl.addEventListener('touchstart', touchHandler, { passive: false });
+    barEl.addEventListener('touchmove', touchHandler, { passive: false });
+    barEl.addEventListener('touchend', function () {
+      if (debounceTimer !== null) { clearTimeout(debounceTimer); debounceTimer = null; }
+      lastHhmm = null;
+      // Leave the tooltip up for 1.5s after lift so the user can read it.
+      if (tooltipEl) {
+        setTimeout(removeTooltip, 1500);
+      }
+    });
+
     function handleHover(hhmm, ev) {
       var cached = cache[hhmm];
       if (cached === 'MISS') {

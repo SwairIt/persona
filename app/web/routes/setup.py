@@ -86,7 +86,11 @@ _DEFAULT_DELETE_DAYS: Final[int] = 180
 # string literals.
 KV_SETUP_COMPLETE: Final[str] = "setup_complete"
 KV_THEME: Final[str] = "theme"
-KV_CAPTURE_INTERVAL: Final[str] = "capture_interval_seconds"
+# v1.24.1 — write the same kv key the capture loop reads. Previously
+# setup wrote ``capture_interval_seconds`` while ``capture_loop.py``
+# read ``capture_interval_seconds_live`` (added in v1.17 for the live
+# slider), so the wizard silently had no effect on the running loop.
+KV_CAPTURE_INTERVAL: Final[str] = "capture_interval_seconds_live"
 KV_BYO_API_PROVIDER: Final[str] = "byo_api_provider"
 KV_BYO_API_KEY: Final[str] = "byo_api_key"
 KV_WARM_DAYS: Final[str] = "tier_warm_after_days"

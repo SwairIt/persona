@@ -10,6 +10,13 @@
   <title>{{ title }} — Persona</title>
   <link rel="manifest" href="/static/manifest.json">
   <meta name="theme-color" content="#6366f1">
+  {# v1.24.1 — iOS-specific PWA tags. Без них Add-to-Home-Screen на iPhone
+     создаёт скриншотную иконку и открывает Safari с шапкой; с ними —
+     полноэкранный native-like запуск. #}
+  <link rel="apple-touch-icon" href="/static/icon-512.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Persona">
   <script>
     // v0.94 — register the service worker so /timeline is installable as a
     // PWA and cached pages stay readable offline. We only register over a
@@ -140,7 +147,7 @@
         <div class="relative">
           <button @click="moreOpen = !moreOpen"
                   class="px-3 py-1.5 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-ink-800 transition whitespace-nowrap">
-            Ещё <span class="text-xs">▾</span>
+            {{ t('nav_more') }} <span class="text-xs">▾</span>
           </button>
           <div x-show="moreOpen" @click.outside="moreOpen = false" x-cloak
                class="absolute right-0 mt-2 w-48 rounded-md border border-ink-700 bg-ink-900 shadow-lg py-1 z-40">
@@ -183,42 +190,49 @@
            class="hover:underline hidden sm:inline whitespace-nowrap">
           <span x-text="budgetMb.toFixed(1) + 'MB'"></span>
         </a>
+        {# v1.24.1 — touch targets bumped to 40px (iOS HIG min 44 ≈ p-2.5 + line-height).
+           Кнопки выросли с 26×26 до 40×40 — главные phone-affordances должны быть
+           попадаемы пальцем без зума. #}
         <button @click="captureNow()"
                 title="{{ t('btn_capture_now') }}"
-                class="px-2 py-1 rounded bg-ink-800 hover:bg-ink-700 text-zinc-300">●</button>
+                class="p-2 sm:p-2.5 rounded bg-ink-800 hover:bg-ink-700 text-zinc-300">●</button>
         <button x-data="micToggle()" x-init="boot()"
                 @click="flip()"
                 :title="micPaused ? 'Включить микрофон' : 'Выключить микрофон (фильм/наушники)'"
                 :class="micPaused ? 'bg-rose-900/40 text-rose-300 hover:bg-rose-900' : 'bg-ink-800 text-zinc-300 hover:bg-ink-700'"
-                class="px-2 py-1 rounded">
+                class="p-2 sm:p-2.5 rounded">
           <span x-text="micPaused ? '🎙✕' : '🎙'"></span>
         </button>
         <button @click="toggleTheme()"
                 title="{{ t('btn_toggle_theme') }}"
-                class="px-2 py-1 rounded bg-ink-800 hover:bg-ink-700 text-zinc-300 hidden sm:inline-block">
+                class="p-2 sm:p-2.5 rounded bg-ink-800 hover:bg-ink-700 text-zinc-300 hidden sm:inline-block">
           <span x-text="theme === 'dark' ? '☀' : '☾'"></span>
         </button>
         <button @click="toggle()"
-                class="px-2 py-1 rounded bg-ink-800 hover:bg-ink-700 text-zinc-300 hidden md:inline-block whitespace-nowrap"
+                class="px-3 py-2 rounded bg-ink-800 hover:bg-ink-700 text-zinc-300 hidden md:inline-block whitespace-nowrap"
                 x-text="paused ? {{ t('btn_start') | tojson }} : {{ t('btn_pause') | tojson }}"></button>
 
         {# Hamburger — visible only below md. #}
         <button @click="drawerOpen = true"
-                class="md:hidden px-2 py-1 rounded bg-ink-800 hover:bg-ink-700 text-zinc-300"
+                class="md:hidden p-2 sm:p-2.5 rounded bg-ink-800 hover:bg-ink-700 text-zinc-300"
                 aria-label="Меню">
-          <span class="text-base leading-none">☰</span>
+          <span class="text-lg leading-none">☰</span>
         </button>
       </div>
     </div>
 
-    {# Mobile drawer — full-screen overlay with all nav + actions. #}
+    {# Mobile drawer — full-screen overlay with all nav + actions.
+       v1.24.1: body-scroll lock when open via x-effect so iOS Safari
+       не пытается скроллить страницу за дровером пока юзер дёргает
+       пальцем. Также добавлена ссылка на /m (мобильную страницу). #}
     <div x-show="drawerOpen" x-cloak
+         x-effect="document.body.style.overflow = drawerOpen ? 'hidden' : ''"
          @click.self="drawerOpen = false"
          class="md:hidden fixed inset-0 bg-black/60 z-50">
       <aside class="absolute right-0 top-0 h-full w-72 max-w-[85vw] bg-ink-900 border-l border-ink-700 shadow-2xl overflow-y-auto">
         <div class="flex items-center justify-between px-4 py-3 border-b border-ink-700">
           <span class="font-bold text-lg">Persona <span class="text-xs text-zinc-500 font-mono">v{{ app_version }}</span></span>
-          <button @click="drawerOpen = false" class="text-zinc-400 hover:text-zinc-100 text-2xl leading-none px-2">✕</button>
+          <button @click="drawerOpen = false" class="text-zinc-400 hover:text-zinc-100 text-2xl leading-none px-3 py-1">✕</button>
         </div>
         <nav class="py-2">
           {% for slug, href, label_key in core_items %}
@@ -228,7 +242,7 @@
               {{ t(label_key) }}
             </a>
           {% endfor %}
-          <div class="px-4 py-2 text-xs uppercase tracking-widest text-zinc-600">Ещё</div>
+          <div class="px-4 py-2 text-xs uppercase tracking-widest text-zinc-600">{{ t('nav_more') }}</div>
           {% for slug, href, label_key in more_items %}
             <a href="{{ href }}"
                class="block px-4 py-3 text-sm border-l-2 transition
@@ -236,6 +250,13 @@
               {{ t(label_key) }}
             </a>
           {% endfor %}
+          {# v1.24.1 — выделенная ссылка на компактный мобильный лейаут
+             /m (text-only сегодня + поиск + дайджест). На десктоп
+             пользователь её не увидит — drawer показывается только <md. #}
+          <a href="/m"
+             class="block mt-3 mx-4 px-4 py-3 text-center text-sm rounded-md bg-accent-600/20 text-accent-300 border border-accent-500/40 hover:bg-accent-600/30">
+            📱 Mobile view
+          </a>
         </nav>
       </aside>
     </div>
