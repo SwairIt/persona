@@ -110,7 +110,12 @@ class Settings(BaseSettings):
 
     tesseract_path: Path | None = Field(default=None)
     tesseract_langs: str = Field(default="eng+rus")
-    ocr_enabled: bool = Field(default=False)
+    # v1.33 — OCR ON by default. Without OCR, /ask only sees app_name +
+    # window_title (no real content). When tesseract binary is missing
+    # the worker gracefully no-ops; the only "cost" of the default flip
+    # is one log line on first boot. Users without tesseract installed
+    # see no change; users WITH it get real Q&A content.
+    ocr_enabled: bool = Field(default=True)
     image_blur_enabled: bool = Field(default=False)
 
     byo_api_key: str = Field(default="")
@@ -127,7 +132,12 @@ class Settings(BaseSettings):
     # must explicitly opt in.
     llm_vision_enabled: bool = Field(default=False)
 
-    embeddings_enabled: bool = Field(default=False)
+    # v1.33 — embeddings ON by default. Adds ~80 MB of model cache on
+    # first run (fastembed downloads e5-small to ~/.cache/fastembed)
+    # and ~1.5 KB per screenshot in the DB. In return: semantic search
+    # works ("find captures about API design") instead of substring only.
+    # Users on tight disk can flip to False via env or /settings.
+    embeddings_enabled: bool = Field(default=True)
     embeddings_model: str = Field(default="intfloat/multilingual-e5-small")
     embeddings_batch_size: int = Field(default=16, ge=1, le=128)
     embeddings_min_text_length: int = Field(default=20, ge=0, le=10000)

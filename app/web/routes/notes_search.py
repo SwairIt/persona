@@ -35,7 +35,7 @@ import re
 from typing import Any
 
 from fastapi import APIRouter, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from app.logging_setup import get_logger
 from app.storage.db import get_connection
@@ -105,30 +105,18 @@ async def _run_search(conn: Any, q: str) -> list[dict[str, Any]]:
     ]
 
 
-@router.get("/notes/search", response_class=HTMLResponse)
-async def notes_search_page(
-    request: Request,
-    q: str = Query(default=""),
-) -> HTMLResponse:
-    """Render the notes search page. Always 200, even on empty / no-match."""
-    query = q.strip()
-    results: list[dict[str, Any]] = []
-    if query:
-        async with get_connection() as conn:
-            results = await _run_search(conn, query)
-        log.info("notes.search.html", query=query, results=len(results))
+@router.get("/notes/search")
+async def notes_search_page_redirect(q: str = Query(default="")) -> RedirectResponse:
+    """**v1.32**: page moved into /search/everything (notes is a tab there).
 
-    return templates.TemplateResponse(
-        request,
-        "notes_search.html",
-        {
-            "title": f"Notes: {query}" if query else "Search notes",
-            "active_nav": "search",
-            "query": query,
-            "results": results,
-            "total": len(results),
-        },
-    )
+    301 preserves any bookmarks. The JSON sibling at
+    ``/api/notes/search.json`` stays where it is.
+    """
+    target = "/search/everything"
+    if q.strip():
+        from urllib.parse import urlencode  # noqa: PLC0415
+        target = "/search/everything?" + urlencode({"q": q.strip()})
+    return RedirectResponse(target, status_code=301)
 
 
 @router.get("/api/notes/search.json")

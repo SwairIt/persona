@@ -33,7 +33,7 @@ from __future__ import annotations
 from typing import Any, Final
 
 from fastapi import APIRouter, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from app.logging_setup import get_logger
 from app.storage.db import get_connection
@@ -162,30 +162,19 @@ async def _run_search(query: str) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 
-@router.get("/audio/search", response_class=HTMLResponse)
-async def audio_search_page(
-    request: Request,
-    q: str = Query(default=""),
-) -> HTMLResponse:
-    """Render the audio transcript search page. Always HTTP 200."""
-    query = q.strip()
-    results: list[dict[str, Any]] = []
-    if query:
-        results = await _run_search(query)
-        log.info("audio.search.html", query=query, results=len(results))
+@router.get("/audio/search")
+async def audio_search_page_redirect(q: str = Query(default="")) -> RedirectResponse:
+    """**v1.32**: page moved into the unified /search/everything view.
 
-    return templates.TemplateResponse(
-        request,
-        "audio_search.html",
-        {
-            "title": f"Audio: {query}" if query else "Search audio",
-            "active_nav": "search",
-            "query": query,
-            "results": results,
-            "total": len(results),
-            "truncated": len(results) >= _MAX_RESULTS,
-        },
-    )
+    Audio is now the 6th tab there (v1.29). 301-redirect preserves any
+    bookmarks. The JSON sibling at ``/api/audio/search.json`` stays
+    where it is for any external scripts that may depend on it.
+    """
+    target = "/search/everything"
+    if q.strip():
+        from urllib.parse import urlencode  # noqa: PLC0415
+        target = "/search/everything?" + urlencode({"q": q.strip()})
+    return RedirectResponse(target, status_code=301)
 
 
 @router.get("/api/audio/search.json", response_class=JSONResponse)

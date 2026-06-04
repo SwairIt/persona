@@ -75,54 +75,42 @@ class _DayStats:
     idle_seconds: int
 
 
+async def _hour_getter() -> int:
+    return int(get_settings().daily_email_hour_local)
+
+
+async def _enabled_getter() -> bool:
+    return bool(get_settings().daily_email_enabled)
+
+
 async def run_daily_email_scheduler(
     controller: CaptureController | None = None,
 ) -> None:
-    """Long-running loop. Yields on ``controller.stop_event``."""
+    """Lifespan entry point — uses :class:`ClockScheduler` from v1.31."""
+    from app.workers._bases import ClockScheduler  # noqa: PLC0415
+
     ctrl = controller or get_controller()
-    settings = get_settings()
-
-    if not settings.daily_email_enabled:
-        log.info("daily_email.disabled")
-        await ctrl.stop_event.wait()
-        return
-
-    log.info("daily_email.started", hour=settings.daily_email_hour_local)
-
-    while not ctrl.stop_event.is_set():
-        await beat("daily-email-scheduler")
-        try:
-            await _maybe_send()
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            log.exception("daily_email.failed", error=str(exc))
-
-        try:
-            await asyncio.wait_for(
-                ctrl.stop_event.wait(),
-                timeout=POLL_INTERVAL_SECONDS,
-            )
-        except TimeoutError:
-            continue
+    scheduler = ClockScheduler(
+        name="daily-email-scheduler",
+        hour_local_getter=_hour_getter,
+        enabled_getter=_enabled_getter,
+        marker_kv=_LAST_SENT_KEY,
+        job=_job_send,
+        poll_seconds=int(POLL_INTERVAL_SECONDS),
+    )
+    await scheduler.run(ctrl.stop_event)
 
 
-async def _maybe_send() -> None:
-    """One poll iteration — decide whether to compose + ship the email."""
-    settings = get_settings()
+async def _job_send() -> None:
+    """One job invocation — compose + ship yesterday's digest email.
+
+    The clock-marker (managed by ClockScheduler) keeps us from
+    double-firing within the same day. The empty-day branch sets the
+    marker explicitly via set_kv so an empty calendar day still counts
+    as "handled today" without trying to recompute every tick.
+    """
     now_local = datetime.now().astimezone()
-
-    if now_local.hour != settings.daily_email_hour_local:
-        return
-
     today_iso = now_local.date().isoformat()
-
-    async with get_connection() as conn:
-        last_sent = await get_kv(conn, _LAST_SENT_KEY)
-
-    if last_sent == today_iso:
-        return
-
     target_day = now_local.date() - timedelta(days=1)
     target_iso = target_day.isoformat()
 
@@ -131,10 +119,8 @@ async def _maybe_send() -> None:
 
     if stats.shots == 0:
         log.info("daily_email.empty_day", day=target_iso)
-        # Mark as "handled today" so we don't recompute every 30 min;
-        # an empty day is a real outcome, not a configuration failure.
-        async with get_connection() as conn:
-            await set_kv(conn, _LAST_SENT_KEY, today_iso)
+        # Empty day = handled — ClockScheduler advances the marker
+        # automatically when we return normally.
         return
 
     tldr_text = await _safe_tldr(target_iso)
@@ -153,15 +139,13 @@ async def _maybe_send() -> None:
     status = str(result.get("status", "unknown"))
 
     if status in _SUCCESS_STATUSES:
-        async with get_connection() as conn:
-            await set_kv(conn, _LAST_SENT_KEY, today_iso)
         log.info("daily_email.sent", day=target_iso, to=result.get("to"))
         return
 
-    # Silent on missing SMTP — log at warning level so it shows up in
-    # /admin/health but don't propagate (worker stays alive, next tick
-    # retries once the user finishes the setup wizard).
+    # v1.31 — raise so ClockScheduler does NOT advance the day-marker.
+    # The next 30-min tick will retry once SMTP is configured.
     log.warning("daily_email.skipped", day=target_iso, status=status)
+    raise RuntimeError(f"daily_email skipped: {status}")
 
 
 async def _safe_tldr(day_iso: str) -> str:

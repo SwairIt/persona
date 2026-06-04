@@ -42,7 +42,7 @@ import re
 from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.logging_setup import get_logger
 from app.storage.db import get_connection
@@ -184,27 +184,11 @@ async def _run_search(term: str) -> list[dict[str, Any]]:
     return [_row_to_hit(row, term) for row in rows]
 
 
-@router.get("/stickers/search", response_class=HTMLResponse)
-async def sticky_search_page(
-    request: Request,
-    q: str = Query(default=""),
-) -> HTMLResponse:
-    """Render the sticky-note search page. Always 200, even on no input."""
-    query = q.strip()[:_MAX_QUERY_LEN]
-    results: list[dict[str, Any]] = []
-    if query:
-        results = await _run_search(query)
-        log.info("sticky_search.html", query=query, results=len(results))
-
-    return templates.TemplateResponse(
-        request,
-        "sticky_search.html",
-        {
-            "title": f"Sticker search: {query}" if query else "Search stickers",
-            "active_nav": "search",
-            "query": query,
-            "results": results,
-            "total": len(results),
-            "max_results": _MAX_RESULTS,
-        },
-    )
+@router.get("/stickers/search")
+async def sticky_search_page_redirect(q: str = Query(default="")) -> RedirectResponse:
+    """**v1.32**: page moved into /search/everything (stickies is a tab there)."""
+    target = "/search/everything"
+    if q.strip():
+        from urllib.parse import urlencode  # noqa: PLC0415
+        target = "/search/everything?" + urlencode({"q": q.strip()[:_MAX_QUERY_LEN]})
+    return RedirectResponse(target, status_code=301)
