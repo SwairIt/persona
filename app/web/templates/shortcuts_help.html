@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Горячие клавиши</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Полный список клавиатурных сокращений. Нажмите <kbd class="px-1.5 py-0.5 bg-ink-800 rounded text-xs font-mono">?</kbd>
+    на любой странице, чтобы открыть эту же шпаргалку поверх контента.
+    Привязки настраиваются на <a href="/settings/keyboard" class="text-accent-400 hover:underline">/settings/keyboard</a>.
+  </p>
+</div>
+
+{% for section in sections %}
+<section class="mb-8 max-w-3xl">
+  <h2 class="text-xs uppercase tracking-widest text-zinc-500 mb-3 border-b border-ink-700 pb-2">
+    {{ section.category }}
+  </h2>
+  <table class="w-full text-sm">
+    <tbody>
+      {% for row in section.rows %}
+      <tr class="border-b border-ink-800/60 last:border-0">
+        <td class="py-2 pr-4 w-32 align-top">
+          <kbd class="px-2 py-1 bg-ink-800 rounded text-sm shadow font-mono text-zinc-100">{{ row.key_combo }}</kbd>
+        </td>
+        <td class="py-2 text-zinc-200">
+          {{ row.description_ru }}
+          <div class="text-xs text-zinc-500 mt-0.5">{{ row.description_en }}</div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endfor %}
+
+<section class="mt-10 max-w-3xl text-xs text-zinc-500 space-y-2">
+  <p>
+    Источник истины — <code>app/web/routes/shortcuts_help.py</code>.
+    Тот же список отдаётся как JSON по
+    <a href="/api/help/shortcuts.json" class="text-zinc-400 hover:text-zinc-200">/api/help/shortcuts.json</a>
+    — оверлей <code>?</code> и внешние интеграции читают именно его.
+  </p>
+  <p>
+    Браузерные комбинации (Ctrl+F, Cmd+P, Esc внутри полей) никогда не
+    перехватываются — только односимвольные и <code>g</code>-префиксные
+    последовательности из списка выше.
+  </p>
+</section>
+{% endblock %}

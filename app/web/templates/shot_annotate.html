@@ -1,0 +1,410 @@
+{% extends "base.html" %}
+
+{#
+  v1.20 — Visual annotations editor.
+
+  Renders the screenshot thumbnail plus an SVG overlay positioned
+  absolutely on top of it. The overlay uses a ``viewBox`` matching the
+  image's natural pixel dimensions so shape coordinates stay aligned
+  at any rendered size. The toolbox supports three primitives —
+  rectangle, arrow, text — a single accent colour, undo, clear,
+  delete-selected, and save.
+
+  Security note: ``initial_svg`` has already been piped through
+  :func:`app.shot_annotations.sanitise_svg`, which strips ``<script>``
+  tags and ``on*`` handlers. We additionally inject the payload only
+  inside our own ``<svg>`` container, so a stray closing tag could
+  break the overlay but cannot escape into the surrounding document.
+#}
+
+{% block content %}
+<div class="mb-4 flex flex-wrap items-center gap-2 justify-between text-sm">
+  <a href="/screenshot/{{ shot.id }}"
+     class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700">← к скриншоту #{{ shot.id }}</a>
+  {% if updated_at %}
+    <span class="text-xs text-zinc-500">сохранено: <span class="font-mono">{{ updated_at }}</span></span>
+  {% else %}
+    <span class="text-xs text-zinc-500">пока не сохранено</span>
+  {% endif %}
+</div>
+
+<div id="annotate-root"
+     data-shot-id="{{ shot.id }}"
+     class="space-y-3">
+  <div class="flex flex-wrap items-center gap-2 rounded-lg border border-ink-700 bg-ink-900 p-2 text-sm">
+    <button type="button" data-tool="rect"
+            class="anno-tool px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700">Прямоугольник</button>
+    <button type="button" data-tool="arrow"
+            class="anno-tool px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700">Стрелка</button>
+    <button type="button" data-tool="text"
+            class="anno-tool px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700">Текст</button>
+    <span class="mx-2 h-5 w-px bg-ink-700"></span>
+    <button type="button" id="anno-undo"
+            class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700">Отменить</button>
+    <button type="button" id="anno-delete"
+            class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700">Удалить выбранное</button>
+    <button type="button" id="anno-clear"
+            class="px-3 py-1.5 rounded bg-rose-900/60 hover:bg-rose-900 text-rose-200">Очистить</button>
+    <span class="mx-2 h-5 w-px bg-ink-700"></span>
+    <button type="button" id="anno-save"
+            class="px-3 py-1.5 rounded bg-accent-600 hover:bg-accent-500 text-white">Сохранить</button>
+    <span id="anno-status" class="text-xs text-zinc-500 ml-2" aria-live="polite"></span>
+  </div>
+
+  {% if shot.thumbnail_path %}
+    {% set thumb_src = shot.thumbnail_path | thumbnail_url %}
+    <div id="annotate-stage"
+         class="relative inline-block max-w-full rounded-lg overflow-hidden border border-ink-700 bg-ink-900 select-none">
+      <img id="annotate-img"
+           src="{{ thumb_src }}"
+           alt="Screenshot #{{ shot.id }}"
+           draggable="false"
+           class="block max-w-full h-auto pointer-events-none">
+      {# The overlay viewBox is set in JS once the image reports its
+         natural size; an initial 1x1 keeps any pre-loaded shapes from
+         exploding to viewport size. #}
+      <svg id="annotate-svg"
+           xmlns="http://www.w3.org/2000/svg"
+           viewBox="0 0 1 1"
+           preserveAspectRatio="none"
+           class="absolute inset-0 w-full h-full cursor-crosshair">
+        <g id="annotate-shapes">{{ initial_svg | safe }}</g>
+      </svg>
+    </div>
+  {% else %}
+    <div class="aspect-video flex items-center justify-center text-zinc-500 bg-ink-900 rounded-lg border border-ink-700">
+      Миниатюра удалена политикой ретенции — рисовать не на чем.
+    </div>
+  {% endif %}
+
+  <p class="text-xs text-zinc-500">
+    Выбери инструмент, протяни прямоугольник/стрелку мышью, для текста — кликни и
+    введи. <span class="font-mono">Esc</span> снимает выделение, <span class="font-mono">Delete</span>
+    удаляет выбранную фигуру.
+  </p>
+</div>
+
+<script>
+  (function () {
+    'use strict';
+
+    var root = document.getElementById('annotate-root');
+    var img = document.getElementById('annotate-img');
+    var svg = document.getElementById('annotate-svg');
+    var shapes = document.getElementById('annotate-shapes');
+    var status = document.getElementById('anno-status');
+    if (!root || !img || !svg || !shapes) return;
+
+    var SVG_NS = 'http://www.w3.org/2000/svg';
+    var COLOUR = '#f97316';            // single accent colour for v1
+    var STROKE = 4;
+    var FONT_SIZE = 28;
+    var MAX_BYTES = {{ max_payload_bytes | default(65536) }};
+    var shotId = Number(root.dataset.shotId);
+
+    var state = {
+      tool: 'rect',
+      drawing: null,                   // {kind, el, x0, y0}
+      selected: null,
+      history: [],                     // stack of serialised <g> snapshots
+    };
+
+    function setStatus(text, isError) {
+      if (!status) return;
+      status.textContent = text || '';
+      status.className = 'text-xs ml-2 ' + (isError ? 'text-rose-400' : 'text-zinc-500');
+    }
+
+    function pushHistory() {
+      // Snapshot the inner HTML before each mutation so undo restores
+      // exactly one step at a time. Capped at 50 to keep memory bounded.
+      state.history.push(shapes.innerHTML);
+      if (state.history.length > 50) state.history.shift();
+    }
+
+    function selectShape(el) {
+      if (state.selected) state.selected.removeAttribute('data-selected');
+      state.selected = el;
+      if (el) {
+        el.setAttribute('data-selected', '1');
+        el.style.outline = '2px dashed #38bdf8';
+      }
+    }
+
+    function attachSelectHandler(g) {
+      g.addEventListener('mousedown', function (e) {
+        if (state.tool !== 'select-implicit') {
+          // Clicking an existing shape always selects it, regardless of tool.
+          e.stopPropagation();
+          selectShape(g);
+        }
+      });
+    }
+
+    function fitViewBox() {
+      var nw = img.naturalWidth;
+      var nh = img.naturalHeight;
+      if (!nw || !nh) return;
+      svg.setAttribute('viewBox', '0 0 ' + nw + ' ' + nh);
+    }
+
+    // Translate a DOM mouse event into SVG user-space coordinates so the
+    // shape we draw lives in the same coordinate system as the viewBox.
+    function eventPoint(evt) {
+      var rect = svg.getBoundingClientRect();
+      var nw = img.naturalWidth || 1;
+      var nh = img.naturalHeight || 1;
+      var x = (evt.clientX - rect.left) / rect.width * nw;
+      var y = (evt.clientY - rect.top) / rect.height * nh;
+      return { x: x, y: y };
+    }
+
+    function makeGroup(kind) {
+      var g = document.createElementNS(SVG_NS, 'g');
+      g.setAttribute('data-kind', kind);
+      attachSelectHandler(g);
+      return g;
+    }
+
+    function startRect(p) {
+      var g = makeGroup('rect');
+      var r = document.createElementNS(SVG_NS, 'rect');
+      r.setAttribute('x', p.x);
+      r.setAttribute('y', p.y);
+      r.setAttribute('width', 0);
+      r.setAttribute('height', 0);
+      r.setAttribute('fill', 'none');
+      r.setAttribute('stroke', COLOUR);
+      r.setAttribute('stroke-width', STROKE);
+      g.appendChild(r);
+      shapes.appendChild(g);
+      state.drawing = { kind: 'rect', el: g, x0: p.x, y0: p.y };
+    }
+
+    function updateRect(p) {
+      var r = state.drawing.el.firstChild;
+      var x0 = state.drawing.x0;
+      var y0 = state.drawing.y0;
+      r.setAttribute('x', Math.min(x0, p.x));
+      r.setAttribute('y', Math.min(y0, p.y));
+      r.setAttribute('width', Math.abs(p.x - x0));
+      r.setAttribute('height', Math.abs(p.y - y0));
+    }
+
+    function startArrow(p) {
+      var g = makeGroup('arrow');
+      // Lazily inject the marker definition the first time we draw an
+      // arrow so a fresh document doesn't carry an unused <defs>.
+      ensureArrowMarker();
+      var l = document.createElementNS(SVG_NS, 'line');
+      l.setAttribute('x1', p.x);
+      l.setAttribute('y1', p.y);
+      l.setAttribute('x2', p.x);
+      l.setAttribute('y2', p.y);
+      l.setAttribute('stroke', COLOUR);
+      l.setAttribute('stroke-width', STROKE);
+      l.setAttribute('marker-end', 'url(#anno-arrowhead)');
+      g.appendChild(l);
+      shapes.appendChild(g);
+      state.drawing = { kind: 'arrow', el: g, x0: p.x, y0: p.y };
+    }
+
+    function updateArrow(p) {
+      var l = state.drawing.el.firstChild;
+      l.setAttribute('x2', p.x);
+      l.setAttribute('y2', p.y);
+    }
+
+    function ensureArrowMarker() {
+      if (svg.querySelector('#anno-arrowhead')) return;
+      var defs = document.createElementNS(SVG_NS, 'defs');
+      var marker = document.createElementNS(SVG_NS, 'marker');
+      marker.setAttribute('id', 'anno-arrowhead');
+      marker.setAttribute('viewBox', '0 0 10 10');
+      marker.setAttribute('refX', '8');
+      marker.setAttribute('refY', '5');
+      marker.setAttribute('markerWidth', '6');
+      marker.setAttribute('markerHeight', '6');
+      marker.setAttribute('orient', 'auto-start-reverse');
+      var path = document.createElementNS(SVG_NS, 'path');
+      path.setAttribute('d', 'M0,0 L10,5 L0,10 z');
+      path.setAttribute('fill', COLOUR);
+      marker.appendChild(path);
+      defs.appendChild(marker);
+      svg.insertBefore(defs, shapes);
+    }
+
+    function placeText(p) {
+      var label = window.prompt('Текст подписи:');
+      if (label === null) return;
+      var trimmed = label.trim();
+      if (!trimmed) return;
+      pushHistory();
+      var g = makeGroup('text');
+      var t = document.createElementNS(SVG_NS, 'text');
+      t.setAttribute('x', p.x);
+      t.setAttribute('y', p.y);
+      t.setAttribute('fill', COLOUR);
+      t.setAttribute('font-size', FONT_SIZE);
+      t.setAttribute('font-family', 'system-ui, sans-serif');
+      t.setAttribute('font-weight', '600');
+      t.textContent = trimmed;
+      g.appendChild(t);
+      shapes.appendChild(g);
+      selectShape(g);
+    }
+
+    // ---- mouse pipeline ----------------------------------------------------
+
+    svg.addEventListener('mousedown', function (e) {
+      if (e.button !== 0) return;
+      var p = eventPoint(e);
+      // Click on empty canvas deselects any active shape.
+      if (e.target === svg || e.target === shapes) selectShape(null);
+
+      if (state.tool === 'rect') {
+        pushHistory();
+        startRect(p);
+      } else if (state.tool === 'arrow') {
+        pushHistory();
+        startArrow(p);
+      } else if (state.tool === 'text') {
+        placeText(p);
+      }
+    });
+
+    svg.addEventListener('mousemove', function (e) {
+      if (!state.drawing) return;
+      var p = eventPoint(e);
+      if (state.drawing.kind === 'rect') updateRect(p);
+      else if (state.drawing.kind === 'arrow') updateArrow(p);
+    });
+
+    function finishDraw() {
+      if (!state.drawing) return;
+      var g = state.drawing.el;
+      // Discard tiny/empty drags so a stray click doesn't litter the
+      // overlay with zero-size shapes.
+      var first = g.firstChild;
+      if (state.drawing.kind === 'rect') {
+        var w = parseFloat(first.getAttribute('width')) || 0;
+        var h = parseFloat(first.getAttribute('height')) || 0;
+        if (w < 2 || h < 2) g.parentNode.removeChild(g);
+      } else if (state.drawing.kind === 'arrow') {
+        var dx = parseFloat(first.getAttribute('x2')) - parseFloat(first.getAttribute('x1'));
+        var dy = parseFloat(first.getAttribute('y2')) - parseFloat(first.getAttribute('y1'));
+        if ((dx * dx + dy * dy) < 16) g.parentNode.removeChild(g);
+      }
+      state.drawing = null;
+    }
+    window.addEventListener('mouseup', finishDraw);
+    svg.addEventListener('mouseleave', finishDraw);
+
+    // ---- toolbox -----------------------------------------------------------
+
+    function setActiveTool(name) {
+      state.tool = name;
+      document.querySelectorAll('.anno-tool').forEach(function (b) {
+        var on = b.dataset.tool === name;
+        b.classList.toggle('bg-accent-600', on);
+        b.classList.toggle('text-white', on);
+        b.classList.toggle('bg-ink-800', !on);
+      });
+    }
+
+    document.querySelectorAll('.anno-tool').forEach(function (b) {
+      b.addEventListener('click', function () { setActiveTool(b.dataset.tool); });
+    });
+    setActiveTool('rect');
+
+    document.getElementById('anno-undo').addEventListener('click', function () {
+      var snap = state.history.pop();
+      if (snap === undefined) return;
+      shapes.innerHTML = snap;
+      // Re-bind select handlers — innerHTML strips the listeners.
+      Array.prototype.forEach.call(shapes.children, attachSelectHandler);
+      selectShape(null);
+    });
+
+    document.getElementById('anno-clear').addEventListener('click', function () {
+      if (!shapes.children.length) return;
+      if (!window.confirm('Удалить все аннотации?')) return;
+      pushHistory();
+      shapes.innerHTML = '';
+      selectShape(null);
+    });
+
+    document.getElementById('anno-delete').addEventListener('click', function () {
+      if (!state.selected) return;
+      pushHistory();
+      state.selected.parentNode.removeChild(state.selected);
+      state.selected = null;
+    });
+
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') selectShape(null);
+      if ((e.key === 'Delete' || e.key === 'Backspace') && state.selected) {
+        // Ignore when typing into an input — none on this page today,
+        // but harmless to guard.
+        var tag = (document.activeElement && document.activeElement.tagName) || '';
+        if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+        e.preventDefault();
+        pushHistory();
+        state.selected.parentNode.removeChild(state.selected);
+        state.selected = null;
+      }
+    });
+
+    // ---- save --------------------------------------------------------------
+
+    function serialiseShapes() {
+      // Strip the selection outline before serialising so the payload
+      // is identical regardless of which shape was active at save-time.
+      Array.prototype.forEach.call(shapes.querySelectorAll('[data-selected]'), function (n) {
+        n.removeAttribute('data-selected');
+        n.style.outline = '';
+      });
+      var defs = svg.querySelector('defs');
+      var defsHtml = defs ? defs.outerHTML : '';
+      return defsHtml + shapes.innerHTML;
+    }
+
+    document.getElementById('anno-save').addEventListener('click', async function () {
+      var payload = serialiseShapes();
+      if (new Blob([payload]).size > MAX_BYTES) {
+        setStatus('Слишком много фигур — не вмещается в 64 КБ', true);
+        return;
+      }
+      setStatus('Сохраняю…');
+      try {
+        var res = await fetch('/api/screenshot/' + shotId + '/annotation', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ svg_payload: payload }),
+        });
+        if (!res.ok) {
+          var msg = 'Ошибка сохранения (' + res.status + ')';
+          setStatus(msg, true);
+          return;
+        }
+        var data = await res.json();
+        setStatus('Сохранено: ' + (data.updated_at || ''));
+        // Re-select after save so further drawings start fresh.
+        selectShape(null);
+      } catch (err) {
+        setStatus('Сеть недоступна', true);
+      }
+    });
+
+    // ---- bootstrap ---------------------------------------------------------
+
+    function boot() {
+      fitViewBox();
+      // Bind handlers on every shape that was server-rendered.
+      Array.prototype.forEach.call(shapes.children, attachSelectHandler);
+    }
+    if (img.complete && img.naturalWidth) boot();
+    else img.addEventListener('load', boot, { once: true });
+  })();
+</script>
+{% endblock %}

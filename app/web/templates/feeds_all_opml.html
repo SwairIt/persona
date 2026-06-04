@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Все RSS-ленты OPML</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Одним кликом подпишитесь на все RSS-ленты Persona в любом фид-ридере.
+  </p>
+</div>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-6 mb-6">
+  <div class="flex flex-col items-start gap-4">
+    <a href="/feeds.opml"
+       class="inline-flex items-center gap-2 px-6 py-3 bg-accent-600 hover:bg-accent-500
+              rounded-lg text-base font-semibold text-white transition shadow-sm">
+      <span aria-hidden="true">&darr;</span>
+      Скачать OPML
+    </a>
+    <p class="text-sm text-zinc-400">
+      Скачайте файл <code class="font-mono text-zinc-300">persona-feeds.opml</code> и
+      импортируйте в свой RSS-reader &mdash; Feedly, NetNewsWire, Inoreader, FreshRSS,
+      Reeder и т.&nbsp;п. Все канонические ленты Persona появятся в подписках сразу.
+    </p>
+    <p class="text-xs text-zinc-500">
+      Если на сервере включена защита фид-токенами
+      (<code class="font-mono">PERSONA_FEED_AUTH_REQUIRED=true</code>),
+      добавьте параметр <code class="font-mono">?token=&lt;ваш-токен&gt;</code>
+      к адресу <code class="font-mono">/feeds.opml</code> &mdash; токен будет
+      вшит в каждую ссылку внутри файла.
+    </p>
+  </div>
+</section>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5 text-xs text-zinc-400 space-y-2">
+  <h2 class="text-sm font-semibold text-zinc-200">Что внутри</h2>
+  <ul class="list-disc list-inside space-y-1">
+    <li><code class="font-mono">/feeds/journal.rss</code> &mdash; журнал заметок</li>
+    <li><code class="font-mono">/feeds/audit.rss</code> &mdash; аудит привилегированных действий (loopback-only)</li>
+    <li><code class="font-mono">/feeds/digest/weekly.rss</code> &mdash; еженедельные LLM-дайджесты</li>
+    <li><code class="font-mono">/feeds/annotations.rss</code> &mdash; пометки на полях скриншотов</li>
+    <li><code class="font-mono">/rss</code> &mdash; страница со списком per-tag / per-collection / per-saved-search лент</li>
+  </ul>
+</section>
+{% endblock %}

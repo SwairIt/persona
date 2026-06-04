@@ -282,6 +282,9 @@ from app.web.routes import (
     weekly_cards as weekly_cards_routes,
     meeting_pause as meeting_pause_routes,
     llm_cost as llm_cost_routes,
+    shortcuts_help as shortcuts_help_routes,
+    shot_annotations as shot_annotations_routes,
+    opml_export as opml_export_routes,
 )
 from app.workers import (
     get_controller,
@@ -331,7 +334,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.21.0",
+        version="1.22.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -575,6 +578,9 @@ def create_app() -> FastAPI:
     app.include_router(weekly_cards_routes.router)
     app.include_router(meeting_pause_routes.router)
     app.include_router(llm_cost_routes.router)
+    app.include_router(shortcuts_help_routes.router)
+    app.include_router(shot_annotations_routes.router)
+    app.include_router(opml_export_routes.router)
     app.include_router(sticky_search_routes.router)
     app.include_router(audit_replay_routes.router)
     app.include_router(tag_gallery_routes.router)
