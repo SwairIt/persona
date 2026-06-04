@@ -1,0 +1,32 @@
+-- v1.32 — per-shot LLM alt-text sidecar.
+--
+-- The current timeline / shot detail UI renders ``screenshots.ocr_text``
+-- verbatim. Tesseract is good at grabbing characters but bad at telling
+-- the user what they were doing — the result is a wall of half-extracted
+-- string fragments that's useless as alt-text and as a glance line
+-- under a thumbnail.
+--
+-- This migration adds a one-line LLM-generated description column. The
+-- LLM is prompted with the OCR text and returns a single sentence
+-- ("Cursor editor showing Python function with type hints"). That
+-- sentence is way more scannable for a scrolling timeline and works as
+-- proper ``alt`` text for the underlying ``<img>``.
+--
+-- Column contract
+-- ---------------
+--   * ``alt_text`` — the cached one-line description. NULL until the
+--     worker / route ``generate_alt_text(shot_id)`` populates it. Written
+--     exactly once per row — a non-NULL value means "already done, do
+--     not re-bill the user against their BYO key".
+--   * ``alt_text_generated_at`` — ISO-8601 timestamp of the write
+--     (informational; used by /stats and to surface "stale" candidates
+--     if a future model upgrade wants to regenerate). NULL when
+--     ``alt_text`` is NULL.
+--
+-- Both columns are added via ``ALTER TABLE`` so existing rows survive
+-- with NULL values; the idempotent migration runner swallows the
+-- "duplicate column" error so re-running this migration on an already-
+-- migrated schema is safe.
+
+ALTER TABLE screenshots ADD COLUMN alt_text TEXT;
+ALTER TABLE screenshots ADD COLUMN alt_text_generated_at TEXT;

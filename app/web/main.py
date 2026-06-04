@@ -292,6 +292,9 @@ from app.web.routes import (
     multi_monitor as multi_monitor_routes,
     qa_stream as qa_stream_routes,
     settings_hub as settings_hub_routes,
+    shot_alt_text_settings as shot_alt_text_settings_routes,
+    auto_pin_admin as auto_pin_admin_routes,
+    today_vs_average as today_vs_average_routes,
 )
 from app.workers import (
     get_controller,
@@ -341,7 +344,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.34.0",
+        version="1.35.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -595,6 +598,9 @@ def create_app() -> FastAPI:
     app.include_router(multi_monitor_routes.router)
     app.include_router(qa_stream_routes.router)
     app.include_router(settings_hub_routes.router)
+    app.include_router(shot_alt_text_settings_routes.router)
+    app.include_router(auto_pin_admin_routes.router)
+    app.include_router(today_vs_average_routes.router)
     app.include_router(sticky_search_routes.router)
     app.include_router(audit_replay_routes.router)
     app.include_router(tag_gallery_routes.router)
@@ -691,6 +697,20 @@ async def _run_auto_translate_worker(controller: object) -> None:
     await run_auto_translate_worker()
 
 
+async def _run_alt_text_worker(controller: object) -> None:
+    """Adapter for the v1.35 per-shot LLM alt-text worker."""
+    from app.workers.alt_text_worker import run_alt_text_worker  # noqa: PLC0415
+
+    await run_alt_text_worker()
+
+
+async def _run_auto_pin_worker(controller: object) -> None:
+    """Adapter for the v1.35 regex-rule auto-pin worker."""
+    from app.workers.auto_pin_worker import run_auto_pin_worker  # noqa: PLC0415
+
+    await run_auto_pin_worker()
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialise DB, start workers, and tear them down on shutdown."""
@@ -738,6 +758,14 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         asyncio.create_task(
             _run_auto_translate_worker(controller),
             name="auto-translate-worker",
+        ),
+        asyncio.create_task(
+            _run_alt_text_worker(controller),
+            name="alt-text-worker",
+        ),
+        asyncio.create_task(
+            _run_auto_pin_worker(controller),
+            name="auto-pin-worker",
         ),
     ]
 

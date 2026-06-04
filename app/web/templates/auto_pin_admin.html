@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Авто-пин по regex</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Регулярные выражения, по которым воркер автоматически пинит скриншоты
+    (выставляет <code>pinned_at</code>), если в их OCR-тексте находится совпадение.
+    Поиск идёт без учёта регистра (<code>re.IGNORECASE</code>). Родственник
+    <a href="/settings/tag-rules" class="text-accent-400 hover:underline">авто-тегов</a>:
+    та же модель, но вместо тега&nbsp;&mdash; фиксируется важный кадр.
+  </p>
+  <p class="text-zinc-500 text-xs mt-2">
+    Защита от плохого регекса: не больше 20&nbsp;авто-пинов в сутки
+    суммарно. Ручные пины из интерфейса тоже считаются&nbsp;&mdash;
+    лимит общий.
+  </p>
+</div>
+
+<form action="/settings/auto-pin" method="post"
+      class="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-2 mb-8 items-start">
+  <input name="pattern" placeholder="regex, например TODO|DEADLINE"
+         required autocomplete="off"
+         class="px-3 py-2 bg-ink-800 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
+  <input name="description" placeholder="заметка (необязательно)"
+         autocomplete="off"
+         class="px-3 py-2 bg-ink-800 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
+  <button type="submit"
+          class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
+    Добавить
+  </button>
+</form>
+
+{% if rules %}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-ink-900 text-zinc-500 text-xs uppercase tracking-wider">
+        <tr>
+          <th class="text-left py-2 px-4">Pattern</th>
+          <th class="text-left py-2 px-4">Описание</th>
+          <th class="text-left py-2 px-4 w-44">Создано</th>
+          <th class="py-2 px-4 w-40"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for rule in rules %}
+          <tr class="border-t border-ink-700 {% if not rule.enabled %}opacity-50{% endif %}">
+            <td class="py-2 px-4 font-mono text-zinc-200 break-all">{{ rule.pattern }}</td>
+            <td class="py-2 px-4 text-zinc-400">{{ rule.description or '—' }}</td>
+            <td class="py-2 px-4 text-zinc-500 text-xs whitespace-nowrap">{{ rule.created_at }}</td>
+            <td class="py-2 px-4 text-right whitespace-nowrap">
+              <form action="/settings/auto-pin/{{ rule.id }}/toggle" method="post" class="inline">
+                <button class="text-xs px-2 py-1 rounded bg-ink-700 hover:bg-accent-600 text-zinc-200">
+                  {% if rule.enabled %}выкл{% else %}вкл{% endif %}
+                </button>
+              </form>
+              <form action="/settings/auto-pin/{{ rule.id }}/delete" method="post" class="inline"
+                    onsubmit="return confirm('Удалить правило {{ rule.pattern }}?')">
+                <button class="text-xs px-2 py-1 rounded bg-rose-900/40 hover:bg-rose-900 text-rose-300">
+                  удалить
+                </button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  <p class="text-zinc-500 text-sm">Правил пока нет &mdash; добавьте regex выше, и воркер начнёт пинить совпадения автоматически.</p>
+{% endif %}
+{% endblock %}

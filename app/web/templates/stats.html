@@ -6,6 +6,17 @@
   <p class="text-zinc-500 text-sm mt-1">Live runtime metrics and 14-day activity.</p>
 </div>
 
+{# Today-vs-7-day-average widget — HTMX-loaded so the rest of the
+   /stats page does not block on its five extra aggregate queries.
+   Renders an empty rounded placeholder until the swap lands so the
+   layout above the budget strip does not jump on slow databases. #}
+<div hx-get="/widget/today-vs-average"
+     hx-trigger="load"
+     hx-swap="outerHTML"
+     class="mb-8 rounded-lg border border-ink-700 bg-ink-800 p-5 text-xs text-zinc-500">
+  Loading today-vs-average…
+</div>
+
 {% set budget_used = (today_bytes / budget_bytes) if budget_bytes else 0 %}
 {% set budget_pct = (budget_used * 100) | round(1) %}
 {% set over_budget = today_bytes > budget_bytes %}

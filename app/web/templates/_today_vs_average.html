@@ -1,0 +1,75 @@
+{# Today-vs-average widget — HTMX-embeddable fragment.
+
+   Served by ``GET /widget/today-vs-average`` and pulled into the top
+   of ``/stats`` via ``hx-get`` + ``hx-trigger="load"``. Standalone (no
+   ``base.html`` extends) so it can be HTMX-swapped without rerunning
+   the page chrome.
+
+   Expects context:
+
+     * ``today_iso``       — ISO date string for the header.
+     * ``metrics``         — list[{name, today, avg7d, delta_pct, direction}].
+
+   Each metric becomes a small card with a big "today" number, the
+   7-day average underneath, and a coloured delta arrow:
+
+     * direction == "up"   → emerald + ▲
+     * direction == "down" → rose    + ▼
+     * direction == "same" → zinc    + ●
+
+   The metric names map to short human labels via the inline
+   ``label_for`` dictionary — keeping them in the template rather than
+   the route module so a labelling tweak is template-only.
+#}
+{% set label_for = {
+  "screenshots":    "Screenshots",
+  "audio_seconds":  "Audio (sec)",
+  "apps":           "Apps",
+  "window_titles":  "Windows",
+  "idle_seconds":   "Idle (sec)",
+} %}
+<section id="today-vs-average"
+         class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-8">
+  <div class="flex items-baseline justify-between mb-4 flex-wrap gap-2">
+    <h2 class="text-lg font-semibold">Today vs 7-day average</h2>
+    <span class="text-xs text-zinc-500 font-mono">{{ today_iso }}</span>
+  </div>
+  <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+    {% for metric in metrics %}
+      {% if metric.direction == "up" %}
+        {% set delta_classes = "text-emerald-400" %}
+        {% set arrow = "▲" %}
+      {% elif metric.direction == "down" %}
+        {% set delta_classes = "text-rose-400" %}
+        {% set arrow = "▼" %}
+      {% else %}
+        {% set delta_classes = "text-zinc-500" %}
+        {% set arrow = "●" %}
+      {% endif %}
+      <div class="rounded bg-ink-900 p-3"
+           title="{{ metric.name }} today: {{ metric.today }} · 7d avg: {{ metric.avg7d }}">
+        <div class="text-xs uppercase tracking-widest text-zinc-500">
+          {{ label_for.get(metric.name, metric.name) }}
+        </div>
+        <div class="text-2xl font-bold mt-1 text-zinc-100">
+          {% if metric.today == metric.today | int %}
+            {{ metric.today | int }}
+          {% else %}
+            {{ "%.1f" | format(metric.today) }}
+          {% endif %}
+        </div>
+        <div class="text-xs mt-1 font-mono {{ delta_classes }}">
+          {{ arrow }} {{ "%+.1f" | format(metric.delta_pct) }}%
+        </div>
+        <div class="text-[10px] text-zinc-600 mt-1">
+          avg
+          {% if metric.avg7d == metric.avg7d | int %}
+            {{ metric.avg7d | int }}
+          {% else %}
+            {{ "%.1f" | format(metric.avg7d) }}
+          {% endif %}
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+</section>
