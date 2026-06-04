@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex flex-wrap items-end justify-between gap-3">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">
+      Все мониторы <span class="text-zinc-500 font-normal">#{{ shot.id }}</span>
+    </h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      {{ shot.captured_at | localtime('full') }}
+      {% if shot.app_name %}
+        · <span class="text-zinc-300">{{ shot.app_name | app_alias }}</span>
+      {% endif %}
+    </p>
+  </div>
+  <div class="flex items-center gap-2 text-xs">
+    {% if tiles | length == 1 %}
+      <span class="px-2 py-1 rounded bg-amber-900/40 border border-amber-700/60 text-amber-200">
+        1 monitor
+      </span>
+    {% else %}
+      <span class="px-2 py-1 rounded bg-emerald-900/40 border border-emerald-700/60 text-emerald-200">
+        {{ tiles | length }} мониторов
+      </span>
+    {% endif %}
+    <a href="/screenshot/{{ shot.id }}"
+       class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700 text-zinc-200">
+      ← к одному кадру
+    </a>
+  </div>
+</div>
+
+<div class="flex flex-col gap-4 max-w-5xl">
+  {% for tile in tiles %}
+    <section class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden">
+      <header class="px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 border-b border-ink-700 bg-ink-900">
+        <div class="flex items-center gap-3">
+          <span class="inline-flex items-center justify-center min-w-[2rem] h-7 px-2 rounded-md bg-accent-600 text-white text-xs font-semibold tracking-wide">
+            Монитор {{ tile.monitor_index }}
+          </span>
+          <span class="text-xs font-mono text-zinc-400">
+            {{ tile.width }}×{{ tile.height }} px
+          </span>
+        </div>
+        <div class="flex items-center gap-2 text-xs">
+          {% if tile.shot_id != shot.id %}
+            <a href="/screenshot/{{ tile.shot_id }}"
+               class="px-2 py-1 rounded bg-ink-800 hover:bg-ink-700 text-zinc-300">
+              открыть кадр #{{ tile.shot_id }}
+            </a>
+          {% else %}
+            <span class="px-2 py-1 rounded bg-ink-800 text-zinc-500">
+              текущий кадр
+            </span>
+          {% endif %}
+        </div>
+      </header>
+      <div class="bg-ink-950">
+        {% if tile.url %}
+          <img src="{{ tile.url }}"
+               alt="Монитор {{ tile.monitor_index }}"
+               loading="lazy"
+               class="block w-full h-auto">
+        {% else %}
+          <div class="aspect-video flex items-center justify-center text-zinc-600 text-sm">
+            <span>миниатюра недоступна</span>
+          </div>
+        {% endif %}
+      </div>
+    </section>
+  {% endfor %}
+</div>
+
+<p class="text-zinc-500 text-xs mt-6 max-w-2xl">
+  Машинно-читаемый JSON для этого же набора:
+  <a href="/api/shot/{{ shot.id }}/monitors.json"
+     class="font-mono text-accent-400 hover:underline">/api/shot/{{ shot.id }}/monitors.json</a>
+</p>
+{% endblock %}

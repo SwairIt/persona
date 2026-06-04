@@ -20,7 +20,20 @@
       <span x-show="!loading">Ask</span>
       <span x-show="loading">Thinking…</span>
     </button>
+    <button type="button"
+            @click="runStream()"
+            :disabled="streaming || !question.trim()"
+            class="px-5 py-2.5 bg-ink-700 hover:bg-ink-600 disabled:opacity-50 rounded-lg font-medium border border-ink-600">
+      <span x-show="!streaming">Stream</span>
+      <span x-show="streaming">Streaming…</span>
+    </button>
   </form>
+
+  <article x-show="streamOut || streaming" class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">Streaming answer</h2>
+    <div id="stream-out" x-text="streamOut" class="text-zinc-200 leading-relaxed whitespace-pre-wrap"></div>
+    <p x-show="streamDone" class="text-zinc-500 text-xs mt-3">Stream complete.</p>
+  </article>
 
   <div x-show="error" class="rounded-lg border border-amber-700/40 bg-amber-900/20 p-4 text-sm text-amber-300">
     <strong class="block mb-1">Cannot run Q&amp;A</strong>
@@ -62,6 +75,10 @@ PERSONA_EMBEDDINGS_ENABLED=true   # optional but recommended for better retrieva
       usedScreenshots: 0,
       loading: false,
       error: '',
+      streaming: false,
+      streamOut: '',
+      streamDone: false,
+      _es: null,
       async run() {
         if (!this.question.trim()) return;
         this.loading = true;
@@ -87,6 +104,52 @@ PERSONA_EMBEDDINGS_ENABLED=true   # optional but recommended for better retrieva
         } finally {
           this.loading = false;
         }
+      },
+      runStream() {
+        if (!this.question.trim()) return;
+        if (this._es) { this._es.close(); this._es = null; }
+        this.streaming = true;
+        this.streamOut = '';
+        this.streamDone = false;
+        this.error = '';
+        const url = '/api/ask/stream?q=' + encodeURIComponent(this.question);
+        const es = new EventSource(url);
+        this._es = es;
+        es.onmessage = (ev) => {
+          let payload;
+          try { payload = JSON.parse(ev.data); } catch (_e) { return; }
+          if (payload.type === 'delta' && typeof payload.text === 'string') {
+            this.streamOut += payload.text;
+          } else if (payload.type === 'meta') {
+            this.usedScreenshots = payload.used_screenshots || 0;
+          } else if (payload.type === 'done') {
+            if (typeof payload.full_answer === 'string' && !this.streamOut) {
+              this.streamOut = payload.full_answer;
+            }
+            if (Array.isArray(payload.citations)) {
+              this.citations = payload.citations;
+            }
+            this.streamDone = true;
+            this.streaming = false;
+            es.close();
+            this._es = null;
+          } else if (payload.type === 'error') {
+            this.error = payload.reason === 'missing_config'
+              ? 'LLM not configured — set a provider + key at /settings/llm.'
+              : (payload.detail || payload.reason || 'Stream error');
+            this.streaming = false;
+            es.close();
+            this._es = null;
+          }
+        };
+        es.onerror = () => {
+          if (!this.streamDone) {
+            this.error = this.error || 'Stream connection closed.';
+          }
+          this.streaming = false;
+          es.close();
+          this._es = null;
+        };
       }
     }
   }

@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import dataclass
-from typing import Literal, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 
 import httpx
 
 from app.logging_setup import get_logger
 from app.settings import get_settings
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 Provider = Literal["anthropic", "openai", "groq", "gemini"]
 
@@ -57,6 +61,18 @@ class LLMClient(Protocol):
 
     async def complete(self, request: CompletionRequest) -> str: ...
 
+    def stream(self, request: CompletionRequest) -> AsyncIterator[str]:
+        """Yield incremental text deltas as the provider produces them.
+
+        Returns an async iterator of plain string chunks (the new text
+        produced since the last yield, not the full running answer).
+        Implementations that fail to open a streaming connection fall
+        back to a single ``complete()`` call and yield the result as
+        one chunk so the caller can treat ``.stream()`` as the universal
+        path.
+        """
+        ...
+
 
 class AnthropicClient:
     provider: Provider = "anthropic"
@@ -101,6 +117,47 @@ class AnthropicClient:
             if block.get("type") == "text":
                 return str(block.get("text", "")).strip()
         return ""
+
+    async def stream(self, request: CompletionRequest) -> AsyncIterator[str]:
+        """Stream incremental text deltas from the Anthropic messages API.
+
+        Uses the official server-sent events stream by adding
+        ``"stream": true`` to the request body. Each
+        ``content_block_delta`` event with a ``text_delta`` block carries
+        a new chunk of text; ``message_delta`` carries the final usage
+        accounting which we stash for the wrapper to persist.
+        """
+        self.last_input_tokens = None
+        self.last_output_tokens = None
+        headers = {
+            "x-api-key": self._api_key,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+            "accept": "text/event-stream",
+        }
+        payload = {
+            "model": self._model,
+            "max_tokens": request.max_tokens,
+            "temperature": request.temperature,
+            "system": request.system,
+            "messages": [{"role": "user", "content": request.user}],
+            "stream": True,
+        }
+        try:
+            async with (
+                httpx.AsyncClient(timeout=60.0) as client,
+                client.stream(
+                    "POST", self._base_url, json=payload, headers=headers
+                ) as response,
+            ):
+                response.raise_for_status()
+                async for delta in _parse_anthropic_sse(response, self):
+                    yield delta
+        except Exception as exc:
+            log.warning("llm.stream.fallback", provider=self.provider, error=str(exc))
+            text = await self.complete(request)
+            if text:
+                yield text
 
 
 class OpenAIClient:
@@ -147,6 +204,17 @@ class OpenAIClient:
             return ""
         return str(choices[0]["message"]["content"]).strip()
 
+    async def stream(self, request: CompletionRequest) -> AsyncIterator[str]:
+        """Stream deltas from the OpenAI chat.completions API."""
+        async for chunk in _stream_openai_compatible(
+            base_url=self._base_url,
+            api_key=self._api_key,
+            model=self._model,
+            request=request,
+            inner=self,
+        ):
+            yield chunk
+
 
 class GroqClient:
     provider: Provider = "groq"
@@ -189,6 +257,22 @@ class GroqClient:
         if not choices:
             return ""
         return str(choices[0]["message"]["content"]).strip()
+
+    async def stream(self, request: CompletionRequest) -> AsyncIterator[str]:
+        """Stream deltas from the Groq chat.completions API.
+
+        Groq exposes an OpenAI-compatible endpoint so the wire format
+        for streaming is identical: ``"stream": true`` plus SSE frames
+        carrying ``choices[].delta.content``.
+        """
+        async for chunk in _stream_openai_compatible(
+            base_url=self._base_url,
+            api_key=self._api_key,
+            model=self._model,
+            request=request,
+            inner=self,
+        ):
+            yield chunk
 
 
 class GeminiClient:
@@ -250,6 +334,184 @@ class GeminiClient:
         if not parts:
             return ""
         return str(parts[0].get("text", "")).strip()
+
+    async def stream(self, request: CompletionRequest) -> AsyncIterator[str]:
+        """Stream deltas from the Gemini ``streamGenerateContent`` endpoint.
+
+        Gemini exposes streaming via a different method name plus the
+        ``?alt=sse`` query flag so the response is SSE rather than the
+        default newline-delimited JSON array. Each frame is a partial
+        ``GenerateContentResponse`` whose first candidate carries the
+        delta text under ``content.parts[].text``.
+        """
+        self.last_input_tokens = None
+        self.last_output_tokens = None
+        url = (
+            f"{self._base}/{self._model}:streamGenerateContent"
+            f"?alt=sse&key={self._api_key}"
+        )
+        payload = {
+            "systemInstruction": {"parts": [{"text": request.system}]},
+            "contents": [
+                {"role": "user", "parts": [{"text": request.user}]},
+            ],
+            "generationConfig": {
+                "maxOutputTokens": request.max_tokens,
+                "temperature": request.temperature,
+            },
+        }
+        try:
+            async with (
+                httpx.AsyncClient(timeout=60.0) as client,
+                client.stream("POST", url, json=payload) as response,
+            ):
+                response.raise_for_status()
+                async for delta in _parse_gemini_sse(response, self):
+                    yield delta
+        except Exception as exc:
+            log.warning("llm.stream.fallback", provider=self.provider, error=str(exc))
+            text = await self.complete(request)
+            if text:
+                yield text
+
+
+async def _parse_anthropic_sse(
+    response: httpx.Response, client: AnthropicClient
+) -> AsyncIterator[str]:
+    """Parse an Anthropic messages SSE stream into text deltas.
+
+    Side-effect: stashes the final usage counts onto ``client`` so the
+    :class:`_UsageRecordingClient` wrapper can persist a row when the
+    stream ends.
+    """
+    async for line in response.aiter_lines():
+        if not line or not line.startswith("data:"):
+            continue
+        raw = line[len("data:") :].strip()
+        if not raw:
+            continue
+        try:
+            event = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        event_type = event.get("type")
+        if event_type == "content_block_delta":
+            delta = event.get("delta") or {}
+            if delta.get("type") == "text_delta":
+                text = delta.get("text")
+                if isinstance(text, str) and text:
+                    yield text
+        elif event_type == "message_start":
+            usage = (event.get("message") or {}).get("usage") or {}
+            client.last_input_tokens = _coerce_token_count(usage.get("input_tokens"))
+        elif event_type == "message_delta":
+            usage = event.get("usage") or {}
+            out_tokens = _coerce_token_count(usage.get("output_tokens"))
+            if out_tokens is not None:
+                client.last_output_tokens = out_tokens
+
+
+async def _stream_openai_compatible(
+    *,
+    base_url: str,
+    api_key: str,
+    model: str,
+    request: CompletionRequest,
+    inner: OpenAIClient | GroqClient,
+) -> AsyncIterator[str]:
+    """Drive an OpenAI-style chat.completions streaming request.
+
+    Used by both :class:`OpenAIClient` and :class:`GroqClient`. Failure
+    to open the stream falls back to a single ``.complete()`` call so
+    the caller sees one chunk rather than nothing.
+    """
+    inner.last_input_tokens = None
+    inner.last_output_tokens = None
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "content-type": "application/json",
+        "accept": "text/event-stream",
+    }
+    payload = {
+        "model": model,
+        "max_tokens": request.max_tokens,
+        "temperature": request.temperature,
+        "messages": [
+            {"role": "system", "content": request.system},
+            {"role": "user", "content": request.user},
+        ],
+        "stream": True,
+        # OpenAI gates per-stream usage on this flag; Groq tolerates it.
+        "stream_options": {"include_usage": True},
+    }
+    try:
+        async with (
+            httpx.AsyncClient(timeout=60.0) as client,
+            client.stream("POST", base_url, json=payload, headers=headers) as response,
+        ):
+            response.raise_for_status()
+            async for line in response.aiter_lines():
+                if not line or not line.startswith("data:"):
+                    continue
+                raw = line[len("data:") :].strip()
+                if not raw or raw == "[DONE]":
+                    continue
+                try:
+                    event = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                usage = event.get("usage") or {}
+                if usage:
+                    inner.last_input_tokens = _coerce_token_count(
+                        usage.get("prompt_tokens")
+                    )
+                    inner.last_output_tokens = _coerce_token_count(
+                        usage.get("completion_tokens")
+                    )
+                choices = event.get("choices") or []
+                if not choices:
+                    continue
+                delta = (choices[0] or {}).get("delta") or {}
+                text = delta.get("content")
+                if isinstance(text, str) and text:
+                    yield text
+    except Exception as exc:
+        log.warning("llm.stream.fallback", provider=inner.provider, error=str(exc))
+        text = await inner.complete(request)
+        if text:
+            yield text
+
+
+async def _parse_gemini_sse(
+    response: httpx.Response, client: GeminiClient
+) -> AsyncIterator[str]:
+    """Parse a Gemini ``streamGenerateContent`` SSE stream into deltas."""
+    async for line in response.aiter_lines():
+        if not line or not line.startswith("data:"):
+            continue
+        raw = line[len("data:") :].strip()
+        if not raw:
+            continue
+        try:
+            event = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        usage = event.get("usageMetadata") or {}
+        if usage:
+            client.last_input_tokens = _coerce_token_count(
+                usage.get("promptTokenCount")
+            )
+            client.last_output_tokens = _coerce_token_count(
+                usage.get("candidatesTokenCount")
+            )
+        candidates = event.get("candidates") or []
+        if not candidates:
+            continue
+        parts = ((candidates[0] or {}).get("content") or {}).get("parts") or []
+        for part in parts:
+            text = part.get("text") if isinstance(part, dict) else None
+            if isinstance(text, str) and text:
+                yield text
 
 
 def _coerce_token_count(value: object) -> int | None:
@@ -454,6 +716,39 @@ class _UsageRecordingClient:
             success=True,
         )
         return text
+
+    async def stream(self, request: CompletionRequest) -> AsyncIterator[str]:
+        """Forward each streamed delta, then persist one usage row.
+
+        Mirrors the contract of :meth:`complete`: ledger writes happen
+        once at end-of-stream (success or failure) and never block the
+        delta from reaching the caller. A streaming exception still
+        records a ``success=False`` row before re-raising so the
+        per-day burn chart counts failed streams.
+        """
+        try:
+            inner_stream = self._inner.stream(request)
+            async for delta in inner_stream:
+                yield delta
+        except Exception:
+            await _record_usage(
+                kind=self._kind,
+                provider=self._inner.provider,
+                input_tokens=None,
+                output_tokens=None,
+                success=False,
+            )
+            raise
+
+        input_tokens = getattr(self._inner, "last_input_tokens", None)
+        output_tokens = getattr(self._inner, "last_output_tokens", None)
+        await _record_usage(
+            kind=self._kind,
+            provider=self._inner.provider,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            success=True,
+        )
 
 
 async def _record_usage(

@@ -288,6 +288,9 @@ from app.web.routes import (
     quality_lab as quality_lab_routes,
     capture_blocklist_admin as capture_blocklist_admin_routes,
     auto_translate_settings as auto_translate_settings_routes,
+    timeline_preview as timeline_preview_routes,
+    multi_monitor as multi_monitor_routes,
+    qa_stream as qa_stream_routes,
 )
 from app.workers import (
     get_controller,
@@ -337,7 +340,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.23.0",
+        version="1.24.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -587,6 +590,9 @@ def create_app() -> FastAPI:
     app.include_router(quality_lab_routes.router)
     app.include_router(capture_blocklist_admin_routes.router)
     app.include_router(auto_translate_settings_routes.router)
+    app.include_router(timeline_preview_routes.router)
+    app.include_router(multi_monitor_routes.router)
+    app.include_router(qa_stream_routes.router)
     app.include_router(sticky_search_routes.router)
     app.include_router(audit_replay_routes.router)
     app.include_router(tag_gallery_routes.router)
