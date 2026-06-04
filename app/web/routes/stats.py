@@ -37,11 +37,17 @@ async def stats_page(request: Request) -> HTMLResponse:
 @router.get("/stats.json", response_class=JSONResponse)
 async def stats_json() -> JSONResponse:
     payload = await _collect_stats()
+    # /stats.json must serialise to JSON; the HTML twin needs the raw
+    # datetime so its ``| humantime`` filter still works. Stringify only
+    # here, on the JSON branch.
+    last_capture = payload.get("last_capture_at")
     serialisable = {
         **payload,
-        "events_by_day": payload["events_by_day"],
-        "top_apps": payload["top_apps"],
-        "disk_usage_bytes": payload["disk_usage_bytes"],
+        "last_capture_at": (
+            last_capture.isoformat()
+            if last_capture is not None and hasattr(last_capture, "isoformat")
+            else last_capture
+        ),
     }
     return JSONResponse(serialisable)
 
@@ -124,11 +130,7 @@ async def _collect_stats() -> dict[str, object]:
         "captures_skipped_dedup": controller.captures_skipped_dedup,
         "captures_skipped_idle": controller.captures_skipped_idle,
         "captures_failed": controller.captures_failed,
-        "last_capture_at": (
-            controller.last_capture_at.isoformat()
-            if controller.last_capture_at is not None
-            else None
-        ),
+        "last_capture_at": controller.last_capture_at,
         "paused": controller.paused,
         "events_by_day": [
             {"day": row["day"], "count": int(row["n"])} for row in events_by_day_rows
