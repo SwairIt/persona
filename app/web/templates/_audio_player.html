@@ -1,0 +1,80 @@
+{# Inline waveform player fragment for one ``audio_segment`` row.
+
+   Served by ``GET /audio-segment/{seg_id}/player`` (see
+   :mod:`app.web.routes.audio_player`) and embedded via HTMX
+   (``hx-get`` / ``hx-target``) wherever the timeline UI wants a
+   playable segment inline.
+
+   Context contract
+   ----------------
+     * ``seg``        — dict with ``id`` (int) and ``duration_seconds``
+                        (float). The id drives the stream URL.
+     * ``peaks``      — list[float] in ``[0.0, 1.0]``; may be empty when
+                        soundfile/numpy isn't installed or the file is
+                        missing on disk. Empty → no bars, audio still
+                        plays.
+     * ``has_audio``  — bool. ``False`` when the on-disk file has been
+                        reaped by the retention purge; we then render a
+                        short text hint instead of the ``<audio>`` tag.
+
+   The SVG uses a 1000-unit logical width so each peak bar sits on an
+   integer offset regardless of how many peaks the backend returned
+   (``preserveAspectRatio="none"`` then stretches it to the actual
+   container width). Bar fill is ``fill-emerald-500`` — kept as a plain
+   ``fill="#10b981"`` hex so the partial renders the same in any
+   page that doesn't load Tailwind. #}
+<div class="audio-player-fragment"
+     data-segment-id="{{ seg.id }}"
+     style="width: 100%;">
+  {% if peaks %}
+    {# Logical viewBox: 1000 wide, 100 tall. Bars span the full height,
+       centred on the baseline (y=50) so a zero peak is a single-pixel
+       stub rather than an invisible line. #}
+    {% set bar_count = peaks|length %}
+    {% set bar_step = (1000.0 / bar_count) %}
+    {# Narrow each bar by ~20% so adjacent bars have a tiny gutter; the
+       eye reads "waveform" instead of "solid block". #}
+    {% set bar_width = (bar_step * 0.8) %}
+    <svg xmlns="http://www.w3.org/2000/svg"
+         viewBox="0 0 1000 100"
+         preserveAspectRatio="none"
+         role="img"
+         aria-label="Audio waveform for segment {{ seg.id }}"
+         style="display:block; width:100%; height:60px;">
+      <title>Audio waveform — segment {{ seg.id }} ({{ '%.1f'|format(seg.duration_seconds or 0.0) }}s)</title>
+      {% for peak in peaks %}
+        {# Bar height fills 100% of the canvas at peak == 1.0; clamp a
+           minimum of 1.0 so silence still draws a faint baseline tick. #}
+        {% set raw_h = (peak * 100.0) %}
+        {% set bar_h = raw_h if raw_h >= 1.0 else 1.0 %}
+        {% set bar_y = (100.0 - bar_h) / 2.0 %}
+        {% set bar_x = loop.index0 * bar_step %}
+        <rect x="{{ '%.3f'|format(bar_x) }}"
+              y="{{ '%.3f'|format(bar_y) }}"
+              width="{{ '%.3f'|format(bar_width) }}"
+              height="{{ '%.3f'|format(bar_h) }}"
+              fill="#10b981" />
+      {% endfor %}
+    </svg>
+  {% else %}
+    {# No peaks (soundfile/numpy missing, file purged, or all-silence).
+       Render a thin neutral baseline so the layout doesn't jump when
+       the player swaps in. #}
+    <div style="width:100%; height:60px; display:flex; align-items:center; justify-content:center;">
+      <div style="width:100%; height:2px; background:#3f3f46;"></div>
+    </div>
+  {% endif %}
+
+  {% if has_audio %}
+    <audio controls
+           preload="none"
+           src="/audio-segment/{{ seg.id }}/stream"
+           style="display:block; width:100%; margin-top:6px;">
+      Your browser does not support the audio element.
+    </audio>
+  {% else %}
+    <p style="margin:6px 0 0; font-size:12px; color:#71717a;">
+      Audio bytes have been reaped by the retention policy — transcript only.
+    </p>
+  {% endif %}
+</div>

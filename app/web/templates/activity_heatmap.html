@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-8">
+  <h1 class="text-2xl font-bold tracking-tight">Активность</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Календарь захватов за последние 365 дней.
+  </p>
+</div>
+
+{# Top stat strip — 4 large numbers. #}
+<section class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Дней с активностью</div>
+    <div class="text-3xl font-bold mt-1 tabular-nums">
+      {{ "{:,}".format(total_days_with_activity) }}
+    </div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Всего кадров</div>
+    <div class="text-3xl font-bold mt-1 tabular-nums">
+      {{ "{:,}".format(total_shots) }}
+    </div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Текущая серия</div>
+    <div class="text-3xl font-bold mt-1 tabular-nums">
+      {{ "{:,}".format(streak_current) }}
+    </div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Лучшая серия</div>
+    <div class="text-3xl font-bold mt-1 tabular-nums">
+      {{ "{:,}".format(streak_longest) }}
+    </div>
+  </div>
+</section>
+
+{# 7-row × 53-column SVG grid. 11px tiles with 2px gap. Pure SVG — no JS. #}
+<div class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6 overflow-x-auto">
+  <svg xmlns="http://www.w3.org/2000/svg"
+       width="{{ svg_width }}"
+       height="{{ svg_height }}"
+       viewBox="0 0 {{ svg_width }} {{ svg_height }}"
+       role="img"
+       aria-label="365-дневная карта активности">
+    {% for column in grid %}
+      {% set col_index = loop.index0 %}
+      {% for cell in column %}
+        {% set row_index = loop.index0 %}
+        {% if cell is not none %}
+          {% set x = col_index * (tile + gap) %}
+          {% set y = row_index * (tile + gap) %}
+          <rect x="{{ x }}"
+                y="{{ y }}"
+                width="{{ tile }}"
+                height="{{ tile }}"
+                rx="2"
+                ry="2"
+                fill="{{ tier_fills[cell.tier] }}">
+            <title>{{ cell.date }} — {{ cell.count }} {{ 'кадр' if cell.count == 1 else 'кадров' }}</title>
+          </rect>
+        {% endif %}
+      {% endfor %}
+    {% endfor %}
+  </svg>
+
+  {# Legend: меньше → больше. #}
+  <div class="flex items-center gap-2 mt-3 text-xs text-zinc-500 font-mono">
+    <span>меньше</span>
+    {% for fill in tier_fills %}
+      <span class="inline-block rounded-sm"
+            style="width: {{ tile }}px; height: {{ tile }}px; background-color: {{ fill }};"></span>
+    {% endfor %}
+    <span>больше</span>
+  </div>
+</div>
+
+<p class="text-xs text-zinc-500">
+  JSON-версия доступна по адресу
+  <a href="/api/activity/year.json" class="font-mono text-accent-400 hover:underline">/api/activity/year.json</a>.
+</p>
+{% endblock %}

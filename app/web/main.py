@@ -273,6 +273,9 @@ from app.web.routes import (
     memory as memory_routes,
     power_mode as power_mode_routes,
     capture_settings as capture_settings_routes,
+    activity_heatmap as activity_heatmap_routes,
+    audio_player as audio_player_routes,
+    card_enrichment_settings as card_enrichment_settings_routes,
 )
 from app.workers import (
     get_controller,
@@ -322,7 +325,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.18.0",
+        version="1.19.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -557,6 +560,9 @@ def create_app() -> FastAPI:
     app.include_router(memory_routes.router)
     app.include_router(power_mode_routes.router)
     app.include_router(capture_settings_routes.router)
+    app.include_router(activity_heatmap_routes.router)
+    app.include_router(audio_player_routes.router)
+    app.include_router(card_enrichment_settings_routes.router)
     app.include_router(sticky_search_routes.router)
     app.include_router(audit_replay_routes.router)
     app.include_router(tag_gallery_routes.router)
@@ -625,6 +631,13 @@ async def _run_daily_pin_worker(controller: object) -> None:
     await run_daily_pin_worker()
 
 
+async def _run_card_enrichment_worker(controller: object) -> None:
+    """Adapter for the v1.19 LLM-enrichment-of-hourly-cards worker."""
+    from app.workers.card_enrichment_worker import run_card_enrichment_worker  # noqa: PLC0415
+
+    await run_card_enrichment_worker()
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialise DB, start workers, and tear them down on shutdown."""
@@ -656,6 +669,10 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         asyncio.create_task(
             _run_daily_pin_worker(controller),
             name="daily-pin-worker",
+        ),
+        asyncio.create_task(
+            _run_card_enrichment_worker(controller),
+            name="card-enrichment-worker",
         ),
     ]
 
