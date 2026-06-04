@@ -190,12 +190,12 @@ def run(config_path: Path | None) -> None:
     help="Print the raw /api/agent/me response.",
 )
 def status(config_path: Path | None, as_json: bool) -> None:
-    """Show last-seen times + pairing status by calling /api/agent/me."""
+    """Show today's upload totals + last-seen times by calling /api/agent/stats."""
     config = _load_or_die(config_path)
-    url = str(config.server.url).rstrip("/") + "/api/agent/me"
+    url = str(config.server.url).rstrip("/") + "/api/agent/stats"
     headers = {
         "Authorization": f"Bearer {config.server.token.get_secret_value()}",
-        "User-Agent": "persona-agent/1.12 (cli status)",
+        "User-Agent": "persona-agent/1.13 (cli status)",
     }
     try:
         response = httpx.get(url, headers=headers, timeout=10.0)
@@ -221,11 +221,20 @@ def status(config_path: Path | None, as_json: bool) -> None:
         click.echo(json.dumps(payload, indent=2, sort_keys=True))
         return
 
+    audio_bytes_today = payload.get("audio_bytes_today", 0)
+    if isinstance(audio_bytes_today, int):
+        audio_human = f"{audio_bytes_today / 1024:.1f} KB"
+    else:
+        audio_human = str(audio_bytes_today)
+
     _echo_info(f"connected to {config.server.url}")
-    click.echo(f"  hostname        : {payload.get('hostname', config.agent.hostname)}")
-    click.echo(f"  last_seen       : {payload.get('last_seen', '—')}")
-    click.echo(f"  screenshots_24h : {payload.get('screenshots_24h', '—')}")
-    click.echo(f"  audio_seg_24h   : {payload.get('audio_segments_24h', '—')}")
+    click.echo(f"  agent_id        : {payload.get('agent_id', '—')}")
+    click.echo(f"  today (UTC)     : {payload.get('today_utc', '—')}")
+    click.echo(f"  screens today   : {payload.get('screens_today', 0)}")
+    click.echo(f"  audio today     : {payload.get('audio_segments_today', 0)} segments, {audio_human}")
+    click.echo(f"  last_seen_at    : {payload.get('last_seen_at', '—')}")
+    click.echo(f"  last_screen_at  : {payload.get('last_screen_at', '—')}")
+    click.echo(f"  last_audio_at   : {payload.get('last_audio_at', '—')}")
     paused_local = DEFAULT_PAUSE_FILE.exists()
     click.echo(f"  paused (local)  : {paused_local}")
 

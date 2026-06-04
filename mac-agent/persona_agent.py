@@ -57,11 +57,38 @@ logger = structlog.get_logger("persona_agent")
 
 
 def _configure_logging(level_name: str) -> None:
-    """Wire structlog the same way the server-side `app.logging_setup` does."""
+    """Wire structlog with a rotating file handler.
+
+    The agent runs as a launchd daemon; without rotation the
+    ``StandardOutPath``-captured log file grows without bound. We cap
+    the per-file size at 5 MB and keep 5 backups → ~25 MB total.
+
+    The launchd plist still captures stdout/stderr (for early-boot
+    errors before our handler is wired), but our own logger writes
+    directly to the rotated file so the launchd capture stays tiny.
+    """
     import logging
+    from logging.handlers import RotatingFileHandler
+    from pathlib import Path as _Path
 
     level = getattr(logging, level_name.upper(), logging.INFO)
-    logging.basicConfig(format="%(message)s", stream=sys.stdout, level=level)
+    log_dir = _Path.home() / "Library" / "Logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / "persona-agent.log"
+
+    handler = RotatingFileHandler(
+        log_path,
+        maxBytes=5 * 1024 * 1024,
+        backupCount=5,
+        encoding="utf-8",
+    )
+    handler.setFormatter(logging.Formatter("%(message)s"))
+
+    root = logging.getLogger()
+    root.handlers.clear()
+    root.addHandler(handler)
+    root.setLevel(level)
+
     structlog.configure(
         processors=[
             structlog.contextvars.merge_contextvars,
@@ -72,9 +99,50 @@ def _configure_logging(level_name: str) -> None:
             structlog.dev.ConsoleRenderer(colors=False),
         ],
         wrapper_class=structlog.make_filtering_bound_logger(level),
-        logger_factory=structlog.PrintLoggerFactory(),
+        logger_factory=structlog.stdlib.LoggerFactory(),
         cache_logger_on_first_use=True,
     )
+
+
+def _notify_user(title: str, message: str) -> None:
+    """Best-effort macOS user notification via osascript.
+
+    Surfaces the message in Notification Center so the user sees that
+    something happened (crash, auth failure, upload stalled) without
+    having to grep logs. Silently no-ops on non-macOS or when osascript
+    is unavailable — this is a UX nicety, never load-bearing.
+    """
+    import subprocess
+
+    try:
+        # Escape both fields for AppleScript by stripping quotes/newlines.
+        safe_title = title.replace('"', "").replace("\n", " ")[:80]
+        safe_msg = message.replace('"', "").replace("\n", " ")[:200]
+        script = (
+            f'display notification "{safe_msg}" '
+            f'with title "Persona Agent" '
+            f'subtitle "{safe_title}"'
+        )
+        subprocess.run(
+            ["osascript", "-e", script],
+            timeout=3,
+            check=False,
+            capture_output=True,
+        )
+    except Exception:  # noqa: BLE001
+        # Notifications are advisory — never let them break the agent.
+        pass
+
+
+# Module-level latch so we only notify the user about auth failure
+# once per process run — repeated 401s would otherwise pile up.
+_AUTH_NOTIFIED: bool = False
+
+
+def _set_auth_notified() -> None:
+    """Flip the auth-notification latch; nullary so callers don't need ``global``."""
+    global _AUTH_NOTIFIED  # noqa: PLW0603
+    _AUTH_NOTIFIED = True
 
 
 # --------------------------------------------------------------------------- #
@@ -168,6 +236,16 @@ async def _post_with_backoff(
                     status=response.status_code,
                     body=response.text[:500],
                 )
+                # 401 means the bearer token is wrong / revoked — the
+                # user MUST act (re-run install.sh with a new token).
+                # 403 means scope issue. Either way, notify once per
+                # process so the user isn't blind to it.
+                if response.status_code in (401, 403) and not _AUTH_NOTIFIED:
+                    _notify_user(
+                        "Token rejected",
+                        f"{label} got HTTP {response.status_code} — re-run install.sh",
+                    )
+                    _set_auth_notified()
                 return response
             logger.warning(
                 "agent.upload.server_error",
@@ -739,11 +817,20 @@ def run(config_path: Path | str | None = None) -> int:
         "agent.config_loaded",
         config_path=str(config.config_path) if config.config_path else "<env>",
     )
+    _notify_user("Started", f"Sending to {config.server.url}")
     try:
         return asyncio.run(_run_async(config))
     except KeyboardInterrupt:
         logger.info("agent.keyboard_interrupt")
         return 0
+    except Exception as exc:
+        # Uncaught error → user gets a notification + the file log has
+        # the full trace via the rotating handler. launchd will respawn
+        # us (KeepAlive=Crashed) so this is the only crash signal that
+        # reaches the human.
+        logger.exception("agent.crashed", error=str(exc))
+        _notify_user("Crashed — restarting", str(exc)[:200])
+        raise
 
 
 def main(argv: Sequence[str] | None = None) -> int:

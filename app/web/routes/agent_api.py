@@ -658,4 +658,46 @@ async def upload_screenshot(
     )
 
 
+@router.get("/stats")
+async def stats(
+    authorization: Annotated[str | None, Header()] = None,
+) -> JSONResponse:
+    """Return today's upload totals for this agent.
+
+    The Mac agent's ``status`` command hits this so the user can verify
+    that their captures actually reached the server without grepping
+    server-side logs. All counters are scoped to the calling agent and
+    "today" is today in UTC.
+    """
+    agent = await _resolve_agent(authorization, kind="any")
+    today_utc = datetime.now(tz=UTC).strftime("%Y-%m-%d")
+    async with get_connection() as conn:
+        cursor = await conn.execute(
+            "SELECT COUNT(*) AS n FROM screenshots "
+            "WHERE source = 'remote_agent' AND date(captured_at) = ?",
+            (today_utc,),
+        )
+        screen_row = await cursor.fetchone()
+        cursor = await conn.execute(
+            "SELECT COUNT(*) AS n, COALESCE(SUM(size_bytes), 0) AS bytes "
+            "FROM audio_segment "
+            "WHERE date(captured_at) = ?",
+            (today_utc,),
+        )
+        audio_row = await cursor.fetchone()
+    return JSONResponse(
+        {
+            "ok": True,
+            "agent_id": agent["id"],
+            "today_utc": today_utc,
+            "screens_today": int(screen_row["n"]) if screen_row else 0,
+            "audio_segments_today": int(audio_row["n"]) if audio_row else 0,
+            "audio_bytes_today": int(audio_row["bytes"]) if audio_row else 0,
+            "last_seen_at": agent["last_seen_at"],
+            "last_audio_at": agent["last_audio_at"],
+            "last_screen_at": agent["last_screen_at"],
+        },
+    )
+
+
 __all__ = ["router"]
