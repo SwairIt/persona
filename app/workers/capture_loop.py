@@ -52,6 +52,36 @@ async def run_capture_loop(controller: CaptureController | None = None) -> None:
 
     while not ctrl.stop_event.is_set():
         await beat("capture-loop")
+        # v1.17 — kv-backed live overrides set from /settings/capture.
+        # We read three values each iteration:
+        #   - capture_screens_disabled : master kill-switch
+        #   - capture_interval_seconds_live : slider-driven base interval
+        # Errors here MUST NOT break capture — wrap in try/except.
+        live_interval: float | None = None
+        try:
+            from app.storage.repository import get_kv  # noqa: PLC0415
+
+            async with get_connection() as conn:
+                screens_kill = await get_kv(conn, "capture_screens_disabled")
+                live_interval_raw = await get_kv(conn, "capture_interval_seconds_live")
+            if live_interval_raw:
+                try:
+                    live_interval = max(0.5, min(60.0, float(live_interval_raw)))
+                except ValueError:
+                    live_interval = None
+            if (screens_kill or "0").strip() == "1":
+                sleep_for = live_interval or settings.capture_interval_seconds
+                try:
+                    await asyncio.wait_for(
+                        ctrl.stop_event.wait(),
+                        timeout=sleep_for,
+                    )
+                except TimeoutError:
+                    continue
+                continue
+        except Exception as exc:  # noqa: BLE001
+            log.debug("capture_loop.live_kv_check_failed", error=str(exc))
+
         rate_pause = await _enforce_rate_guard()
         battery_pause = False
         battery_slowdown = False
@@ -87,7 +117,8 @@ async def run_capture_loop(controller: CaptureController | None = None) -> None:
                 async with get_connection() as conn:
                     await log_capture_event(conn, "error", {"error": str(exc)[:500]})
 
-        sleep_for = ctrl.next_sleep_seconds or settings.capture_interval_seconds
+        base_interval = live_interval if live_interval is not None else settings.capture_interval_seconds
+        sleep_for = ctrl.next_sleep_seconds or base_interval
         ctrl.next_sleep_seconds = None
         if settings.adaptive_cadence_enabled:
             idle_for_cadence = (

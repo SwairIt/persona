@@ -272,6 +272,7 @@ from app.web.routes import (
     mic_toggle as mic_toggle_routes,
     memory as memory_routes,
     power_mode as power_mode_routes,
+    capture_settings as capture_settings_routes,
 )
 from app.workers import (
     get_controller,
@@ -321,7 +322,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.16.0",
+        version="1.17.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -555,6 +556,7 @@ def create_app() -> FastAPI:
     app.include_router(mic_toggle_routes.router)
     app.include_router(memory_routes.router)
     app.include_router(power_mode_routes.router)
+    app.include_router(capture_settings_routes.router)
     app.include_router(sticky_search_routes.router)
     app.include_router(audit_replay_routes.router)
     app.include_router(tag_gallery_routes.router)

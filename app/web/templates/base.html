@@ -56,6 +56,7 @@
   <link rel="stylesheet" href="/static/context_menu.css">
   <link rel="stylesheet" href="/static/cal_nav.css">
   <link rel="stylesheet" href="/static/bulk_select.css">
+  <style>[x-cloak] { display: none !important; }</style>
   <script src="/static/command_palette.js" defer></script>
   <script src="/static/keyboard_shortcuts.js" defer></script>
   <script src="/static/query_help.js" defer></script>
@@ -95,74 +96,94 @@
   </script>
 </head>
 <body data-compact="{{ _persona_compact }}" data-grayscale="{{ _persona_grayscale }}" data-reduce-motion="{{ _persona_reduce_motion }}" class="bg-zinc-50 text-zinc-900 dark:bg-ink-950 dark:text-zinc-100 min-h-screen font-sans antialiased transition-colors">
-  <header class="border-b border-ink-700 bg-ink-900/80 backdrop-blur sticky top-0 z-10">
-    <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-      <a href="/" class="flex items-center gap-2 hover:opacity-90">
-        <span class="text-2xl">●</span>
-        <span class="font-bold tracking-tight text-lg">Persona</span>
-        {# v1.10 fix 2/3 — sync the header chip with the actual package
-           version exposed as a Jinja global by templates_engine. The
-           string used to be hardcoded ``v0.1`` and silently drifted past
-           a dozen releases. #}
-        <span class="text-xs text-zinc-500 font-mono">v{{ app_version }}</span>
+  <header x-data="headerNav()" class="border-b border-ink-700 bg-ink-900/80 backdrop-blur sticky top-0 z-30">
+    {# v1.17 — responsive shell:
+       - <md: hamburger opens a full-screen drawer with all nav items
+       - md..lg: core 5 nav + "More" dropdown
+       - lg+: core 5 nav + "More" dropdown (status pill stays in one row)
+       - status pill compresses to icons-only below md
+    #}
+    <div class="max-w-7xl mx-auto px-3 sm:px-6 py-3 flex items-center justify-between gap-2">
+      <a href="/" class="flex items-center gap-2 hover:opacity-90 shrink-0">
+        <span class="text-2xl leading-none">●</span>
+        <span class="font-bold tracking-tight text-lg hidden sm:inline">Persona</span>
+        <span class="text-xs text-zinc-500 font-mono hidden sm:inline">v{{ app_version }}</span>
       </a>
 
-      <nav class="flex items-center gap-1 text-sm">
-        {% set items = [
-          ('timeline', '/', 'nav_timeline'),
-          ('search', '/search', 'nav_search'),
-          ('ask', '/ask', 'nav_ask'),
-          ('memory', '/memory', 'nav_memory'),
-          ('focus', '/focus', 'nav_focus'),
-          ('reminders', '/reminders', 'nav_reminders'),
-          ('reading', '/reading', 'nav_reading'),
-          ('digest', '/digest/weekly', 'nav_digest'),
-          ('journal', '/journal', 'nav_journal'),
-          ('apps', '/apps', 'nav_apps'),
-          ('stats', '/stats', 'nav_stats'),
-          ('settings', '/settings', 'nav_settings')
-        ] %}
-        {% for slug, href, label_key in items %}
+      {% set core_items = [
+        ('timeline', '/', 'nav_timeline'),
+        ('search', '/search', 'nav_search'),
+        ('ask', '/ask', 'nav_ask'),
+        ('memory', '/memory', 'nav_memory'),
+        ('settings', '/settings', 'nav_settings'),
+      ] %}
+      {% set more_items = [
+        ('stats', '/stats', 'nav_stats'),
+        ('focus', '/focus', 'nav_focus'),
+        ('reminders', '/reminders', 'nav_reminders'),
+        ('reading', '/reading', 'nav_reading'),
+        ('digest', '/digest/weekly', 'nav_digest'),
+        ('journal', '/journal', 'nav_journal'),
+        ('apps', '/apps', 'nav_apps'),
+      ] %}
+
+      <nav class="hidden md:flex items-center gap-1 text-sm flex-1 justify-center">
+        {% for slug, href, label_key in core_items %}
           <a href="{{ href }}"
-             class="px-3 py-1.5 rounded-md transition
+             class="px-3 py-1.5 rounded-md transition whitespace-nowrap
                     {% if active_nav == slug %}bg-accent-600/20 text-accent-400{% else %}text-zinc-400 hover:text-zinc-100 hover:bg-ink-800{% endif %}">
             {{ t(label_key) }}
           </a>
         {% endfor %}
+        <div class="relative">
+          <button @click="moreOpen = !moreOpen"
+                  class="px-3 py-1.5 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-ink-800 transition whitespace-nowrap">
+            Ещё <span class="text-xs">▾</span>
+          </button>
+          <div x-show="moreOpen" @click.outside="moreOpen = false" x-cloak
+               class="absolute right-0 mt-2 w-48 rounded-md border border-ink-700 bg-ink-900 shadow-lg py-1 z-40">
+            {% for slug, href, label_key in more_items %}
+              <a href="{{ href }}"
+                 class="block px-3 py-2 text-sm transition
+                        {% if active_nav == slug %}bg-accent-600/20 text-accent-400{% else %}text-zinc-300 hover:text-zinc-100 hover:bg-ink-800{% endif %}">
+                {{ t(label_key) }}
+              </a>
+            {% endfor %}
+          </div>
+        </div>
       </nav>
 
       <div x-data="captureStatus()" x-init="bootstrap()" id="status-pill" data-state="paused"
-           class="flex items-center gap-3 text-xs">
+           class="flex items-center gap-2 sm:gap-3 text-xs shrink-0">
         <span id="status-pill-heartbeat-dot"
               class="w-1.5 h-1.5 rounded-full bg-zinc-600 transition-colors"
               title="Worker heartbeat"></span>
         <span x-show="paused" class="flex items-center gap-1.5 text-amber-400">
           <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
-          <span>{{ t('status_paused') }}</span>
+          <span class="hidden lg:inline">{{ t('status_paused') }}</span>
         </span>
         <span x-show="!paused" class="flex items-center gap-1.5 text-emerald-400">
           <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-          <span>{{ t('status_capturing') }}</span>
+          <span class="hidden lg:inline">{{ t('status_capturing') }}</span>
         </span>
-        <span class="text-zinc-500">
+        <span class="text-zinc-500 hidden md:inline whitespace-nowrap">
           <span id="status-pill-shots" x-text="captures">0</span>
-          <span>{{ t('status_frames') }}</span>
+          <span class="hidden xl:inline">{{ t('status_frames') }}</span>
         </span>
-        <span x-show="ocrPending > 0" class="text-amber-400" :title="`${ocrPending} OCR pending`">
+        <span x-show="ocrPending > 0" class="text-amber-400 hidden lg:inline" :title="`${ocrPending} OCR pending`">
           OCR <span x-text="ocrPending"></span>
         </span>
-        <span x-show="embPending > 0" class="text-accent-400" :title="`${embPending} embeddings pending`">
+        <span x-show="embPending > 0" class="text-accent-400 hidden lg:inline" :title="`${embPending} embeddings pending`">
           AI <span x-text="embPending"></span>
         </span>
         <a href="/stats" :title="`${budgetMb.toFixed(2)}MB / ${budgetCap}MB today`"
            :class="overBudget ? 'text-rose-400' : (budgetPct > 70 ? 'text-amber-400' : 'text-zinc-500')"
-           class="hover:underline">
+           class="hover:underline hidden sm:inline whitespace-nowrap">
           <span x-text="budgetMb.toFixed(1) + 'MB'"></span>
         </a>
         <button @click="captureNow()"
                 title="{{ t('btn_capture_now') }}"
                 class="px-2 py-1 rounded bg-ink-800 hover:bg-ink-700 text-zinc-300">●</button>
-        {# v1.14 — live mic kill-switch (works on naushniki). #}
         <button x-data="micToggle()" x-init="boot()"
                 @click="flip()"
                 :title="micPaused ? 'Включить микрофон' : 'Выключить микрофон (фильм/наушники)'"
@@ -172,13 +193,49 @@
         </button>
         <button @click="toggleTheme()"
                 title="{{ t('btn_toggle_theme') }}"
-                class="px-2 py-1 rounded bg-ink-800 hover:bg-ink-700 text-zinc-300">
+                class="px-2 py-1 rounded bg-ink-800 hover:bg-ink-700 text-zinc-300 hidden sm:inline-block">
           <span x-text="theme === 'dark' ? '☀' : '☾'"></span>
         </button>
         <button @click="toggle()"
-                class="px-2 py-1 rounded bg-ink-800 hover:bg-ink-700 text-zinc-300"
+                class="px-2 py-1 rounded bg-ink-800 hover:bg-ink-700 text-zinc-300 hidden md:inline-block whitespace-nowrap"
                 x-text="paused ? {{ t('btn_start') | tojson }} : {{ t('btn_pause') | tojson }}"></button>
+
+        {# Hamburger — visible only below md. #}
+        <button @click="drawerOpen = true"
+                class="md:hidden px-2 py-1 rounded bg-ink-800 hover:bg-ink-700 text-zinc-300"
+                aria-label="Меню">
+          <span class="text-base leading-none">☰</span>
+        </button>
       </div>
+    </div>
+
+    {# Mobile drawer — full-screen overlay with all nav + actions. #}
+    <div x-show="drawerOpen" x-cloak
+         @click.self="drawerOpen = false"
+         class="md:hidden fixed inset-0 bg-black/60 z-50">
+      <aside class="absolute right-0 top-0 h-full w-72 max-w-[85vw] bg-ink-900 border-l border-ink-700 shadow-2xl overflow-y-auto">
+        <div class="flex items-center justify-between px-4 py-3 border-b border-ink-700">
+          <span class="font-bold text-lg">Persona <span class="text-xs text-zinc-500 font-mono">v{{ app_version }}</span></span>
+          <button @click="drawerOpen = false" class="text-zinc-400 hover:text-zinc-100 text-2xl leading-none px-2">✕</button>
+        </div>
+        <nav class="py-2">
+          {% for slug, href, label_key in core_items %}
+            <a href="{{ href }}"
+               class="block px-4 py-3 text-sm border-l-2 transition
+                      {% if active_nav == slug %}bg-accent-600/10 border-accent-500 text-accent-400{% else %}border-transparent text-zinc-300 hover:bg-ink-800{% endif %}">
+              {{ t(label_key) }}
+            </a>
+          {% endfor %}
+          <div class="px-4 py-2 text-xs uppercase tracking-widest text-zinc-600">Ещё</div>
+          {% for slug, href, label_key in more_items %}
+            <a href="{{ href }}"
+               class="block px-4 py-3 text-sm border-l-2 transition
+                      {% if active_nav == slug %}bg-accent-600/10 border-accent-500 text-accent-400{% else %}border-transparent text-zinc-300 hover:bg-ink-800{% endif %}">
+              {{ t(label_key) }}
+            </a>
+          {% endfor %}
+        </nav>
+      </aside>
     </div>
   </header>
 
@@ -339,6 +396,24 @@
      * worker reads the kv flag each iteration and skips record_chunk
      * within ~5s. No daemon restart. Boot state read from /api/audio/mic.
      */
+    /*
+     * headerNav — v1.17
+     *
+     * Toggles the mobile drawer (<md) and the "Ещё" dropdown (md+).
+     * Closes drawer on Escape so keyboard users don't get trapped.
+     */
+    function headerNav() {
+      return {
+        drawerOpen: false,
+        moreOpen: false,
+        init() {
+          document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') { this.drawerOpen = false; this.moreOpen = false; }
+          });
+        }
+      }
+    }
+
     function micToggle() {
       return {
         micPaused: false,
