@@ -1,0 +1,23 @@
+-- v1.18 — Clipboard semantic search.
+--
+-- Adds an inline ``embedding_blob`` BLOB column to ``clipboard_event``
+-- so we can semantically search past clipboard snippets by meaning
+-- rather than literal substring. The column is nullable: existing rows
+-- and any newly-captured rows (the worker is intentionally untouched)
+-- start as NULL until a backfill pass runs.
+--
+-- Why a column on the existing table instead of a sidecar like
+-- ``screenshot_embeddings``? Clipboard rows are short-lived (the user
+-- can delete the table at will), small (text-only), and 1:1 with their
+-- vector — a sidecar table would just add a JOIN for no win.
+--
+-- The vector is stored as a contiguous little-endian float32 BLOB,
+-- matching the ``encode_vector`` / ``decode_vector`` helpers in
+-- :mod:`app.embeddings.storage`. That keeps the unpack path identical
+-- to the screenshot embeddings.
+--
+-- Idempotent: ``init_database`` swallows the "duplicate column name"
+-- error when this migration is re-applied (see
+-- ``_IDEMPOTENT_ALTER_ERRORS`` in app/storage/db.py).
+
+ALTER TABLE clipboard_event ADD COLUMN embedding_blob BLOB;

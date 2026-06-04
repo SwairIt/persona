@@ -276,6 +276,9 @@ from app.web.routes import (
     activity_heatmap as activity_heatmap_routes,
     audio_player as audio_player_routes,
     card_enrichment_settings as card_enrichment_settings_routes,
+    per_app_digest_pdf as per_app_digest_pdf_routes,
+    tag_rule_stats as tag_rule_stats_routes,
+    clipboard_semantic as clipboard_semantic_routes,
 )
 from app.workers import (
     get_controller,
@@ -325,7 +328,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.19.0",
+        version="1.20.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -563,6 +566,9 @@ def create_app() -> FastAPI:
     app.include_router(activity_heatmap_routes.router)
     app.include_router(audio_player_routes.router)
     app.include_router(card_enrichment_settings_routes.router)
+    app.include_router(per_app_digest_pdf_routes.router)
+    app.include_router(tag_rule_stats_routes.router)
+    app.include_router(clipboard_semantic_routes.router)
     app.include_router(sticky_search_routes.router)
     app.include_router(audit_replay_routes.router)
     app.include_router(tag_gallery_routes.router)
@@ -638,6 +644,13 @@ async def _run_card_enrichment_worker(controller: object) -> None:
     await run_card_enrichment_worker()
 
 
+async def _run_tag_rule_worker(controller: object) -> None:
+    """Adapter for the v1.20 auto-tag-rule applier worker."""
+    from app.workers.tag_rule_worker import run_tag_rule_worker  # noqa: PLC0415
+
+    await run_tag_rule_worker()
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialise DB, start workers, and tear them down on shutdown."""
@@ -673,6 +686,10 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         asyncio.create_task(
             _run_card_enrichment_worker(controller),
             name="card-enrichment-worker",
+        ),
+        asyncio.create_task(
+            _run_tag_rule_worker(controller),
+            name="tag-rule-worker",
         ),
     ]
 
