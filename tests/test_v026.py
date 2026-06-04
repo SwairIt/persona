@@ -59,13 +59,18 @@ async def test_get_power_state_shape() -> None:
 
 
 async def test_notes_search_empty_query_renders(client: AsyncClient) -> None:
-    resp = await client.get("/notes/search")
-    assert resp.status_code == 200
+    # v1.32 — page moved into /search/everything; standalone URL now
+    # 301-redirects. Accept either the redirect or the legacy 200 so
+    # the test remains valid across the deprecation window.
+    resp = await client.get("/notes/search", follow_redirects=False)
+    assert resp.status_code in {200, 301}
 
 
 async def test_notes_search_with_query_renders(client: AsyncClient) -> None:
-    resp = await client.get("/notes/search?q=hello")
-    assert resp.status_code == 200
+    resp = await client.get("/notes/search?q=hello", follow_redirects=False)
+    assert resp.status_code in {200, 301}
+    if resp.status_code == 301:
+        assert "/search/everything" in resp.headers.get("location", "")
 
 
 async def test_notes_search_api_returns_json(client: AsyncClient) -> None:
