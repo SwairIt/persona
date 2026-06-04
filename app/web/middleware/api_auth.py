@@ -48,6 +48,14 @@ _scope_log = get_logger("persona.api_tokens.scopes")
 _API_PREFIX = "/api/"
 _BEARER_PREFIX = "Bearer "
 
+# Routes under these prefixes do their own bearer auth (remote_agent
+# tokens, not the api_token table this middleware knows about). Letting
+# this middleware reject first would give a misleading 401 long before
+# the route handler ever ran.
+_AUTH_BYPASS_PREFIXES: tuple[str, ...] = (
+    "/api/agent/",
+)
+
 
 def _unauthorized(reason: str) -> JSONResponse:
     """Render the canonical 401 body used for every rejection path."""
@@ -80,6 +88,11 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
     ) -> Response:
         # Fast path: anything outside ``/api/`` is never gated.
         if not request.url.path.startswith(_API_PREFIX):
+            return await call_next(request)
+
+        # Route families that authenticate against a different table
+        # (currently remote_agent for the Mac agent) bypass us entirely.
+        if any(request.url.path.startswith(p) for p in _AUTH_BYPASS_PREFIXES):
             return await call_next(request)
 
         settings = get_settings()
