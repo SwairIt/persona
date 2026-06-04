@@ -110,7 +110,7 @@ async def _sweep_once() -> dict[str, int]:
         async with get_connection() as conn:
             cursor = await conn.execute(
                 "SELECT id, path, size_bytes FROM audio_segment "
-                "WHERE started_at < ? "
+                "WHERE captured_at < ? "
                 "AND size_bytes > 0 "
                 "AND path IS NOT NULL AND path != '' "
                 "ORDER BY id ASC "

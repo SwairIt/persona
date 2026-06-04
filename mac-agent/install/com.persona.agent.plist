@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Persona Mac agent LaunchAgent template.
+  install.sh substitutes the placeholders below before copying this file
+  into ~/Library/LaunchAgents/com.persona.agent.plist:
+
+    @@PERSONA_AGENT_BIN@@   -> /usr/local/bin/persona-agent
+                               (or ~/.persona-agent/venv/bin/persona-agent)
+    @@PERSONA_HOME@@        -> absolute path to the user's $HOME
+    @@PERSONA_CONFIG@@      -> absolute path to persona-agent.toml
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.persona.agent</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>@@PERSONA_AGENT_BIN@@</string>
+        <string>run</string>
+        <string>--config</string>
+        <string>@@PERSONA_CONFIG@@</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>HOME</key>
+        <string>@@PERSONA_HOME@@</string>
+        <key>PERSONA_AGENT_CONFIG</key>
+        <string>@@PERSONA_CONFIG@@</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <dict>
+        <key>Crashed</key>
+        <true/>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>ProcessType</key>
+    <string>Interactive</string>
+
+    <key>StandardOutPath</key>
+    <string>@@PERSONA_HOME@@/Library/Logs/persona-agent.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>@@PERSONA_HOME@@/Library/Logs/persona-agent.err</string>
+
+    <key>WorkingDirectory</key>
+    <string>@@PERSONA_HOME@@</string>
+</dict>
+</plist>

@@ -46,6 +46,8 @@ from app.web.routes import (
     audio_settings as audio_settings_routes,
     audio_stats as audio_stats_routes,
     audit as audit_routes,
+    agent_api as agent_api_routes,
+    agents_admin as agents_admin_routes,
     audit_replay as audit_replay_routes,
     audit_rss as audit_rss_routes,
     audit_timeline as audit_timeline_routes,
@@ -315,7 +317,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.11.0",
+        version="1.12.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -571,6 +573,8 @@ def create_app() -> FastAPI:
     app.include_router(audio_settings_routes.router)
     app.include_router(audio_search_routes.router)
     app.include_router(audio_stats_routes.router)
+    app.include_router(agent_api_routes.router)
+    app.include_router(agents_admin_routes.router)
 
     return app
 
