@@ -161,6 +161,14 @@
         <button @click="captureNow()"
                 title="{{ t('btn_capture_now') }}"
                 class="px-2 py-1 rounded bg-ink-800 hover:bg-ink-700 text-zinc-300">●</button>
+        {# v1.14 — live mic kill-switch (works on naushniki). #}
+        <button x-data="micToggle()" x-init="boot()"
+                @click="flip()"
+                :title="micPaused ? 'Включить микрофон' : 'Выключить микрофон (фильм/наушники)'"
+                :class="micPaused ? 'bg-rose-900/40 text-rose-300 hover:bg-rose-900' : 'bg-ink-800 text-zinc-300 hover:bg-ink-700'"
+                class="px-2 py-1 rounded">
+          <span x-text="micPaused ? '🎙✕' : '🎙'"></span>
+        </button>
         <button @click="toggleTheme()"
                 title="{{ t('btn_toggle_theme') }}"
                 class="px-2 py-1 rounded bg-ink-800 hover:bg-ink-700 text-zinc-300">
@@ -319,6 +327,39 @@
         async captureNow() {
           await fetch('/api/capture/now', { method: 'POST' });
           // SSE will push the new today_shots count on the next tick.
+        }
+      }
+    }
+
+    /*
+     * micToggle — v1.14
+     *
+     * Live mic kill-switch. User clicks → POST /api/audio/mic → audio
+     * worker reads the kv flag each iteration and skips record_chunk
+     * within ~5s. No daemon restart. Boot state read from /api/audio/mic.
+     */
+    function micToggle() {
+      return {
+        micPaused: false,
+        async boot() {
+          try {
+            const r = await fetch('/api/audio/mic');
+            if (r.ok) {
+              const j = await r.json();
+              this.micPaused = !!j.paused;
+            }
+          } catch (e) { /* ignore — flag stays false */ }
+        },
+        async flip() {
+          const next = !this.micPaused;
+          try {
+            const r = await fetch('/api/audio/mic', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ paused: next }),
+            });
+            if (r.ok) this.micPaused = next;
+          } catch (e) { /* keep current state on net error */ }
         }
       }
     }

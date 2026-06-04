@@ -137,6 +137,28 @@ async def run_audio_worker(controller: CaptureController | None = None) -> None:
 
     while not ctrl.stop_event.is_set():
         await beat("audio-worker")
+        # v1.14 — live mic kill-switch via kv_settings.
+        # User can toggle from /settings or /api/audio/mic without
+        # restarting the daemon. Read every loop iteration so the flip
+        # takes effect within POLL_INTERVAL_SECONDS.
+        try:
+            from app.storage.repository import get_kv  # noqa: PLC0415
+
+            async with get_connection() as conn:
+                paused_flag = await get_kv(conn, "audio_capture_paused_live")
+            if (paused_flag or "0").strip() == "1":
+                # Skip this iteration entirely — no microphone access.
+                try:
+                    await asyncio.wait_for(
+                        ctrl.stop_event.wait(),
+                        timeout=POLL_INTERVAL_SECONDS,
+                    )
+                except TimeoutError:
+                    continue
+                continue
+        except Exception as exc:  # noqa: BLE001
+            log.debug("audio_worker.pause_check_failed", error=str(exc))
+
         try:
             await _drain_once()
         except asyncio.CancelledError:

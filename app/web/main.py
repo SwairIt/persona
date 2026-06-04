@@ -268,6 +268,7 @@ from app.web.routes import (
     weekly_stats_card as weekly_stats_card_routes,
     whitelist,
     budget_status as budget_status_routes,
+    mic_toggle as mic_toggle_routes,
 )
 from app.workers import (
     get_controller,
@@ -530,6 +531,7 @@ def create_app() -> FastAPI:
     app.include_router(retention_trend_routes.router)
     app.include_router(weekly_stats_card_routes.router)
     app.include_router(budget_status_routes.router)
+    app.include_router(mic_toggle_routes.router)
     app.include_router(sticky_search_routes.router)
     app.include_router(audit_replay_routes.router)
     app.include_router(tag_gallery_routes.router)
