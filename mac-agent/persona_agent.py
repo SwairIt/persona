@@ -468,18 +468,27 @@ async def audio_loop(state: RuntimeState) -> None:
         language=cfg.whisper_language,
     )
 
-    pending_blocks: asyncio.Queue[np.ndarray] = asyncio.Queue(maxsize=64)
+    # Generous queue + drop-oldest semantics. Mic produces a 16k-sample
+    # block every ~1s, VAD+encode+Whisper+HTTP can be much slower; we
+    # would rather drop a stale tail-of-buffer than crash the callback
+    # with QueueFull (which previously stopped the agent dead).
+    pending_blocks: asyncio.Queue[np.ndarray] = asyncio.Queue(maxsize=256)
     main_loop = asyncio.get_running_loop()
+
+    def _enqueue(block: np.ndarray) -> None:
+        if pending_blocks.full():
+            try:
+                pending_blocks.get_nowait()
+            except asyncio.QueueEmpty:
+                pass
+            logger.warning("agent.audio.queue_full_drop")
+        pending_blocks.put_nowait(block)
 
     def _callback(indata: Any, frames: int, _time_info: Any, status: Any) -> None:
         if status:
             logger.warning("agent.audio.stream_status", status=str(status))
-        # indata shape is (frames, channels); we forced channels=1.
         block = indata[:, 0].copy() if indata.ndim == 2 else indata.copy()
-        try:
-            main_loop.call_soon_threadsafe(pending_blocks.put_nowait, block)
-        except asyncio.QueueFull:  # pragma: no cover - extremely unlikely
-            logger.warning("agent.audio.queue_full_drop")
+        main_loop.call_soon_threadsafe(_enqueue, block)
 
     try:
         stream = sd.InputStream(
