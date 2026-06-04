@@ -1,4 +1,4 @@
-"""Daily pin writer (tier 5, v1.14).
+"""Daily pin writer (tier 5, v1.14, refactored onto BackfillRunner in v1.26).
 
 Wakes every ~30 minutes. After 00:10 UTC writes yesterday's pin if it
 isn't already there. After a long uptime gap, fills any missed days
@@ -12,20 +12,19 @@ import asyncio
 from datetime import UTC, date, datetime, timedelta
 
 from app.daily_pin import write_pin_for_day
-from app.logging_setup import get_logger
 from app.storage.db import get_connection
-from app.workers.heartbeat import beat
-
-log = get_logger("persona.daily_pin_worker")
+from app.workers._bases import BackfillRunner
 
 POLL_INTERVAL_SECONDS: int = 1800
 LOOKBACK_DAYS: int = 30
 
 
-async def _days_to_pin(now: datetime) -> list[date]:
+async def _days_to_pin() -> list[date]:
     """Return list of (yesterday → 30 days back) that have no pin yet."""
-    today = now.date()
-    candidates = [today - timedelta(days=offset) for offset in range(1, LOOKBACK_DAYS + 1)]
+    today = datetime.now(tz=UTC).date()
+    candidates = [
+        today - timedelta(days=offset) for offset in range(1, LOOKBACK_DAYS + 1)
+    ]
 
     async with get_connection() as conn:
         cursor = await conn.execute(
@@ -39,40 +38,14 @@ async def _days_to_pin(now: datetime) -> list[date]:
 
 
 async def run_daily_pin_worker(stop_event: asyncio.Event | None = None) -> None:
-    stop = stop_event or asyncio.Event()
-    log.info("daily_pin_worker.started", lookback_d=LOOKBACK_DAYS)
-
-    while not stop.is_set():
-        await beat("daily-pin-worker")
-        try:
-            now = datetime.now(tz=UTC)
-            missing = await _days_to_pin(now)
-            written = 0
-            for d in missing:
-                try:
-                    res = await write_pin_for_day(d)
-                    if res is not None:
-                        written += 1
-                except Exception as exc:  # noqa: BLE001
-                    log.warning(
-                        "daily_pin_worker.write_failed",
-                        day=d.isoformat(),
-                        error=str(exc),
-                    )
-            if written:
-                log.info("daily_pin_worker.cycle", written=written)
-        except asyncio.CancelledError:
-            log.info("daily_pin_worker.cancelled")
-            raise
-        except Exception as exc:
-            log.exception("daily_pin_worker.iteration_failed", error=str(exc))
-
-        try:
-            await asyncio.wait_for(stop.wait(), timeout=POLL_INTERVAL_SECONDS)
-        except TimeoutError:
-            continue
-
-    log.info("daily_pin_worker.stopped")
+    """Lifespan entry point — registers a :class:`BackfillRunner`."""
+    runner = BackfillRunner(
+        name="daily-pin-worker",
+        poll_seconds=POLL_INTERVAL_SECONDS,
+        list_missing=_days_to_pin,
+        build_one=write_pin_for_day,
+    )
+    await runner.run(stop_event)
 
 
 __all__ = ["run_daily_pin_worker"]

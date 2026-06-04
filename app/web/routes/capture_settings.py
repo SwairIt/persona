@@ -110,6 +110,7 @@ async def capture_settings_save(
     start_hour = max(0, min(24, int(schedule_start_hour)))
     end_hour = max(0, min(24, int(schedule_end_hour)))
 
+    interval_str = f"{interval_seconds:.2f}"
     async with get_connection() as conn:
         await set_kv(conn, "capture_screens_disabled", screens_disabled)
         await set_kv(conn, "audio_capture_paused_live", mic_paused)
@@ -117,11 +118,12 @@ async def capture_settings_save(
         await set_kv(conn, "mic_schedule_days", days_value)
         await set_kv(conn, "mic_schedule_start_hour", str(start_hour))
         await set_kv(conn, "mic_schedule_end_hour", str(end_hour))
-        await set_kv(
-            conn,
-            "capture_interval_seconds_live",
-            f"{interval_seconds:.2f}",
-        )
+        # v1.25 — write BOTH the canonical kv key and the legacy ``_live``
+        # alias so any reader (capture_loop, setup wizard, future code)
+        # gets the same value. Once all callers route through
+        # ``app.settings.effective`` the ``_live`` alias can go away.
+        await set_kv(conn, "capture_interval_seconds", interval_str)
+        await set_kv(conn, "capture_interval_seconds_live", interval_str)
 
     log.info(
         "capture_settings.saved",

@@ -82,24 +82,38 @@ async def run_capture_loop(controller: CaptureController | None = None) -> None:
 
     while not ctrl.stop_event.is_set():
         await beat("capture-loop")
-        # v1.17 — kv-backed live overrides set from /settings/capture.
-        # We read three values each iteration:
-        #   - capture_screens_disabled : master kill-switch
-        #   - capture_interval_seconds_live : slider-driven base interval
-        # Errors here MUST NOT break capture — wrap in try/except.
+        # v1.25 — single-resolver replaces the v1.17 dual-key dance.
+        # ``get_effective_many`` reads kv first, falls back to Settings,
+        # so the wizard (which writes kv) and any direct env override
+        # both work without the call-site needing to know which is which.
+        # The legacy ``capture_interval_seconds_live`` kv key is still
+        # honoured for back-compat (writers may have stale UI form data).
         live_interval: float | None = None
         try:
-            from app.storage.repository import get_kv  # noqa: PLC0415
+            from app.settings.effective import (  # noqa: PLC0415
+                _coerce_bool,
+                get_effective_many,
+            )
 
-            async with get_connection() as conn:
-                screens_kill = await get_kv(conn, "capture_screens_disabled")
-                live_interval_raw = await get_kv(conn, "capture_interval_seconds_live")
-            if live_interval_raw:
+            values = await get_effective_many(
+                [
+                    "capture_screens_disabled",
+                    "capture_interval_seconds",
+                    "capture_interval_seconds_live",
+                ]
+            )
+            # Two kv keys can carry the live interval — the canonical
+            # one and the legacy ``_live`` from v1.17. Try canonical first.
+            for key in ("capture_interval_seconds", "capture_interval_seconds_live"):
+                raw = values.get(key)
+                if raw is None or isinstance(raw, bool):
+                    continue
                 try:
-                    live_interval = max(0.5, min(60.0, float(live_interval_raw)))
-                except ValueError:
-                    live_interval = None
-            if (screens_kill or "0").strip() == "1":
+                    live_interval = max(0.5, min(60.0, float(str(raw))))
+                    break
+                except (TypeError, ValueError):
+                    continue
+            if _coerce_bool(values.get("capture_screens_disabled")):
                 sleep_for = live_interval or settings.capture_interval_seconds
                 try:
                     await asyncio.wait_for(

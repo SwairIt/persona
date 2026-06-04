@@ -1,4 +1,19 @@
-"""Typed application settings loaded from environment / .env."""
+"""Typed application settings loaded from environment / .env.
+
+**The settings rule (v1.25+):** roughly 14 settings live in BOTH this
+pydantic model AND the runtime ``kv_settings`` table (so a UI toggle
+takes effect without a restart). Reading both inconsistently across
+call sites led to the v1.24.1 setup-wizard bug.
+
+The canonical rule from v1.25 onward:
+
+    ``kv_settings`` row wins. ``Settings`` (env-loaded) is the default.
+
+Every reader that touches a dual setting MUST go through
+:mod:`app.settings.effective` (``get_effective_*`` helpers). Do NOT
+read ``Settings.foo`` directly when ``foo`` is also a writable kv row
+— that would re-introduce the drift.
+"""
 
 from __future__ import annotations
 
