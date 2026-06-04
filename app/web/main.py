@@ -318,7 +318,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.13.0",
+        version="1.14.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -581,6 +581,25 @@ def create_app() -> FastAPI:
     return app
 
 
+async def _run_hourly_card_worker(controller: object) -> None:
+    """Adapter so hourly_card_worker plugs into the lifespan task list.
+
+    The worker doesn't need the CaptureController (it reads from DB,
+    doesn't capture anything), but the lifespan list pattern is
+    ``(controller) -> coroutine``. We accept and ignore.
+    """
+    from app.workers.hourly_card_worker import run_hourly_card_worker  # noqa: PLC0415
+
+    await run_hourly_card_worker()
+
+
+async def _run_daily_pin_worker(controller: object) -> None:
+    """Same adapter pattern as hourly card worker — tier 5 daily pin."""
+    from app.workers.daily_pin_worker import run_daily_pin_worker  # noqa: PLC0415
+
+    await run_daily_pin_worker()
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialise DB, start workers, and tear them down on shutdown."""
@@ -605,6 +624,14 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         asyncio.create_task(run_auto_backup_scheduler(controller), name="auto-backup"),
         asyncio.create_task(run_audio_worker(controller), name="audio-worker"),
         asyncio.create_task(run_audio_retention_worker(controller), name="audio-retention"),
+        asyncio.create_task(
+            _run_hourly_card_worker(controller),
+            name="hourly-card-worker",
+        ),
+        asyncio.create_task(
+            _run_daily_pin_worker(controller),
+            name="daily-pin-worker",
+        ),
     ]
 
     # v1.10: only pause on boot if opted-in via kv_setting capture_paused_on_boot=1

@@ -11,7 +11,7 @@ import httpx
 from app.logging_setup import get_logger
 from app.settings import get_settings
 
-Provider = Literal["anthropic", "openai", "groq"]
+Provider = Literal["anthropic", "openai", "groq", "gemini"]
 
 log = get_logger("persona.llm.switcher")
 usage_log = get_logger("persona.llm_usage")
@@ -189,6 +189,67 @@ class GroqClient:
         if not choices:
             return ""
         return str(choices[0]["message"]["content"]).strip()
+
+
+class GeminiClient:
+    """Google Gemini provider (v1.14).
+
+    Gemini AI Studio offers a genuinely free tier (1M tokens/day,
+    1500 requests/day on Flash) with no credit card required. This
+    makes it the right default for new Persona installations — the
+    user signs up at aistudio.google.com, copies a key, pastes it
+    into the setup wizard, and the LLM features work without paying.
+
+    Defaults to ``gemini-2.0-flash`` — fast, cheap (free), good enough
+    for hourly card summaries and Q&A. Power users can override the
+    model name in settings to ``gemini-2.0-pro`` or future ``2.5``.
+    """
+
+    provider: Provider = "gemini"
+
+    def __init__(self, api_key: str, model: str = "gemini-2.0-flash") -> None:
+        self._api_key = api_key
+        self._model = model
+        # Gemini's generative-language API takes the model in the path
+        # and the key as a query param. We rebuild the URL on each call
+        # so a model change at runtime takes effect immediately.
+        self._base = "https://generativelanguage.googleapis.com/v1beta/models"
+        self.last_input_tokens: int | None = None
+        self.last_output_tokens: int | None = None
+
+    async def complete(self, request: CompletionRequest) -> str:
+        self.last_input_tokens = None
+        self.last_output_tokens = None
+        url = f"{self._base}/{self._model}:generateContent?key={self._api_key}"
+        # Gemini wants system as the first "user" role with role split
+        # via "systemInstruction" — we use the systemInstruction field
+        # so the user/assistant turn structure stays clean.
+        payload = {
+            "systemInstruction": {"parts": [{"text": request.system}]},
+            "contents": [
+                {"role": "user", "parts": [{"text": request.user}]},
+            ],
+            "generationConfig": {
+                "maxOutputTokens": request.max_tokens,
+                "temperature": request.temperature,
+            },
+        }
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(url, json=payload)
+            response.raise_for_status()
+            data = response.json()
+
+        usage = data.get("usageMetadata") or {}
+        self.last_input_tokens = _coerce_token_count(usage.get("promptTokenCount"))
+        self.last_output_tokens = _coerce_token_count(usage.get("candidatesTokenCount"))
+
+        candidates = data.get("candidates", [])
+        if not candidates:
+            return ""
+        parts = (candidates[0].get("content") or {}).get("parts") or []
+        if not parts:
+            return ""
+        return str(parts[0].get("text", "")).strip()
 
 
 def _coerce_token_count(value: object) -> int | None:
@@ -500,6 +561,8 @@ def make_client(
         inner = OpenAIClient(use_key)
     elif use_provider == "groq":
         inner = GroqClient(use_key)
+    elif use_provider == "gemini":
+        inner = GeminiClient(use_key)
     else:
         msg = f"Unsupported LLM provider: {use_provider}"
         raise LLMNotConfigured(msg)

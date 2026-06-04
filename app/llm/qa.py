@@ -23,14 +23,15 @@ log = get_logger("persona.qa")
 
 _QA_SYSTEM = (
     "You are a memory assistant for a single user. You will be shown a "
-    "RANKED list of past screenshots from the user's screen, each with a "
-    "timestamp, app, window title, and OCR text. The user will ask a "
-    "question. Answer it using ONLY the information visible in those "
-    "screenshots. If the answer is not in the context, say so honestly; do "
-    "not invent facts. Cite the screenshots you used by their id in square "
-    "brackets, e.g. [#42]. Reply in the user's language (Russian if the "
-    "context is mostly Cyrillic, English otherwise). Keep the answer short "
-    "and concrete (2-6 sentences)."
+    "RANKED list of past CAPTURES — each is either a screenshot (with "
+    "timestamp, app, window title, OCR text) or an HOURLY SUMMARY CARD "
+    "covering one hour of activity (apps used, voice transcript, OCR "
+    "keywords). The user will ask a question. Answer it using ONLY the "
+    "information visible in that context. If the answer is not there, "
+    "say so honestly; do not invent facts. Cite items by id like [#42] "
+    "for screenshots or [hour:HH:MM] for hourly cards. Reply in the "
+    "user's language (Russian if the context is mostly Cyrillic, "
+    "English otherwise). Keep the answer short and concrete (2-6 sentences)."
 )
 
 
@@ -117,21 +118,73 @@ async def _gather_context(question: str, *, top_k: int) -> list[dict[str, object
             if row and row["ocr_text"]:
                 out[sid]["ocr_text"] = str(row["ocr_text"])[:1500]
 
-    return list(out.values())[:top_k]
+        # v1.14 — also pull top hourly cards matching the question via
+        # FTS5 over summary/transcript/keywords. These are returned as a
+        # second slice of context with distinct ids (negative to avoid
+        # collisions with screenshot ids) so the prompt builder can show
+        # them under their own "Hourly summaries" section.
+        try:
+            cursor = await conn.execute(
+                "SELECT c.rowid AS rid, c.hour_start, c.summary, "
+                "       c.transcript_excerpt, c.top_words "
+                "FROM hourly_card_fts f "
+                "JOIN hourly_card c ON c.rowid = f.rowid "
+                "WHERE f MATCH ? ORDER BY rank LIMIT ?",
+                (question, top_k),
+            )
+            card_rows = await cursor.fetchall()
+        except Exception as exc:  # noqa: BLE001 — FTS may raise on weird tokens
+            log.debug("qa.hourly_card_search_failed", error=str(exc))
+            card_rows = []
+
+        for row in card_rows:
+            card_key = -int(row["rid"])  # negative id namespace for cards
+            out[card_key] = {
+                "id": card_key,
+                "is_card": True,
+                "hour_start": str(row["hour_start"]),
+                "summary": str(row["summary"]),
+                "transcript_excerpt": str(row["transcript_excerpt"] or ""),
+                "top_words": str(row["top_words"] or ""),
+                "rank_source": "card_fts",
+            }
+
+    return list(out.values())[: top_k * 2]
 
 
 def _build_prompt(question: str, context: list[dict[str, object]]) -> str:
-    lines = [f"Question: {question}", "", "Context (top relevant captures):"]
-    for c in context:
-        lines.append(
-            f"[#{c['id']}] {c['captured_at']} {c.get('app_name') or '?'} — "
-            f"{c.get('window_title') or ''}"
-        )
-        text = (c.get("ocr_text") or "").strip()
-        if text:
-            lines.append(f"  >> {text[:600]}")
-        lines.append("")
-    lines.append("Answer the question using only the captures above. Cite ids like [#id].")
+    screenshots = [c for c in context if not c.get("is_card")]
+    cards = [c for c in context if c.get("is_card")]
+
+    lines = [f"Question: {question}", ""]
+    if screenshots:
+        lines.append("Screenshots (top relevant):")
+        for c in screenshots:
+            lines.append(
+                f"[#{c['id']}] {c['captured_at']} {c.get('app_name') or '?'} — "
+                f"{c.get('window_title') or ''}"
+            )
+            text = (c.get("ocr_text") or "").strip()
+            if text:
+                lines.append(f"  >> {text[:600]}")
+            lines.append("")
+
+    if cards:
+        lines.append("Hourly summary cards (top relevant):")
+        for c in cards:
+            lines.append(f"[hour:{c.get('hour_start')}]")
+            summary = (c.get("summary") or "").strip()
+            if summary:
+                lines.append(summary[:1500])
+            transcript = (c.get("transcript_excerpt") or "").strip()
+            if transcript:
+                lines.append(f"  voice: {transcript[:400]}")
+            lines.append("")
+
+    lines.append(
+        "Answer the question using only the context above. Cite "
+        "screenshots like [#42] and hourly cards like [hour:2026-06-04T14:00:00+00:00]."
+    )
     return "\n".join(lines)
 
 
