@@ -25,12 +25,11 @@ from datetime import UTC, date, datetime, timedelta
 from typing import TypedDict
 
 import aiosqlite
-from fastapi import APIRouter, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import APIRouter, Query
+from fastapi.responses import JSONResponse
 
 from app.logging_setup import get_logger
 from app.storage.db import get_connection
-from app.web.templates_engine import templates
 
 router = APIRouter(tags=["collection-visit-stats"])
 log = get_logger("persona.collection.visits")
@@ -181,41 +180,6 @@ async def _compute(days: int) -> CollectionVisitStats:
     )
 
     return CollectionVisitStats(by_slug=by_slug, daily=daily)
-
-
-@router.get("/admin/collection-visits", response_class=HTMLResponse)
-async def collection_visits_page(
-    request: Request,
-    days: int = Query(_DEFAULT_DAYS, ge=_MIN_DAYS, le=_MAX_DAYS),
-) -> HTMLResponse:
-    """Render the per-collection visit dashboard for the last ``days`` days."""
-    payload = await _compute(days=days)
-
-    total_visits = sum(row["visits"] for row in payload["daily"])
-    max_daily = max((row["visits"] for row in payload["daily"]), default=0)
-    max_slug_visits = max((row["visits"] for row in payload["by_slug"]), default=0)
-
-    log.debug(
-        "collection_visit_stats.page.rendered",
-        days=days,
-        total_visits=total_visits,
-        slugs=len(payload["by_slug"]),
-    )
-
-    return templates.TemplateResponse(
-        request,
-        "collection_visit_stats.html",
-        {
-            "title": "Collection visits",
-            "active_nav": "stats",
-            "days_window": days,
-            "by_slug": payload["by_slug"],
-            "daily": payload["daily"],
-            "total_visits": total_visits,
-            "max_daily": max_daily,
-            "max_slug_visits": max_slug_visits,
-        },
-    )
 
 
 @router.get("/api/collection-visits.json")

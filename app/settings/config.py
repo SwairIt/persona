@@ -24,21 +24,29 @@ class Settings(BaseSettings):
     db_path: Path = Field(default=Path("./data/persona.db"))
     thumbnails_dir: Path = Field(default=Path("./data/thumbnails"))
 
-    capture_interval_seconds: float = Field(default=5.0, ge=0.5, le=60.0)
-    thumbnail_quality: int = Field(default=45, ge=10, le=100)
-    thumbnail_max_width: int = Field(default=900, ge=320, le=3840)
-    dedup_hamming_threshold: int = Field(default=4, ge=0, le=64)
+    # v1.13 — tightened defaults to fit the 25 MB/day budget (see
+    # docs/STORAGE_BUDGET_DESIGN.md §10). The earlier defaults shipped
+    # at ~51 MB/day with a nominal-only 4 MB cap; the new ones target
+    # ~10 MB/day for screens with the adaptive cadence on.
+    capture_interval_seconds: float = Field(default=8.0, ge=0.5, le=60.0)
+    thumbnail_quality: int = Field(default=35, ge=10, le=100)
+    thumbnail_max_width: int = Field(default=640, ge=320, le=3840)
+    dedup_hamming_threshold: int = Field(default=8, ge=0, le=64)
     retention_days: int = Field(default=180, ge=1, le=3650)
     idle_threshold_seconds: float = Field(default=300.0, ge=10.0)
     lock_aware_pause_enabled: bool = Field(default=True)
 
     smart_thumbnail: bool = Field(default=True)
-    smart_min_gap_seconds: float = Field(default=180.0, ge=0.0)
+    smart_min_gap_seconds: float = Field(default=300.0, ge=0.0)
+    # Legacy nominal thumbnail-write cap. Superseded by daily_budget_mb +
+    # budget_enforcer_enabled (v1.13). Kept for backward compat; consulted
+    # only when budget_enforcer_enabled is False.
     daily_size_budget_mb: float = Field(default=4.0, ge=0.1, le=10240.0)
-    tier_warm_after_days: int = Field(default=7, ge=1, le=3650)
+    # v1.13 — pull warm tier inward so yesterday's frames downsize today.
+    tier_warm_after_days: int = Field(default=1, ge=1, le=3650)
     tier_cold_after_days: int = Field(default=30, ge=1, le=3650)
-    tier_warm_thumbnail_width: int = Field(default=320, ge=64, le=3840)
-    tier_warm_thumbnail_quality: int = Field(default=30, ge=10, le=100)
+    tier_warm_thumbnail_width: int = Field(default=256, ge=64, le=3840)
+    tier_warm_thumbnail_quality: int = Field(default=25, ge=10, le=100)
     tiered_retention: bool = Field(default=True)
     archive_after_days: int = Field(default=180, ge=30, le=3650)
     archive_enabled: bool = Field(default=False)
@@ -107,8 +115,18 @@ class Settings(BaseSettings):
     battery_critical_pct: int = Field(default=15, ge=1, le=50)
 
     adaptive_cadence_enabled: bool = Field(default=True)
-    adaptive_min_seconds: int = Field(default=30, ge=5, le=300)
-    adaptive_max_seconds: int = Field(default=600, ge=60, le=3600)
+    # v1.13 — widened both bounds so steady-state work pauses longer and
+    # idle stretches stop capturing sooner.
+    adaptive_min_seconds: int = Field(default=60, ge=5, le=300)
+    adaptive_max_seconds: int = Field(default=900, ge=60, le=3600)
+
+    # v1.13 — Storage-budget enforcer. The total daily on-disk growth
+    # target. The capture loop and audio worker check projected EoD usage
+    # and throttle their own behaviour when projection exceeds the cap.
+    # See docs/STORAGE_BUDGET_DESIGN.md for the throttle level table.
+    daily_budget_mb: float = Field(default=25.0, ge=1.0, le=10240.0)
+    budget_enforcer_enabled: bool = Field(default=True)
+    budget_throttle_aggressiveness: str = Field(default="mild")
 
     # v0.35 — opt-in clipboard history capture. When True, a background
     # worker polls the OS clipboard every ~2s and stores each new text
@@ -212,9 +230,22 @@ class Settings(BaseSettings):
     # background TV noise more aggressively, lower it for whispered
     # speech.
     audio_capture_enabled: bool = Field(default=False)
-    audio_target_bitrate: int = Field(default=1500, ge=500, le=320_000)
-    audio_preferred_codec: str = Field(default="encodec")
-    audio_vad_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
+    # v1.13 — narrowband 8 kHz mono at 6 kbps is voice-call quality and
+    # fits ~7 MB/day for 2-3 h of voiced speech (see STORAGE_BUDGET_DESIGN.md
+    # §4). Encodec dropped from the default codec cascade because it costs
+    # ~2.5 GB of torch deps and 88 MB of cached model weights for a feature
+    # most users never opt into — opus_ffmpeg covers the budget bracket.
+    audio_target_bitrate: int = Field(default=6000, ge=500, le=320_000)
+    audio_preferred_codec: str = Field(default="opus")
+    audio_vad_threshold: float = Field(default=0.6, ge=0.0, le=1.0)
+    # v1.13 — VAD backend selector. "webrtcvad" is pure C (~4 KB, no
+    # torch); "silero" stays for users who already have torch installed.
+    # The audio worker reads this at startup; missing-backend cases fall
+    # through to silero.
+    audio_vad_backend: str = Field(default="webrtcvad")
+    # v1.13 — Whisper transcription is now opt-in. Saves the 244 MB model
+    # download on machines that just want voice memory without text.
+    audio_transcribe_enabled: bool = Field(default=False)
 
     @model_validator(mode="after")
     def _validate_adaptive_bounds(self) -> Settings:
@@ -238,12 +269,16 @@ class Settings(BaseSettings):
     def _resolve_path(cls, value: Path) -> Path:
         return value.expanduser().resolve()
 
-    @field_validator("tesseract_path", mode="after")
+    @field_validator("tesseract_path", mode="before")
     @classmethod
-    def _resolve_optional_path(cls, value: Path | None) -> Path | None:
-        if value is None or str(value).strip() == "":
+    def _resolve_optional_path(cls, value: object) -> object:
+        if value is None:
             return None
-        return value.expanduser().resolve()
+        if isinstance(value, str) and value.strip() == "":
+            return None
+        if isinstance(value, Path) and str(value).strip() in ("", "."):
+            return None
+        return value
 
     @field_validator("log_level", mode="after")
     @classmethod

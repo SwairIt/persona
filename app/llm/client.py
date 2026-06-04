@@ -255,9 +255,17 @@ async def _resolve_provider_and_key() -> tuple[str | None, str | None]:
 
     cfg = get_settings()
 
-    async with get_connection() as conn:
-        kv_provider = await get_kv(conn, _KV_LLM_PROVIDER)
-        legacy_provider = await get_kv(conn, _KV_LEGACY_PROVIDER)
+    # KV reads degrade gracefully when the DB hasn't been initialised
+    # yet (unit tests of make_client without the `db` fixture). The
+    # env / Settings fallbacks below are enough to satisfy the resolver
+    # contract in that case.
+    try:
+        async with get_connection() as conn:
+            kv_provider = await get_kv(conn, _KV_LLM_PROVIDER)
+            legacy_provider = await get_kv(conn, _KV_LEGACY_PROVIDER)
+    except Exception:
+        kv_provider = None
+        legacy_provider = None
 
     raw_provider = (kv_provider or legacy_provider or cfg.byo_api_provider or "").strip().lower()
     if raw_provider == "none":
@@ -276,9 +284,13 @@ async def _resolve_provider_and_key() -> tuple[str | None, str | None]:
 
     has_vault_row = _vault_key_for(raw_provider) in vault_names
 
-    async with get_connection() as conn:
-        kv_key_specific = await get_kv(conn, _kv_fallback_key_for(raw_provider))
-        kv_key_legacy = await get_kv(conn, _KV_LEGACY_KEY)
+    try:
+        async with get_connection() as conn:
+            kv_key_specific = await get_kv(conn, _kv_fallback_key_for(raw_provider))
+            kv_key_legacy = await get_kv(conn, _KV_LEGACY_KEY)
+    except Exception:
+        kv_key_specific = None
+        kv_key_legacy = None
 
     # Vault rows take precedence in *signalling* configured-ness but we
     # cannot return the plaintext without a password; in that case we

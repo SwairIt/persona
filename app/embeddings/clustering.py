@@ -132,7 +132,12 @@ def _mean(vectors: list[list[float]]) -> list[float]:
 def _converged(a: list[list[float]], b: list[list[float]], eps: float = 1e-3) -> bool:
     if len(a) != len(b):
         return False
-    return all(_distance_sq(x, y) < eps for x, y in zip(a, b, strict=True))
+    for x, y in zip(a, b, strict=True):
+        if len(x) != len(y):
+            return False
+        if _distance_sq(x, y) >= eps:
+            return False
+    return True
 
 
 _STOPWORDS = frozenset(

@@ -186,7 +186,6 @@ from app.web.routes import (
     ocr_skip as ocr_skip_routes,
     ocr_translate as ocr_translate_routes,
     ocr_txt_export as ocr_txt_export_routes,
-    ocr_words_tsv as ocr_words_tsv_routes,
     ocr_vision as ocr_vision_routes,
     ocr_vision_replace as ocr_vision_replace_routes,
     rss as rss_routes,
@@ -268,6 +267,7 @@ from app.web.routes import (
     weekly_pdf as weekly_pdf_routes,
     weekly_stats_card as weekly_stats_card_routes,
     whitelist,
+    budget_status as budget_status_routes,
 )
 from app.workers import (
     get_controller,
@@ -317,7 +317,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.12.0",
+        version="1.13.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -529,9 +529,9 @@ def create_app() -> FastAPI:
     app.include_router(search_tag_all_routes.router)
     app.include_router(retention_trend_routes.router)
     app.include_router(weekly_stats_card_routes.router)
+    app.include_router(budget_status_routes.router)
     app.include_router(sticky_search_routes.router)
     app.include_router(audit_replay_routes.router)
-    app.include_router(ocr_words_tsv_routes.router)
     app.include_router(tag_gallery_routes.router)
     app.include_router(app_calendar_routes.router)
     app.include_router(ocr_history_routes.router)

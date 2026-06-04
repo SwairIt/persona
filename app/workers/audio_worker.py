@@ -54,7 +54,7 @@ from app.audio.encode import (
 )
 from app.audio.preprocess import preprocess
 from app.audio.transcribe import transcribe_segment
-from app.audio.vad import detect_speech_segments
+from app.audio.vad_facade import detect_speech_segments
 from app.logging_setup import get_logger
 from app.settings import get_settings
 from app.storage.db import get_connection
@@ -287,6 +287,15 @@ async def _persist_speech_segment(
         bytes=size_bytes,
         path=stored_path,
     )
+
+    # v1.13 — count toward the daily byte budget. Failure MUST NOT break
+    # the audio worker; budget is a guidance signal, not a hard fence.
+    try:
+        from app import budget as _budget  # noqa: PLC0415
+
+        await _budget.add_bytes("audio", size_bytes)
+    except Exception as exc:  # noqa: BLE001
+        log.debug("audio_worker.budget_bump_failed", error=str(exc))
 
     # v1.11 feature 2/3 — lossless content track. We transcribe *after*
     # the row is committed so a Whisper failure (model load OOM, corrupt

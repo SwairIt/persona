@@ -253,6 +253,18 @@ async def _persist_capture(
             )
             await conn.commit()
             await sample_today(conn, settings.thumbnails_dir)
+        # v1.13 — count toward the daily byte budget. The enforcer (§6 of
+        # STORAGE_BUDGET_DESIGN.md) reads this bucket to decide whether
+        # to raise the throttle level on subsequent captures. Failures
+        # MUST NOT break capture — wrap in try/except.
+        try:
+            from app import budget as _budget  # noqa: PLC0415
+            from pathlib import Path as _Path  # noqa: PLC0415
+
+            written = _Path(thumbnail_path).stat().st_size
+            await _budget.add_bytes("thumbnails", written)
+        except Exception as exc:  # noqa: BLE001
+            log.debug("capture_loop.budget_bump_failed", error=str(exc))
         await dispatch_event(
             "capture.saved",
             {

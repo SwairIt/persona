@@ -19,7 +19,7 @@ class SearchHit(BaseModel):
     thumbnail_path: str | None
     app_name: str | None
     window_title: str | None
-    snippet: str
+    snippet: str = ""
     rank: float
 
 
@@ -102,7 +102,7 @@ async def search(
             thumbnail_path=row["thumbnail_path"],
             app_name=row["app_name"],
             window_title=row["window_title"],
-            snippet=row["snippet"],
+            snippet=row["snippet"] or "",
             rank=float(row["rank"]),
         )
         for row in rows

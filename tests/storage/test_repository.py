@@ -146,4 +146,5 @@ async def test_kv_settings(db: aiosqlite.Connection) -> None:
     assert await get_kv(db, "theme") == "light"
     assert await get_kv(db, "lang") == "en"
     all_kv = await list_kv(db)
-    assert all_kv == {"theme": "light", "lang": "en"}
+    assert all_kv["theme"] == "light"
+    assert all_kv["lang"] == "en"

@@ -20,6 +20,19 @@ def _make_image(colour: tuple[int, int, int], size: tuple[int, int] = (256, 256)
     return Image.new("RGB", size, colour)
 
 
+def _make_gradient(seed: int, size: tuple[int, int] = (64, 64)) -> Image.Image:
+    img = Image.new("RGB", size)
+    pixels = img.load()
+    if pixels is None:
+        msg = "PIL returned no pixel access object"
+        raise RuntimeError(msg)
+    w, h = size
+    for y in range(h):
+        for x in range(w):
+            pixels[x, y] = ((x + seed) % 256, (y * 3 + seed) % 256, (x * y + seed) % 256)
+    return img
+
+
 def test_compute_phash_is_stable_for_identical_images() -> None:
     img_a = _make_image((128, 64, 200))
     img_b = _make_image((128, 64, 200))
@@ -27,8 +40,8 @@ def test_compute_phash_is_stable_for_identical_images() -> None:
 
 
 def test_compute_phash_differs_for_different_images() -> None:
-    img_a = _make_image((255, 0, 0))
-    img_b = _make_image((0, 255, 0))
+    img_a = _make_gradient(seed=0)
+    img_b = _make_gradient(seed=128)
     assert compute_phash(img_a) != compute_phash(img_b)
 
 
