@@ -25,10 +25,11 @@ class Settings(BaseSettings):
     thumbnails_dir: Path = Field(default=Path("./data/thumbnails"))
 
     # v1.13 — tightened defaults to fit the 25 MB/day budget (see
-    # docs/STORAGE_BUDGET_DESIGN.md §10). The earlier defaults shipped
-    # at ~51 MB/day with a nominal-only 4 MB cap; the new ones target
-    # ~10 MB/day for screens with the adaptive cadence on.
-    capture_interval_seconds: float = Field(default=8.0, ge=0.5, le=60.0)
+    # docs/STORAGE_BUDGET_DESIGN.md §10).
+    # v1.16 — restored ~10 frames/min when active (was 8s = 7.5/min).
+    # User feedback: stretched cadence lost too much context; dedup +
+    # smart_gap + budget enforcer hold the 25 MB cap on their own.
+    capture_interval_seconds: float = Field(default=6.0, ge=0.5, le=60.0)
     thumbnail_quality: int = Field(default=35, ge=10, le=100)
     thumbnail_max_width: int = Field(default=640, ge=320, le=3840)
     dedup_hamming_threshold: int = Field(default=8, ge=0, le=64)
@@ -115,9 +116,11 @@ class Settings(BaseSettings):
     battery_critical_pct: int = Field(default=15, ge=1, le=50)
 
     adaptive_cadence_enabled: bool = Field(default=True)
-    # v1.13 — widened both bounds so steady-state work pauses longer and
-    # idle stretches stop capturing sooner.
-    adaptive_min_seconds: int = Field(default=60, ge=5, le=300)
+    # v1.16 — adaptive_min matches the base interval so active-typing
+    # doesn't slow capture below 10/min. adaptive_max keeps the v1.13
+    # widened idle bound (15 min between captures when the user is afk
+    # within the still-not-yet-idle window).
+    adaptive_min_seconds: int = Field(default=6, ge=5, le=300)
     adaptive_max_seconds: int = Field(default=900, ge=60, le=3600)
 
     # v1.13 — Storage-budget enforcer. The total daily on-disk growth
