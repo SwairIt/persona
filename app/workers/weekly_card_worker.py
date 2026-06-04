@@ -1,4 +1,4 @@
-"""Weekly card writer (tier 2, v1.15).
+"""Weekly card writer (tier 2, v1.15, refactored onto BackfillRunner in v1.26).
 
 Wakes every ~1 hour. Looks back 12 weeks and writes a tier-2 card for
 any ISO week that doesn't have one yet and has at least one screenshot
@@ -11,12 +11,9 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, date, datetime, timedelta
 
-from app.logging_setup import get_logger
 from app.storage.db import get_connection
 from app.weekly_card import build_card_for_week
-from app.workers.heartbeat import beat
-
-log = get_logger("persona.weekly_card_worker")
+from app.workers._bases import BackfillRunner
 
 POLL_INTERVAL_SECONDS: int = 3600
 LOOKBACK_WEEKS: int = 12
@@ -27,11 +24,10 @@ def _monday_of(when: date) -> date:
     return when - timedelta(days=when.weekday())
 
 
-async def _weeks_to_build(now: datetime) -> list[date]:
+async def _weeks_to_build() -> list[date]:
     """Return Mondays in the lookback window that have no weekly_card yet."""
-    today = now.date()
+    today = datetime.now(tz=UTC).date()
     current_monday = _monday_of(today)
-    # Skip the in-progress week — start at last week, go LOOKBACK_WEEKS back.
     candidates = [
         current_monday - timedelta(weeks=offset)
         for offset in range(1, LOOKBACK_WEEKS + 1)
@@ -52,41 +48,14 @@ async def _weeks_to_build(now: datetime) -> list[date]:
 async def run_weekly_card_worker(
     stop_event: asyncio.Event | None = None,
 ) -> None:
-    """Sleep loop that materialises one card per missing week."""
-    stop = stop_event or asyncio.Event()
-    log.info("weekly_card_worker.started", lookback_weeks=LOOKBACK_WEEKS)
-
-    while not stop.is_set():
-        await beat("weekly-card-worker")
-        try:
-            now = datetime.now(tz=UTC)
-            missing = await _weeks_to_build(now)
-            built = 0
-            for week_start in missing:
-                try:
-                    result = await build_card_for_week(week_start)
-                    if result is not None:
-                        built += 1
-                except Exception as exc:
-                    log.warning(
-                        "weekly_card_worker.build_failed",
-                        week_start=week_start.isoformat(),
-                        error=str(exc),
-                    )
-            if built:
-                log.info("weekly_card_worker.cycle", built=built)
-        except asyncio.CancelledError:
-            log.info("weekly_card_worker.cancelled")
-            raise
-        except Exception as exc:
-            log.exception("weekly_card_worker.iteration_failed", error=str(exc))
-
-        try:
-            await asyncio.wait_for(stop.wait(), timeout=POLL_INTERVAL_SECONDS)
-        except TimeoutError:
-            continue
-
-    log.info("weekly_card_worker.stopped")
+    """Lifespan entry point — registers a :class:`BackfillRunner`."""
+    runner = BackfillRunner(
+        name="weekly-card-worker",
+        poll_seconds=POLL_INTERVAL_SECONDS,
+        list_missing=_weeks_to_build,
+        build_one=build_card_for_week,
+    )
+    await runner.run(stop_event)
 
 
 __all__ = ["run_weekly_card_worker"]
