@@ -7,12 +7,8 @@ here authenticate the caller via :func:`app.remote_agents.verify_agent_token`
 on every request and bump the matching ``last_*_at`` columns so the
 admin UI can show per-channel liveness.
 
-This module deliberately does NOT register itself with the FastAPI app
-in :mod:`app.web.main` — the task spec forbids touching ``main.py``.
-Wire it up in a follow-up patch with::
-
-    from app.web.routes import agent_api as agent_api_routes
-    app.include_router(agent_api_routes.router)
+v1.30: registered in :mod:`app.web.main` (the older docstring was
+stale — the coordinator picks every route module up once it ships).
 
 Threat model notes
 ------------------

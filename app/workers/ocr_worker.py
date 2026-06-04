@@ -188,14 +188,10 @@ async def _drain_once() -> None:  # noqa: PLR0915 — pipeline orchestration, ea
                 )
             else:
                 if regions_count > 0:
-                    async with get_connection() as conn:
-                        await conn.execute(
-                            "INSERT OR REPLACE INTO blur_applied "
-                            "(screenshot_id, applied_at, regions_count) "
-                            "VALUES (?, datetime('now'), ?)",
-                            (shot.id, regions_count),
-                        )
-                        await conn.commit()
+                    # v1.30 — больше не пишем в blur_applied: grep по
+                    # codebase + tests показал zero readers с момента
+                    # появления таблицы (migration 021). Сохраняем только
+                    # лог-запись на случай дебага.
                     log.info(
                         "ocr.image_blurred",
                         screenshot_id=shot.id,

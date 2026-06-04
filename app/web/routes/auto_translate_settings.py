@@ -11,11 +11,9 @@ Three JSON endpoints:
   the segment detail page to render the translated text alongside
   the original.
 
-The route deliberately does NOT register itself with the FastAPI app
-in :mod:`app.web.main` — wire it up in the route-coordinator instead::
-
-    from app.web.routes import auto_translate_settings
-    app.include_router(auto_translate_settings.router)
+v1.30: registered in :mod:`app.web.main` (the earlier "deliberately not
+registered" docstring was stale — coordinator picks the router up like
+every other route module).
 """
 
 from __future__ import annotations

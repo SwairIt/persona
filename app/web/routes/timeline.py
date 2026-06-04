@@ -45,8 +45,21 @@ async def home(
     date: str | None = Query(default=None),
     app: str | None = Query(default=None),
     sort_by: str = Query(default=_DEFAULT_SORT),
+    full: int = Query(default=0),
 ) -> HTMLResponse | RedirectResponse:
-    """Render the main timeline."""
+    """Render the main timeline.
+
+    v1.30 — phone-UA shortcut: when the User-Agent looks like a mobile
+    browser AND the user did not explicitly request ``?full=1``, redirect
+    to /m (the dedicated compact view). Desktop UAs see the full timeline
+    as before. ``?full=1`` lets a phone user opt INTO the full layout.
+    """
+    if not date and not app and full != 1:
+        ua = (request.headers.get("user-agent") or "").lower()
+        mobile_markers = ("iphone", "ipod", "android", "mobile safari", "fennec")
+        if any(m in ua for m in mobile_markers):
+            return RedirectResponse(url="/m", status_code=303)
+
     target_day = _parse_date(date)
     since, until = _day_bounds(target_day)
     sort_key = _coerce_sort(sort_by)

@@ -20,12 +20,9 @@ All six values are written through :func:`app.storage.repository.set_kv`
 in a single connection so a partial save is impossible — either every
 row reflects the form, or nothing changes.
 
-This module deliberately does NOT register itself with the FastAPI
-app in :mod:`app.web.main` — the task spec forbids touching
-``main.py``. Wire it up with::
-
-    from app.web.routes import audio_settings as audio_settings_routes
-    app.include_router(audio_settings_routes.router)
+v1.30: registered in :mod:`app.web.main` (the older "deliberately not
+registered" docstring was stale — coordinator picks every route module
+up automatically once it ships).
 """
 
 from __future__ import annotations
