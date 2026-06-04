@@ -20,9 +20,15 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    data_dir: Path = Field(default=Path("./data"))
-    db_path: Path = Field(default=Path("./data/persona.db"))
-    thumbnails_dir: Path = Field(default=Path("./data/thumbnails"))
+    # v1.18 — defaults live in the user's home, not the repo working
+    # directory. This means ``rm -rf Persona/`` or ``git pull`` cannot
+    # accidentally wipe the entire memory archive. Override via env if
+    # you want a different mount (e.g. an external drive). ``~`` is
+    # expanded by the field validator below so any user can copy the
+    # default without filling in their home path manually.
+    data_dir: Path = Field(default=Path("~/.persona"))
+    db_path: Path = Field(default=Path("~/.persona/persona.db"))
+    thumbnails_dir: Path = Field(default=Path("~/.persona/thumbnails"))
 
     # v1.13 — tightened defaults to fit the 25 MB/day budget (see
     # docs/STORAGE_BUDGET_DESIGN.md §10).
@@ -144,7 +150,7 @@ class Settings(BaseSettings):
     # ``.error.txt`` on parse failure). Default location is
     # ``./data/inbox`` so the inbox lives under the existing data tree.
     inbox_enabled: bool = Field(default=True)
-    inbox_path: Path = Field(default=Path("./data/inbox"))
+    inbox_path: Path = Field(default=Path("~/.persona/inbox"))
 
     # v0.34 — when False (default) ``/api/*`` endpoints stay open to the
     # local UI exactly as before; bearer auth only kicks in for requests
@@ -181,7 +187,7 @@ class Settings(BaseSettings):
     # unaffected.
     auto_backup_enabled: bool = Field(default=False)
     auto_backup_hour_local: int = Field(default=3, ge=0, le=23)
-    auto_backup_path: Path = Field(default=Path("./data/backups"))
+    auto_backup_path: Path = Field(default=Path("~/.persona/backups"))
     auto_backup_keep_days: int = Field(default=14, ge=1, le=3650)
 
     # v0.90 — capture-rate guard. The capture loop counts screenshots
