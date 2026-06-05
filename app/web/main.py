@@ -355,6 +355,9 @@ from app.web.routes import (
     voice_search as voice_search_routes,
     focus_profiles as focus_profiles_routes,
     tag_autocomplete as tag_autocomplete_routes,
+    capture_quality as capture_quality_routes,
+    changelog as changelog_routes,
+    mobile_bottom_nav as mobile_bottom_nav_routes,
 )
 from app.workers import (
     get_controller,
@@ -404,7 +407,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.56.0",
+        version="1.57.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -721,6 +724,9 @@ def create_app() -> FastAPI:
     app.include_router(voice_search_routes.router)
     app.include_router(focus_profiles_routes.router)
     app.include_router(tag_autocomplete_routes.router)
+    app.include_router(capture_quality_routes.router)
+    app.include_router(changelog_routes.router)
+    app.include_router(mobile_bottom_nav_routes.router)
     app.include_router(sticky_search_routes.router)
     app.include_router(audit_replay_routes.router)
     app.include_router(tag_gallery_routes.router)

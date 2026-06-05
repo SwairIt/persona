@@ -1,0 +1,192 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto" x-data="captureQualityPanel({{ {
+      'current': current_quality,
+      'default': default_quality,
+      'min': quality_min,
+      'max': quality_max,
+      'probes': probe_qualities,
+    } | tojson }})">
+
+  <div class="mb-8">
+    <h1 class="text-2xl font-bold tracking-tight">Качество скриншотов</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Живая настройка WebP-качества для миниатюр. Изменения применяются
+      на следующем кадре — рестарт не нужен.
+    </p>
+  </div>
+
+  <form method="post" action="/settings/capture-quality" class="space-y-6">
+    <section class="rounded-xl border border-ink-700 bg-ink-800 p-6">
+      <div class="flex items-baseline justify-between mb-3">
+        <label class="text-sm font-medium text-zinc-300" for="quality-slider">
+          Качество WebP
+        </label>
+        <div class="text-sm text-zinc-400">
+          <strong class="text-zinc-100" x-text="quality"></strong>
+          <span class="text-zinc-500">/ {{ quality_max }}</span>
+          <span class="ml-3 text-xs"
+                :class="qualityBand() === 'low' ? 'text-amber-400' : (qualityBand() === 'high' ? 'text-emerald-400' : 'text-zinc-400')"
+                x-text="qualityLabel()"></span>
+        </div>
+      </div>
+
+      <input id="quality-slider"
+             type="range"
+             name="quality"
+             :min="bounds.min"
+             :max="bounds.max"
+             step="1"
+             x-model.number="quality"
+             class="w-full accent-accent-500">
+
+      <div class="flex justify-between text-xs text-zinc-500 mt-2">
+        <span>{{ quality_min }} (экономия)</span>
+        <span>{{ default_quality }} (по умолчанию)</span>
+        <span>{{ quality_max }} (резкость)</span>
+      </div>
+
+      <p class="text-xs text-zinc-500 mt-4">
+        Применимо к новым кадрам. Уже сохранённые миниатюры не
+        пересжимаются — для этого есть отдельная процедура
+        <code class="text-zinc-300">thumb_regen</code>.
+      </p>
+    </section>
+
+    <section class="rounded-xl border border-ink-700 bg-ink-800 p-6">
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h2 class="text-base font-semibold text-zinc-100">
+            Оценка размера на семпле
+          </h2>
+          <p class="text-xs text-zinc-500 mt-1">
+            Берём последние N миниатюр, пересжимаем в памяти и считаем
+            средний размер для каждой ступени.
+          </p>
+        </div>
+        <button type="button"
+                @click="runEstimate()"
+                :disabled="loading"
+                class="px-4 py-2 rounded-lg bg-ink-700 hover:bg-ink-600 disabled:opacity-50 text-zinc-100 text-sm font-medium">
+          <span x-show="!loading">Test Sample</span>
+          <span x-show="loading">Считаем…</span>
+        </button>
+      </div>
+
+      <div class="flex items-center gap-3 text-xs text-zinc-500 mb-3">
+        <label class="flex items-center gap-2">
+          <span>Семпл:</span>
+          <input type="number"
+                 min="1"
+                 max="200"
+                 step="1"
+                 x-model.number="sampleCount"
+                 class="w-20 px-2 py-1 rounded bg-ink-900 border border-ink-700 text-zinc-100 font-mono">
+        </label>
+        <span x-show="estimate && estimate.sample_count > 0">
+          использовано: <strong class="text-zinc-300" x-text="estimate.sample_count"></strong>
+          из <strong x-text="estimate.requested"></strong>
+        </span>
+      </div>
+
+      <div x-show="estimate && estimate.sample_count > 0" class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="text-xs uppercase tracking-widest text-zinc-500 border-b border-ink-700">
+              <th class="text-left py-2 px-3 font-medium">Качество</th>
+              <th class="text-right py-2 px-3 font-medium">Средний размер</th>
+              <th class="text-right py-2 px-3 font-medium">Δ vs текущее</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="band in (estimate ? estimate.bands : [])" :key="band.quality">
+              <tr class="border-b border-ink-700/50 last:border-0">
+                <td class="py-2 px-3 font-mono text-zinc-200" x-text="band.quality"></td>
+                <td class="py-2 px-3 text-right font-mono text-zinc-300" x-text="fmtBytes(band.avg_bytes)"></td>
+                <td class="py-2 px-3 text-right font-mono"
+                    :class="band.delta_vs_current === null ? 'text-zinc-600' : (band.delta_vs_current < 0 ? 'text-emerald-400' : (band.delta_vs_current > 0 ? 'text-rose-400' : 'text-zinc-500'))"
+                    x-text="fmtDelta(band.delta_vs_current)"></td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+
+      <div x-show="estimate && estimate.sample_count === 0" class="text-sm text-zinc-500 py-6 text-center">
+        Нет миниатюр на диске для оценки. Сделай хотя бы один кадр и
+        попробуй ещё раз.
+      </div>
+
+      <div x-show="error" class="text-sm text-rose-400 mt-3" x-text="error"></div>
+    </section>
+
+    <div class="flex items-center justify-between gap-3 pt-2">
+      <a href="/settings" class="text-sm text-zinc-400 hover:text-zinc-200">
+        &larr; Все настройки
+      </a>
+      <button type="submit"
+              class="px-6 py-2 rounded-lg bg-accent-600 hover:bg-accent-500 text-white font-medium shadow-sm">
+        Сохранить
+      </button>
+    </div>
+  </form>
+</div>
+
+<script>
+function captureQualityPanel(initial) {
+  return {
+    quality: initial.current,
+    bounds: { min: initial.min, max: initial.max },
+    probes: initial.probes,
+    sampleCount: 20,
+    loading: false,
+    estimate: null,
+    error: '',
+
+    qualityBand() {
+      if (this.quality < 40) return 'low';
+      if (this.quality >= 85) return 'high';
+      return 'mid';
+    },
+    qualityLabel() {
+      const b = this.qualityBand();
+      if (b === 'low') return 'экономия диска, OCR может страдать';
+      if (b === 'high') return 'максимальная резкость, дороже по байтам';
+      return 'сбалансированно';
+    },
+
+    fmtBytes(n) {
+      if (n === null || n === undefined) return '—';
+      if (n < 1024) return n + ' B';
+      if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+      return (n / (1024 * 1024)).toFixed(2) + ' MB';
+    },
+    fmtDelta(n) {
+      if (n === null || n === undefined) return '—';
+      if (n === 0) return '±0';
+      const sign = n > 0 ? '+' : '−';
+      return sign + this.fmtBytes(Math.abs(n));
+    },
+
+    async runEstimate() {
+      this.loading = true;
+      this.error = '';
+      try {
+        const fd = new FormData();
+        fd.append('sample_count', String(Math.max(1, Math.min(200, this.sampleCount || 20))));
+        const resp = await fetch('/api/capture-quality/estimate', { method: 'POST', body: fd });
+        if (!resp.ok) {
+          throw new Error('HTTP ' + resp.status);
+        }
+        this.estimate = await resp.json();
+      } catch (e) {
+        this.error = 'Не удалось посчитать: ' + (e && e.message ? e.message : e);
+      } finally {
+        this.loading = false;
+      }
+    },
+  };
+}
+</script>
+{% endblock %}

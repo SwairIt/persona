@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-start justify-between gap-4">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Changelog</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Auto-derived from <code class="font-mono text-zinc-400">git log</code>
+      of the running tree. Newest first.
+      Cached for 60 seconds, no AI in the loop.
+    </p>
+  </div>
+  <a href="/about"
+     class="shrink-0 text-xs px-3 py-2 rounded bg-ink-800 border border-ink-700 hover:border-accent-500 text-zinc-300">
+    about
+  </a>
+</div>
+
+{% if unavailable %}
+  <section class="rounded-lg border border-amber-700/60 bg-ink-800 p-6 text-center">
+    <div class="text-amber-400 text-base font-semibold mb-1">Changelog unavailable</div>
+    <p class="text-zinc-400 text-sm">
+      Could not read the git history of the running tree.
+      {% if unavailable_reason %}
+        <span class="block mt-2 font-mono text-xs text-zinc-500">{{ unavailable_reason }}</span>
+      {% endif %}
+    </p>
+    <p class="text-zinc-500 text-xs mt-4">
+      Install <code class="font-mono">git</code> on the host and reload, or
+      check that the deployment was unpacked with the repository intact.
+    </p>
+  </section>
+{% else %}
+
+  {# Filter chips — one "all" chip plus one per known kind.
+     Counts come from the server so the chip can show 0 → disabled. #}
+  <div class="mb-5 flex flex-wrap gap-2">
+    <a href="/changelog"
+       class="text-xs px-3 py-1.5 rounded-full border font-mono
+              {% if selected_kind is none %}
+                bg-accent-500/15 border-accent-500 text-accent-300
+              {% else %}
+                bg-ink-800 border-ink-700 text-zinc-400 hover:text-zinc-200
+              {% endif %}">
+      all
+    </a>
+    {% for k in kinds %}
+      {% set count = kind_counts.get(k, 0) %}
+      <a href="/changelog?kind={{ k }}"
+         class="text-xs px-3 py-1.5 rounded-full border font-mono
+                {% if selected_kind == k %}
+                  {% if k == 'feat' %}bg-accent-500/15 border-accent-500 text-accent-300
+                  {% elif k == 'fix' %}bg-rose-500/15 border-rose-500 text-rose-300
+                  {% else %}bg-zinc-500/15 border-zinc-500 text-zinc-200{% endif %}
+                {% else %}
+                  bg-ink-800 border-ink-700 text-zinc-400 hover:text-zinc-200
+                {% endif %}
+                {% if count == 0 %}opacity-50 pointer-events-none{% endif %}">
+        {{ k }}
+        <span class="ml-1 text-zinc-500">{{ count }}</span>
+      </a>
+    {% endfor %}
+  </div>
+
+  {% if entries %}
+    <ol class="space-y-2">
+      {% for e in entries %}
+        <li class="rounded-lg border bg-ink-800 p-3 flex items-start gap-3
+                   {% if e.kind == 'feat' %}border-accent-700/60
+                   {% elif e.kind == 'fix' %}border-rose-700/60
+                   {% else %}border-ink-700{% endif %}">
+          <span class="shrink-0 text-[10px] uppercase tracking-widest font-mono px-2 py-0.5 rounded
+                       {% if e.kind == 'feat' %}bg-accent-500/15 text-accent-300
+                       {% elif e.kind == 'fix' %}bg-rose-500/15 text-rose-300
+                       {% else %}bg-zinc-500/15 text-zinc-300{% endif %}">
+            {{ e.kind }}
+          </span>
+          <div class="flex-1 min-w-0">
+            <div class="text-zinc-200 text-sm leading-snug break-words">{{ e.subject }}</div>
+            <div class="text-xs text-zinc-500 font-mono mt-1 flex flex-wrap gap-x-3 gap-y-1">
+              <a href="https://github.com/SwairIt/persona/commit/{{ e.sha }}"
+                 target="_blank" rel="noopener noreferrer"
+                 class="text-zinc-400 hover:text-accent-400">{{ e.sha }}</a>
+              <span>{{ e.date_iso }}</span>
+              <span>{{ e.author }}</span>
+            </div>
+          </div>
+        </li>
+      {% endfor %}
+    </ol>
+  {% else %}
+    <section class="rounded-lg border border-ink-700 bg-ink-800 p-6 text-center">
+      <p class="text-zinc-400 text-sm">
+        No commits match this filter.
+      </p>
+    </section>
+  {% endif %}
+
+  <p class="text-zinc-600 text-xs mt-6 font-mono">
+    Source: <code>/api/changelog.json{% if selected_kind %}?kind={{ selected_kind }}{% endif %}</code>
+  </p>
+{% endif %}
+{% endblock %}

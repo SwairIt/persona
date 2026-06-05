@@ -1,13 +1,55 @@
-"""Filesystem thumbnail writer — WebP, resized, dated subfolders."""
+"""Filesystem thumbnail writer — WebP, resized, dated subfolders.
+
+The encode ``quality`` is resolved (in order of precedence):
+
+1. Explicit ``quality=`` kwarg — callers like :mod:`app.thumb_regen`
+   pin a specific value and the kv knob must not override them.
+2. ``capture_image_quality`` kv row (see :mod:`app.capture_quality`)
+   — the live slider exposed at ``/settings/capture-quality`` so the
+   operator can move the bytes/fidelity trade-off without a restart.
+3. :attr:`app.settings.config.Settings.thumbnail_quality` (env-loaded).
+
+The kv lookup uses a short stdlib :mod:`sqlite3` reader because
+:func:`save_thumbnail` is invoked from synchronous Pillow code on a
+worker thread (see ``asyncio.to_thread`` in the capture loop) — the
+aiosqlite pool is off-limits there. WAL mode permits the concurrent
+read.
+"""
 
 from __future__ import annotations
 
+import sqlite3
 from datetime import datetime
 from pathlib import Path
 
 from PIL import Image
 
 from app.settings import get_settings
+
+
+def _read_live_quality() -> int | None:
+    """Return the ``capture_image_quality`` kv value, or ``None`` on miss.
+
+    Silent on every failure mode (missing DB, missing row, unparseable
+    payload) — the caller falls back to the env-side default. A noisy
+    log here would spam every capture iteration.
+    """
+    db_path = get_settings().db_path
+    try:
+        with sqlite3.connect(str(db_path)) as conn:
+            cursor = conn.execute(
+                "SELECT value FROM kv_settings WHERE key = ?",
+                ("capture_image_quality",),
+            )
+            row = cursor.fetchone()
+    except sqlite3.Error:
+        return None
+    if row is None:
+        return None
+    try:
+        return int(float(str(row[0]).strip()))
+    except (TypeError, ValueError):
+        return None
 
 
 def save_thumbnail(
@@ -26,7 +68,7 @@ def save_thumbnail(
     out_path = out_dir / f"{screenshot_id}.webp"
 
     target_width = max_width or settings.thumbnail_max_width
-    target_quality = quality or settings.thumbnail_quality
+    target_quality = quality or _read_live_quality() or settings.thumbnail_quality
 
     resized = _resize_to_width(image, target_width)
     resized.save(out_path, format="WEBP", quality=target_quality, method=6)

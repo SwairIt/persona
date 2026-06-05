@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+
+{# Operator dashboard for the opt-in mobile bottom-nav fragment.
+
+   Two halves:
+   1. A toggle that POSTs JSON {enabled: bool} to /api/mobile-bottom-nav
+      and re-renders the badge in place — no full reload, so the iframe
+      preview below does not flicker.
+   2. An iframe pointed at the fragment endpoint with each active slug,
+      sized like an iPhone-ish viewport (375 × 120 px is enough to show
+      the bar; the surrounding page content is irrelevant in a preview).
+#}
+
+{% block content %}
+<div x-data="mobileBottomNavAdmin({{ 'true' if enabled else 'false' }})"
+     x-cloak class="max-w-3xl">
+
+  <header class="mb-6">
+    <h1 class="text-2xl font-bold tracking-tight">Mobile bottom nav</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Opt-in fixed-bottom 5-icon bar that replaces the hamburger drawer
+      on narrow viewports. Enable it for screenshots and marketing —
+      the bar reads as native much more than a hamburger. The kv row
+      <code>{{ kv_key }}</code> gates the feature; nothing is rendered
+      while it is off.
+    </p>
+  </header>
+
+  <section class="mb-8 rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <div class="flex items-center justify-between gap-4">
+      <div>
+        <div class="text-sm uppercase tracking-widest text-zinc-500 mb-1">
+          Status
+        </div>
+        <div class="text-lg font-semibold">
+          <span x-show="enabled" class="text-accent-400">enabled</span>
+          <span x-show="!enabled" class="text-zinc-400">disabled</span>
+        </div>
+        <div class="text-xs text-zinc-500 mt-1">
+          kv row: <code>{{ kv_key }}</code>
+        </div>
+      </div>
+      <button type="button"
+              @click="toggle()"
+              :disabled="busy"
+              :class="enabled
+                ? 'bg-zinc-700 hover:bg-zinc-600'
+                : 'bg-accent-600 hover:bg-accent-500'"
+              class="shrink-0 px-5 py-2 rounded text-sm font-medium
+                     transition disabled:opacity-50">
+        <span x-show="!enabled">enable</span>
+        <span x-show="enabled">disable</span>
+      </button>
+    </div>
+    <div x-show="error" x-cloak
+         class="mt-3 text-xs text-red-400" x-text="error"></div>
+  </section>
+
+  <section class="mb-2">
+    <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">
+      Preview · {{ nav_slugs | length }} active states
+    </h2>
+    <div class="grid sm:grid-cols-2 gap-4">
+      {% for slug in nav_slugs %}
+      <figure class="rounded-lg border border-ink-700 bg-ink-900 overflow-hidden">
+        <figcaption class="px-3 py-2 text-xs font-mono text-zinc-500
+                           border-b border-ink-700 bg-ink-800">
+          active = {{ slug }}
+        </figcaption>
+        {# Inline iframe — 375 px wide (iPhone-ish) and 120 px tall is
+           enough to show the bar. The fragment uses md:hidden so it
+           always renders inside this narrow frame. #}
+        <iframe src="/widget/mobile-bottom-nav?active={{ slug }}"
+                title="bottom-nav preview ({{ slug }})"
+                class="block w-full h-32 bg-ink-950"
+                loading="lazy"></iframe>
+      </figure>
+      {% endfor %}
+    </div>
+  </section>
+
+</div>
+
+<script>
+  // Toggle controller for the admin page. Pure Alpine; no extra files.
+  // Reads the server-rendered initial state via the x-data arg so the
+  // page does not flash the wrong label before the JSON fetch lands.
+  function mobileBottomNavAdmin(initial) {
+    return {
+      enabled: !!initial,
+      busy: false,
+      error: '',
+      async toggle() {
+        if (this.busy) return;
+        const next = !this.enabled;
+        this.busy = true;
+        this.error = '';
+        try {
+          const r = await fetch('/api/mobile-bottom-nav', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled: next }),
+          });
+          if (!r.ok) {
+            this.error = 'toggle failed (HTTP ' + r.status + ')';
+            return;
+          }
+          const j = await r.json();
+          this.enabled = !!j.enabled;
+        } catch (e) {
+          this.error = 'toggle failed: ' + (e && e.message ? e.message : e);
+        } finally {
+          this.busy = false;
+        }
+      },
+    };
+  }
+</script>
+{% endblock %}
