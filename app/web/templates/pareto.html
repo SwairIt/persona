@@ -1,0 +1,280 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-8 flex flex-wrap items-end justify-between gap-4">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Pareto · apps</h1>
+    <p class="text-zinc-500 text-sm mt-1 max-w-2xl">
+      The 80/20 lens on your own attention. Bars show each app's share
+      of every screenshot captured in the last
+      <span class="font-mono">{{ days }}</span>
+      day{{ '' if days == 1 else 's' }}; the line tracks the cumulative
+      share. The dashed amber line marks the 80% threshold — the apps
+      to the left of the vertical marker are the ones that quietly
+      consume the bulk of your time.
+    </p>
+  </div>
+
+  <form method="get" action="/stats/pareto"
+        class="flex flex-wrap items-end gap-3 text-sm">
+    <label class="flex flex-col gap-1">
+      <span class="text-xs uppercase tracking-widest text-zinc-500">Window</span>
+      <input type="number" name="days" value="{{ days }}"
+             min="{{ min_days }}" max="{{ max_days }}"
+             class="bg-ink-800 border border-ink-700 rounded-md px-2 py-1.5 w-24 text-zinc-100
+                    focus:outline-none focus:ring-2 focus:ring-accent-500 tabular-nums">
+    </label>
+    <button type="submit"
+            class="px-3 py-1.5 rounded-md bg-accent-600/20 text-accent-400 hover:bg-accent-600/30
+                   border border-accent-600/40 transition">
+      Refresh
+    </button>
+  </form>
+</div>
+
+<section class="grid sm:grid-cols-4 gap-4 mb-8">
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Total apps</div>
+    <div class="text-2xl font-bold mt-1 tabular-nums">
+      {{ "{:,}".format(report.total_apps) }}
+    </div>
+    <div class="text-xs text-zinc-500 mt-1">distinct app_names in window</div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Total shots</div>
+    <div class="text-2xl font-bold mt-1 tabular-nums">
+      {{ "{:,}".format(report.total_shots) }}
+    </div>
+    <div class="text-xs text-zinc-500 mt-1">all captures, every app</div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Apps in 80%</div>
+    <div class="text-2xl font-bold mt-1 tabular-nums text-amber-400">
+      {{ report.threshold_count }}
+    </div>
+    <div class="text-xs text-zinc-500 mt-1">cross the 80% cumulative line</div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Pareto ratio</div>
+    <div class="text-2xl font-bold mt-1 tabular-nums">
+      {% if report.total_apps > 0 and report.threshold_count > 0 %}
+        {{ "{:.0f}".format(report.threshold_count / report.total_apps * 100) }}%
+      {% else %}
+        —
+      {% endif %}
+    </div>
+    <div class="text-xs text-zinc-500 mt-1">of apps drive 80% of time</div>
+  </div>
+</section>
+
+{% if report.total_shots == 0 %}
+<div class="rounded-lg border border-ink-700 bg-ink-800 p-6 text-zinc-400 text-sm">
+  No captures with a known <span class="font-mono">app_name</span> in the
+  last {{ days }} day{{ '' if days == 1 else 's' }}. Try a wider window.
+</div>
+{% else %}
+
+<div class="rounded-lg border border-ink-700 bg-ink-900 p-4 mb-8 overflow-x-auto">
+  <svg viewBox="0 0 {{ chart.width }} {{ chart.height }}"
+       width="100%" height="auto"
+       preserveAspectRatio="xMidYMid meet"
+       role="img"
+       aria-label="Pareto chart of app capture share with cumulative line">
+
+    {# Horizontal grid lines aligned to the right (cumulative) axis ticks. #}
+    {% for tick in chart.y_right_ticks %}
+      <line x1="{{ chart.plot_left }}" y1="{{ tick.y }}"
+            x2="{{ chart.plot_right }}" y2="{{ tick.y }}"
+            stroke="{{ chart.grid_colour }}" stroke-width="1"
+            stroke-dasharray="2 4" />
+    {% endfor %}
+
+    {# Bars — sorted descending, individual share. #}
+    {% for bar in chart.bars %}
+      <rect x="{{ bar.x }}" y="{{ bar.y }}"
+            width="{{ bar.width }}" height="{{ bar.height }}"
+            fill="{{ chart.bar_fill }}"
+            opacity="{{ '1.0' if bar.is_threshold else '0.85' }}">
+        <title>{{ bar.app }} — {{ bar.shots }} shot{{ '' if bar.shots == 1 else 's' }}
+({{ "{:.2f}".format(bar.percent_individual) }}% individual, {{ "{:.2f}".format(bar.percent_cumulative) }}% cumulative)</title>
+      </rect>
+    {% endfor %}
+
+    {# Cumulative-share polyline. #}
+    {% if chart.polyline %}
+      <polyline points="{{ chart.polyline }}"
+                fill="none"
+                stroke="{{ chart.line_stroke }}"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round" />
+      {% for bar in chart.bars %}
+        <circle cx="{{ bar.label_x }}"
+                cy="{{ chart.plot_bottom - (bar.percent_cumulative / 100.0) * (chart.plot_bottom - chart.plot_top) }}"
+                r="2.5"
+                fill="{{ chart.line_stroke }}" />
+      {% endfor %}
+    {% endif %}
+
+    {# Horizontal dashed line at 80% (cumulative axis). #}
+    <line x1="{{ chart.plot_left }}" y1="{{ chart.threshold_y }}"
+          x2="{{ chart.plot_right }}" y2="{{ chart.threshold_y }}"
+          stroke="{{ chart.threshold_line }}"
+          stroke-width="1.5"
+          stroke-dasharray="6 4" />
+    <text x="{{ chart.plot_right + 4 }}"
+          y="{{ chart.threshold_y + 4 }}"
+          fill="{{ chart.threshold_line }}"
+          font-size="11" font-family="monospace">
+      80%
+    </text>
+
+    {# Vertical line at the threshold app (only when there is one). #}
+    {% if chart.threshold_x is not none %}
+      <line x1="{{ chart.threshold_x }}" y1="{{ chart.plot_top }}"
+            x2="{{ chart.threshold_x }}" y2="{{ chart.plot_bottom }}"
+            stroke="{{ chart.threshold_line }}"
+            stroke-width="1.5"
+            stroke-dasharray="4 4" />
+    {% endif %}
+
+    {# Left y-axis — individual share. #}
+    <line x1="{{ chart.plot_left }}" y1="{{ chart.plot_top }}"
+          x2="{{ chart.plot_left }}" y2="{{ chart.plot_bottom }}"
+          stroke="{{ chart.axis_colour }}" stroke-width="1" />
+    {% for tick in chart.y_left_ticks %}
+      <text x="{{ chart.plot_left - 6 }}" y="{{ tick.y + 3 }}"
+            fill="{{ chart.axis_text }}"
+            font-size="10" font-family="monospace"
+            text-anchor="end">
+        {{ tick.label }}
+      </text>
+    {% endfor %}
+    <text x="12" y="{{ (chart.plot_top + chart.plot_bottom) / 2 }}"
+          fill="{{ chart.axis_text }}"
+          font-size="10" font-family="monospace"
+          transform="rotate(-90 12 {{ (chart.plot_top + chart.plot_bottom) / 2 }})"
+          text-anchor="middle">
+      individual %
+    </text>
+
+    {# Right y-axis — cumulative share. #}
+    <line x1="{{ chart.plot_right }}" y1="{{ chart.plot_top }}"
+          x2="{{ chart.plot_right }}" y2="{{ chart.plot_bottom }}"
+          stroke="{{ chart.axis_colour }}" stroke-width="1" />
+    {% for tick in chart.y_right_ticks %}
+      <text x="{{ chart.plot_right + 18 }}" y="{{ tick.y + 3 }}"
+            fill="{{ chart.axis_text }}"
+            font-size="10" font-family="monospace"
+            text-anchor="start">
+        {{ tick.label }}
+      </text>
+    {% endfor %}
+
+    {# Bottom axis line. #}
+    <line x1="{{ chart.plot_left }}" y1="{{ chart.plot_bottom }}"
+          x2="{{ chart.plot_right }}" y2="{{ chart.plot_bottom }}"
+          stroke="{{ chart.axis_colour }}" stroke-width="1" />
+
+    {# X-axis labels — app names, rotated -45deg to fit. #}
+    {% for bar in chart.bars %}
+      <text x="{{ bar.label_x }}"
+            y="{{ chart.plot_bottom + 12 }}"
+            fill="{{ chart.axis_text }}"
+            font-size="9" font-family="monospace"
+            text-anchor="end"
+            transform="rotate(-45 {{ bar.label_x }} {{ chart.plot_bottom + 12 }})">
+        {{ bar.app[:18] }}{{ '…' if bar.app|length > 18 else '' }}
+      </text>
+    {% endfor %}
+  </svg>
+
+  {% if chart.hidden_count > 0 %}
+    <p class="text-xs text-zinc-500 mt-2">
+      Chart truncated to the top {{ chart.visible_count }} apps;
+      {{ chart.hidden_count }} more long-tail app{{ '' if chart.hidden_count == 1 else 's' }}
+      visible in the table below.
+    </p>
+  {% endif %}
+</div>
+
+<section class="mb-8">
+  <div class="rounded-lg border border-amber-600/40 bg-amber-600/10 p-4 text-sm">
+    {% if report.threshold_count > 0 %}
+      <span class="font-bold text-amber-300">
+        {{ report.threshold_count }}
+        app{{ '' if report.threshold_count == 1 else 's' }}
+        = 80% of your time
+      </span>
+      <span class="text-zinc-300">
+        out of {{ report.total_apps }} distinct apps in the last
+        {{ days }} day{{ '' if days == 1 else 's' }}.
+        {% if report.threshold_count <= report.total_apps and report.total_apps > 0 %}
+          That's
+          <span class="font-mono">
+            {{ "{:.1f}".format(report.threshold_count / report.total_apps * 100) }}%
+          </span>
+          of your app surface area driving 80% of your captured attention.
+        {% endif %}
+      </span>
+    {% else %}
+      <span class="text-zinc-300">
+        Not enough data to compute the 80% threshold in this window.
+      </span>
+    {% endif %}
+  </div>
+</section>
+
+<section class="rounded-lg border border-ink-700 bg-ink-900 overflow-x-auto">
+  <table class="w-full text-sm">
+    <thead class="bg-ink-800 text-xs uppercase tracking-widest text-zinc-500">
+      <tr>
+        <th class="px-3 py-2 text-left">#</th>
+        <th class="px-3 py-2 text-left">App</th>
+        <th class="px-3 py-2 text-right">Shots</th>
+        <th class="px-3 py-2 text-right">Individual %</th>
+        <th class="px-3 py-2 text-right">Cumulative %</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for app in report.apps %}
+        <tr class="border-t border-ink-800
+                   {% if loop.index0 == report.threshold_index %}bg-amber-600/10{% endif %}">
+          <td class="px-3 py-2 font-mono text-zinc-500 tabular-nums">
+            {{ loop.index }}
+          </td>
+          <td class="px-3 py-2 text-zinc-100">
+            <a href="/apps/{{ app.app|urlencode }}"
+               class="hover:text-accent-400 transition">
+              {{ app.app }}
+            </a>
+            {% if loop.index0 == report.threshold_index %}
+              <span class="ml-2 text-xs text-amber-300 font-bold">80%</span>
+            {% endif %}
+          </td>
+          <td class="px-3 py-2 text-right font-mono tabular-nums">
+            {{ "{:,}".format(app.shots) }}
+          </td>
+          <td class="px-3 py-2 text-right font-mono tabular-nums">
+            {{ "{:.2f}".format(app.percent_individual) }}%
+          </td>
+          <td class="px-3 py-2 text-right font-mono tabular-nums
+                     {% if app.percent_cumulative >= 80 %}text-amber-300{% else %}text-zinc-300{% endif %}">
+            {{ "{:.2f}".format(app.percent_cumulative) }}%
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+{% endif %}
+
+<div class="mt-6 text-xs text-zinc-500">
+  Raw data:
+  <a class="text-accent-400 hover:underline"
+     href="/api/stats/pareto.json?days={{ days }}">
+    /api/stats/pareto.json?days={{ days }}
+  </a>
+</div>
+{% endblock %}

@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Privacy bundles</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Группы подстрочных шаблонов, по которым capture-loop работает в режиме
+    privacy mode: ни скриншота, ни строки метаданных, только хешированная
+    запись о пропуске. v1.43 — поверх <a href="/privacy-mode" class="text-accent-400 hover:underline">жёстко
+    зашитого защитного списка</a> теперь можно вешать собственные «пресеты»
+    под банки / менеджеры паролей / крипту / dating / mental-health, или
+    редактировать руками. Hard-coded шаблоны остаются как back-compat «пол»
+    — выключить их через UI нельзя, это сознательно.
+  </p>
+</div>
+
+{% if available_presets %}
+  <section class="mb-8">
+    <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">Установить пресет</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+      {% for preset in available_presets %}
+        <form action="/privacy-mode/bundles/install/{{ preset.name }}" method="post"
+              class="rounded-lg border border-ink-700 bg-ink-800 p-4 flex flex-col gap-2">
+          <div class="font-mono text-sm text-accent-400">{{ preset.name }}</div>
+          <p class="text-xs text-zinc-400 leading-relaxed">{{ preset.description }}</p>
+          <div class="text-xs text-zinc-500">{{ preset.patterns|length }} шаблонов</div>
+          <button type="submit"
+                  class="mt-2 px-3 py-1.5 bg-accent-600 hover:bg-accent-500 rounded text-xs font-medium transition self-start">
+            Установить
+          </button>
+        </form>
+      {% endfor %}
+    </div>
+  </section>
+{% else %}
+  <section class="mb-8">
+    <p class="text-zinc-500 text-sm">
+      Все пресеты уже установлены. Можно отредактировать существующие
+      бандлы ниже или создать свой.
+    </p>
+  </section>
+{% endif %}
+
+<section class="mb-8">
+  <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">Создать свой бандл</h2>
+  <form action="/privacy-mode/bundles/new" method="post"
+        class="grid grid-cols-1 md:grid-cols-[12rem_1fr_auto] gap-2 items-start">
+    <input name="name" placeholder="идентификатор (уникальный)"
+           required autocomplete="off"
+           class="px-3 py-2 bg-ink-800 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
+    <input name="description" placeholder="описание (необязательно)"
+           autocomplete="off"
+           class="px-3 py-2 bg-ink-800 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
+    <button type="submit"
+            class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
+      Создать
+    </button>
+  </form>
+</section>
+
+<section>
+  <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">Установленные бандлы</h2>
+  {% if bundles %}
+    <div class="space-y-4">
+      {% for bundle in bundles %}
+        <div class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden {% if not bundle.enabled %}opacity-60{% endif %}">
+          <div class="flex items-start justify-between gap-3 px-4 py-3 bg-ink-900 border-b border-ink-700">
+            <div class="min-w-0">
+              <div class="font-mono text-sm text-accent-400 break-all">{{ bundle.name }}</div>
+              {% if bundle.description %}
+                <p class="text-xs text-zinc-400 mt-1 leading-relaxed">{{ bundle.description }}</p>
+              {% endif %}
+              <div class="text-xs text-zinc-500 mt-1">
+                {{ bundle.pattern_count }} шаблон(ов) ·
+                создан {{ bundle.created_at }} ·
+                {% if bundle.enabled %}<span class="text-emerald-400">активен</span>{% else %}<span class="text-amber-400">пауза</span>{% endif %}
+              </div>
+            </div>
+            <div class="flex gap-2 shrink-0">
+              <form action="/privacy-mode/bundles/{{ bundle.id }}/toggle" method="post" class="inline">
+                <button class="text-xs px-2 py-1 rounded bg-ink-700 hover:bg-accent-600 text-zinc-200">
+                  {% if bundle.enabled %}выкл{% else %}вкл{% endif %}
+                </button>
+              </form>
+              <form action="/privacy-mode/bundles/{{ bundle.id }}/delete" method="post" class="inline"
+                    onsubmit="return confirm('Удалить бандл {{ bundle.name }} и все его шаблоны?')">
+                <button class="text-xs px-2 py-1 rounded bg-rose-900/40 hover:bg-rose-900 text-rose-300">
+                  удалить
+                </button>
+              </form>
+            </div>
+          </div>
+
+          {% set patterns = patterns_by_bundle.get(bundle.id, []) %}
+          {% if patterns %}
+            <div class="px-4 py-3 flex flex-wrap gap-2">
+              {% for patt in patterns %}
+                <span class="px-2.5 py-1 rounded bg-ink-900 border border-ink-700 font-mono text-xs text-zinc-300">{{ patt.pattern }}</span>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="px-4 py-3 text-xs text-zinc-500 italic">Пока ни одного шаблона.</div>
+          {% endif %}
+
+          <form action="/privacy-mode/bundles/{{ bundle.id }}/pattern" method="post"
+                class="grid grid-cols-[1fr_auto] gap-2 px-4 py-3 border-t border-ink-700 bg-ink-900/40">
+            <input name="pattern" placeholder="добавить шаблон, например Bank или ^KeePass"
+                   required autocomplete="off"
+                   class="px-3 py-2 bg-ink-800 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
+            <button type="submit"
+                    class="px-4 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
+              Добавить
+            </button>
+          </form>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="text-zinc-500 text-sm">
+      Установленных бандлов ещё нет. Поставьте пресет выше или создайте свой —
+      зашитый <code>PRIVACY_PATTERNS</code>-«пол» всё равно работает.
+    </p>
+  {% endif %}
+</section>
+
+<section class="mt-10 rounded-lg border border-ink-700 bg-ink-900/40 p-5 text-sm text-zinc-400">
+  <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-2">Как это работает</h2>
+  <p class="leading-relaxed">
+    Шаблоны бандла объединяются с зашитым <code>PRIVACY_PATTERNS</code> и
+    компилируются в кэш по SHA-256-фингерпринту отсортированного списка
+    (см. <code>app/privacy_mode.py</code>). Capture-loop сверяет активное
+    окно с этим набором подстрочно, без учёта регистра. При совпадении
+    скриншот не делается, в <code>privacy_skip_event</code> пишется только
+    первые 16 hex SHA-256 от заголовка и сам шаблон, который сработал.
+    Любая правка через эту страницу сбрасывает компиляционный кэш — следующий
+    кадр капчер-цикла увидит новый список.
+  </p>
+</section>
+{% endblock %}

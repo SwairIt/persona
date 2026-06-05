@@ -41,8 +41,17 @@ from urllib.parse import quote as _url_quote
 from xml.sax.saxutils import escape as _xml_escape
 
 from app.logging_setup import get_logger
+from app.storage.db import get_connection
 
 log = get_logger("persona.opml_export")
+
+# How many of the most-used tags to surface as outline entries. A long-
+# running instance can accumulate thousands of tags; emitting all of
+# them would balloon the OPML and most readers refuse files past a few
+# hundred outlines anyway. ``20`` matches the cap used by
+# :mod:`app.web.routes.rss_index` so both surfaces agree on what
+# "top tags" means.
+_TOP_TAGS_OPML_LIMIT = 20
 
 
 # Attribute-safe XML escape: the stdlib ``escape`` only handles ``<``,
@@ -138,7 +147,47 @@ def _absolute_url(host: str, relative: str, token: str | None) -> str:
     return f"{base}?token={_url_quote(token, safe='')}"
 
 
-def build_opml(
+async def _load_top_tag_entries(limit: int) -> list[_FeedEntry]:
+    """Return the most-used tags as additional OPML entries.
+
+    Mirrors :func:`app.web.routes.rss_index._load_top_tags` — same
+    ordering (``COUNT(st.screenshot_id) DESC``), same ``HAVING n > 0``
+    filter so we never advertise a feed that would 404. Capped at
+    ``limit`` so a thousand-tag instance doesn't render a thousand
+    outlines.
+    """
+    async with get_connection() as conn:
+        cursor = await conn.execute(
+            "SELECT t.name AS name, COUNT(st.screenshot_id) AS n "
+            "FROM tags t LEFT JOIN screenshot_tags st ON st.tag_id = t.id "
+            "GROUP BY t.id, t.name "
+            "HAVING n > 0 "
+            "ORDER BY n DESC, t.name ASC "
+            "LIMIT ?",
+            (int(limit),),
+        )
+        rows = await cursor.fetchall()
+
+    entries: list[_FeedEntry] = []
+    for row in rows:
+        name = str(row["name"])
+        count = int(row["n"])
+        entries.append(
+            _FeedEntry(
+                title=f"Persona — #{name}",
+                # New leaner per-tag endpoint shipped alongside this OPML
+                # extension; see :mod:`app.web.routes.tag_feed`.
+                relative_url=f"/feeds/tag/{name}.rss",
+                description=(
+                    f"{count} tagged shot{'s' if count != 1 else ''} — "
+                    f"latest 50, newest first."
+                ),
+            )
+        )
+    return entries
+
+
+async def build_opml(
     host: str = "http://127.0.0.1:8765",
     token: str | None = None,
 ) -> str:
@@ -155,12 +204,21 @@ def build_opml(
     Returns:
         A complete OPML 2.0 XML document as a string, ready to be sent
         with ``Content-Type: text/x-opml; charset=utf-8``.
+
+    Note:
+        This function is ``async`` because the per-tag outline list is
+        pulled from SQLite at render time — see
+        :func:`_load_top_tag_entries`. The canonical feed list is
+        still static.
     """
     normalised_host = _normalise_host(host)
     token_present = bool(token)
 
+    tag_entries = await _load_top_tag_entries(_TOP_TAGS_OPML_LIMIT)
+    all_entries: tuple[_FeedEntry, ...] = (*_CANONICAL_FEEDS, *tag_entries)
+
     outlines: list[str] = []
-    for entry in _CANONICAL_FEEDS:
+    for entry in all_entries:
         feed_url = _absolute_url(normalised_host, entry.relative_url, token)
         # ``htmlUrl`` points at the host root so the reader has a sane
         # fall-back if it surfaces a "site home" link in the UI.
@@ -198,7 +256,8 @@ def build_opml(
     log.info(
         "opml_export.built",
         host=normalised_host,
-        feeds=len(_CANONICAL_FEEDS),
+        canonical_feeds=len(_CANONICAL_FEEDS),
+        tag_feeds=len(tag_entries),
         token_present=token_present,
         bytes=len(document),
     )

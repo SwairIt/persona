@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-end justify-between gap-4 flex-wrap">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Per-tag RSS feeds</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      One feed per tag — the 50 most-recent shots carrying that tag.
+      <span class="font-mono text-zinc-400">{{ tags|length }}</span>
+      tag{{ '' if tags|length == 1 else 's' }} with at least one tagged shot.
+    </p>
+  </div>
+  <div class="text-xs text-zinc-500">
+    <span class="font-mono text-zinc-400">application/rss+xml</span>
+  </div>
+</div>
+
+<div class="mb-6 rounded-lg border border-ink-700 bg-ink-800 p-4 text-sm text-zinc-400">
+  <p>
+    Each feed lives at
+    <code class="font-mono text-zinc-300">/feeds/tag/&lt;name&gt;.rss</code>
+    and is loopback-only by default. When you enable
+    <code class="font-mono text-zinc-300">feed_auth_required</code>, append
+    <code class="font-mono text-zinc-300">?token=…</code> with a token whose
+    pattern covers <code class="font-mono text-zinc-300">/feeds/tag/*</code>.
+    Click <span class="font-mono text-zinc-300">Copy</span> to put the URL
+    on your clipboard.
+  </p>
+</div>
+
+{% if tags %}
+  <ul class="grid gap-2">
+    {% for row in tags %}
+      <li class="group rounded-lg border border-ink-700 bg-ink-800
+                 p-4 flex items-start gap-3 transition
+                 hover:border-accent-500/60 hover:bg-ink-800/80">
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-2 flex-wrap">
+            <h3 class="text-zinc-100 font-medium leading-tight truncate">
+              <a href="{{ row.tag_url }}" class="hover:text-accent-400">#{{ row.name }}</a>
+            </h3>
+            <span class="text-xs font-mono text-zinc-500">
+              {{ row.count }} shot{{ '' if row.count == 1 else 's' }}
+            </span>
+          </div>
+          <code class="block text-xs font-mono text-zinc-400 mt-2 truncate"
+                data-rss-url="{{ row.rss_url }}">{{ row.rss_url }}</code>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <a href="{{ row.rss_url }}"
+             class="text-xs font-semibold px-2.5 py-1 rounded bg-ink-900 text-accent-400
+                    hover:bg-accent-600/20 transition"
+             title="Open feed in browser">
+            Open
+          </a>
+          <button type="button"
+                  class="tag-rss-copy text-xs font-semibold px-2.5 py-1 rounded
+                         bg-ink-900 text-zinc-300 hover:bg-accent-600/20
+                         hover:text-accent-400 transition"
+                  data-copy="{{ row.rss_url }}"
+                  aria-label="Copy feed URL">
+            Copy
+          </button>
+        </div>
+      </li>
+    {% endfor %}
+  </ul>
+{% else %}
+  <div class="rounded-lg border border-dashed border-ink-700 bg-ink-900/50
+              p-6 text-sm text-zinc-500 text-center">
+    No tags yet. Tag some shots from
+    <a href="/tags" class="text-accent-400 hover:underline">/tags</a>
+    and they will show up here.
+  </div>
+{% endif %}
+
+<script>
+  (function () {
+    // Copy-to-clipboard for every "Copy" button on this page. Mirrors the
+    // pattern in templates/rss_index.html — async Clipboard API on
+    // HTTPS / loopback, execCommand fall-back for plain-HTTP local
+    // installs.
+    var buttons = Array.prototype.slice.call(document.querySelectorAll('.tag-rss-copy'));
+    if (!buttons.length) { return; }
+
+    function buildAbsolute(path) {
+      try {
+        return new URL(path, window.location.origin).toString();
+      } catch (err) {
+        return path;
+      }
+    }
+
+    function flash(button, label) {
+      var original = button.dataset.originalLabel || button.textContent;
+      button.dataset.originalLabel = original;
+      button.textContent = label;
+      button.classList.add('text-accent-400');
+      window.setTimeout(function () {
+        button.textContent = original;
+        button.classList.remove('text-accent-400');
+      }, 1200);
+    }
+
+    function legacyCopy(text) {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'absolute';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      var ok = false;
+      try { ok = document.execCommand('copy'); } catch (err) { ok = false; }
+      document.body.removeChild(ta);
+      return ok;
+    }
+
+    buttons.forEach(function (button) {
+      button.addEventListener('click', function () {
+        var raw = button.getAttribute('data-copy') || '';
+        var absolute = buildAbsolute(raw);
+
+        if (navigator.clipboard && window.isSecureContext) {
+          navigator.clipboard.writeText(absolute).then(
+            function () { flash(button, 'Copied'); },
+            function () {
+              if (legacyCopy(absolute)) { flash(button, 'Copied'); }
+              else { flash(button, 'Failed'); }
+            }
+          );
+        } else {
+          flash(button, legacyCopy(absolute) ? 'Copied' : 'Failed');
+        }
+      });
+    });
+  })();
+</script>
+{% endblock %}

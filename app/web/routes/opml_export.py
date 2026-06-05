@@ -52,7 +52,9 @@ async def feeds_opml(
     the token in the reader.
     """
     host = _host_from_request(request)
-    body = build_opml(host=host, token=token)
+    # ``build_opml`` became async when per-tag outlines were added —
+    # it now pulls the top-N tags from SQLite at render time.
+    body = await build_opml(host=host, token=token)
     payload = body.encode("utf-8")
 
     log.info(

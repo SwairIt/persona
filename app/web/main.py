@@ -314,6 +314,9 @@ from app.web.routes import (
     privacy_mode_admin as privacy_mode_admin_routes,
     s3_sync_settings as s3_sync_settings_routes,
     dashboard_card_png as dashboard_card_png_routes,
+    privacy_bundles_admin as privacy_bundles_admin_routes,
+    pareto as pareto_routes,
+    tag_feed as tag_feed_routes,
 )
 from app.workers import (
     get_controller,
@@ -363,7 +366,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.42.0",
+        version="1.43.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -639,6 +642,9 @@ def create_app() -> FastAPI:
     app.include_router(privacy_mode_admin_routes.router)
     app.include_router(s3_sync_settings_routes.router)
     app.include_router(dashboard_card_png_routes.router)
+    app.include_router(privacy_bundles_admin_routes.router)
+    app.include_router(pareto_routes.router)
+    app.include_router(tag_feed_routes.router)
     app.include_router(sticky_search_routes.router)
     app.include_router(audit_replay_routes.router)
     app.include_router(tag_gallery_routes.router)
