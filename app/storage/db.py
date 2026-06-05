@@ -23,6 +23,12 @@ _MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 _IDEMPOTENT_ALTER_ERRORS: tuple[str, ...] = (
     "duplicate column name",
     "no such column",
+    # v1.66 — индексы/таблицы из v1.40+ миграций иногда создаются без
+    # IF NOT EXISTS; повторный прогон на уже-migrated DB падал на
+    # 'index ... already exists'. Раньше это не было заметно потому что
+    # uvicorn запускался один раз и init_database выполнялся один раз
+    # за сессию.
+    "already exists",
 )
 
 log = get_logger("persona.storage.db")

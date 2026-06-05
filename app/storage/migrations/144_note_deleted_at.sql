@@ -22,4 +22,7 @@
 
 ALTER TABLE notes ADD COLUMN deleted_at TEXT;
 
-CREATE INDEX idx_notes_deleted ON notes(deleted_at);
+-- v1.66 — IF NOT EXISTS чтобы повторный прогон миграции (например
+-- после рестарта uvicorn на DB с уже применённой схемой) не падал.
+-- Без этого migration-runner ловит только 'duplicate column name'.
+CREATE INDEX IF NOT EXISTS idx_notes_deleted ON notes(deleted_at);
