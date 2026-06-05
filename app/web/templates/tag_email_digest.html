@@ -1,0 +1,238 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Email подписки по тегу</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Каждая подписка — это пара (<code>тег</code>, <code>email</code>) и слот
+    (<code>день недели</code>, <code>час</code>). Воркер просыпается раз в час,
+    смотрит, какие подписки должны сработать прямо сейчас, и для каждой
+    собирает HTML-письмо со скриншотами за последние семь дней, помеченными
+    выбранным тегом, и отправляет через настроенный SMTP-реле.
+  </p>
+  <p class="text-zinc-500 text-xs mt-2">
+    <a href="/settings/smtp" class="hover:text-zinc-300 underline">→ настройки SMTP</a>
+    &middot;
+    <a href="/settings/email-weekly-digest" class="hover:text-zinc-300 underline">общий еженедельный дайджест</a>
+    &middot;
+    <a href="/tags" class="hover:text-zinc-300 underline">список тегов</a>
+  </p>
+  <p class="text-xs mt-2">
+    Статус воркера:
+    {% if worker_enabled %}
+      <span class="inline-block px-2 py-0.5 rounded bg-emerald-900/40 border border-emerald-700/40 text-emerald-200">
+        включён
+      </span>
+    {% else %}
+      <span class="inline-block px-2 py-0.5 rounded bg-amber-900/30 border border-amber-700/40 text-amber-200">
+        выключен
+      </span>
+      <span class="text-zinc-500">— строки ниже сохранятся, но писем не будет, пока
+        <code>tag_email_digest_enabled=1</code> в <code>kv_settings</code>.</span>
+    {% endif %}
+  </p>
+</div>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5 max-w-3xl">
+  <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">
+    Существующие подписки ({{ subs|length }})
+  </h2>
+  {% if subs %}
+  <table class="w-full text-sm">
+    <thead>
+      <tr class="text-xs uppercase text-zinc-500 border-b border-ink-700">
+        <th class="text-left py-2 pr-2">тег</th>
+        <th class="text-left py-2 pr-2">email</th>
+        <th class="text-left py-2 pr-2">слот</th>
+        <th class="text-left py-2 pr-2">последний</th>
+        <th class="text-right py-2">действия</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for sub in subs %}
+      <tr class="border-b border-ink-700/50">
+        <td class="py-2 pr-2 font-mono text-accent-300">#{{ sub.tag }}</td>
+        <td class="py-2 pr-2 font-mono text-zinc-300">{{ sub.email }}</td>
+        <td class="py-2 pr-2 text-zinc-400">
+          {{ day_labels[sub.day_of_week] }},
+          <span class="font-mono">{{ '%02d'|format(sub.hour_local) }}:00</span>
+        </td>
+        <td class="py-2 pr-2 text-zinc-500 font-mono text-xs">
+          {% if sub.last_sent_at %}{{ sub.last_sent_at[:16] }}{% else %}—{% endif %}
+        </td>
+        <td class="py-2 text-right whitespace-nowrap">
+          <button type="button"
+                  data-tag-email-send="{{ sub.id }}"
+                  class="px-2 py-1 border border-ink-700 hover:border-accent-500 rounded text-xs">
+            отправить
+          </button>
+          <form action="/settings/tag-email-digest/{{ sub.id }}/delete"
+                method="post" class="inline ml-1">
+            <button type="submit"
+                    class="px-2 py-1 border border-rose-800/60 hover:border-rose-500 text-rose-300 rounded text-xs"
+                    onclick="return confirm('Удалить подписку #{{ sub.tag }} → {{ sub.email }}?');">
+              удалить
+            </button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <p class="text-zinc-500 text-sm">
+      Подписок пока нет. Добавьте первую — форма ниже.
+    </p>
+  {% endif %}
+</section>
+
+<form action="/settings/tag-email-digest/new" method="post"
+      class="mt-6 rounded-lg border border-ink-700 bg-ink-800 p-5 space-y-5 max-w-3xl">
+  <h2 class="text-sm uppercase tracking-widest text-zinc-500">
+    Новая подписка
+  </h2>
+
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    <label class="block">
+      <div class="text-sm font-medium text-zinc-200 mb-1">Тег</div>
+      <div class="text-xs text-zinc-500 mb-2">
+        Без префикса <code>#</code>. Регистр не важен —
+        матчинг по <code>LOWER(tags.name)</code>.
+      </div>
+      <input name="tag" type="text" required
+             placeholder="work-decisions"
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
+    </label>
+
+    <label class="block">
+      <div class="text-sm font-medium text-zinc-200 mb-1">Email</div>
+      <div class="text-xs text-zinc-500 mb-2">
+        Кому отправляется письмо. Тот же адрес можно использовать
+        для нескольких тегов.
+      </div>
+      <input name="email" type="email" required
+             placeholder="you@example.com"
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
+    </label>
+
+    <label class="block">
+      <div class="text-sm font-medium text-zinc-200 mb-1">День недели</div>
+      <div class="text-xs text-zinc-500 mb-2">
+        По умолчанию <code>воскресенье</code> — синхронно с общим дайджестом.
+      </div>
+      <select name="day_of_week"
+              class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
+        {% for label in day_labels %}
+          <option value="{{ loop.index0 }}" {% if loop.index0 == 6 %}selected{% endif %}>
+            {{ label }}
+          </option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label class="block">
+      <div class="text-sm font-medium text-zinc-200 mb-1">Час (0..23)</div>
+      <div class="text-xs text-zinc-500 mb-2">
+        По умолчанию <code>19</code> — ранний вечер. Локальное время сервера.
+      </div>
+      <input name="hour_local" type="number" min="0" max="23" value="19" required
+             class="w-24 px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
+    </label>
+  </div>
+
+  <div class="pt-2">
+    <button type="submit"
+            class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
+      сохранить подписку
+    </button>
+  </div>
+</form>
+
+<div id="tag-email-send-result"
+     class="mt-4 hidden rounded-lg border px-4 py-3 text-sm font-mono max-w-3xl"></div>
+
+<section class="mt-6 rounded-lg border border-ink-700 bg-ink-800 p-5 max-w-3xl">
+  <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">
+    Как это работает
+  </h2>
+  <ul class="text-zinc-400 text-xs leading-relaxed list-disc pl-5 space-y-1">
+    <li>
+      Воркер <code>tag-email-digest</code> просыпается раз в час и читает
+      все включённые подписки, чей слот (<code>day_of_week</code>,
+      <code>hour_local</code>) совпадает с текущим локальным временем.
+    </li>
+    <li>
+      Для каждой подходящей подписки собирается письмо: до 20 скриншотов
+      с этим тегом за последние семь дней (ссылка + миниатюра + сниппет
+      <code>ocr_text</code> или <code>alt_text</code>).
+    </li>
+    <li>
+      Тот же SMTP-реле, что и в
+      <a href="/settings/email-weekly-digest" class="text-accent-400 hover:underline">общем еженедельном дайджесте</a>
+      — без отдельных кредов.
+    </li>
+    <li>
+      Идемпотентность — поле <code>last_sent_at</code>: подписка не сработает
+      повторно, пока с прошлой отправки не прошло шесть дней.
+    </li>
+  </ul>
+  <p class="text-zinc-500 text-xs mt-3">
+    Текущая неделя: <code>{{ week_start_iso }}</code>.
+    Кнопка <em>отправить</em> рядом с подпиской шлёт письмо немедленно
+    через тот же helper и НЕ обновляет <code>last_sent_at</code> — это
+    тестовый прогон.
+  </p>
+</section>
+
+<script>
+  (function () {
+    const out = document.getElementById('tag-email-send-result');
+    if (!out) {
+      return;
+    }
+    function paint(kind, text) {
+      out.classList.remove('hidden',
+        'border-emerald-700/40', 'bg-emerald-900/20', 'text-emerald-200',
+        'border-rose-700/40',    'bg-rose-900/20',    'text-rose-200',
+        'border-amber-700/40',   'bg-amber-900/20',   'text-amber-200');
+      const palette = {
+        ok:   ['border-emerald-700/40', 'bg-emerald-900/20', 'text-emerald-200'],
+        bad:  ['border-rose-700/40',    'bg-rose-900/20',    'text-rose-200'],
+        warn: ['border-amber-700/40',   'bg-amber-900/20',   'text-amber-200']
+      }[kind];
+      palette.forEach(function (cls) { out.classList.add(cls); });
+      out.textContent = text;
+    }
+    document.querySelectorAll('[data-tag-email-send]').forEach(function (btn) {
+      btn.addEventListener('click', async function () {
+        const subId = btn.getAttribute('data-tag-email-send');
+        const original = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = 'отправляем...';
+        try {
+          const r = await fetch('/api/tag-email-digest/send-now/' + subId, { method: 'POST' });
+          const j = await r.json();
+          if (j.status === 'sent') {
+            paint('ok', 'Отправлено на ' + (j.to || 'настроенный smtp_to'));
+          } else if (j.status === 'disabled') {
+            paint('warn', 'SMTP выключен. Включите его в /settings/smtp.');
+          } else if (j.status === 'misconfigured') {
+            paint('warn', 'Не заполнены поля: ' + ((j.missing || []).join(', ')));
+          } else if (j.status === 'missing_dep') {
+            paint('warn', j.hint || 'Не установлен aiosmtplib.');
+          } else if (j.status === 'error') {
+            paint('bad', 'Ошибка SMTP: ' + (j.error || 'unknown'));
+          } else {
+            paint('bad', 'Неожиданный ответ: ' + JSON.stringify(j));
+          }
+        } catch (e) {
+          paint('bad', 'Сетевая ошибка: ' + (e && e.message ? e.message : e));
+        } finally {
+          btn.disabled = false;
+          btn.textContent = original;
+        }
+      });
+    });
+  })();
+</script>
+{% endblock %}

@@ -376,6 +376,9 @@ from app.web.routes import (
     tag_canonicaliser as tag_canonicaliser_routes,
     app_icons as app_icons_routes,
     stale_note_pruner as stale_note_pruner_routes,
+    smart_pin as smart_pin_routes,
+    tag_email_digest as tag_email_digest_routes,
+    changelog_rss as changelog_rss_routes,
 )
 from app.workers import (
     get_controller,
@@ -425,7 +428,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.63.0",
+        version="1.64.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -763,6 +766,9 @@ def create_app() -> FastAPI:
     app.include_router(tag_canonicaliser_routes.router)
     app.include_router(app_icons_routes.router)
     app.include_router(stale_note_pruner_routes.router)
+    app.include_router(smart_pin_routes.router)
+    app.include_router(tag_email_digest_routes.router)
+    app.include_router(changelog_rss_routes.router)
     app.include_router(sticky_search_routes.router)
     app.include_router(audit_replay_routes.router)
     app.include_router(tag_gallery_routes.router)
@@ -1001,6 +1007,20 @@ async def _run_audio_waveform_worker(controller: object) -> None:
     await run_audio_waveform_worker()
 
 
+async def _run_smart_pin_worker(controller: object) -> None:
+    """Adapter for the v1.64 morning smart-pin LLM auto-suggester."""
+    from app.workers.smart_pin_worker import run_smart_pin_worker  # noqa: PLC0415
+
+    await run_smart_pin_worker()
+
+
+async def _run_tag_email_digest_worker(controller: object) -> None:
+    """Adapter for the v1.64 hourly per-tag email digest dispatcher."""
+    from app.workers.tag_email_digest_worker import run_tag_email_digest_worker  # noqa: PLC0415
+
+    await run_tag_email_digest_worker()
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialise DB, start workers, and tear them down on shutdown."""
@@ -1128,6 +1148,14 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         asyncio.create_task(
             _run_audio_waveform_worker(controller),
             name="audio-waveform-worker",
+        ),
+        asyncio.create_task(
+            _run_smart_pin_worker(controller),
+            name="smart-pin-worker",
+        ),
+        asyncio.create_task(
+            _run_tag_email_digest_worker(controller),
+            name="tag-email-digest-worker",
         ),
     ]
 
