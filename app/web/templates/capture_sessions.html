@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+
+{#
+  capture_sessions.html — v1.42.
+
+  Journal-style list of work sessions detected by
+  :mod:`app.capture_sessions`. One row per contiguous block of
+  screenshots; click through to the per-session detail page.
+#}
+
+{% block content %}
+<div class="max-w-6xl mx-auto">
+
+  <div class="mb-8">
+    <h1 class="text-2xl font-bold tracking-tight">Сессии работы</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Непрерывные блоки захвата — соседние скриншоты без пауз больше 30
+      минут склеиваются в одну сессию. Для каждой видно когда вы сели,
+      когда встали, в каком приложении провели больше всего времени и
+      сколько голоса было записано в этом окне.
+    </p>
+  </div>
+
+  {% if sessions %}
+    <section class="rounded-xl border border-ink-700 bg-ink-800 overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead class="text-xs uppercase tracking-widest text-zinc-500 bg-ink-900/40">
+            <tr>
+              <th class="text-left px-3 py-2">#</th>
+              <th class="text-left px-3 py-2">Начало</th>
+              <th class="text-left px-3 py-2">Конец</th>
+              <th class="text-right px-3 py-2">Длительность</th>
+              <th class="text-left px-3 py-2">Главное приложение</th>
+              <th class="text-right px-3 py-2">Кадров</th>
+              <th class="text-right px-3 py-2">Голос</th>
+              <th class="text-left px-3 py-2">Заголовки</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-ink-700">
+            {% for session in sessions %}
+              {% set minutes = (session.duration_seconds // 60) %}
+              {% set voice_minutes = (session.voice_seconds // 60) %}
+              <tr class="hover:bg-ink-900/50">
+                <td class="px-3 py-2 font-mono text-xs text-zinc-500">
+                  <a href="/session/{{ session.id }}"
+                     class="text-accent-400 hover:text-accent-300">
+                    #{{ session.id }}
+                  </a>
+                </td>
+                <td class="px-3 py-2 font-mono text-xs text-zinc-300">
+                  {{ session.started_at }}
+                </td>
+                <td class="px-3 py-2 font-mono text-xs text-zinc-300">
+                  {{ session.ended_at }}
+                </td>
+                <td class="px-3 py-2 text-right font-mono text-zinc-200">
+                  {% if minutes >= 60 %}
+                    {{ "%d ч %02d мин"|format(minutes // 60, minutes % 60) }}
+                  {% else %}
+                    {{ "%d мин"|format(minutes) }}
+                  {% endif %}
+                </td>
+                <td class="px-3 py-2 text-zinc-300">
+                  {% if session.dominant_app %}
+                    <span class="font-mono text-xs">{{ session.dominant_app }}</span>
+                  {% else %}
+                    <span class="text-zinc-600">—</span>
+                  {% endif %}
+                </td>
+                <td class="px-3 py-2 text-right font-mono text-zinc-300">
+                  {{ session.screen_count }}
+                </td>
+                <td class="px-3 py-2 text-right font-mono text-zinc-300">
+                  {% if voice_minutes > 0 %}
+                    {{ voice_minutes }} мин
+                  {% else %}
+                    <span class="text-zinc-600">—</span>
+                  {% endif %}
+                </td>
+                <td class="px-3 py-2 text-xs text-zinc-400">
+                  {% if session.top_titles %}
+                    <div class="flex flex-wrap gap-1 max-w-md">
+                      {% for title in session.top_titles[:3] %}
+                        <span class="px-1.5 py-0.5 rounded bg-ink-900 border border-ink-700 truncate max-w-[14rem]"
+                              title="{{ title }}">{{ title }}</span>
+                      {% endfor %}
+                    </div>
+                  {% else %}
+                    <span class="text-zinc-600">—</span>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <p class="text-xs text-zinc-500 mt-3">
+      Показаны последние {{ sessions|length }} сессий. JSON-зеркало:
+      <a href="/api/sessions.json"
+         class="text-accent-400 hover:text-accent-300 font-mono">/api/sessions.json</a>
+    </p>
+  {% else %}
+    <section class="rounded-xl border border-ink-700 bg-ink-800 p-6">
+      <h2 class="text-lg font-semibold text-zinc-100">Пока пусто</h2>
+      <p class="text-zinc-500 text-sm mt-2">
+        Сессии записываются фоновым воркером
+        <code class="text-accent-400">capture-session-worker</code>
+        каждые 30 минут. Если только что включили захват — подождите
+        немного и обновите страницу.
+      </p>
+    </section>
+  {% endif %}
+</div>
+{% endblock %}

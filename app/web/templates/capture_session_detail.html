@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+
+{#
+  capture_session_detail.html — v1.42.
+
+  Per-session breakdown rendered by /session/{id}:
+  * top summary card (when / how long / dominant app / counts);
+  * linked first + last screenshot;
+  * hourly_card rows overlapping the session window;
+  * audio_segment transcripts that landed inside the window.
+#}
+
+{% block content %}
+<div class="max-w-5xl mx-auto">
+
+  <div class="mb-6">
+    <a href="/sessions"
+       class="text-xs text-zinc-500 hover:text-zinc-300">← Все сессии</a>
+    <h1 class="text-2xl font-bold tracking-tight mt-2">Сессия #{{ session.id }}</h1>
+  </div>
+
+  {% set minutes = (session.duration_seconds // 60) %}
+  {% set voice_minutes = (session.voice_seconds // 60) %}
+
+  <section class="rounded-xl border border-ink-700 bg-ink-800 p-6 mb-6">
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+      <div>
+        <div class="text-xs uppercase tracking-widest text-zinc-500 mb-1">Начало</div>
+        <div class="font-mono text-sm text-zinc-200">{{ session.started_at }}</div>
+      </div>
+      <div>
+        <div class="text-xs uppercase tracking-widest text-zinc-500 mb-1">Конец</div>
+        <div class="font-mono text-sm text-zinc-200">{{ session.ended_at }}</div>
+      </div>
+      <div>
+        <div class="text-xs uppercase tracking-widest text-zinc-500 mb-1">Длительность</div>
+        <div class="font-mono text-sm text-zinc-200">
+          {% if minutes >= 60 %}
+            {{ "%d ч %02d мин"|format(minutes // 60, minutes % 60) }}
+          {% else %}
+            {{ "%d мин"|format(minutes) }}
+          {% endif %}
+        </div>
+      </div>
+      <div>
+        <div class="text-xs uppercase tracking-widest text-zinc-500 mb-1">Главное приложение</div>
+        <div class="font-mono text-sm text-zinc-200">
+          {{ session.dominant_app or "—" }}
+        </div>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div>
+        <div class="text-xs uppercase tracking-widest text-zinc-500 mb-1">Кадров</div>
+        <div class="font-mono text-sm text-zinc-200">{{ session.screen_count }}</div>
+      </div>
+      <div>
+        <div class="text-xs uppercase tracking-widest text-zinc-500 mb-1">Голос</div>
+        <div class="font-mono text-sm text-zinc-200">
+          {% if voice_minutes > 0 %}{{ voice_minutes }} мин{% else %}—{% endif %}
+        </div>
+      </div>
+      <div class="col-span-2">
+        <div class="text-xs uppercase tracking-widest text-zinc-500 mb-1">Заголовки</div>
+        {% if session.top_titles %}
+          <div class="flex flex-wrap gap-1">
+            {% for title in session.top_titles %}
+              <span class="px-1.5 py-0.5 rounded bg-ink-900 border border-ink-700 text-xs text-zinc-300 truncate max-w-[18rem]"
+                    title="{{ title }}">{{ title }}</span>
+            {% endfor %}
+          </div>
+        {% else %}
+          <span class="text-zinc-600 text-xs">—</span>
+        {% endif %}
+      </div>
+    </div>
+  </section>
+
+  <section class="rounded-xl border border-ink-700 bg-ink-800 p-6 mb-6">
+    <h2 class="text-lg font-semibold text-zinc-100 mb-4">Границы захвата</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div class="rounded-lg bg-ink-900 border border-ink-700 p-4">
+        <div class="text-xs uppercase tracking-widest text-zinc-500 mb-2">Первый кадр</div>
+        {% if first_shot %}
+          <a href="/shot/{{ first_shot.id }}"
+             class="text-accent-400 hover:text-accent-300 font-mono text-sm">
+            #{{ first_shot.id }}
+          </a>
+          <div class="text-xs text-zinc-500 mt-1 font-mono">{{ first_shot.captured_at }}</div>
+          <div class="text-sm text-zinc-300 mt-1">
+            {{ first_shot.app_name or "—" }}
+            {% if first_shot.window_title %}
+              — <span class="text-zinc-400">{{ first_shot.window_title }}</span>
+            {% endif %}
+          </div>
+        {% else %}
+          <span class="text-zinc-600 text-sm">кадр не найден</span>
+        {% endif %}
+      </div>
+
+      <div class="rounded-lg bg-ink-900 border border-ink-700 p-4">
+        <div class="text-xs uppercase tracking-widest text-zinc-500 mb-2">Последний кадр</div>
+        {% if last_shot %}
+          <a href="/shot/{{ last_shot.id }}"
+             class="text-accent-400 hover:text-accent-300 font-mono text-sm">
+            #{{ last_shot.id }}
+          </a>
+          <div class="text-xs text-zinc-500 mt-1 font-mono">{{ last_shot.captured_at }}</div>
+          <div class="text-sm text-zinc-300 mt-1">
+            {{ last_shot.app_name or "—" }}
+            {% if last_shot.window_title %}
+              — <span class="text-zinc-400">{{ last_shot.window_title }}</span>
+            {% endif %}
+          </div>
+        {% else %}
+          <span class="text-zinc-600 text-sm">кадр не найден</span>
+        {% endif %}
+      </div>
+    </div>
+  </section>
+
+  <section class="rounded-xl border border-ink-700 bg-ink-800 p-6 mb-6">
+    <h2 class="text-lg font-semibold text-zinc-100 mb-4">
+      Часовые карточки
+      <span class="text-xs text-zinc-500 font-normal">({{ hourly_cards|length }})</span>
+    </h2>
+    {% if hourly_cards %}
+      <ul class="space-y-3">
+        {% for card in hourly_cards %}
+          <li class="rounded-lg bg-ink-900 border border-ink-700 p-4">
+            <div class="flex items-baseline justify-between gap-2 mb-2">
+              <span class="font-mono text-xs text-zinc-400">
+                {{ card.hour_start }} – {{ card.hour_end }}
+              </span>
+              <span class="text-xs text-zinc-500">
+                {{ card.screen_count }} кадров,
+                {{ (card.audio_seconds // 60) }} мин голоса
+              </span>
+            </div>
+            <p class="text-sm text-zinc-300 whitespace-pre-line">{{ card.summary }}</p>
+            {% if card.top_words %}
+              <div class="text-xs text-zinc-500 mt-2 font-mono">{{ card.top_words }}</div>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="text-zinc-500 text-sm">Карточек на это окно нет.</p>
+    {% endif %}
+  </section>
+
+  <section class="rounded-xl border border-ink-700 bg-ink-800 p-6">
+    <h2 class="text-lg font-semibold text-zinc-100 mb-4">
+      Голосовые транскрипты
+      <span class="text-xs text-zinc-500 font-normal">({{ transcripts|length }})</span>
+    </h2>
+    {% if transcripts %}
+      <ul class="space-y-3">
+        {% for segment in transcripts %}
+          <li class="rounded-lg bg-ink-900 border border-ink-700 p-4">
+            <div class="flex items-baseline justify-between gap-2 mb-2">
+              <span class="font-mono text-xs text-zinc-400">{{ segment.captured_at }}</span>
+              <span class="text-xs text-zinc-500">
+                {{ "%.1f"|format(segment.duration_seconds) }} с
+                {% if segment.locale %} · {{ segment.locale }}{% endif %}
+              </span>
+            </div>
+            <p class="text-sm text-zinc-300 whitespace-pre-line">{{ segment.transcript }}</p>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="text-zinc-500 text-sm">Голосовых записей в этом окне нет.</p>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Тест PII фильтров</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Вставьте произвольный текст слева — справа сразу увидите, что
+    отрежут активные правила из
+    <a href="/settings/redaction" class="text-accent-400 hover:text-accent-300 underline">/settings/redaction</a>.
+    Ничего не сохраняется: пайплайн OCR не задевается, тестовый текст
+    никуда не уходит, кроме этой страницы.
+  </p>
+  <p class="text-zinc-600 text-xs mt-1">
+    Лимит образца: {{ max_sample_chars }} символов — длиннее обрежется на сервере.
+  </p>
+</div>
+
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+  <div>
+    <label class="block text-xs uppercase tracking-wider text-zinc-500 mb-1" for="redaction-sample">
+      Исходник
+    </label>
+    <textarea id="redaction-sample"
+              rows="14"
+              maxlength="{{ max_sample_chars }}"
+              placeholder="Вставьте любой текст: emails, номера карт, токены — что-нибудь, что должны ловить ваши правила."
+              class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500 resize-y"></textarea>
+  </div>
+  <div>
+    <label class="block text-xs uppercase tracking-wider text-zinc-500 mb-1" for="redaction-output">
+      После маскирования
+    </label>
+    <textarea id="redaction-output"
+              rows="14"
+              readonly
+              placeholder="Здесь появится тот же текст, но с применёнными правилами. Каждое попадание заменяется на ***."
+              class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono text-zinc-300 focus:outline-none resize-y"></textarea>
+  </div>
+</div>
+
+<div class="flex items-center gap-3 mb-6">
+  <button id="redaction-apply"
+          type="button"
+          class="px-4 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium">
+    Применить правила
+  </button>
+  <span id="redaction-status" class="text-xs text-zinc-500" aria-live="polite"></span>
+</div>
+
+<div id="redaction-result" class="space-y-3">
+  <p class="text-zinc-500 text-sm">
+    Вставьте текст и нажмите <em>Применить правила</em> (или просто выйдите из левого поля) — здесь появится разбор по правилам.
+  </p>
+</div>
+
+{# v1.x — HTMX would have been the natural fit, but the API returns
+   JSON (a shape every other tool can consume) so we do the fetch
+   ourselves and render into #redaction-result. Same UX as hx-post:
+   declarative trigger (button click + textarea blur), single endpoint,
+   no full-page reload. The Alpine-generated-form gotcha from
+   feedback_htmx_alpine_dynamic_forms doesn't apply because we don't
+   inject any <form> on the fly. #}
+<script>
+(function () {
+  const sampleEl = document.getElementById('redaction-sample');
+  const outputEl = document.getElementById('redaction-output');
+  const applyBtn = document.getElementById('redaction-apply');
+  const statusEl = document.getElementById('redaction-status');
+  const resultEl = document.getElementById('redaction-result');
+  if (!sampleEl || !outputEl || !applyBtn || !resultEl) return;
+
+  function escapeHtml(value) {
+    return String(value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function renderMatches(matches) {
+    if (!Array.isArray(matches) || matches.length === 0) {
+      return '<p class="text-zinc-500 text-sm">Нет активных правил — добавьте паттерн в /settings/redaction и попробуйте снова.</p>';
+    }
+    const blocks = matches.map(function (m, idx) {
+      const count = Number(m.count) || 0;
+      const errorBadge = m.error
+        ? '<span class="ml-2 px-2 py-0.5 rounded bg-rose-900/40 text-rose-300 text-xs">regex error</span>'
+        : '';
+      const countBadge = count > 0
+        ? '<span class="ml-2 px-2 py-0.5 rounded bg-emerald-900/40 text-emerald-300 text-xs">' + count + ' match' + (count === 1 ? '' : 'es') + '</span>'
+        : '<span class="ml-2 px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 text-xs">no matches</span>';
+      const examplesHtml = Array.isArray(m.examples) && m.examples.length > 0
+        ? '<details class="mt-2"><summary class="cursor-pointer text-xs text-zinc-400 hover:text-zinc-200">примеры (' + m.examples.length + ')</summary>'
+          + '<ul class="mt-2 space-y-1 text-xs font-mono text-zinc-300 list-disc list-inside">'
+          + m.examples.map(function (e) {
+              return '<li class="break-all">' + escapeHtml(e) + '</li>';
+            }).join('')
+          + '</ul></details>'
+        : '';
+      const errorRow = m.error
+        ? '<p class="mt-2 text-xs text-rose-300 font-mono break-all">' + escapeHtml(m.error) + '</p>'
+        : '';
+      return '<div class="rounded-lg border border-ink-700 bg-ink-800 p-3">'
+        + '<div class="flex items-center flex-wrap gap-1">'
+        + '<span class="inline-block px-2 py-0.5 rounded bg-accent-600/20 text-accent-400 text-xs">'
+        + escapeHtml(m.rule_name) + '</span>'
+        + countBadge
+        + errorBadge
+        + '</div>'
+        + '<p class="mt-2 text-xs font-mono text-zinc-400 break-all">' + escapeHtml(m.pattern) + '</p>'
+        + errorRow
+        + examplesHtml
+        + '</div>';
+    });
+    return blocks.join('');
+  }
+
+  let inflight = false;
+  async function runPreview() {
+    if (inflight) return;
+    inflight = true;
+    applyBtn.disabled = true;
+    statusEl.textContent = '…';
+    try {
+      const resp = await fetch('/api/redaction/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sample_text: sampleEl.value }),
+      });
+      if (!resp.ok) {
+        const text = await resp.text();
+        statusEl.textContent = 'ошибка: ' + resp.status;
+        resultEl.innerHTML = '<p class="text-rose-300 text-sm">'
+          + escapeHtml(text || ('HTTP ' + resp.status)) + '</p>';
+        return;
+      }
+      const data = await resp.json();
+      outputEl.value = data.redacted || '';
+      const total = (data.matches || []).reduce(function (acc, m) {
+        return acc + (Number(m.count) || 0);
+      }, 0);
+      statusEl.textContent = total === 0
+        ? 'нет попаданий'
+        : 'попаданий всего: ' + total;
+      resultEl.innerHTML = renderMatches(data.matches);
+    } catch (err) {
+      statusEl.textContent = 'сетевая ошибка';
+      resultEl.innerHTML = '<p class="text-rose-300 text-sm">'
+        + escapeHtml(String(err && err.message ? err.message : err)) + '</p>';
+    } finally {
+      inflight = false;
+      applyBtn.disabled = false;
+    }
+  }
+
+  applyBtn.addEventListener('click', runPreview);
+  // Auto-run when the user leaves the input — matches the spec
+  // (\"textarea blur (or button click)\"). We swallow blurs that happen
+  // when the input is empty so an accidental tab-out doesn't fire a
+  // useless request.
+  sampleEl.addEventListener('blur', function () {
+    if (sampleEl.value.trim().length > 0) runPreview();
+  });
+})();
+</script>
+{% endblock %}

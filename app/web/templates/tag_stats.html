@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-center justify-between flex-wrap gap-3">
+  <div class="flex items-center gap-3">
+    <span class="inline-flex items-center gap-2 px-4 py-2 rounded-full border text-sm font-mono tracking-tight"
+          style="background: #8b5cf61a; border-color: #8b5cf6; color: #a78bfa;">
+      <span class="w-2 h-2 rounded-full" style="background: #8b5cf6;"></span>
+      <span class="text-base font-semibold">#{{ tag_name }}</span>
+    </span>
+    <a href="/tags/{{ tag_name }}/trend"
+       class="text-sm text-accent-400 hover:underline font-mono">
+      → trend view
+    </a>
+  </div>
+  <a href="/tags" class="text-sm text-zinc-500 hover:text-zinc-300">← all tags</a>
+</div>
+
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Stats for <span class="font-mono">#{{ tag_name }}</span></h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Total captures, lifetime range, top apps, co-occurring tags and a 30-day timeline.
+  </p>
+</div>
+
+{# 4 big numbers — total, first seen, last seen, days_active. #}
+<section class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Total</div>
+    <div class="text-3xl font-bold mt-1 tabular-nums">
+      {{ "{:,}".format(stats.total) }}
+      <span class="text-base font-normal text-zinc-500 ml-1">
+        shot{{ '' if stats.total == 1 else 's' }}
+      </span>
+    </div>
+    <div class="text-xs text-zinc-500 mt-1">All-time count.</div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">First seen</div>
+    <div class="text-xl font-bold mt-1 tabular-nums font-mono">
+      {% if stats.first_seen %}{{ stats.first_seen | localtime("full") }}{% else %}—{% endif %}
+    </div>
+    <div class="text-xs text-zinc-500 mt-1">Earliest capture.</div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Last seen</div>
+    <div class="text-xl font-bold mt-1 tabular-nums font-mono">
+      {% if stats.last_seen %}{{ stats.last_seen | localtime("full") }}{% else %}—{% endif %}
+    </div>
+    <div class="text-xs text-zinc-500 mt-1">Most recent capture.</div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Days active</div>
+    <div class="text-3xl font-bold mt-1 tabular-nums">
+      {{ days_active }}
+      <span class="text-base font-normal text-zinc-500 ml-1">/ 30</span>
+    </div>
+    <div class="text-xs text-zinc-500 mt-1">Non-zero days in window.</div>
+  </div>
+</section>
+
+{# Top apps — horizontal bar list, widths relative to the max. #}
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
+  <h2 class="text-xs uppercase tracking-widest text-zinc-500 mb-4">Top apps</h2>
+  {% if stats.top_apps %}
+    {% set top_apps_peak = stats.top_apps[0].count %}
+    <ul class="space-y-2">
+      {% for row in stats.top_apps %}
+        <li class="flex items-center gap-3 text-sm font-mono">
+          <span class="w-44 truncate text-zinc-300" title="{{ row.app_name }}">
+            {{ row.app_name | app_alias }}
+          </span>
+          <div class="flex-1 bg-ink-900 rounded h-2 overflow-hidden">
+            <div class="h-full"
+                 style="width: {{ ((row.count / top_apps_peak) * 100) | round(1) }}%;
+                        background: #8b5cf6;"></div>
+          </div>
+          <span class="w-12 text-right tabular-nums text-zinc-100">{{ "{:,}".format(row.count) }}</span>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="text-sm text-zinc-500">No app data for this tag.</p>
+  {% endif %}
+</section>
+
+{# Co-occurring tags as chips — each chip links to its own stats page. #}
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
+  <h2 class="text-xs uppercase tracking-widest text-zinc-500 mb-4">Co-occurring tags</h2>
+  {% if stats.co_occurring %}
+    <div class="flex flex-wrap gap-2">
+      {% for chip in stats.co_occurring %}
+        <a href="/tag/{{ chip.name }}/stats"
+           class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-ink-700 bg-ink-900 text-sm font-mono text-zinc-300 hover:border-accent-500 hover:text-zinc-100 transition">
+          <span class="w-1.5 h-1.5 rounded-full bg-accent-500"></span>
+          <span>#{{ chip.name }}</span>
+          <span class="text-xs text-zinc-500">· {{ chip.count }}</span>
+        </a>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="text-sm text-zinc-500">No other tags share these screenshots.</p>
+  {% endif %}
+</section>
+
+{# 30-day inline SVG sparkline — pure polyline, no JS. #}
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
+  <h2 class="text-xs uppercase tracking-widest text-zinc-500 mb-3">
+    30-day timeline (320 × 60)
+  </h2>
+  <svg xmlns="http://www.w3.org/2000/svg"
+       width="{{ svg_width }}"
+       height="{{ svg_height }}"
+       viewBox="0 0 {{ svg_width }} {{ svg_height }}"
+       role="img"
+       aria-label="Per-day count of #{{ tag_name }} over the last 30 days"
+       class="block">
+
+    <line x1="0" y1="{{ baseline_y }}"
+          x2="{{ svg_width }}" y2="{{ baseline_y }}"
+          stroke="#3f3f46"
+          stroke-width="1"
+          stroke-dasharray="2,3" />
+
+    {% if peak and peak > 0 %}
+      <polygon points="{{ band }}"
+               fill="{{ fill_band }}"
+               stroke="none" />
+
+      <polyline points="{{ polyline }}"
+                fill="none"
+                stroke="{{ stroke }}"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round" />
+
+      {% for p in points %}
+        <circle cx="{{ "%.2f"|format(p.x) }}"
+                cy="{{ "%.2f"|format(p.y) }}"
+                r="{% if p.count == peak and peak > 0 %}2.5{% else %}1.5{% endif %}"
+                fill="{{ dot_fill }}"
+                stroke="#0a0a0c"
+                stroke-width="0.5">
+          <title>{{ p.tooltip }}</title>
+        </circle>
+      {% endfor %}
+    {% else %}
+      <text x="{{ svg_width // 2 }}"
+            y="{{ svg_height // 2 + 4 }}"
+            text-anchor="middle"
+            fill="#52525b"
+            font-size="11"
+            font-family="JetBrains Mono, Cascadia Code, Consolas, monospace">
+        no captures in last 30 days
+      </text>
+    {% endif %}
+  </svg>
+</section>
+
+<p class="text-xs text-zinc-500">
+  Machine-readable counterpart at
+  <a href="{{ json_url }}" class="font-mono text-accent-400 hover:underline">{{ json_url }}</a>.
+</p>
+{% endblock %}
