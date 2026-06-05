@@ -1,0 +1,95 @@
+{# Settings grid for the lightweight per-app favicon chip cache.
+
+   Sibling to :file:`app_icons_admin.html` (which manages the heavier
+   PNG-blob cache). This page covers the glyph + colour chips used in
+   dense list views — autocomplete rows, search suggestions, timeline
+   chips — where firing a PNG fetch per row would be visually noisy and
+   slow on cold caches.
+
+   Context shape:
+     - ``items``      — list of dicts from :func:`list_icons`. Each row
+                        has app_name / icon_path (glyph) / icon_color /
+                        source (fallback / bundled / user).
+     - ``title``      — page title for the base layout
+     - ``active_nav`` — sidebar highlight slug (``settings``).
+#}
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Иконки приложений</h1>
+  <p class="text-zinc-500 text-sm mt-1 max-w-3xl">
+    Лёгкие фавиконки (символ + цвет) для визуальной идентификации приложений в плотных списках.
+    Каждая строка хранится в таблице <code>app_icon_chip</code>. Источник
+    <em>bundled</em> — захардкоженный пресет из <code>BUNDLED_ICONS</code>,
+    <em>fallback</em> — детерминированная первая буква + цвет из хеша имени,
+    <em>user</em> — ручной выбор оператора. Оставьте символ пустым, чтобы откатиться к автогенерации.
+  </p>
+</div>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden">
+  <header class="px-4 py-3 bg-ink-900 text-xs uppercase tracking-widest text-zinc-500 flex items-center justify-between">
+    <span>Кэшированные иконки</span>
+    <span class="text-zinc-600 normal-case tracking-normal">
+      {{ items|length }} строк{% if items|length == 1 %}а{% elif items|length and items|length < 5 %}и{% endif %}
+    </span>
+  </header>
+
+  {% if items %}
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 p-4">
+      {% for item in items %}
+        <article class="flex items-center gap-3 p-3 rounded-lg border border-ink-700 bg-ink-900/40">
+          <div class="shrink-0">
+            {% include "_app_icon_chip.html" %}
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="text-zinc-200 font-mono text-xs break-all">{{ item.app_name }}</div>
+            <div class="mt-0.5 flex items-center gap-2">
+              {% if item.source == 'user' %}
+                <span class="px-1.5 py-0.5 rounded bg-accent-600/20 text-accent-400 text-[10px] uppercase tracking-wider">user</span>
+              {% elif item.source == 'bundled' %}
+                <span class="px-1.5 py-0.5 rounded bg-emerald-900/40 text-emerald-300 text-[10px] uppercase tracking-wider">bundled</span>
+              {% else %}
+                <span class="px-1.5 py-0.5 rounded bg-ink-700 text-zinc-400 text-[10px] uppercase tracking-wider">fallback</span>
+              {% endif %}
+              <span class="text-zinc-500 text-[10px] font-mono">{{ item.icon_color }}</span>
+            </div>
+
+            <form action="/settings/app-icon-chips/{{ item.app_name|urlencode }}"
+                  method="post"
+                  class="mt-2 flex items-center gap-2">
+              <label class="flex flex-col gap-0.5">
+                <span class="text-[10px] text-zinc-500 uppercase tracking-wider">Glyph</span>
+                <input type="text"
+                       name="glyph"
+                       value="{{ item.icon_path }}"
+                       maxlength="8"
+                       class="w-16 px-2 py-1 bg-ink-900 border border-ink-700 rounded text-zinc-200 text-sm text-center font-mono"
+                       autocomplete="off"
+                       spellcheck="false">
+              </label>
+              <label class="flex flex-col gap-0.5">
+                <span class="text-[10px] text-zinc-500 uppercase tracking-wider">Colour</span>
+                <input type="color"
+                       name="color"
+                       value="{{ item.icon_color }}"
+                       class="w-10 h-8 bg-ink-900 border border-ink-700 rounded cursor-pointer">
+              </label>
+              <button type="submit"
+                      class="ml-auto px-3 py-1.5 bg-accent-600 hover:bg-accent-500 rounded text-xs font-medium self-end">
+                Save
+              </button>
+            </form>
+          </div>
+        </article>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="p-6 text-zinc-500 text-sm">
+      Кэш пуст — строки появятся при первом обращении к <code>/widget/app-icon-chip/{name}</code> или
+      <code>/api/app-icon-chip/{name}.json</code>. Бандл-пресеты записываются автоматически, когда
+      имя приложения совпадает с одним из ключей <code>BUNDLED_ICONS</code>.
+    </div>
+  {% endif %}
+</section>
+{% endblock %}

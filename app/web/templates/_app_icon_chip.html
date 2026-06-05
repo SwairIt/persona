@@ -1,0 +1,22 @@
+{# Inline favicon chip — used both as a fragment by /widget/app-icon-chip/{name}
+   and embedded inside the grid rows on /settings/app-icon-chips.
+
+   Context expects a single ``item`` dict with the shape returned by
+   :func:`app.app_icon_chips.ensure_icon_for`:
+
+     - ``app_name``  — display string, also used as the accessible label
+     - ``icon_path`` — the glyph (single emoji / letter). Overloaded
+       column name; see module docstring.
+     - ``icon_color`` — CSS-ready hex colour for the background
+     - ``source``     — fallback / bundled / user (used for tooltip)
+
+   Rendered as a 32x32 round chip with a white-ish glyph centred on the
+   stored colour. Sized to read at list-cell density without needing
+   per-row CSS overrides; callers that want a larger tile can wrap the
+   chip in their own ``transform: scale()`` container. #}
+<span class="inline-flex items-center justify-center w-8 h-8 rounded-full text-white font-semibold select-none shadow-sm ring-1 ring-black/20"
+      style="background-color: {{ item.icon_color }};"
+      title="{{ item.app_name }} ({{ item.source }})"
+      aria-label="{{ item.app_name }}">
+  <span class="text-sm leading-none">{{ item.icon_path }}</span>
+</span>

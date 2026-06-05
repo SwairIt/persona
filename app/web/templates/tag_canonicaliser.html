@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+
+{# Single-template admin page for /admin/tag-canonical.
+
+   Context contract:
+   * Always:
+       - `min_count` (int)            — threshold for cluster inclusion.
+       - `result` (ApplyResult dict)  — current dry-run preview.
+       - `applied` (bool)             — True after a successful POST to
+                                        /api/tag-canonical/apply, drives
+                                        the "done" banner.
+   * Only when `applied` is True:
+       - `applied_clusters` (int)     — how many clusters were folded.
+       - `applied_rows`     (int)     — total screenshot_tags rewrites.
+       - `applied_preview`  (list)    — per-cluster breakdown of the
+                                        rewrite that just landed.
+
+   The page is the HTMX swap target; the API endpoints return this same
+   template so the form, preview and banner all stay in sync after each
+   action.
+#}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight flex items-center gap-3">
+    <span class="text-accent-400">⇋</span> Tag canonicaliser
+  </h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Merge case-different, whitespace-different and unicode-different
+    variants of the same tag into one canonical spelling. Picks the
+    most-used raw spelling in each cluster as the winner; folds the
+    rest into it.
+  </p>
+</div>
+
+<div class="rounded-lg border border-amber-700/60 bg-amber-900/20 p-4 mb-8">
+  <p class="text-amber-200 text-sm">
+    <strong class="font-semibold">Heads up.</strong>
+    Apply is irreversible: every screenshot tagged with an alias spelling
+    is re-tagged with the canonical one, then the alias tag row is
+    deleted. The pre-store overlay keeps the canonicalisation sticking
+    for future writes.
+  </p>
+</div>
+
+<form class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6 space-y-4"
+      hx-target="#tag-canonical-result"
+      hx-swap="outerHTML"
+      onsubmit="return false;">
+  <div class="flex items-center gap-4">
+    <label class="block">
+      <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">Minimum screenshot count</span>
+      <input type="number" name="min_count" min="1" value="{{ min_count }}"
+             class="w-32 px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm focus:outline-none focus:border-accent-500">
+    </label>
+    <button type="button"
+            hx-post="/api/tag-canonical/preview?min_count={{ min_count }}"
+            hx-headers='{"Accept": "text/html"}'
+            class="px-4 py-2 bg-zinc-700 hover:bg-zinc-600 rounded text-sm font-medium">
+      Refresh preview
+    </button>
+    <button type="button"
+            hx-post="/api/tag-canonical/apply?min_count={{ min_count }}"
+            hx-headers='{"Accept": "text/html"}'
+            hx-confirm="Really merge {{ result.clusters }} cluster{{ 's' if result.clusters != 1 else '' }} now? This rewrites {{ result.rows_updated }} screenshot tag{{ 's' if result.rows_updated != 1 else '' }} and deletes the alias tags."
+            {% if result.clusters == 0 %}disabled aria-disabled="true"{% endif %}
+            class="px-4 py-2 bg-accent-600 hover:bg-accent-500 disabled:bg-zinc-800 disabled:text-zinc-500 text-white rounded text-sm font-bold tracking-wide">
+      Apply ({{ result.clusters }})
+    </button>
+  </div>
+</form>
+
+<div id="tag-canonical-result">
+  {% if applied %}
+    <div class="rounded-lg border border-emerald-700/60 bg-emerald-900/20 p-5 mb-6">
+      <h2 class="text-lg font-semibold text-emerald-200 mb-2">Done.</h2>
+      <p class="text-emerald-100 text-sm">
+        Folded
+        <strong class="font-mono">{{ applied_clusters }}</strong>
+        cluster{{ 's' if applied_clusters != 1 else '' }} —
+        <strong class="font-mono">{{ applied_rows }}</strong>
+        screenshot tag{{ 's' if applied_rows != 1 else '' }} re-pointed at the canonical winner.
+      </p>
+      {% if applied_preview %}
+        <details class="mt-3 text-emerald-200/80 text-xs">
+          <summary class="cursor-pointer hover:text-emerald-100">What was rewritten</summary>
+          <ul class="mt-2 list-disc list-inside space-y-1">
+            {% for cluster in applied_preview %}
+              <li>
+                <code class="font-mono bg-ink-900 px-1.5 py-0.5 rounded">{{ cluster.canonical }}</code>
+                ← {{ cluster.aliases | length }} alias{{ 'es' if cluster.aliases | length != 1 else '' }}
+              </li>
+            {% endfor %}
+          </ul>
+        </details>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  <div class="mb-4 flex items-end justify-between">
+    <div>
+      <h2 class="text-base font-semibold">
+        {% if applied %}Remaining clusters{% else %}Current clusters{% endif %}
+      </h2>
+      <p class="text-zinc-500 text-xs mt-1">
+        {{ result.clusters }} cluster{{ 's' if result.clusters != 1 else '' }} ·
+        {{ result.rows_updated }} pending rewrite{{ 's' if result.rows_updated != 1 else '' }} ·
+        min-count threshold {{ min_count }}
+      </p>
+    </div>
+  </div>
+
+  {% if result.clusters == 0 %}
+    <div class="rounded-lg border border-ink-700 bg-ink-900 p-5 text-center text-zinc-500 text-sm">
+      No multi-spelling clusters at the current threshold. Either every
+      concept is already canonical or the threshold is too high.
+    </div>
+  {% else %}
+    <div class="overflow-x-auto rounded-lg border border-ink-700">
+      <table class="min-w-full text-sm">
+        <thead class="bg-ink-800 text-zinc-400 text-xs uppercase tracking-wider">
+          <tr>
+            <th class="px-4 py-2 text-left">Canonical (kept)</th>
+            <th class="px-4 py-2 text-right">Existing count</th>
+            <th class="px-4 py-2 text-left">Aliases (folded in)</th>
+            <th class="px-4 py-2 text-right">Incoming</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-ink-700">
+          {% for cluster in result.preview %}
+            <tr class="bg-ink-900">
+              <td class="px-4 py-3 font-mono text-emerald-200">{{ cluster.canonical }}</td>
+              <td class="px-4 py-3 text-right font-mono">{{ cluster.canonical_count }}</td>
+              <td class="px-4 py-3">
+                <ul class="space-y-1">
+                  {% for entry in cluster.aliases %}
+                    <li>
+                      <code class="font-mono text-xs bg-ink-800 px-1.5 py-0.5 rounded">{{ entry.alias }}</code>
+                      <span class="text-zinc-500 text-xs">× {{ entry.count }}</span>
+                    </li>
+                  {% endfor %}
+                </ul>
+              </td>
+              <td class="px-4 py-3 text-right font-mono">
+                {{ cluster.aliases | sum(attribute='count') }}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

@@ -373,6 +373,9 @@ from app.web.routes import (
     quick_actions as quick_actions_routes,
     api_tokens_admin as api_tokens_admin_routes,
     audio_waveform as audio_waveform_routes,
+    tag_canonicaliser as tag_canonicaliser_routes,
+    app_icons as app_icons_routes,
+    stale_note_pruner as stale_note_pruner_routes,
 )
 from app.workers import (
     get_controller,
@@ -422,7 +425,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.62.0",
+        version="1.63.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -757,6 +760,9 @@ def create_app() -> FastAPI:
     app.include_router(quick_actions_routes.router)
     app.include_router(api_tokens_admin_routes.router)
     app.include_router(audio_waveform_routes.router)
+    app.include_router(tag_canonicaliser_routes.router)
+    app.include_router(app_icons_routes.router)
+    app.include_router(stale_note_pruner_routes.router)
     app.include_router(sticky_search_routes.router)
     app.include_router(audit_replay_routes.router)
     app.include_router(tag_gallery_routes.router)

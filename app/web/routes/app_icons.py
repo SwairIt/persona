@@ -17,6 +17,21 @@ Endpoints:
 * ``DELETE /app-icon/{app_name}/reset`` *(v0.58)* — drop the cached row
   so the next ``GET`` regenerates from Shell32 / initials. Idempotent.
 
+Lightweight chip cache (migration 143)
+--------------------------------------
+
+* ``GET /settings/app-icon-chips`` — operator-facing grid that lists
+  every cached glyph chip plus a per-app edit form. Sibling to
+  ``/settings/app-icons`` (the PNG-blob admin); these two pages cover
+  the two different icon flavours surfaced in the UI.
+* ``POST /settings/app-icon-chips/{app_name}`` — form submit that
+  persists an operator-chosen glyph + colour with ``source='user'``.
+* ``GET /api/app-icon-chip/{app_name}.json`` — JSON view of the chip
+  row, for the future autocomplete / search UI.
+* ``GET /widget/app-icon-chip/{app_name}`` — inline HTML chip widget
+  (a coloured circle with the glyph centred) that any other template
+  can drop in with ``hx-get``.
+
 URL-decoding is left to FastAPI's path parameter machinery, which
 already runs ``urllib.parse.unquote`` on incoming segments — so a
 template that emits ``/app-icon/Visual%20Studio%20Code.png`` reaches us
@@ -28,19 +43,34 @@ A short defensive ``unquote`` is still applied for double-encoded URLs
 from __future__ import annotations
 
 import io
+import re
 from typing import Annotated, Final
 from urllib.parse import unquote
 
-from fastapi import APIRouter, File, HTTPException, Request, UploadFile
-from fastapi.responses import RedirectResponse, Response
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from PIL import Image, UnidentifiedImageError
 
+from app.app_icon_chips import ensure_icon_for, list_icons, set_user_icon
 from app.app_icons import get_icon_png, invalidate, store_user_icon
 from app.logging_setup import get_logger
+from app.web.templates_engine import templates
 
 log = get_logger("persona.app_icons.upload")
+chip_log = get_logger("persona.app_icons.chip")
 
 router = APIRouter(tags=["app-icons"])
+
+# Hex colour shape accepted by :func:`set_user_icon`. Matches both 3-
+# and 6-digit forms with an optional leading ``#``; anything else 400s
+# so a typo never lands a bogus value in the ``app_icon_chip`` table.
+_HEX_COLOR_RE: Final[re.Pattern[str]] = re.compile(r"^#?[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$")
+
+# Defensive ceiling on a single glyph cell. One emoji is ~4 bytes; a few
+# combining characters can push the cluster to ~16. We cap at 8 chars
+# so the chip never overflows its circle and the storage layer never
+# sees pathological inputs from a paste-the-whole-file scenario.
+_MAX_GLYPH_CHARS: Final[int] = 8
 
 # 24 hours. Long enough that a re-rendered timeline page reuses the
 # browser cache; short enough that a manual ``invalidate`` call propagates
@@ -212,6 +242,125 @@ async def app_icon_reset(request: Request, app_name: str) -> Response:
     if _wants_html(request):
         return RedirectResponse(url="/settings/app-icons", status_code=303)
     return Response(status_code=204)
+
+
+# ---------------------------------------------------------------------------
+# Lightweight chip endpoints (migration 143 — see :mod:`app.app_icon_chips`)
+# ---------------------------------------------------------------------------
+
+
+def _normalise_hex(colour: str) -> str:
+    """Validate ``colour`` and return a canonical ``#rrggbb`` string.
+
+    Accepts 3-/6-digit hex with or without a leading ``#``. Anything
+    outside that grammar raises HTTP 400 so the caller never has to
+    second-guess what shape :func:`set_user_icon` will accept.
+    """
+    cleaned = (colour or "").strip()
+    if not _HEX_COLOR_RE.match(cleaned):
+        raise HTTPException(status_code=400, detail=f"invalid colour {cleaned!r}")
+    body = cleaned.lstrip("#")
+    if len(body) == 3:
+        body = "".join(ch * 2 for ch in body)
+    return f"#{body.lower()}"
+
+
+def _normalise_glyph(glyph: str) -> str:
+    """Trim ``glyph`` and bound-check its length.
+
+    Empty input is allowed (the chip module falls back to a hash-derived
+    letter); anything longer than the cell budget 400s so a pasted
+    paragraph never lands in the DB.
+    """
+    cleaned = (glyph or "").strip()
+    if len(cleaned) > _MAX_GLYPH_CHARS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"glyph too long (max {_MAX_GLYPH_CHARS} chars)",
+        )
+    return cleaned
+
+
+@router.get("/settings/app-icon-chips", response_class=HTMLResponse)
+async def app_icon_chips_page(request: Request) -> HTMLResponse:
+    """Render the chip-cache settings grid + per-app edit form.
+
+    The grid lists every row in ``app_icon_chip``; the per-row form
+    targets :func:`app_icon_chip_set` below so a save round-trips through
+    the same UPSERT path. ``active_nav='settings'`` keeps the global
+    sidebar highlight on the Settings group.
+    """
+    items = await list_icons()
+    return templates.TemplateResponse(
+        request,
+        "app_icon_chips.html",
+        {
+            "items": items,
+            "title": "Иконки приложений",
+            "active_nav": "settings",
+        },
+    )
+
+
+@router.post("/settings/app-icon-chips/{app_name}")
+async def app_icon_chip_set(
+    request: Request,
+    app_name: str,
+    glyph: Annotated[str, Form(...)],
+    color: Annotated[str, Form(...)],
+) -> Response:
+    """Persist an operator-chosen glyph + colour for ``app_name``.
+
+    Validates the colour against ``#rrggbb`` / ``#rgb`` and bounds the
+    glyph length, then writes through :func:`set_user_icon`. Browser
+    form posts get a 303 redirect back to the grid; JSON clients get a
+    204 No Content so an XHR / fetch save does not navigate away.
+    """
+    decoded = _normalise_path_app_name(app_name)
+    cleaned_glyph = _normalise_glyph(glyph)
+    cleaned_colour = _normalise_hex(color)
+    await set_user_icon(decoded, cleaned_glyph, cleaned_colour)
+    chip_log.info(
+        "app_icons.chip.user_set",
+        app_name=decoded,
+        glyph=cleaned_glyph,
+        icon_color=cleaned_colour,
+    )
+    if _wants_html(request):
+        return RedirectResponse(url="/settings/app-icon-chips", status_code=303)
+    return Response(status_code=204)
+
+
+@router.get("/api/app-icon-chip/{app_name}.json")
+async def app_icon_chip_json(app_name: str) -> JSONResponse:
+    """Return the chip row for ``app_name`` as JSON, auto-creating on miss.
+
+    Used by client-side widgets that want to render their own chip
+    without going through the HTML widget endpoint below. Always 200 —
+    :func:`ensure_icon_for` synthesises a deterministic fallback for any
+    unknown name so the caller never has to handle 404s.
+    """
+    decoded = _normalise_path_app_name(app_name)
+    row = await ensure_icon_for(decoded)
+    return JSONResponse(content=dict(row))
+
+
+@router.get("/widget/app-icon-chip/{app_name}", response_class=HTMLResponse)
+async def app_icon_chip_widget(request: Request, app_name: str) -> HTMLResponse:
+    """Render the inline HTML chip fragment for ``app_name``.
+
+    Intended for ``hx-get`` consumers — the response body is a single
+    ``<span>`` (see ``_app_icon_chip.html``) with the glyph centred on
+    the cached colour. No outer layout, no surrounding card, so the
+    chip drops into any list cell cleanly.
+    """
+    decoded = _normalise_path_app_name(app_name)
+    row = await ensure_icon_for(decoded)
+    return templates.TemplateResponse(
+        request,
+        "_app_icon_chip.html",
+        {"item": row},
+    )
 
 
 __all__ = ["router"]
