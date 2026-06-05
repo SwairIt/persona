@@ -1,0 +1,92 @@
+{# Hashtag auto-suggest fragment served by /widget/hashtag-suggest/{shot_id}.
+
+   HTMX swaps this entire <section> in via hx-swap="outerHTML" so the loading
+   placeholder on the screenshot detail page is replaced rather than wrapped.
+   Each chip carries the tag in a data attribute; the inline <script> wires the
+   "Add" button to a fetch() POST against the apply-hashtags endpoint and then
+   re-fetches the widget so the new state (count badge, removed chip) is
+   reflected without a full page reload. #}
+<section id="hashtag-suggest-{{ shot_id }}"
+         class="rounded-lg border border-ink-700 bg-ink-800 p-4 mt-4">
+  <header class="flex items-center justify-between mb-3">
+    <h3 class="text-xs uppercase tracking-widest text-zinc-500">
+      Suggested hashtags
+      <span class="text-zinc-600">· OCR + window title + app</span>
+    </h3>
+    <span class="text-[10px] text-zinc-600 font-mono">{{ candidates|length }} / 5</span>
+  </header>
+
+  {% if candidates %}
+    <ul class="flex flex-wrap gap-2"
+        data-hashtag-suggest-list="{{ shot_id }}">
+      {% for c in candidates %}
+        <li class="inline-flex items-center gap-1.5 rounded-full bg-ink-900 border border-ink-700 pl-2.5 pr-1 py-0.5">
+          <span class="text-xs text-zinc-200 font-mono">#{{ c.tag }}</span>
+          <span class="text-[9px] uppercase tracking-wide
+                       {% if c.source == 'ocr' %}text-accent-300
+                       {% elif c.source == 'title' %}text-sky-300
+                       {% else %}text-emerald-300{% endif %}"
+                title="Source: {{ c.source }} · score {{ '%.2f'|format(c.score) }}">{{ c.source }}</span>
+          <button type="button"
+                  class="ml-0.5 rounded-full bg-accent-500/15 hover:bg-accent-500/30 text-accent-200 text-[10px] px-2 py-0.5 transition"
+                  data-hashtag-add
+                  data-tag="{{ c.tag }}"
+                  data-shot-id="{{ shot_id }}"
+                  title="Attach #{{ c.tag }} to this screenshot">Add</button>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="text-xs text-zinc-500 italic">
+      No hashtag candidates — try waiting for OCR to finish on this shot.
+    </p>
+  {% endif %}
+
+  <script>
+    (function () {
+      // Scope every lookup to this widget instance so multiple swaps on the
+      // same page (e.g. a comparison view) don't stomp on each other.
+      var root = document.getElementById("hashtag-suggest-{{ shot_id }}");
+      if (!root) { return; }
+      var buttons = root.querySelectorAll("[data-hashtag-add]");
+      buttons.forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          var tag = btn.getAttribute("data-tag");
+          var shotId = btn.getAttribute("data-shot-id");
+          if (!tag || !shotId) { return; }
+          btn.disabled = true;
+          btn.textContent = "...";
+          fetch("/api/screenshot/" + encodeURIComponent(shotId) + "/apply-hashtags", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ tags: [tag] })
+          }).then(function (resp) {
+            if (!resp.ok) { throw new Error("apply failed: " + resp.status); }
+            return resp.json();
+          }).then(function (_payload) {
+            // Refresh the widget so the chip disappears (it is now an
+            // existing tag, not a suggestion) and the count updates. HTMX
+            // is optional on the host page so we use plain fetch + manual
+            // replace to stay independent.
+            return fetch("/widget/hashtag-suggest/" + encodeURIComponent(shotId));
+          }).then(function (resp) {
+            if (!resp || !resp.ok) { return; }
+            return resp.text();
+          }).then(function (html) {
+            if (!html) { return; }
+            var tmp = document.createElement("div");
+            tmp.innerHTML = html;
+            var fresh = tmp.querySelector("#hashtag-suggest-" + shotId);
+            if (fresh && root.parentNode) {
+              root.parentNode.replaceChild(fresh, root);
+            }
+          }).catch(function (err) {
+            btn.disabled = false;
+            btn.textContent = "Add";
+            btn.setAttribute("title", String(err));
+          });
+        });
+      });
+    })();
+  </script>
+</section>

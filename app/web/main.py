@@ -336,6 +336,9 @@ from app.web.routes import (
     demo_seeder as demo_seeder_routes,
     app_budgets as app_budgets_routes,
     insight_cards as insight_cards_routes,
+    day_pdf_export as day_pdf_export_routes,
+    hashtag_suggest as hashtag_suggest_routes,
+    csv_export as csv_export_routes,
 )
 from app.workers import (
     get_controller,
@@ -385,7 +388,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.50.0",
+        version="1.51.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -683,6 +686,9 @@ def create_app() -> FastAPI:
     app.include_router(demo_seeder_routes.router)
     app.include_router(app_budgets_routes.router)
     app.include_router(insight_cards_routes.router)
+    app.include_router(day_pdf_export_routes.router)
+    app.include_router(hashtag_suggest_routes.router)
+    app.include_router(csv_export_routes.router)
     app.include_router(sticky_search_routes.router)
     app.include_router(audit_replay_routes.router)
     app.include_router(tag_gallery_routes.router)

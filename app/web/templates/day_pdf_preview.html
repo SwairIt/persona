@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+
+{#
+  day_pdf_preview.html - v1.45 per-day PDF export landing page.
+
+  Tiny landing page paired with /day/{day_iso}/pdf-preview. It does
+  NOT embed the PDF - it just shows the day heading and two prominent
+  download buttons (PDF + MD) plus a link to the rich markdown preview
+  so the user can choose between "give me the file" and "let me read
+  it in the browser first".
+
+  active_nav = "timeline" so the navigation chip lights up the same
+  column the day scrubber, day kanban and markdown preview use - this
+  is a timeline-shaped surface, not a separate destination.
+#}
+
+{% block content %}
+<div class="mb-6 flex flex-wrap items-end justify-between gap-3">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Day journal export - {{ day }}</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Download the comprehensive day journal as a single-file PDF or as
+      portable Markdown. Both formats contain the same content.
+    </p>
+  </div>
+</div>
+
+<div class="rounded-lg border border-ink-700 bg-ink-900 p-6 space-y-6">
+  <div class="flex flex-wrap items-center gap-3">
+    <a href="{{ pdf_url }}"
+       class="px-4 py-2 rounded bg-accent-600 hover:bg-accent-500 text-white font-medium"
+       title="Download this day as a printable .pdf file">
+      Download PDF
+    </a>
+    <a href="{{ md_url }}"
+       class="px-4 py-2 rounded bg-ink-800 hover:bg-ink-700 border border-ink-700 text-zinc-200 font-medium"
+       title="Download this day as a portable .md file">
+      Download MD
+    </a>
+    <a href="{{ md_preview_url }}"
+       class="px-3 py-1.5 rounded border border-ink-700 text-zinc-300 hover:text-zinc-100"
+       title="Open the rich markdown preview for this day">
+      Preview in browser
+    </a>
+  </div>
+
+  <div class="text-zinc-400 text-sm space-y-2">
+    <p>
+      The PDF is rendered at A4 (1240 x 1754 px, ~150 DPI) with a cover
+      page, monospace body text wrapped at 95 columns and a per-page
+      footer showing the day and page number.
+    </p>
+    <p>
+      The Markdown export is the same content reformatted for
+      Obsidian, GitHub and Pandoc - useful when you want to keep the
+      day inside a long-term knowledge base instead of as a static
+      document.
+    </p>
+  </div>
+</div>
+{% endblock %}

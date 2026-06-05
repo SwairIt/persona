@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+
+{# Bulk CSV export landing — date pickers + one download link per fat
+   table. The form is plain HTML (no htmx, no Alpine) so each link
+   target is a stable GET URL the browser can resume on flaky
+   connections; that matters because a million-row screenshots dump
+   over a slow uplink takes minutes and a mid-stream connection drop
+   should be recoverable via ``Range: bytes=`` rather than restarting
+   the whole pagination loop from id 0.
+
+   The four anchors share the same date-range query string. A tiny
+   inline script syncs ``href`` whenever either picker changes — no
+   framework, no build step, just ``addEventListener`` against two
+   ``<input type="date">`` nodes. Keeping the JS surface this small
+   means the page works perfectly with JS off too: the bare anchors
+   point at ``date_from=&date_to=`` (empty bounds = full dump). #}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Bulk CSV export</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Stream the four big tables — screenshots, notes, hourly cards, audio segments —
+    as RFC-4180 CSV. Each dump is paginated server-side so memory stays
+    bounded even on a 1 M-row install.
+  </p>
+</div>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
+  <h2 class="text-lg font-semibold mb-3">Date range</h2>
+  <p class="text-zinc-400 text-sm mb-4">
+    Optional. Leave a bound blank for an open-ended window. Empty on both
+    sides exports every row in the table.
+  </p>
+  <div class="grid sm:grid-cols-2 gap-4">
+    <label class="block">
+      <span class="text-xs uppercase tracking-widest text-zinc-500">From</span>
+      <input id="date-from" type="date"
+             class="mt-1 w-full rounded-md bg-ink-900 border border-ink-700 px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-accent-500">
+    </label>
+    <label class="block">
+      <span class="text-xs uppercase tracking-widest text-zinc-500">To</span>
+      <input id="date-to" type="date"
+             class="mt-1 w-full rounded-md bg-ink-900 border border-ink-700 px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-accent-500">
+    </label>
+  </div>
+</section>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
+  <h2 class="text-lg font-semibold mb-4">Downloads</h2>
+  <ul class="space-y-3">
+    <li class="flex items-center justify-between gap-4 py-3 border-b border-ink-700/60 last:border-b-0">
+      <div>
+        <div class="font-medium text-zinc-100">Screenshots</div>
+        <div class="text-xs text-zinc-500 font-mono">
+          id, captured_at, app_name, window_title, ocr_text, pinned_at, has_alt
+        </div>
+      </div>
+      <a id="dl-screenshots"
+         data-base="/export/screenshots.csv"
+         href="/export/screenshots.csv?date_from=&amp;date_to="
+         class="inline-flex items-center gap-2 rounded-md bg-accent-600 hover:bg-accent-500 px-4 py-2 text-sm font-medium text-white">
+        Download CSV
+      </a>
+    </li>
+    <li class="flex items-center justify-between gap-4 py-3 border-b border-ink-700/60 last:border-b-0">
+      <div>
+        <div class="font-medium text-zinc-100">Notes</div>
+        <div class="text-xs text-zinc-500 font-mono">
+          id, screenshot_id, body, created_at, updated_at
+        </div>
+      </div>
+      <a id="dl-notes"
+         data-base="/export/notes.csv"
+         href="/export/notes.csv?date_from=&amp;date_to="
+         class="inline-flex items-center gap-2 rounded-md bg-accent-600 hover:bg-accent-500 px-4 py-2 text-sm font-medium text-white">
+        Download CSV
+      </a>
+    </li>
+    <li class="flex items-center justify-between gap-4 py-3 border-b border-ink-700/60 last:border-b-0">
+      <div>
+        <div class="font-medium text-zinc-100">Hourly cards</div>
+        <div class="text-xs text-zinc-500 font-mono">
+          hour_start, hour_end, summary, screen_count, audio_seconds, top_words, llm_enriched, created_at
+        </div>
+      </div>
+      <a id="dl-hourly-cards"
+         data-base="/export/hourly-cards.csv"
+         href="/export/hourly-cards.csv?date_from=&amp;date_to="
+         class="inline-flex items-center gap-2 rounded-md bg-accent-600 hover:bg-accent-500 px-4 py-2 text-sm font-medium text-white">
+        Download CSV
+      </a>
+    </li>
+    <li class="flex items-center justify-between gap-4 py-3 border-b border-ink-700/60 last:border-b-0">
+      <div>
+        <div class="font-medium text-zinc-100">Audio segments</div>
+        <div class="text-xs text-zinc-500 font-mono">
+          id, started_at, ended_at, duration_s, codec, bitrate, transcript, locale
+        </div>
+      </div>
+      <a id="dl-audio-segments"
+         data-base="/export/audio-segments.csv"
+         href="/export/audio-segments.csv?date_from=&amp;date_to="
+         class="inline-flex items-center gap-2 rounded-md bg-accent-600 hover:bg-accent-500 px-4 py-2 text-sm font-medium text-white">
+        Download CSV
+      </a>
+    </li>
+  </ul>
+</section>
+
+<p class="text-xs text-zinc-500">
+  Pagination is 1 000 rows per page via id-seek (<code class="font-mono">WHERE id &gt; :last_id LIMIT 1000</code>),
+  so memory is bounded regardless of total row count. Streaming starts immediately —
+  the first bytes hit the wire before SQLite finishes counting.
+</p>
+
+<script>
+  // Sync the four ``href`` attributes whenever either date picker changes.
+  // Pure DOM API on purpose — no Alpine, no htmx, so the page works with
+  // JS disabled (the static ``href`` already encodes an empty window).
+  (function () {
+    var fromEl = document.getElementById('date-from');
+    var toEl = document.getElementById('date-to');
+    var anchors = document.querySelectorAll('a[data-base]');
+    function refresh() {
+      var df = encodeURIComponent(fromEl.value || '');
+      var dt = encodeURIComponent(toEl.value || '');
+      anchors.forEach(function (a) {
+        var base = a.getAttribute('data-base');
+        a.setAttribute('href', base + '?date_from=' + df + '&date_to=' + dt);
+      });
+    }
+    fromEl.addEventListener('change', refresh);
+    toEl.addEventListener('change', refresh);
+    refresh();
+  })();
+</script>
+{% endblock %}

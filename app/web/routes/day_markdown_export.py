@@ -124,4 +124,12 @@ async def preview_day_markdown(
     )
 
 
+# v1.45 — fold the sibling PDF export endpoints onto the same router so
+# the new feature ships without touching :mod:`app.web.main`. The PDF
+# module is import-side-effect-free; this single line is the only wiring
+# point.
+from app.web.routes.day_pdf_export import router as _pdf_router  # noqa: E402
+
+router.include_router(_pdf_router)
+
 __all__ = ["router"]
