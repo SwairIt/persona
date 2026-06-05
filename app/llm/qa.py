@@ -10,7 +10,9 @@ Given a natural-language question, we:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
+from app.chrono_parse import parse_natural_date
 from app.embeddings import EmbeddingsNotAvailable, is_available, semantic_search
 from app.llm.client import CompletionRequest, LLMClient, make_client
 from app.logging_setup import get_logger
@@ -157,6 +159,19 @@ def _build_prompt(question: str, context: list[dict[str, object]]) -> str:
     cards = [c for c in context if c.get("is_card")]
 
     lines = [f"Question: {question}", ""]
+
+    # v1.x — surface any natural-language date phrase the user typed
+    # ("yesterday", "на прошлой неделе", "3 days ago", ...) as an
+    # explicit "Дата: <start>..<end>" line so the LLM has an unambiguous
+    # filter window even though retrieval already ranked by relevance.
+    chrono_hit = parse_natural_date(question, now=datetime.now(tz=UTC))
+    if chrono_hit is not None:
+        lines.append(
+            f"Дата: {chrono_hit['start_iso']}..{chrono_hit['end_iso']} "
+            f"(matched: {chrono_hit['matched_phrase']!r}, "
+            f"kind={chrono_hit['kind']})"
+        )
+        lines.append("")
     if screenshots:
         lines.append("Screenshots (top relevant):")
         for c in screenshots:

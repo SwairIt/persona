@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Palette colon-commands</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Vim-style command mode for the Cmd+K palette. When the input starts
+    with <code>:</code>, the palette flips from fuzzy-search to
+    command-mode &mdash; Enter then dispatches the action via
+    <code>POST&nbsp;/api/palette/command</code> instead of navigating.
+  </p>
+</div>
+
+<div class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden mb-8">
+  <table class="w-full text-sm">
+    <thead class="bg-ink-900 text-zinc-500 text-xs uppercase tracking-wider">
+      <tr>
+        <th class="text-left py-2 px-4 w-40">Command</th>
+        <th class="text-left py-2 px-4 w-60">Syntax</th>
+        <th class="text-left py-2 px-4">Description</th>
+        <th class="text-left py-2 px-4 w-72">Handler</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for cmd in commands %}
+        <tr class="border-t border-ink-700">
+          <td class="py-2 px-4 font-mono text-accent-300">:{{ cmd.name }}</td>
+          <td class="py-2 px-4 font-mono text-zinc-300">{{ cmd.syntax }}</td>
+          <td class="py-2 px-4 text-zinc-400">{{ cmd.description }}</td>
+          <td class="py-2 px-4 font-mono text-xs text-zinc-500 break-all">
+            {{ cmd.handler_url or '—' }}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="rounded-lg border border-ink-700 bg-ink-800 p-4 mb-8">
+  <h2 class="text-lg font-semibold mb-2">Enable command-mode</h2>
+  <p class="text-zinc-400 text-sm mb-3">
+    The JS hook ships as <code>/static/palette_command_mode.js</code> and
+    is <strong>not</strong> loaded by <code>base.html</code>. Pick one of
+    the opt-in paths below.
+  </p>
+
+  <h3 class="text-sm font-semibold text-zinc-300 mt-3">Option A &mdash; per-session via DevTools</h3>
+  <pre class="bg-ink-900 border border-ink-700 rounded p-3 text-xs font-mono overflow-x-auto"><code>const s = document.createElement("script");
+s.src = "/static/palette_command_mode.js";
+document.head.appendChild(s);</code></pre>
+  <p class="text-zinc-500 text-xs mt-1">
+    Lives until the page reloads. Useful for trying the feature without
+    editing templates.
+  </p>
+
+  <h3 class="text-sm font-semibold text-zinc-300 mt-4">Option B &mdash; persistent via a custom page</h3>
+  <p class="text-zinc-400 text-sm">
+    Add the snippet to any template that already extends
+    <code>base.html</code> &mdash; for example a bookmarklet-style
+    settings sub-page. Avoid editing <code>base.html</code> directly so
+    the activation stays opt-in.
+  </p>
+  <pre class="bg-ink-900 border border-ink-700 rounded p-3 text-xs font-mono overflow-x-auto mt-2"><code>&lt;script src="/static/palette_command_mode.js" defer&gt;&lt;/script&gt;</code></pre>
+</div>
+
+<div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+  <h2 class="text-lg font-semibold mb-2">Try it from the CLI</h2>
+  <pre class="bg-ink-900 border border-ink-700 rounded p-3 text-xs font-mono overflow-x-auto"><code>curl -sX POST http://127.0.0.1:8000/api/palette/command \
+  -H 'Content-Type: application/json' \
+  -d '{"input": ":help"}'</code></pre>
+  <p class="text-zinc-500 text-xs mt-2">
+    The same endpoint the JS hook posts to &mdash; useful for smoke
+    tests after a deploy.
+  </p>
+</div>
+{% endblock %}

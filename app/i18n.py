@@ -46,7 +46,7 @@ TRANSLATIONS_DIR: Final[Path] = Path(__file__).parent / "translations"
 # dropping ``{code}.json`` into :data:`TRANSLATIONS_DIR` AND adding the
 # code here — the dual gate stops typos in kv from silently selecting a
 # file that doesn't exist.
-SUPPORTED_LANGUAGES: Final[frozenset[str]] = frozenset({"en", "ru"})
+SUPPORTED_LANGUAGES: Final[frozenset[str]] = frozenset({"en", "ru", "de"})
 DEFAULT_LANGUAGE: Final[str] = "en"
 
 # kv key shared with :mod:`app.web.routes.settings` (the language

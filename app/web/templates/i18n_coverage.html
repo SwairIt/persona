@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">i18n coverage</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Per-language key counts and missing keys, baseline
+    <span class="font-mono">{{ baseline_lang }}</span>
+    ({{ baseline_total }} keys).
+  </p>
+  <p class="text-zinc-600 text-xs mt-1">
+    Supported:
+    {% for code in supported_languages %}
+      <span class="font-mono text-zinc-400">{{ code }}</span>{% if not loop.last %}, {% endif %}
+    {% endfor %}.
+    Missing keys silently fall back to English at render time.
+  </p>
+</div>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden mb-6">
+  <table class="w-full text-sm">
+    <thead class="bg-ink-900 text-xs uppercase tracking-widest text-zinc-500">
+      <tr>
+        <th class="px-4 py-2 text-left">Language</th>
+        <th class="px-4 py-2 text-right">Keys</th>
+        <th class="px-4 py-2 text-right">Missing</th>
+        <th class="px-4 py-2 text-right">Coverage</th>
+        <th class="px-4 py-2 text-left">Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+        <tr class="border-t border-ink-700/60">
+          <td class="px-4 py-2 font-mono text-zinc-200">
+            {{ row.lang }}
+            {% if row.is_base %}
+              <span class="ml-2 text-xs text-zinc-500">(baseline)</span>
+            {% endif %}
+          </td>
+          <td class="px-4 py-2 text-right font-mono text-zinc-300">{{ row.total }}</td>
+          <td class="px-4 py-2 text-right font-mono
+                     {% if row.missing_count == 0 %}text-emerald-400{% else %}text-amber-400{% endif %}">
+            {{ row.missing_count }}
+          </td>
+          <td class="px-4 py-2 text-right font-mono
+                     {% if row.coverage_pct == 100.0 %}text-emerald-400{% else %}text-amber-400{% endif %}">
+            {{ '%.1f'|format(row.coverage_pct) }}%
+          </td>
+          <td class="px-4 py-2">
+            {% if not row.supported %}
+              <span class="text-xs font-mono text-zinc-600">loaded but not whitelisted</span>
+            {% elif row.missing_count == 0 %}
+              <span class="text-xs font-mono text-emerald-400">complete</span>
+            {% else %}
+              <span class="text-xs font-mono text-amber-400">partial</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+{% for row in rows %}
+  {% if row.missing_count > 0 %}
+    <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-4">
+      <h2 class="text-base font-semibold mb-2">
+        Missing in <span class="font-mono">{{ row.lang }}</span>
+        <span class="text-zinc-500 text-sm font-normal">
+          ({{ row.missing_count }} of {{ baseline_total }})
+        </span>
+      </h2>
+      <ul class="grid sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-1 text-xs font-mono text-zinc-400">
+        {% for key in row.missing %}
+          <li class="truncate">{{ key }}</li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% endif %}
+{% endfor %}
+
+{% if rows|selectattr('missing_count', 'gt', 0)|list|length == 0 %}
+  <p class="text-zinc-500 text-sm">All loaded locales are fully covered against the baseline.</p>
+{% endif %}
+{% endblock %}

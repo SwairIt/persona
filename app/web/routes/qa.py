@@ -6,6 +6,7 @@ from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from app.llm import LLMNotConfigured, ask
+from app.web.routes.chrono_parse import router as chrono_parse_router
 from app.web.routes.qa_stream import router as qa_stream_router
 from app.web.templates_engine import templates
 
@@ -14,6 +15,10 @@ router = APIRouter(tags=["qa"])
 # router so main.py's existing ``include_router(qa_routes.router)`` call
 # picks it up without modification.
 router.include_router(qa_stream_router)
+# Same trick for the GET /api/chrono/{parse,preview} natural-date
+# helpers so they share the /ask route's registration without touching
+# app.web.main.
+router.include_router(chrono_parse_router)
 
 
 @router.get("/ask", response_class=HTMLResponse)
