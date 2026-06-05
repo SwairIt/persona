@@ -1,0 +1,264 @@
+{# Consolidated health-dashboard inner partial.
+
+   Re-rendered every 30s by HTMX (#health-root in health_dashboard.html).
+   Receives the full ``health`` dict from
+   :func:`app.health_dashboard.build_health_state`. #}
+
+{% set hs = health %}
+
+{# --------------------- Top summary row --------------------- #}
+<div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Захват</div>
+    {% if hs.capture_status.state == 'running' %}
+      <div class="text-2xl font-bold mt-1 text-emerald-400">running</div>
+    {% else %}
+      <div class="text-2xl font-bold mt-1 text-rose-400">paused</div>
+    {% endif %}
+    <div class="text-xs text-zinc-500 mt-2 font-mono">
+      {% if hs.capture_status.last_shot_seconds_ago is none %}
+        нет снимков
+      {% else %}
+        последний {{ '%.1f'|format(hs.capture_status.last_shot_seconds_ago) }}s назад
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Воркеры</div>
+    <div class="text-2xl font-bold mt-1 text-zinc-100">{{ hs.workers | length }}</div>
+    <div class="text-xs mt-2 font-mono">
+      <span class="text-emerald-400">● {{ hs.workers_summary.green }}</span>
+      <span class="text-amber-400 ml-2">● {{ hs.workers_summary.yellow }}</span>
+      <span class="text-rose-400 ml-2">● {{ hs.workers_summary.red }}</span>
+    </div>
+  </div>
+
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Throttle</div>
+    {% set lvl = hs.budget.throttle_level %}
+    {% if lvl == 0 %}
+      {% set lvl_cls = 'text-emerald-400' %}
+      {% set lvl_label = 'normal' %}
+    {% elif lvl == 1 %}
+      {% set lvl_cls = 'text-amber-400' %}
+      {% set lvl_label = 'mild' %}
+    {% elif lvl == 2 %}
+      {% set lvl_cls = 'text-orange-400' %}
+      {% set lvl_label = 'strict' %}
+    {% else %}
+      {% set lvl_cls = 'text-rose-400' %}
+      {% set lvl_label = 'emergency' %}
+    {% endif %}
+    <div class="text-2xl font-bold mt-1 {{ lvl_cls }}">{{ lvl }} · {{ lvl_label }}</div>
+    <div class="text-xs text-zinc-500 mt-2 font-mono">{{ '%.1f'|format(hs.budget.percent_used) }}% от лимита</div>
+  </div>
+
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">БД</div>
+    <div class="text-2xl font-bold mt-1 text-zinc-100">
+      {{ '%.1f'|format(hs.db_stats.db_size_bytes / 1024 / 1024) }} MB
+    </div>
+    <div class="text-xs text-zinc-500 mt-2 font-mono">{{ hs.db_stats.total_screenshots }} shots · {{ hs.db_stats.total_notes }} notes</div>
+  </div>
+</div>
+
+{# --------------------- Workers grid --------------------- #}
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
+  <h2 class="text-lg font-semibold mb-4">Воркеры — heartbeat</h2>
+  {% if hs.workers %}
+    <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+      {% for row in hs.workers %}
+        {% if row.status == 'green' %}
+          {% set dot_classes = 'bg-emerald-400 shadow-emerald-400/50' %}
+          {% set badge_classes = 'bg-emerald-400/15 text-emerald-400 ring-1 ring-emerald-400/30' %}
+          {% set status_label = 'fresh' %}
+        {% elif row.status == 'yellow' %}
+          {% set dot_classes = 'bg-amber-400 shadow-amber-400/50' %}
+          {% set badge_classes = 'bg-amber-400/15 text-amber-400 ring-1 ring-amber-400/30' %}
+          {% set status_label = 'stale' %}
+        {% else %}
+          {% set dot_classes = 'bg-rose-400 shadow-rose-400/50' %}
+          {% set badge_classes = 'bg-rose-400/15 text-rose-400 ring-1 ring-rose-400/30' %}
+          {% set status_label = 'stopped' %}
+        {% endif %}
+        <article class="rounded-md border border-ink-700/80 bg-ink-900/60 p-4">
+          <header class="flex items-center justify-between gap-3 mb-3">
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="inline-block w-2.5 h-2.5 rounded-full shadow {{ dot_classes }}"></span>
+              <span class="font-mono text-sm text-zinc-200 truncate" title="{{ row.name }}">{{ row.name }}</span>
+            </div>
+            <span class="inline-flex items-center justify-center rounded px-2 py-0.5 text-[10px] font-mono font-bold uppercase tracking-wider {{ badge_classes }}">
+              {{ status_label }}
+            </span>
+          </header>
+          <dl class="text-xs text-zinc-400 space-y-1.5">
+            <div class="flex items-baseline justify-between gap-2">
+              <dt class="text-zinc-500">Last beat</dt>
+              <dd class="font-mono text-zinc-300 truncate" title="{{ row.last_heartbeat_iso }}">{{ row.last_heartbeat_iso }}</dd>
+            </div>
+            <div class="flex items-baseline justify-between gap-2">
+              <dt class="text-zinc-500">Age</dt>
+              <dd class="font-mono text-zinc-300">
+                {% if row.seconds_since < 0 %}—{% else %}{{ '%.1f'|format(row.seconds_since) }}s{% endif %}
+              </dd>
+            </div>
+            <div class="flex items-baseline justify-between gap-2">
+              <dt class="text-zinc-500">Status</dt>
+              <dd class="font-mono text-zinc-300">{{ row.last_status or '—' }}</dd>
+            </div>
+            <div class="flex items-baseline justify-between gap-2">
+              <dt class="text-zinc-500">Ticks</dt>
+              <dd class="font-mono text-zinc-300">{{ row.ticks }}</dd>
+            </div>
+          </dl>
+        </article>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="text-sm text-zinc-500">
+      Нет записей heartbeat. Воркеры доложатся на следующем тике.
+    </p>
+  {% endif %}
+</section>
+
+{# --------------------- DB stats + Budget --------------------- #}
+<div class="grid lg:grid-cols-2 gap-4 mb-6">
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <h2 class="text-lg font-semibold mb-4">База данных</h2>
+    <dl class="text-sm text-zinc-300 space-y-2">
+      <div class="flex items-baseline justify-between">
+        <dt class="text-zinc-500">Скриншотов</dt>
+        <dd class="font-mono">{{ hs.db_stats.total_screenshots }}</dd>
+      </div>
+      <div class="flex items-baseline justify-between">
+        <dt class="text-zinc-500">Аудиосегментов</dt>
+        <dd class="font-mono">{{ hs.db_stats.total_audio_segments }}</dd>
+      </div>
+      <div class="flex items-baseline justify-between">
+        <dt class="text-zinc-500">Заметок</dt>
+        <dd class="font-mono">{{ hs.db_stats.total_notes }}</dd>
+      </div>
+      <div class="flex items-baseline justify-between">
+        <dt class="text-zinc-500">Размер БД</dt>
+        <dd class="font-mono">
+          {{ hs.db_stats.db_size_bytes }} B
+          ({{ '%.2f'|format(hs.db_stats.db_size_bytes / 1024 / 1024) }} MB)
+        </dd>
+      </div>
+    </dl>
+  </section>
+
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <h2 class="text-lg font-semibold mb-4">Бюджет на сутки</h2>
+    {% set pct = hs.budget.percent_used %}
+    {% if pct >= 100.0 %}
+      {% set bar_cls = 'bg-rose-500' %}
+    {% elif pct >= 80.0 %}
+      {% set bar_cls = 'bg-amber-500' %}
+    {% else %}
+      {% set bar_cls = 'bg-emerald-500' %}
+    {% endif %}
+    {% set bar_pct = pct if pct < 100.0 else 100.0 %}
+    <div class="text-xs text-zinc-500 mb-1 font-mono">
+      {{ hs.budget.today_bytes_used }} B
+      из {{ hs.budget.daily_budget_mb_cap }} MB
+      ({{ '%.1f'|format(pct) }}%)
+    </div>
+    <div class="w-full bg-ink-900 rounded h-3 overflow-hidden ring-1 ring-ink-700">
+      <div class="h-3 {{ bar_cls }}" style="width: {{ '%.2f'|format(bar_pct) }}%;"></div>
+    </div>
+    <dl class="text-sm text-zinc-300 space-y-2 mt-4">
+      <div class="flex items-baseline justify-between">
+        <dt class="text-zinc-500">Throttle level</dt>
+        <dd class="font-mono">{{ hs.budget.throttle_level }} / 3</dd>
+      </div>
+      <div class="flex items-baseline justify-between">
+        <dt class="text-zinc-500">Захватов всего</dt>
+        <dd class="font-mono">{{ hs.capture_status.captures_total }}</dd>
+      </div>
+      <div class="flex items-baseline justify-between">
+        <dt class="text-zinc-500">Захватов с ошибкой</dt>
+        <dd class="font-mono">{{ hs.capture_status.captures_failed }}</dd>
+      </div>
+    </dl>
+  </section>
+</div>
+
+{# --------------------- Recent audit --------------------- #}
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
+  <h2 class="text-lg font-semibold mb-4">Последние действия в audit_log</h2>
+  {% if hs.recent_audit_actions %}
+    <div class="overflow-x-auto">
+      <table class="min-w-full text-xs">
+        <thead class="text-zinc-500 uppercase tracking-wider">
+          <tr>
+            <th class="text-left py-2 pr-4 font-medium">Время</th>
+            <th class="text-left py-2 pr-4 font-medium">Action</th>
+            <th class="text-left py-2 pr-4 font-medium">Actor</th>
+            <th class="text-left py-2 pr-4 font-medium">Target</th>
+            <th class="text-left py-2 pr-4 font-medium">Detail</th>
+            <th class="text-left py-2 font-medium">OK</th>
+          </tr>
+        </thead>
+        <tbody class="text-zinc-300 font-mono">
+          {% for row in hs.recent_audit_actions %}
+            <tr class="border-t border-ink-700/60">
+              <td class="py-2 pr-4 text-zinc-400">{{ row.ts }}</td>
+              <td class="py-2 pr-4">{{ row.action }}</td>
+              <td class="py-2 pr-4">{{ row.actor or '—' }}</td>
+              <td class="py-2 pr-4 truncate max-w-[12rem]" title="{{ row.target or '' }}">{{ row.target or '—' }}</td>
+              <td class="py-2 pr-4 truncate max-w-[16rem]" title="{{ row.detail or '' }}">{{ row.detail or '—' }}</td>
+              <td class="py-2">
+                {% if row.success %}
+                  <span class="text-emerald-400">✓</span>
+                {% else %}
+                  <span class="text-rose-400">✗</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="text-sm text-zinc-500">audit_log пуст или недоступен.</p>
+  {% endif %}
+</section>
+
+{# --------------------- Feature flags --------------------- #}
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
+  <h2 class="text-lg font-semibold mb-4">Feature flags (kv_settings · *_enabled)</h2>
+  {% if hs.feature_flags %}
+    <div class="overflow-x-auto">
+      <table class="min-w-full text-xs">
+        <thead class="text-zinc-500 uppercase tracking-wider">
+          <tr>
+            <th class="text-left py-2 pr-4 font-medium">Key</th>
+            <th class="text-left py-2 font-medium">Value</th>
+          </tr>
+        </thead>
+        <tbody class="text-zinc-300 font-mono">
+          {% for flag in hs.feature_flags %}
+            <tr class="border-t border-ink-700/60">
+              <td class="py-2 pr-4">{{ flag.key }}</td>
+              <td class="py-2">
+                {% if flag.value in ('1', 'true', 'True', 'on', 'yes') %}
+                  <span class="text-emerald-400">{{ flag.value }}</span>
+                {% elif flag.value in ('0', 'false', 'False', 'off', 'no') %}
+                  <span class="text-rose-400">{{ flag.value }}</span>
+                {% else %}
+                  {{ flag.value }}
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="text-sm text-zinc-500">Нет ключей <code>*_enabled</code> в kv_settings.</p>
+  {% endif %}
+</section>
+
+<p class="text-xs text-zinc-600 font-mono">snapshot: {{ hs.now_iso }}</p>

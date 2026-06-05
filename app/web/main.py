@@ -367,6 +367,9 @@ from app.web.routes import (
     now_dashboard as now_dashboard_routes,
     email_weekly_digest_settings as email_weekly_digest_settings_routes,
     memory_of_day_settings as memory_of_day_settings_routes,
+    health_dashboard as health_dashboard_routes,
+    heartbeat_alerts as heartbeat_alerts_routes,
+    db_integrity as db_integrity_routes,
 )
 from app.workers import (
     get_controller,
@@ -416,7 +419,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.60.0",
+        version="1.61.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -745,6 +748,9 @@ def create_app() -> FastAPI:
     app.include_router(now_dashboard_routes.router)
     app.include_router(email_weekly_digest_settings_routes.router)
     app.include_router(memory_of_day_settings_routes.router)
+    app.include_router(health_dashboard_routes.router)
+    app.include_router(heartbeat_alerts_routes.router)
+    app.include_router(db_integrity_routes.router)
     app.include_router(sticky_search_routes.router)
     app.include_router(audit_replay_routes.router)
     app.include_router(tag_gallery_routes.router)
@@ -962,6 +968,20 @@ async def _run_memory_of_day_worker(controller: object) -> None:
     await run_memory_of_day_worker()
 
 
+async def _run_heartbeat_alert_worker(controller: object) -> None:
+    """Adapter for the v1.61 worker-heartbeat gap-alert pusher."""
+    from app.workers.heartbeat_alert_worker import run_heartbeat_alert_worker  # noqa: PLC0415
+
+    await run_heartbeat_alert_worker()
+
+
+async def _run_db_integrity_worker(controller: object) -> None:
+    """Adapter for the v1.61 nightly DB quick-check + analyze worker."""
+    from app.workers.db_integrity_worker import run_db_integrity_worker  # noqa: PLC0415
+
+    await run_db_integrity_worker()
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialise DB, start workers, and tear them down on shutdown."""
@@ -1077,6 +1097,14 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         asyncio.create_task(
             _run_memory_of_day_worker(controller),
             name="memory-of-day-worker",
+        ),
+        asyncio.create_task(
+            _run_heartbeat_alert_worker(controller),
+            name="heartbeat-alert-worker",
+        ),
+        asyncio.create_task(
+            _run_db_integrity_worker(controller),
+            name="db-integrity-worker",
         ),
     ]
 

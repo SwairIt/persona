@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="flex items-start justify-between mb-6 gap-4 flex-wrap">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Worker heartbeats</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Workers whose gap since the last heartbeat exceeds three times
+      their expected poll cadence are flagged as
+      <span class="text-rose-400 font-mono">stopped</span>; workers
+      with no heartbeat row at all are
+      <span class="text-amber-400 font-mono">unknown</span>; everything
+      else is <span class="text-emerald-400 font-mono">ok</span>.
+      Alerts dedupe per worker for one hour — clear dedupe to re-arm.
+    </p>
+  </div>
+  <div class="flex items-center gap-2">
+    <a href="/api/heartbeat-alerts.json"
+       class="px-3 py-1.5 rounded-md text-sm bg-ink-800 hover:bg-ink-700 text-zinc-300 font-mono">
+      JSON
+    </a>
+    <a href="/admin/health"
+       class="px-3 py-1.5 rounded-md text-sm bg-ink-800 hover:bg-ink-700 text-zinc-300">
+      Health dashboard
+    </a>
+    <form action="/api/heartbeat-alerts/clear-dedupe" method="post">
+      <button type="submit"
+              class="px-3 py-1.5 rounded-md text-sm bg-amber-600 hover:bg-amber-500 text-white">
+        Clear dedupe
+      </button>
+    </form>
+    <button onclick="window.location.reload()"
+            class="px-3 py-1.5 rounded-md text-sm bg-accent-600 hover:bg-accent-500 text-white">
+      Refresh
+    </button>
+  </div>
+</div>
+
+<div class="grid sm:grid-cols-4 gap-4 mb-6">
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Tracked</div>
+    <div class="text-3xl font-bold mt-1 text-zinc-200">{{ summary.tracked }}</div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Stopped</div>
+    <div class="text-3xl font-bold mt-1 text-rose-400">{{ summary.stopped }}</div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Unknown</div>
+    <div class="text-3xl font-bold mt-1 text-amber-400">{{ summary.unknown }}</div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Alerts pending</div>
+    <div class="text-3xl font-bold mt-1 text-amber-300">{{ summary.pending }}</div>
+  </div>
+</div>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6 overflow-x-auto">
+  <h2 class="text-lg font-semibold mb-4">Workers</h2>
+  {% if rows %}
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="text-xs uppercase tracking-widest text-zinc-500 border-b border-ink-700">
+          <th class="text-left py-2 pr-3">Worker</th>
+          <th class="text-right py-2 px-3">Expected poll</th>
+          <th class="text-right py-2 px-3">Gap</th>
+          <th class="text-right py-2 px-3">Threshold</th>
+          <th class="text-left py-2 px-3">Last beat</th>
+          <th class="text-left py-2 px-3">Last alert</th>
+          <th class="text-center py-2 pl-3">Status</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-ink-700/60">
+        {% for row in rows %}
+          {% if row.status == 'ok' %}
+            {% set badge_classes = 'bg-emerald-400/15 text-emerald-400 ring-1 ring-emerald-400/30' %}
+          {% elif row.status == 'unknown' %}
+            {% set badge_classes = 'bg-amber-400/15 text-amber-400 ring-1 ring-amber-400/30' %}
+          {% else %}
+            {% set badge_classes = 'bg-rose-400/15 text-rose-400 ring-1 ring-rose-400/30' %}
+          {% endif %}
+          <tr class="hover:bg-ink-900/40">
+            <td class="py-2 pr-3 font-mono text-zinc-200">{{ row.worker }}</td>
+            <td class="py-2 px-3 text-right font-mono text-zinc-300">{{ row.expected_poll_seconds }}s</td>
+            <td class="py-2 px-3 text-right font-mono text-zinc-300">
+              {% if row.gap_seconds is none %}—{% else %}{{ '%.1f'|format(row.gap_seconds) }}s{% endif %}
+            </td>
+            <td class="py-2 px-3 text-right font-mono text-zinc-500">{{ '%.0f'|format(row.threshold_seconds) }}s</td>
+            <td class="py-2 px-3 font-mono text-zinc-400 truncate" title="{{ row.last_beat_at or '' }}">
+              {{ row.last_beat_at or '—' }}
+            </td>
+            <td class="py-2 px-3 font-mono text-zinc-400 truncate" title="{{ row.last_alerted_at or '' }}">
+              {% if row.last_alerted_at %}
+                {{ row.last_alerted_at }}{% if row.should_alert %} <span class="text-amber-400">(re-arm pending)</span>{% endif %}
+              {% else %}
+                {% if row.should_alert %}<span class="text-amber-400">pending</span>{% else %}—{% endif %}
+              {% endif %}
+            </td>
+            <td class="py-2 pl-3 text-center">
+              <span class="inline-flex items-center justify-center rounded px-2 py-0.5 text-[10px] font-mono font-bold uppercase tracking-wider {{ badge_classes }}">
+                {{ row.status }}
+              </span>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="text-sm text-zinc-500">
+      No tracked workers — :data:`EXPECTED_POLL_INTERVALS` is empty.
+      Add entries to <code class="font-mono">app/worker_heartbeat_monitor.py</code>
+      to populate this view.
+    </p>
+  {% endif %}
+</section>
+
+<p class="text-xs text-zinc-600 font-mono">snapshot: {{ now_iso }}</p>
+{% endblock %}

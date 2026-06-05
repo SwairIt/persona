@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-start justify-between gap-4">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">DB integrity</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Раз в сутки воркер запускает <code>PRAGMA quick_check</code> +
+      <code>ANALYZE</code> и пишет результат в <code>db_integrity_run</code>.
+      Здесь можно запустить проверки руками — быструю, полную
+      (<code>integrity_check</code>, медленно) или только обновление
+      статистики планировщика.
+    </p>
+  </div>
+</div>
+
+<section class="mb-6 rounded-lg border border-ink-700 bg-ink-800 p-5 max-w-2xl">
+  <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">
+    Запустить вручную
+  </h2>
+  <div class="flex flex-wrap gap-3">
+    <button id="quick-btn" type="button"
+            class="px-4 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition disabled:opacity-50">
+      quick_check
+    </button>
+    <button id="full-btn" type="button"
+            class="px-4 py-2 bg-ink-900 border border-ink-700 hover:border-accent-500 rounded text-sm font-medium transition disabled:opacity-50">
+      integrity_check (медленно)
+    </button>
+    <button id="analyze-btn" type="button"
+            class="px-4 py-2 bg-ink-900 border border-ink-700 hover:border-accent-500 rounded text-sm font-medium transition disabled:opacity-50">
+      ANALYZE
+    </button>
+  </div>
+  <pre id="run-result" class="mt-4 text-[11px] font-mono text-zinc-400 whitespace-pre-wrap break-all hidden"></pre>
+</section>
+
+<section class="mb-6 rounded-lg border border-ink-700 bg-ink-800 p-5 max-w-3xl">
+  <div class="flex items-center justify-between gap-4 mb-3">
+    <h2 class="text-sm uppercase tracking-widest text-zinc-500">
+      История запусков
+    </h2>
+    <button id="refresh-btn" type="button"
+            class="text-xs px-3 py-1.5 rounded bg-ink-900 border border-ink-700 hover:border-accent-500 text-zinc-300">
+      обновить
+    </button>
+  </div>
+  {% if runs %}
+    <div class="overflow-x-auto">
+      <table class="w-full text-xs" id="history-table">
+        <thead>
+          <tr class="text-zinc-500 border-b border-ink-700">
+            <th class="text-left py-2 pr-3 font-normal">когда</th>
+            <th class="text-left py-2 pr-3 font-normal">тип</th>
+            <th class="text-left py-2 pr-3 font-normal">результат</th>
+            <th class="text-right py-2 pr-3 font-normal">мс</th>
+            <th class="text-right py-2 font-normal">размер БД</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for run in runs %}
+            <tr class="border-b border-ink-800/60">
+              <td class="py-2 pr-3 font-mono text-zinc-300">{{ run.ran_at }}</td>
+              <td class="py-2 pr-3 font-mono text-zinc-400">{{ run.check_kind }}</td>
+              <td class="py-2 pr-3 font-mono truncate max-w-md"
+                  title="{{ run.result }}">
+                {% if run.result == "ok" %}
+                  <span class="text-emerald-400">ok</span>
+                {% else %}
+                  <span class="text-amber-400">{{ run.result[:80] }}</span>
+                {% endif %}
+              </td>
+              <td class="py-2 pr-3 text-right tabular-nums text-zinc-400">
+                {{ run.duration_ms }}
+              </td>
+              <td class="py-2 text-right tabular-nums text-zinc-500">
+                {{ run.db_size_bytes }} B
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="text-zinc-500 text-xs">
+      Запусков ещё не было — нажмите одну из кнопок выше или дождитесь
+      ночного тика воркера.
+    </p>
+  {% endif %}
+</section>
+
+<script>
+  // Action buttons + history refresh — straight fetch() rather than
+  // htmx so we don't depend on lazily-rendered form behaviour
+  // (see project memory: htmx + Alpine-generated forms misfire).
+  (function () {
+    var resultEl = document.getElementById('run-result');
+
+    function wire(btnId, endpoint, busyLabel) {
+      var btn = document.getElementById(btnId);
+      if (!btn) return;
+      var originalLabel = btn.textContent;
+      btn.addEventListener('click', function () {
+        btn.disabled = true;
+        btn.textContent = busyLabel;
+        resultEl.classList.remove('hidden');
+        resultEl.textContent = '…';
+        fetch(endpoint, { method: 'POST' })
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            resultEl.textContent = JSON.stringify(data, null, 2);
+          })
+          .catch(function (err) {
+            resultEl.textContent =
+              'ошибка: ' + (err && err.message ? err.message : err);
+          })
+          .finally(function () {
+            btn.disabled = false;
+            btn.textContent = originalLabel;
+            // Reload after a short delay so the history table picks
+            // up the new row. Skipping the reload would leave the
+            // operator wondering whether anything actually ran.
+            setTimeout(function () { window.location.reload(); }, 1500);
+          });
+      });
+    }
+
+    wire('quick-btn', '/api/db-integrity/quick-check', 'работаю...');
+    wire('full-btn', '/api/db-integrity/full-check', 'работаю (медленно)...');
+    wire('analyze-btn', '/api/db-integrity/analyze', 'ANALYZE...');
+
+    var refreshBtn = document.getElementById('refresh-btn');
+    if (refreshBtn) {
+      refreshBtn.addEventListener('click', function () {
+        refreshBtn.disabled = true;
+        refreshBtn.textContent = 'обновляю...';
+        fetch('/api/db-integrity/history.json')
+          .then(function (r) { return r.json(); })
+          .then(function () {
+            // The JSON endpoint is the same dataset the server-rendered
+            // table came from; we reload to keep the markup canonical
+            // rather than rebuilding rows in JS.
+            window.location.reload();
+          })
+          .catch(function (err) {
+            refreshBtn.disabled = false;
+            refreshBtn.textContent = 'обновить';
+            resultEl.classList.remove('hidden');
+            resultEl.textContent =
+              'ошибка: ' + (err && err.message ? err.message : err);
+          });
+      });
+    }
+  })();
+</script>
+{% endblock %}
