@@ -46,6 +46,12 @@
             </div>
           {% endif %}
           <div class="text-zinc-300 text-sm whitespace-pre-line">{{ card.summary }}</div>
+          {% if card.llm_summary %}
+            <p class="text-zinc-200 text-sm mt-3 italic border-l-2 border-accent-600/40 pl-3 whitespace-pre-line">{{ card.llm_summary }}</p>
+            {% if card.llm_generated_at %}
+              <div class="text-zinc-600 text-xs mt-1">llm: {{ card.llm_generated_at }}</div>
+            {% endif %}
+          {% endif %}
           <div class="text-zinc-600 text-xs mt-2">source: {{ card.source }}</div>
         </article>
       {% endfor %}

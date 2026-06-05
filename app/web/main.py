@@ -320,6 +320,9 @@ from app.web.routes import (
     notifications as notifications_routes,
     tour as tour_routes,
     day_markdown_export as day_markdown_export_routes,
+    weekly_rollup_settings as weekly_rollup_settings_routes,
+    active_window_timeline as active_window_timeline_routes,
+    shot_annotation_autosave as shot_annotation_autosave_routes,
 )
 from app.workers import (
     get_controller,
@@ -369,7 +372,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.44.0",
+        version="1.45.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -651,6 +654,9 @@ def create_app() -> FastAPI:
     app.include_router(notifications_routes.router)
     app.include_router(tour_routes.router)
     app.include_router(day_markdown_export_routes.router)
+    app.include_router(weekly_rollup_settings_routes.router)
+    app.include_router(active_window_timeline_routes.router)
+    app.include_router(shot_annotation_autosave_routes.router)
     app.include_router(sticky_search_routes.router)
     app.include_router(audit_replay_routes.router)
     app.include_router(tag_gallery_routes.router)
@@ -796,6 +802,13 @@ async def _run_s3_sync_worker(controller: object) -> None:
     await run_s3_sync_worker()
 
 
+async def _run_weekly_rollup_worker(controller: object) -> None:
+    """Adapter for the v1.45 LLM weekly-rollup worker."""
+    from app.workers.weekly_rollup_worker import run_weekly_rollup_worker  # noqa: PLC0415
+
+    await run_weekly_rollup_worker()
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialise DB, start workers, and tear them down on shutdown."""
@@ -871,6 +884,10 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         asyncio.create_task(
             _run_s3_sync_worker(controller),
             name="s3-sync-worker",
+        ),
+        asyncio.create_task(
+            _run_weekly_rollup_worker(controller),
+            name="weekly-rollup-worker",
         ),
     ]
 

@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-8">
+  <h1 class="text-2xl font-bold tracking-tight">24-часовая активность</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Что было на экране каждую минуту последних 24 часов. Цвет рассчитан стабильным
+    хэшем имени приложения, наведение покажет интервал.
+  </p>
+  <p class="text-xs text-zinc-600 font-mono mt-2">
+    {{ start_iso }} → {{ anchor_iso }}
+  </p>
+</div>
+
+{# Main strip — one <rect> per run (consecutive same-app minutes). Each
+   rect is 1px-per-minute wide so the full strip is 1440px; horizontal
+   scroll handles narrow viewports without compressing the geometry. #}
+<div class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6 overflow-x-auto">
+  <svg xmlns="http://www.w3.org/2000/svg"
+       width="{{ svg_width }}"
+       height="{{ svg_height }}"
+       viewBox="0 0 {{ svg_width }} {{ svg_height }}"
+       role="img"
+       aria-label="24-часовая активность по минутам">
+    {% for run in runs %}
+      <rect x="{{ run.start_minute }}"
+            y="0"
+            width="{{ run.duration_minutes }}"
+            height="{{ svg_height }}"
+            fill="{{ run.color }}">
+        <title>{{ run.app_name }} — минуты {{ run.start_minute }}…{{ run.end_minute }} ({{ run.duration_minutes }} мин)</title>
+      </rect>
+    {% endfor %}
+  </svg>
+
+  {# Hour ruler underneath the strip — one tick label every 3 hours so
+     the axis stays legible without colliding with the per-minute grid
+     above. The labels are positioned in CSS pixels (matching the 1px
+     per minute geometry) so they line up with the strip's runs. #}
+  <div class="relative mt-1 text-[10px] text-zinc-500 font-mono select-none"
+       style="height: 14px; width: {{ svg_width }}px;">
+    {% for hour in range(0, 25, 3) %}
+      <span style="position: absolute; left: {{ hour * 60 }}px; transform: translateX(-50%);">
+        {{ '%02d:00' | format(hour % 24) }}
+      </span>
+    {% endfor %}
+  </div>
+</div>
+
+{# Top-apps legend — colour swatch, app name, total minutes spent. #}
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
+  <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">
+    Топ приложений (по минутам в окне)
+  </h2>
+  {% if top_apps %}
+    <ul class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+      {% for app in top_apps %}
+        <li class="flex items-center gap-3 rounded bg-ink-900 px-3 py-2">
+          <span class="inline-block rounded-sm shrink-0"
+                style="width: 14px; height: 14px; background-color: {{ app.color }};"
+                aria-hidden="true"></span>
+          <span class="flex-1 truncate text-sm text-zinc-200" title="{{ app.app }}">
+            {{ app.app | app_alias }}
+          </span>
+          <span class="text-xs font-mono text-zinc-500 tabular-nums">
+            {{ app.total_minutes }} мин
+          </span>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="text-sm text-zinc-500">
+      За последние 24 часа не нашлось ни одного захвата с известным приложением.
+    </p>
+  {% endif %}
+</section>
+
+{# Per-run popover list — collapsed by default, accessible via the
+   native <details> disclosure so we don't ship JS for it. Each entry
+   mirrors a single coloured rect on the strip above. #}
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
+  <details>
+    <summary class="cursor-pointer text-sm uppercase tracking-widest text-zinc-500">
+      Список интервалов ({{ runs | length }})
+    </summary>
+    <ul class="mt-3 space-y-1 text-sm font-mono">
+      {% for run in runs %}
+        <li class="flex items-center gap-3">
+          <span class="inline-block rounded-sm shrink-0"
+                style="width: 10px; height: 10px; background-color: {{ run.color }};"
+                aria-hidden="true"></span>
+          <span class="text-zinc-500 tabular-nums">
+            {{ '%02d:%02d' | format(run.start_minute // 60, run.start_minute % 60) }}–{{ '%02d:%02d' | format(((run.end_minute + 1) // 60) % 24, (run.end_minute + 1) % 60) }}
+          </span>
+          <span class="text-zinc-200 truncate" title="{{ run.app_name }}">
+            {{ run.app_name | app_alias }}
+          </span>
+          <span class="ml-auto text-zinc-500 tabular-nums">
+            {{ run.duration_minutes }} мин
+          </span>
+        </li>
+      {% endfor %}
+    </ul>
+  </details>
+</section>
+
+<p class="text-xs text-zinc-500">
+  JSON-версия:
+  <a href="/api/stats/active-window.json" class="font-mono text-accent-400 hover:underline">/api/stats/active-window.json</a>
+  · встраиваемый виджет:
+  <a href="/widget/active-window-sparkline" class="font-mono text-accent-400 hover:underline">/widget/active-window-sparkline</a>
+</p>
+{% endblock %}

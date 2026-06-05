@@ -1,0 +1,39 @@
+{# 24h active-window sparkline — HTMX-embeddable fragment.
+
+   Served by ``GET /widget/active-window-sparkline`` and intended to be
+   pulled into dashboards via ``hx-get`` + ``hx-trigger="load"``.
+   Standalone (no ``base.html`` extends) so an HTMX swap doesn't rerun
+   the page chrome.
+
+   Expects context:
+
+     * ``runs``       — list[{start_minute, end_minute, duration_minutes,
+                             app_name, color}] in chronological order.
+     * ``svg_width``  — integer pixel width of the strip (1440 = 1px per minute).
+     * ``svg_height`` — integer pixel height of the strip.
+     * ``anchor_iso`` — ISO-8601 right-edge of the 24h window (UTC).
+     * ``start_iso``  — ISO-8601 left-edge of the 24h window (UTC).
+
+   The strip emits one ``<rect>`` per run instead of one per minute so
+   the HTML stays compact even on a busy day; hover-titles surface the
+   underlying app name and duration without JS. #}
+<div class="active-window-sparkline">
+  <svg xmlns="http://www.w3.org/2000/svg"
+       width="{{ svg_width }}"
+       height="{{ svg_height }}"
+       viewBox="0 0 {{ svg_width }} {{ svg_height }}"
+       preserveAspectRatio="none"
+       role="img"
+       aria-label="24-часовая активность по минутам"
+       style="display: block; width: 100%; max-width: 100%; height: {{ svg_height }}px;">
+    {% for run in runs %}
+      <rect x="{{ run.start_minute }}"
+            y="0"
+            width="{{ run.duration_minutes }}"
+            height="{{ svg_height }}"
+            fill="{{ run.color }}">
+        <title>{{ run.app_name }} — {{ run.duration_minutes }} мин</title>
+      </rect>
+    {% endfor %}
+  </svg>
+</div>

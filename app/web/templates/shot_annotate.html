@@ -407,4 +407,133 @@
     else img.addEventListener('load', boot, { once: true });
   })();
 </script>
+
+<script>
+  // v1.22 — 2-second debounced autosave for the annotation editor.
+  //
+  // Sits on top of the existing tool JS without touching it: we watch
+  // the same ``#annotate-shapes`` subtree the manual Save button reads
+  // from, debounce 2 s after the last mutation, and POST the current
+  // SVG state to the autosave endpoint. A browser crash mid-drawing
+  // therefore loses at most ~2 seconds of work.
+  //
+  // Why a standalone IIFE instead of merging into the editor IIFE:
+  // - The existing IIFE is closed over its own ``state`` / ``shapes``
+  //   bindings; reopening it would either need an exported handle or
+  //   a refactor we are deliberately avoiding for v1.22.
+  // - DOM access is the contract — the editor renders into the stable
+  //   ids #annotate-root / #annotate-svg / #annotate-shapes, so a
+  //   sibling script can read the same nodes without coupling to
+  //   internal helpers like ``serialiseShapes``.
+  (function () {
+    'use strict';
+
+    var root = document.getElementById('annotate-root');
+    var svg = document.getElementById('annotate-svg');
+    var shapes = document.getElementById('annotate-shapes');
+    var status = document.getElementById('anno-status');
+    if (!root || !svg || !shapes) return;
+
+    var shotId = Number(root.dataset.shotId);
+    var DEBOUNCE_MS = 2000;
+    var timer = null;
+    var inFlight = false;
+    var lastSerialised = null;
+
+    function serialiseForAutosave() {
+      // Mirror the manual Save path: strip the selection outline so the
+      // payload is stable, then concatenate ``<defs>`` + shape markup.
+      Array.prototype.forEach.call(
+        shapes.querySelectorAll('[data-selected]'),
+        function (n) {
+          n.removeAttribute('data-selected');
+          n.style.outline = '';
+        }
+      );
+      var defs = svg.querySelector('defs');
+      var defsHtml = defs ? defs.outerHTML : '';
+      return defsHtml + shapes.innerHTML;
+    }
+
+    function setAutosaveStatus(text, isError) {
+      if (!status) return;
+      // The manual Save button writes the same status node; we use a
+      // less prominent style so an autosave never overwrites a fresh
+      // manual-save confirmation with a more boring "Автосохранено"
+      // line within the first second after the click. Crude but cheap.
+      status.textContent = text || '';
+      status.className =
+        'text-xs ml-2 ' + (isError ? 'text-rose-400' : 'text-zinc-400');
+    }
+
+    async function performAutosave() {
+      if (inFlight) return;
+      var payload = serialiseForAutosave();
+      // Skip when nothing has actually changed since the last successful
+      // autosave — debounce alone does not catch the "user clicked an
+      // already-selected shape and released" case.
+      if (payload === lastSerialised) return;
+      inFlight = true;
+      try {
+        var res = await fetch(
+          '/api/screenshot/' + shotId + '/annotation/autosave',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ svg_payload: payload }),
+          }
+        );
+        if (!res.ok) {
+          setAutosaveStatus('Автосохранение: ошибка ' + res.status, true);
+          return;
+        }
+        var data = await res.json();
+        lastSerialised = payload;
+        setAutosaveStatus('Автосохранено: ' + (data.updated_at || ''));
+      } catch (err) {
+        setAutosaveStatus('Автосохранение: сеть недоступна', true);
+      } finally {
+        inFlight = false;
+      }
+    }
+
+    function scheduleAutosave() {
+      if (timer !== null) window.clearTimeout(timer);
+      timer = window.setTimeout(performAutosave, DEBOUNCE_MS);
+    }
+
+    // Watch the shapes subtree for any structural change. ``childList``
+    // covers add/remove (rect/arrow/text creation, undo, clear, delete);
+    // ``attributes`` covers in-progress mouse-move resizes; ``subtree``
+    // ensures nested ``<rect>``/``<line>`` attribute updates also count.
+    var observer = new MutationObserver(scheduleAutosave);
+    observer.observe(shapes, {
+      childList: true,
+      attributes: true,
+      subtree: true,
+      characterData: true,
+    });
+
+    // Best-effort flush on tab-close so the last few seconds of edits
+    // make it to the server even when the debounce hasn't fired yet.
+    // ``sendBeacon`` is fire-and-forget so we don't block unload.
+    window.addEventListener('beforeunload', function () {
+      if (timer !== null) window.clearTimeout(timer);
+      var payload = serialiseForAutosave();
+      if (payload === lastSerialised) return;
+      try {
+        var blob = new Blob(
+          [JSON.stringify({ svg_payload: payload })],
+          { type: 'application/json' }
+        );
+        navigator.sendBeacon(
+          '/api/screenshot/' + shotId + '/annotation/autosave',
+          blob
+        );
+      } catch (e) {
+        // sendBeacon is best-effort by design; nothing to recover here.
+      }
+    });
+  })();
+</script>
 {% endblock %}

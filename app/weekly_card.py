@@ -274,7 +274,8 @@ async def list_weekly_cards(limit: int = 12) -> list[dict[str, object]]:
         cursor = await conn.execute(
             "SELECT week_start, week_end, summary, top_apps_json, "
             "       total_screens, total_voice_minutes, days_active, "
-            "       source, created_at FROM weekly_card "
+            "       source, created_at, "
+            "       llm_summary, llm_generated_at FROM weekly_card "
             "ORDER BY week_start DESC LIMIT ?",
             (int(limit),),
         )
@@ -291,6 +292,17 @@ async def list_weekly_cards(limit: int = 12) -> list[dict[str, object]]:
                     top_apps = cast("list[dict[str, int | str]]", parsed)
             except (TypeError, ValueError):
                 top_apps = []
+        # ``llm_summary`` / ``llm_generated_at`` arrived in migration
+        # 119_weekly_card_llm.sql. They are nullable so we surface them
+        # as empty strings when absent — keeps the Jinja ``{% if %}``
+        # check trivial and avoids ``None`` rendering as the literal
+        # text ``"None"`` in the page.
+        llm_raw = r["llm_summary"]
+        llm_summary = str(llm_raw).strip() if llm_raw is not None else ""
+        llm_at_raw = r["llm_generated_at"]
+        llm_generated_at = (
+            str(llm_at_raw) if llm_at_raw is not None else ""
+        )
         out.append(
             {
                 "week_start": str(r["week_start"]),
@@ -302,6 +314,8 @@ async def list_weekly_cards(limit: int = 12) -> list[dict[str, object]]:
                 "days_active": int(r["days_active"] or 0),
                 "source": str(r["source"] or "heuristic"),
                 "created_at": str(r["created_at"] or ""),
+                "llm_summary": llm_summary,
+                "llm_generated_at": llm_generated_at,
             }
         )
     return out
