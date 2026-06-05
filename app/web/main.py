@@ -364,6 +364,9 @@ from app.web.routes import (
     pinboard as pinboard_routes,
     bulk_tag as bulk_tag_routes,
     this_day_replay as this_day_replay_routes,
+    now_dashboard as now_dashboard_routes,
+    email_weekly_digest_settings as email_weekly_digest_settings_routes,
+    memory_of_day_settings as memory_of_day_settings_routes,
 )
 from app.workers import (
     get_controller,
@@ -413,7 +416,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.59.0",
+        version="1.60.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -739,6 +742,9 @@ def create_app() -> FastAPI:
     app.include_router(pinboard_routes.router)
     app.include_router(bulk_tag_routes.router)
     app.include_router(this_day_replay_routes.router)
+    app.include_router(now_dashboard_routes.router)
+    app.include_router(email_weekly_digest_settings_routes.router)
+    app.include_router(memory_of_day_settings_routes.router)
     app.include_router(sticky_search_routes.router)
     app.include_router(audit_replay_routes.router)
     app.include_router(tag_gallery_routes.router)
@@ -940,6 +946,22 @@ async def _run_smart_dedup_worker(controller: object) -> None:
     await run_smart_dedup_worker()
 
 
+async def _run_email_weekly_digest_worker(controller: object) -> None:
+    """Adapter for the v1.60 Sunday-evening weekly digest email worker."""
+    from app.workers.email_weekly_digest_worker import (  # noqa: PLC0415
+        run_email_weekly_digest_worker,
+    )
+
+    await run_email_weekly_digest_worker()
+
+
+async def _run_memory_of_day_worker(controller: object) -> None:
+    """Adapter for the v1.60 morning memory-of-the-day push worker."""
+    from app.workers.memory_of_day_worker import run_memory_of_day_worker  # noqa: PLC0415
+
+    await run_memory_of_day_worker()
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialise DB, start workers, and tear them down on shutdown."""
@@ -1047,6 +1069,14 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         asyncio.create_task(
             _run_smart_dedup_worker(controller),
             name="smart-dedup-worker",
+        ),
+        asyncio.create_task(
+            _run_email_weekly_digest_worker(controller),
+            name="email-weekly-digest-worker",
+        ),
+        asyncio.create_task(
+            _run_memory_of_day_worker(controller),
+            name="memory-of-day-worker",
         ),
     ]
 

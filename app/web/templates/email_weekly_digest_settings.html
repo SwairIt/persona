@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Еженедельный дайджест</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Воркер просыпается каждые ~30 минут. Когда местный день — воскресенье и час
+    совпадает с выбранным, он собирает HTML-письмо с обзором прошедшей недели
+    (LLM-сводка <code>weekly_card.llm_summary</code>, 5–7 подборок
+    <code>weekly_highlight</code>, дельты к той же неделе месяц назад) и
+    отправляет его через настроенный SMTP-реле.
+  </p>
+  <p class="text-zinc-500 text-xs mt-2">
+    <a href="/settings/smtp" class="hover:text-zinc-300 underline">→ настройки SMTP</a>
+    &middot;
+    <a href="/memory/highlights" class="hover:text-zinc-300 underline">подборки недели</a>
+    &middot;
+    <a href="/api/email-weekly-digest/preview.html"
+       target="_blank" rel="noopener"
+       class="hover:text-zinc-300 underline">предпросмотр письма</a>
+  </p>
+</div>
+
+<form action="/settings/email-weekly-digest" method="post"
+      class="rounded-lg border border-ink-700 bg-ink-800 p-5 space-y-5 max-w-xl">
+  <label class="block">
+    <div class="text-sm font-medium text-zinc-200 mb-1">Час срабатывания (0..23)</div>
+    <div class="text-xs text-zinc-500 mb-2">
+      По умолчанию <code>19</code> — воскресенье, ранний вечер. Письмо приходит,
+      когда неделя уже подходит к концу, но ещё есть время посмотреть подборки.
+    </div>
+    <input name="hour" type="number" min="0" max="23" value="{{ hour }}" required
+           class="w-24 px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
+  </label>
+
+  <label class="flex items-start gap-3 cursor-pointer">
+    <input type="checkbox" name="enabled" value="on" {% if enabled %}checked{% endif %}
+           class="mt-1 w-4 h-4 rounded border-ink-700 bg-ink-900 text-accent-500 focus:ring-accent-500">
+    <span>
+      <span class="text-sm font-medium text-zinc-200">Включить отправку</span>
+      <span class="block text-xs text-zinc-500 mt-0.5">
+        По умолчанию выключено. Когда выключено, воркер видит флаг и засыпает —
+        SMTP-реле не дёргается, токены LLM не тратятся.
+      </span>
+    </span>
+  </label>
+
+  <div class="pt-2 flex items-center gap-2 flex-wrap">
+    <button type="submit"
+            class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
+      сохранить
+    </button>
+    <button type="button" id="weekly-digest-send-now"
+            class="px-4 py-2 border border-ink-700 hover:border-accent-500 rounded text-sm">
+      отправить сейчас
+    </button>
+    <a href="/api/email-weekly-digest/preview.html"
+       target="_blank" rel="noopener"
+       class="px-4 py-2 border border-ink-700 hover:border-accent-500 rounded text-sm">
+      предпросмотр
+    </a>
+  </div>
+</form>
+
+<div id="weekly-digest-send-result"
+     class="mt-4 hidden rounded-lg border px-4 py-3 text-sm font-mono max-w-xl"></div>
+
+<section class="mt-6 rounded-lg border border-ink-700 bg-ink-800 p-5 max-w-xl">
+  <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">
+    Откуда дайджест берёт сигнал
+  </h2>
+  <ul class="text-zinc-400 text-xs leading-relaxed list-disc pl-5 space-y-1">
+    <li>
+      <code>weekly_card.llm_summary</code> — короткий LLM-абзац (миграция
+      <code>119_weekly_card_llm.sql</code>).
+    </li>
+    <li>
+      <code>weekly_highlight</code> — 5–7 подборок недели (миграция
+      <code>126_weekly_highlights.sql</code>).
+    </li>
+    <li>
+      Дельта к той же неделе месяц назад — четыре счётчика (shots / voice /
+      apps / notes), посчитанные параметризованными SELECT-запросами по
+      <code>screenshots</code>, <code>audio_segment</code> и <code>notes</code>.
+    </li>
+    <li>
+      Доставка через тот же SMTP-реле, что и ежедневный дайджест
+      (<a href="/settings/smtp" class="text-accent-400 hover:underline">/settings/smtp</a>).
+    </li>
+  </ul>
+  <p class="text-zinc-500 text-xs mt-3">
+    Текущая неделя: <code>{{ week_start_iso }}</code>. Маркер
+    <code>email_weekly_digest_last_fired</code> в <code>kv_settings</code>
+    гарантирует ровно одну отправку за воскресенье.
+  </p>
+</section>
+
+<script>
+  (function () {
+    const btn = document.getElementById('weekly-digest-send-now');
+    const out = document.getElementById('weekly-digest-send-result');
+    if (!btn || !out) {
+      return;
+    }
+    function paint(kind, text) {
+      out.classList.remove('hidden',
+        'border-emerald-700/40', 'bg-emerald-900/20', 'text-emerald-200',
+        'border-rose-700/40',    'bg-rose-900/20',    'text-rose-200',
+        'border-amber-700/40',   'bg-amber-900/20',   'text-amber-200');
+      const palette = {
+        ok:    ['border-emerald-700/40', 'bg-emerald-900/20', 'text-emerald-200'],
+        bad:   ['border-rose-700/40',    'bg-rose-900/20',    'text-rose-200'],
+        warn:  ['border-amber-700/40',   'bg-amber-900/20',   'text-amber-200']
+      }[kind];
+      palette.forEach(function (cls) { out.classList.add(cls); });
+      out.textContent = text;
+    }
+    btn.addEventListener('click', async function () {
+      btn.disabled = true;
+      const original = btn.textContent;
+      btn.textContent = 'отправляем...';
+      try {
+        const r = await fetch('/api/email-weekly-digest/send-now', { method: 'POST' });
+        const j = await r.json();
+        if (j.status === 'sent') {
+          paint('ok', 'Отправлено на ' + j.to);
+        } else if (j.status === 'disabled') {
+          paint('warn', 'SMTP выключен. Включите его в /settings/smtp и попробуйте снова.');
+        } else if (j.status === 'misconfigured') {
+          paint('warn', 'Не заполнены поля: ' + (j.missing || []).join(', '));
+        } else if (j.status === 'missing_dep') {
+          paint('warn', j.hint || 'Не установлен aiosmtplib.');
+        } else if (j.status === 'error') {
+          paint('bad', 'Ошибка SMTP: ' + (j.error || 'unknown'));
+        } else {
+          paint('bad', 'Неожиданный ответ: ' + JSON.stringify(j));
+        }
+      } catch (e) {
+        paint('bad', 'Сетевая ошибка: ' + (e && e.message ? e.message : e));
+      } finally {
+        btn.disabled = false;
+        btn.textContent = original;
+      }
+    });
+  })();
+</script>
+{% endblock %}

@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-center justify-between flex-wrap gap-3">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Сейчас</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Что прямо сейчас происходит — последний снимок, активное окно,
+      сегодняшние счётчики, открытые напоминания. Авто-обновление
+      каждые 10 секунд через HTMX.
+    </p>
+  </div>
+  <div class="flex items-center gap-2 text-xs">
+    <a href="/api/now.json"
+       class="px-3 py-1.5 rounded-md border border-ink-700 text-zinc-400 hover:text-zinc-100 hover:bg-ink-800 font-mono">
+      JSON
+    </a>
+    <a href="/timeline"
+       class="px-3 py-1.5 rounded-md border border-ink-700 text-zinc-400 hover:text-zinc-100 hover:bg-ink-800">
+      → таймлайн
+    </a>
+  </div>
+</div>
+
+{# The poller. `hx-trigger="every 10s"` re-fetches /api/now-fragment
+   and swaps the inner content of #now-root with the rendered partial.
+   Initial render comes from the inline include below so the page is
+   meaningful before the first poll. #}
+<div id="now-root"
+     hx-get="/api/now-fragment"
+     hx-trigger="every 10s"
+     hx-swap="innerHTML">
+  {% include "_now_fragment.html" %}
+</div>
+{% endblock %}

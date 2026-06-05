@@ -1,0 +1,217 @@
+{# Stats-grid partial — re-rendered by HTMX every 10 s.
+
+   `now` is the NowState dict from app.now_dashboard.build_now_state.
+   Kept self-contained (no `{% extends %}`) so the same template can be
+   inlined into the full page AND swapped via hx-get without dragging
+   the whole `base.html` chrome over the wire on each tick.
+#}
+
+{# ---- Hero: how long since the last screenshot ------------------------- #}
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-6 mb-6 text-center">
+  <div class="text-xs uppercase tracking-widest text-zinc-500 mb-2">
+    Последний скрин
+  </div>
+  {% if now.last_shot_ago_seconds is none %}
+    <div class="text-5xl font-mono font-bold text-zinc-500">—</div>
+    <div class="text-sm text-zinc-500 mt-2">ни одного скриншота ещё нет</div>
+  {% else %}
+    {% set sec = now.last_shot_ago_seconds %}
+    <div class="text-5xl font-mono font-bold
+                {% if sec < 30 %}text-emerald-400
+                {% elif sec < 180 %}text-zinc-100
+                {% elif sec < 600 %}text-amber-400
+                {% else %}text-rose-400{% endif %}">
+      {% if sec < 60 %}
+        {{ sec }}s
+      {% elif sec < 3600 %}
+        {{ (sec // 60) }}m {{ sec % 60 }}s
+      {% else %}
+        {{ (sec // 3600) }}h {{ ((sec % 3600) // 60) }}m
+      {% endif %}
+    </div>
+    <div class="text-sm text-zinc-400 mt-2">
+      {% if now.active_app %}
+        <span class="text-zinc-200 font-medium">{{ now.active_app | app_alias }}</span>
+      {% else %}
+        <span class="text-zinc-500">приложение неизвестно</span>
+      {% endif %}
+      {% if now.latest_shot and now.latest_shot.window_title %}
+        <span class="text-zinc-500"> · {{ now.latest_shot.window_title }}</span>
+      {% endif %}
+    </div>
+    {% if now.latest_shot %}
+      <div class="text-xs text-zinc-500 mt-1 font-mono">
+        снято в {{ now.latest_shot.captured_at | localtime("short") }}
+        · <a href="/screenshot/{{ now.latest_shot.id }}"
+             class="hover:text-accent-400 underline decoration-dotted">#{{ now.latest_shot.id }}</a>
+      </div>
+    {% endif %}
+  {% endif %}
+</section>
+
+{# ---- Status pills ----------------------------------------------------- #}
+<div class="flex flex-wrap gap-2 mb-6 text-xs">
+  {# capture #}
+  {% if now.capture_paused %}
+    <span class="px-3 py-1.5 rounded-full bg-amber-900/40 text-amber-300 border border-amber-700/40">
+      <span class="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 mr-1.5 align-middle"></span>
+      capture paused
+    </span>
+  {% else %}
+    <span class="px-3 py-1.5 rounded-full bg-emerald-900/30 text-emerald-300 border border-emerald-700/40">
+      <span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 mr-1.5 align-middle animate-pulse"></span>
+      capturing
+    </span>
+  {% endif %}
+
+  {# audio #}
+  {% if now.audio_paused %}
+    <span class="px-3 py-1.5 rounded-full bg-rose-900/40 text-rose-300 border border-rose-700/40">
+      🎙✕ mic paused
+    </span>
+  {% else %}
+    <span class="px-3 py-1.5 rounded-full bg-ink-700 text-zinc-300 border border-ink-600">
+      🎙 mic on
+    </span>
+  {% endif %}
+
+  {# focus #}
+  {% if now.active_focus %}
+    <span class="px-3 py-1.5 rounded-full bg-accent-600/20 text-accent-300 border border-accent-600/40">
+      ◐ focus #{{ now.active_focus.id }}
+      · {{ now.active_focus.work_minutes }}m work
+      {% if now.active_focus.label %}· {{ now.active_focus.label }}{% endif %}
+    </span>
+  {% endif %}
+
+  {# meeting #}
+  {% if now.active_meeting.enabled %}
+    <span class="px-3 py-1.5 rounded-full bg-indigo-900/40 text-indigo-300 border border-indigo-700/40">
+      🤝 meeting-pause on
+      {% if now.active_meeting.app_name %}
+        · last: {{ now.active_meeting.app_name }}
+      {% endif %}
+    </span>
+  {% endif %}
+
+  {# throttle #}
+  {% if now.throttle_level > 0 %}
+    <span class="px-3 py-1.5 rounded-full
+                 {% if now.throttle_level >= 2 %}bg-rose-900/40 text-rose-300 border border-rose-700/40
+                 {% else %}bg-amber-900/40 text-amber-300 border border-amber-700/40{% endif %}">
+      throttle L{{ now.throttle_level }}
+    </span>
+  {% endif %}
+</div>
+
+{# ---- 6-tile stats grid ----------------------------------------------- #}
+<div class="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6">
+
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">скриншоты сегодня</div>
+    <div class="text-2xl font-bold mt-1">{{ now.today_shots_count }}</div>
+  </div>
+
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">аудио сегодня</div>
+    <div class="text-2xl font-bold mt-1">
+      {% set vs = now.today_voice_seconds %}
+      {% if vs < 60 %}
+        {{ vs }}s
+      {% elif vs < 3600 %}
+        {{ (vs // 60) }}m
+      {% else %}
+        {{ "%.1f"|format(vs / 3600) }}h
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">топ-приложение</div>
+    {% if now.today_top_app %}
+      <div class="text-base font-semibold mt-1 truncate"
+           title="{{ now.today_top_app.app_name }}">
+        {{ now.today_top_app.app_name | app_alias }}
+      </div>
+      <div class="text-xs text-zinc-500">{{ now.today_top_app.count }} кадров</div>
+    {% else %}
+      <div class="text-base text-zinc-500 mt-1">—</div>
+    {% endif %}
+  </div>
+
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">фокус-сессия</div>
+    {% if now.active_focus %}
+      <div class="text-base font-semibold mt-1 text-accent-400">активна</div>
+      <div class="text-xs text-zinc-500 font-mono">
+        с {{ now.active_focus.started_at | localtime("short") }}
+      </div>
+    {% else %}
+      <div class="text-base text-zinc-500 mt-1">не запущена</div>
+      <a href="/focus" class="text-xs text-accent-400 hover:underline">→ запустить</a>
+    {% endif %}
+  </div>
+
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">митинг-пауза</div>
+    {% if now.active_meeting.enabled %}
+      <div class="text-base font-semibold mt-1 text-indigo-300">включена</div>
+      {% if now.active_meeting.started_at %}
+        <div class="text-xs text-zinc-500 font-mono">
+          с {{ now.active_meeting.started_at | localtime("short") }}
+        </div>
+      {% endif %}
+    {% else %}
+      <div class="text-base text-zinc-500 mt-1">выключена</div>
+    {% endif %}
+  </div>
+
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">бюджет / throttle</div>
+    <div class="text-base font-semibold mt-1
+                {% if now.throttle_level == 0 %}text-emerald-400
+                {% elif now.throttle_level == 1 %}text-amber-400
+                {% else %}text-rose-400{% endif %}">
+      L{{ now.throttle_level }}
+    </div>
+    <a href="/stats" class="text-xs text-accent-400 hover:underline">подробнее →</a>
+  </div>
+
+</div>
+
+{# ---- Recent reminders ------------------------------------------------- #}
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-4 mb-6">
+  <div class="flex items-center justify-between mb-3">
+    <h2 class="text-sm font-semibold tracking-wide text-zinc-300">
+      Свежие напоминания
+    </h2>
+    <a href="/reminders" class="text-xs text-accent-400 hover:underline">все →</a>
+  </div>
+  {% if now.recent_reminders %}
+    <ul class="space-y-2">
+      {% for r in now.recent_reminders %}
+        <li class="flex items-start gap-3 px-3 py-2 rounded-md border border-ink-700 bg-ink-900/50">
+          <span class="inline-block w-1.5 h-1.5 mt-1.5 rounded-full
+                       {% if r.severity == 'action' %}bg-rose-400
+                       {% elif r.severity == 'warn' %}bg-amber-400
+                       {% elif r.kind == 'ai' %}bg-accent-400
+                       {% else %}bg-zinc-500{% endif %}"></span>
+          <div class="flex-1 min-w-0">
+            <div class="text-sm text-zinc-200">{{ r.title }}</div>
+            <div class="text-xs text-zinc-500 mt-0.5 font-mono">
+              {% if r.kind == 'ai' %}ai-подсказка{% else %}todo{% endif %}
+              · {{ r.created_at | localtime("full") }}
+              {% if r.due_at %}· до {{ r.due_at }}{% endif %}
+            </div>
+          </div>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <div class="text-sm text-zinc-500 italic">пусто — день чистый</div>
+  {% endif %}
+</section>
+
+<div class="text-xs text-zinc-600 text-right font-mono">
+  обновлено {{ now.generated_at | localtime("short") }}
+</div>

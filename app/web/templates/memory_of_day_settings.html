@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Память дня</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Каждое утро в выбранный час Persona выбирает один момент из прошлого —
+    закреплённый скриншот, дневной pin или просто случайный кадр —
+    и кладёт его в колокольчик. Это не LLM, токены не тратятся.
+    Меняй час и галочку — изменения применятся к ближайшему срабатыванию
+    таймера (опрос каждые ~30 минут).
+  </p>
+</div>
+
+<form action="/settings/memory-of-day" method="post"
+      class="rounded-lg border border-ink-700 bg-ink-800 p-5 space-y-5 max-w-xl">
+  <label class="block">
+    <div class="text-sm font-medium text-zinc-200 mb-1">Час срабатывания (0..23)</div>
+    <div class="text-xs text-zinc-500 mb-2">
+      По умолчанию 9 — утро, когда ноутбук уже открыт, а внимание ещё
+      не растащено по задачам.
+    </div>
+    <input name="hour" type="number" min="0" max="23" value="{{ hour }}" required
+           class="w-24 px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
+  </label>
+
+  <label class="flex items-start gap-3 cursor-pointer">
+    <input type="checkbox" name="enabled" value="on" {% if enabled %}checked{% endif %}
+           class="mt-1 w-4 h-4 rounded border-ink-700 bg-ink-900 text-accent-500 focus:ring-accent-500">
+    <span>
+      <span class="text-sm font-medium text-zinc-200">Включить утренний push</span>
+      <span class="block text-xs text-zinc-500 mt-0.5">
+        Включено по умолчанию — функция read-only и не требует LLM.
+        Когда выключено, воркер просыпается, видит флаг и засыпает дальше.
+      </span>
+    </span>
+  </label>
+
+  <div class="pt-2">
+    <button type="submit"
+            class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
+      сохранить
+    </button>
+    <a href="/memory/replay" class="ml-3 text-sm text-zinc-400 hover:text-zinc-200">
+      → к replay
+    </a>
+  </div>
+</form>
+
+<section class="mt-6 rounded-lg border border-ink-700 bg-ink-800 p-5 max-w-xl">
+  <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">
+    Как выбирается момент
+  </h2>
+  <ol class="text-zinc-400 text-xs leading-relaxed list-decimal pl-5 space-y-1">
+    <li>Случайно перемешиваются смещения <code>1, 2, 3</code> года назад.</li>
+    <li>Для первого смещения, где есть данные, ищется
+      <strong>закреплённый</strong> скриншот на ту же календарную дату.</li>
+    <li>Если закреплённого нет — берётся <code>daily_pin</code> за тот день.</li>
+    <li>Если и его нет — случайный скриншот за ту дату.</li>
+    <li>Если данных нет совсем — push не отправляется.</li>
+  </ol>
+  <p class="text-zinc-500 text-xs mt-3">
+    Подсказки попадают в обычный колокольчик (<code>kind=memory-of-day</code>),
+    кликабельны: shot-based уходят на
+    <code>/screenshot/&lt;id&gt;</code>, дневной pin — на
+    <a href="/memory/replay" class="text-accent-400 hover:underline">/memory/replay</a>.
+  </p>
+</section>
+
+<section class="mt-6 rounded-lg border border-ink-700 bg-ink-800 p-5 max-w-xl">
+  <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">
+    Проверить вручную
+  </h2>
+  <p class="text-zinc-400 text-xs leading-relaxed mb-3">
+    Нажми, чтобы прямо сейчас выбрать момент и отправить себе одну
+    тестовую запись в колокольчик — независимо от часа и галочки.
+  </p>
+  <form action="/api/memory-of-day/test" method="post">
+    <button type="submit"
+            class="px-5 py-2 bg-ink-700 hover:bg-ink-600 rounded text-sm font-medium transition">
+      отправить тестовый push
+    </button>
+  </form>
+</section>
+{% endblock %}
