@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+
+{# Persona v1.46 — Unified-diff viewer for two OCR revisions.
+
+   The template renders ``diff.lines`` (the raw output of
+   :func:`difflib.unified_diff`) as a coloured ``<pre>`` block. Lines
+   are classified by their leading character:
+
+     * ``+++ / ---`` → file headers (muted grey)
+     * ``@@``         → hunk headers (accent purple)
+     * ``+``          → insertion (green, ``.diff-add``)
+     * ``-``          → deletion  (red,   ``.diff-sub``)
+     * everything else → context (default text colour)
+
+   No JS — pure Jinja conditionals + CSS classes so the page works
+   with JS disabled and renders identically on print. #}
+
+{% block content %}
+<style>
+  .diff-block {
+    font-family: 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
+    font-size: 0.85rem;
+    line-height: 1.45;
+    background: rgb(11 11 13);
+    border: 1px solid rgb(38 38 46);
+    border-radius: 0.55rem;
+    padding: 1rem 1.2rem;
+    overflow-x: auto;
+    white-space: pre;
+    color: rgb(212 212 216);
+    margin: 0;
+  }
+  .diff-line { display: block; padding: 0 0.4rem; min-height: 1.45em; }
+  .diff-line.diff-header  { color: rgb(113 113 122); }
+  .diff-line.diff-hunk    { color: rgb(167 139 250); background: rgb(124 58 237 / 0.08); }
+  .diff-line.diff-add     { color: rgb(134 239 172); background: rgb(34 197 94 / 0.10); }
+  .diff-line.diff-sub     { color: rgb(252 165 165); background: rgb(239 68 68 / 0.10); }
+
+  .diff-summary {
+    display: flex;
+    gap: 1.2rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+    padding: 0.9rem 1.1rem;
+    background: rgb(24 24 28);
+    border: 1px solid rgb(38 38 46);
+    border-radius: 0.55rem;
+    font-size: 0.9rem;
+    color: rgb(212 212 216);
+  }
+  .diff-summary .stat-add { color: rgb(134 239 172); font-weight: 600; }
+  .diff-summary .stat-sub { color: rgb(252 165 165); font-weight: 600; }
+  .diff-summary .stat-label { color: rgb(161 161 170); margin-right: 0.3rem; }
+
+  .empty-diff {
+    padding: 2rem;
+    text-align: center;
+    color: rgb(161 161 170);
+    background: rgb(24 24 28);
+    border: 1px dashed rgb(63 63 70);
+    border-radius: 0.55rem;
+  }
+</style>
+
+<div class="px-4 sm:px-6 lg:px-8 py-6 max-w-7xl mx-auto">
+  <header class="mb-5">
+    <h1 class="text-2xl font-semibold text-zinc-100">
+      OCR diff — скриншот #{{ shot_id }}
+    </h1>
+    <p class="text-zinc-400 mt-1 text-sm">
+      Сравнение ревизии <span class="text-zinc-200">#{{ rev_id_a }}</span>
+      → <span class="text-zinc-200">#{{ rev_id_b }}</span>.
+      <a href="/screenshot/{{ shot_id }}/ocr-history"
+         class="text-accent-400 hover:underline">← Назад к истории</a>
+      ·
+      <a href="/api/screenshot/{{ shot_id }}/ocr-diff.json?a={{ rev_id_a }}&b={{ rev_id_b }}"
+         class="text-accent-400 hover:underline">JSON</a>
+    </p>
+  </header>
+
+  <div class="diff-summary">
+    <span><span class="stat-label">Добавлено:</span><span class="stat-add">+{{ diff.additions }}</span></span>
+    <span><span class="stat-label">Удалено:</span><span class="stat-sub">-{{ diff.deletions }}</span></span>
+    <span><span class="stat-label">Всего строк в diff:</span>{{ diff.lines|length }}</span>
+  </div>
+
+  {% if diff.lines %}
+    <pre class="diff-block"><code>{%- for line in diff.lines -%}
+{%- if line.startswith('+++') or line.startswith('---') -%}
+<span class="diff-line diff-header">{{ line }}</span>
+{%- elif line.startswith('@@') -%}
+<span class="diff-line diff-hunk">{{ line }}</span>
+{%- elif line.startswith('+') -%}
+<span class="diff-line diff-add">{{ line }}</span>
+{%- elif line.startswith('-') -%}
+<span class="diff-line diff-sub">{{ line }}</span>
+{%- else -%}
+<span class="diff-line">{{ line }}</span>
+{%- endif -%}
+{%- endfor -%}</code></pre>
+  {% else %}
+    <div class="empty-diff">
+      <p class="text-base mb-1">Ревизии идентичны — diff пустой.</p>
+      <p class="text-sm">
+        Это нормально, если OCR-pipeline дал тот же результат при ре-ране.
+      </p>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

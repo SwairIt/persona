@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+
+{# Image-similarity duplicate finder admin page.
+
+   Renders a scan form on top and a result block below. The result
+   block is server-rendered (POST /api/dup-finder/scan re-renders the
+   whole page with ``result`` populated) so the operator can deep-link
+   the URL for a colleague — no SPA state to lose.
+
+   Group action "Delete others, keep K" is wired via a small inline
+   ``fetch()`` to /api/dup-finder/delete-group: htmx would work too,
+   but lazily-rendered forms inside an Alpine/HTMX page have a known
+   bug in this codebase (see MEMORY: htmx-misses-Alpine-generated-forms),
+   so we keep the action explicit. #}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight flex items-center gap-3">
+    <span class="text-sky-400">▦</span> Поиск дублей
+  </h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Сканирует историю скриншотов и группирует кадры, которые выглядят почти одинаково,
+    даже если дедуп-хэш в момент захвата их пропустил. Группы можно прорежать вручную —
+    остаётся «keep» кадр, остальные мягко удаляются (deleted_at, без физического сноса).
+  </p>
+</div>
+
+<form method="post"
+      action="/api/dup-finder/scan"
+      class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6 grid grid-cols-1 sm:grid-cols-4 gap-4 items-end">
+  <label class="block">
+    <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">
+      Hamming threshold
+    </span>
+    <input name="threshold" type="number" min="0" max="32"
+           value="{{ default_threshold }}"
+           class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm focus:outline-none focus:border-sky-500">
+    <span class="text-[10px] text-zinc-500 mt-1 block">
+      6–8 — типичный диапазон. Выше = больше ложных срабатываний.
+    </span>
+  </label>
+  <label class="block">
+    <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">
+      Lookback (days)
+    </span>
+    <input name="lookback_days" type="number" min="1" max="3650"
+           value="{{ default_lookback_days }}"
+           class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm focus:outline-none focus:border-sky-500">
+  </label>
+  <label class="block">
+    <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">
+      Max groups
+    </span>
+    <input name="limit" type="number" min="1" max="500"
+           value="{{ default_limit }}"
+           class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm focus:outline-none focus:border-sky-500">
+  </label>
+  <button type="submit"
+          class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded text-sm font-medium">
+    Запустить скан
+  </button>
+</form>
+
+{% if result is none %}
+  <div class="rounded-lg border border-ink-700 bg-ink-900/40 p-6 text-sm text-zinc-500">
+    Нажмите «Запустить скан», чтобы найти подозрительные дубликаты.
+    Скан только читает БД — ничего не удаляется без отдельного подтверждения по группе.
+  </div>
+{% else %}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4 mb-6 flex flex-wrap gap-4 text-sm">
+    <span><span class="text-zinc-500">Просканировано:</span>
+      <span class="font-mono text-zinc-100">{{ result.scanned }}</span></span>
+    <span><span class="text-zinc-500">Кандидатов:</span>
+      <span class="font-mono text-zinc-100">{{ result.candidates_total }}</span></span>
+    <span><span class="text-zinc-500">Групп:</span>
+      <span class="font-mono text-zinc-100">{{ result.groups | length }}</span></span>
+  </div>
+
+  {% if not result.groups %}
+    <div class="rounded-lg border border-emerald-700/40 bg-emerald-900/10 p-6 text-sm text-emerald-300">
+      Подозрительных дубликатов не найдено в заданном окне.
+    </div>
+  {% else %}
+    <div class="space-y-4">
+      {% for group in result.groups %}
+        <article id="dup-group-{{ loop.index }}"
+                 class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+          <header class="flex flex-wrap items-center justify-between gap-3 mb-3">
+            <div class="text-sm">
+              <span class="text-zinc-500">Группа #{{ loop.index }}</span>
+              <span class="ml-2 text-zinc-300">{{ group.count }} кадров</span>
+              <span class="ml-2 text-zinc-500 font-mono text-xs">{{ group.first_captured_at }}</span>
+            </div>
+            <button type="button"
+                    data-dup-delete
+                    data-keep-id="{{ group.suggested_keep_id }}"
+                    data-delete-ids='{{ group.shot_ids | tojson }}'
+                    data-group-index="{{ loop.index }}"
+                    class="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded text-xs font-medium">
+              Удалить остальные, оставить #{{ group.suggested_keep_id }}
+            </button>
+          </header>
+          <div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
+            {% for shot in group.shots %}
+              <a href="/screenshot/{{ shot.id }}"
+                 class="block rounded overflow-hidden border
+                        {% if shot.id == group.suggested_keep_id %}border-emerald-500{% else %}border-ink-700 hover:border-sky-500{% endif %}
+                        transition group"
+                 title="{{ shot.app_name or '—' }} · {{ shot.captured_at }}">
+                {% if shot.thumbnail_url %}
+                  <div class="aspect-video bg-ink-900 overflow-hidden">
+                    <img src="{{ shot.thumbnail_url }}"
+                         alt=""
+                         loading="lazy"
+                         class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300">
+                  </div>
+                {% else %}
+                  <div class="aspect-video bg-ink-900 flex items-center justify-center text-zinc-600 text-[10px]">
+                    нет миниатюры
+                  </div>
+                {% endif %}
+                <div class="px-1.5 py-1 flex items-center justify-between gap-1">
+                  <span class="text-[10px] text-zinc-400 font-mono truncate">#{{ shot.id }}</span>
+                  {% if shot.id == group.suggested_keep_id %}
+                    <span class="text-[9px] px-1 py-0.5 rounded bg-emerald-500/15 text-emerald-300">keep</span>
+                  {% endif %}
+                </div>
+              </a>
+            {% endfor %}
+          </div>
+          <p data-dup-status class="text-xs text-zinc-500 mt-3 hidden"></p>
+        </article>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endif %}
+
+<script>
+  // Wire every "Delete others, keep K" button to a fetch() that posts
+  // the JSON body the route expects, then hides the group on success.
+  document.querySelectorAll('[data-dup-delete]').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      var keepId = parseInt(btn.getAttribute('data-keep-id'), 10);
+      var ids;
+      try {
+        ids = JSON.parse(btn.getAttribute('data-delete-ids') || '[]');
+      } catch (err) {
+        ids = [];
+      }
+      if (!ids.length) { return; }
+      var groupIndex = btn.getAttribute('data-group-index');
+      var article = document.getElementById('dup-group-' + groupIndex);
+      var status = article ? article.querySelector('[data-dup-status]') : null;
+      btn.disabled = true;
+      btn.textContent = 'Удаляю...';
+      try {
+        var resp = await fetch('/api/dup-finder/delete-group', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ keep_id: keepId, delete_ids: ids }),
+        });
+        if (!resp.ok) {
+          throw new Error('HTTP ' + resp.status);
+        }
+        var data = await resp.json();
+        if (status) {
+          status.classList.remove('hidden');
+          status.textContent = 'Soft-deleted: ' + data.deleted + ' shot(s). Keep id: #' + keepId + '.';
+        }
+        btn.textContent = 'Удалено (' + data.deleted + ')';
+        btn.classList.remove('bg-rose-600', 'hover:bg-rose-500');
+        btn.classList.add('bg-zinc-700');
+      } catch (err) {
+        if (status) {
+          status.classList.remove('hidden');
+          status.textContent = 'Ошибка: ' + (err && err.message ? err.message : 'unknown');
+        }
+        btn.disabled = false;
+        btn.textContent = 'Повторить';
+      }
+    });
+  });
+</script>
+{% endblock %}

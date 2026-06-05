@@ -331,6 +331,8 @@ from app.web.routes import (
     tag_stats as tag_stats_routes,
     redaction_preview as redaction_preview_routes,
     capture_sessions as capture_sessions_routes,
+    weekly_highlights as weekly_highlights_routes,
+    dup_finder as dup_finder_routes,
 )
 from app.workers import (
     get_controller,
@@ -380,7 +382,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.48.0",
+        version="1.49.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -673,6 +675,8 @@ def create_app() -> FastAPI:
     app.include_router(tag_stats_routes.router)
     app.include_router(redaction_preview_routes.router)
     app.include_router(capture_sessions_routes.router)
+    app.include_router(weekly_highlights_routes.router)
+    app.include_router(dup_finder_routes.router)
     app.include_router(sticky_search_routes.router)
     app.include_router(audit_replay_routes.router)
     app.include_router(tag_gallery_routes.router)

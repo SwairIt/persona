@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-8">
+  <h1 class="text-2xl font-bold tracking-tight">Highlights</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    5-7 standout moments per week, curated by the LLM. Complements the
+    weekly narrative paragraph with concrete picks &mdash; specific
+    shots, notes or sessions worth revisiting.
+  </p>
+  <p class="text-zinc-500 text-xs mt-2">
+    <a href="/memory/weeks" class="hover:text-zinc-300 underline">&larr; weekly narrative cards</a>
+    &middot;
+    <a href="/memory" class="hover:text-zinc-300 underline">memory home</a>
+  </p>
+</div>
+
+{% if not weeks_data %}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-6 text-sm text-zinc-400">
+    No curated highlights yet. The background worker is off by default &mdash;
+    flip <code class="text-zinc-300">kv_settings.weekly_highlights_enabled</code>
+    to <code class="text-zinc-300">1</code> and the next hourly tick will pick
+    5-7 moments from your most recent weeks.
+  </div>
+{% else %}
+  <div class="space-y-8">
+    {% for week in weeks_data %}
+      <section class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden">
+        <header class="flex items-baseline justify-between gap-3 flex-wrap px-4 py-3 bg-ink-900 border-b border-ink-700">
+          <h2 class="text-zinc-200 font-mono text-sm">
+            Week of {{ week.week_start }}
+          </h2>
+          <span class="flex items-center gap-3 text-xs">
+            <span class="px-2 py-0.5 rounded-full bg-accent-600/20 text-accent-400 whitespace-nowrap">
+              {{ week.picks|length }} picks
+            </span>
+            <a href="/api/highlights/week/{{ week.week_start }}.json"
+               class="text-zinc-500 hover:text-zinc-300 underline-offset-2 hover:underline">
+              JSON
+            </a>
+          </span>
+        </header>
+        <ol class="divide-y divide-ink-700">
+          {% for pick in week.picks %}
+            <li class="px-4 py-3 flex items-start gap-3 hover:bg-ink-900/40"
+                data-pick-id="{{ pick.id }}">
+              <span class="shrink-0 inline-flex items-center justify-center w-6 h-6 rounded-full bg-accent-600/20 text-accent-400 font-mono text-xs">
+                {{ pick.rank }}
+              </span>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-baseline justify-between gap-2 flex-wrap">
+                  <div class="text-zinc-200 text-sm font-medium break-words">
+                    {% if pick.source_kind == 'shot' %}
+                      <a href="/screenshot/{{ pick.source_id }}"
+                         class="hover:text-accent-300 underline-offset-2 hover:underline">{{ pick.title }}</a>
+                    {% elif pick.source_kind == 'note' %}
+                      <a href="/screenshot/{{ pick.source_id }}"
+                         class="hover:text-accent-300 underline-offset-2 hover:underline">{{ pick.title }}</a>
+                    {% else %}
+                      <span>{{ pick.title }}</span>
+                    {% endif %}
+                  </div>
+                  <span class="text-zinc-500 text-xs uppercase tracking-wider whitespace-nowrap">
+                    {{ pick.source_kind }} #{{ pick.source_id }}
+                  </span>
+                </div>
+                <p class="text-zinc-400 text-xs mt-1 leading-relaxed">
+                  {{ pick.reason }}
+                </p>
+              </div>
+              <form method="post"
+                    action="/api/highlights/{{ pick.id }}/delete"
+                    class="shrink-0"
+                    onsubmit="event.preventDefault(); fetch(this.action, {method: 'POST'}).then(function (r) { if (r.ok) { var li = document.querySelector('[data-pick-id=&quot;{{ pick.id }}&quot;]'); if (li) { li.remove(); } } });">
+                <button type="submit"
+                        class="text-zinc-600 hover:text-red-400 text-xs px-2 py-1 rounded hover:bg-ink-900"
+                        title="Remove this curated pick">
+                  &times;
+                </button>
+              </form>
+            </li>
+          {% endfor %}
+        </ol>
+      </section>
+    {% endfor %}
+  </div>
+
+  <p class="mt-6 text-xs text-zinc-500">
+    Showing last {{ weeks_data|length }} week{% if weeks_data|length != 1 %}s{% endif %}
+    (cap {{ weeks_limit }}). Picks are stored verbatim in the
+    <code class="text-zinc-400">weekly_highlight</code> table &mdash; deleting one
+    here removes only the curated row, not the underlying shot / note / session.
+  </p>
+{% endif %}
+{% endblock %}

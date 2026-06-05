@@ -1,0 +1,213 @@
+{% extends "base.html" %}
+
+{# Persona v1.46 — Per-shot OCR re-run revision log.
+
+   Lists every recorded OCR revision for one screenshot in newest-first
+   order. The Compare form lets the operator pick any two rows and
+   navigate to the diff viewer at /screenshot/{shot_id}/ocr-diff.
+
+   The two-select picker is pure HTML — no Alpine, no HTMX. Submitting
+   the form issues a GET to /screenshot/{{ shot_id }}/ocr-diff with
+   ?a=...&b=... so the URL itself is shareable.
+
+   When the list is empty (no re-runs yet) we render a friendly notice
+   instead of an empty table — the page is reachable even on a shot
+   that has never been re-OCR'd, and a blank table would look broken. #}
+
+{% block content %}
+<style>
+  .rev-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.92rem;
+  }
+  .rev-table th, .rev-table td {
+    padding: 0.55rem 0.8rem;
+    border-bottom: 1px solid rgb(38 38 46);
+    text-align: left;
+    vertical-align: top;
+  }
+  .rev-table th {
+    background: rgb(24 24 28);
+    color: rgb(161 161 170);
+    font-weight: 600;
+    font-size: 0.82rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .rev-table tbody tr:hover { background: rgb(24 24 28 / 0.6); }
+  .rev-id { font-family: 'JetBrains Mono', Consolas, monospace; color: rgb(161 161 170); }
+  .rev-text-preview {
+    font-family: 'JetBrains Mono', Consolas, monospace;
+    font-size: 0.82rem;
+    color: rgb(212 212 216);
+    max-width: 480px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: block;
+  }
+  .badge-source {
+    display: inline-block;
+    padding: 0.15rem 0.55rem;
+    border-radius: 0.3rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .badge-source.initial { background: rgb(59 130 246 / 0.2); color: rgb(96 165 250); }
+  .badge-source.rerun   { background: rgb(124 58 237 / 0.2); color: rgb(167 139 250); }
+  .badge-source.manual  { background: rgb(234 179 8 / 0.2); color: rgb(250 204 21); }
+
+  .compare-form {
+    display: flex;
+    gap: 0.6rem;
+    align-items: end;
+    flex-wrap: wrap;
+    margin-bottom: 1.4rem;
+    padding: 1rem;
+    background: rgb(24 24 28);
+    border: 1px solid rgb(38 38 46);
+    border-radius: 0.55rem;
+  }
+  .compare-form label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    font-size: 0.85rem;
+    color: rgb(161 161 170);
+  }
+  .compare-form select {
+    background: rgb(11 11 13);
+    color: rgb(228 228 231);
+    border: 1px solid rgb(63 63 70);
+    border-radius: 0.35rem;
+    padding: 0.4rem 0.55rem;
+    min-width: 220px;
+    font-family: 'JetBrains Mono', Consolas, monospace;
+    font-size: 0.85rem;
+  }
+  .compare-form button {
+    background: rgb(124 58 237);
+    color: white;
+    border: none;
+    border-radius: 0.35rem;
+    padding: 0.5rem 1.1rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .compare-form button:hover { background: rgb(109 40 217); }
+  .compare-form button:disabled {
+    background: rgb(63 63 70);
+    color: rgb(161 161 170);
+    cursor: not-allowed;
+  }
+
+  .empty-notice {
+    padding: 2rem;
+    text-align: center;
+    color: rgb(161 161 170);
+    background: rgb(24 24 28);
+    border: 1px dashed rgb(63 63 70);
+    border-radius: 0.55rem;
+  }
+</style>
+
+<div class="px-4 sm:px-6 lg:px-8 py-6 max-w-7xl mx-auto">
+  <header class="mb-5">
+    <h1 class="text-2xl font-semibold text-zinc-100">
+      История OCR — скриншот #{{ shot_id }}
+    </h1>
+    <p class="text-zinc-400 mt-1 text-sm">
+      Каждый ручной ре-ран OCR записывает две ревизии: «до» и «после».
+      Выберите любые две, чтобы сравнить.
+      <a href="/screenshot/{{ shot_id }}"
+         class="text-accent-400 hover:underline">← Назад к скриншоту</a>
+    </p>
+  </header>
+
+  {% if revisions %}
+    <form class="compare-form"
+          action="/screenshot/{{ shot_id }}/ocr-diff"
+          method="get">
+      <label>
+        <span>Ревизия A (старая)</span>
+        <select name="a" required>
+          {% for rev in revisions %}
+            <option value="{{ rev.id }}"
+                    {% if loop.index == 2 %}selected{% endif %}>
+              #{{ rev.id }} · {{ rev.run_at }} · {{ rev.char_count }} ch · {{ rev.run_source }}
+            </option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        <span>Ревизия B (новая)</span>
+        <select name="b" required>
+          {% for rev in revisions %}
+            <option value="{{ rev.id }}"
+                    {% if loop.index == 1 %}selected{% endif %}>
+              #{{ rev.id }} · {{ rev.run_at }} · {{ rev.char_count }} ch · {{ rev.run_source }}
+            </option>
+          {% endfor %}
+        </select>
+      </label>
+      <button type="submit"
+              {% if revisions|length < 2 %}disabled
+              title="Нужно минимум две ревизии для сравнения"{% endif %}>
+        Сравнить
+      </button>
+    </form>
+
+    <table class="rev-table">
+      <thead>
+        <tr>
+          <th style="width: 4.5rem;">ID</th>
+          <th style="width: 12rem;">Время</th>
+          <th style="width: 6rem;">Символов</th>
+          <th style="width: 6rem;">Источник</th>
+          <th>Превью</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for rev in revisions %}
+          <tr>
+            <td class="rev-id">#{{ rev.id }}</td>
+            <td>{{ rev.run_at }}</td>
+            <td>{{ rev.char_count }}</td>
+            <td>
+              <span class="badge-source {{ rev.run_source }}">
+                {{ rev.run_source }}
+              </span>
+            </td>
+            <td>
+              <span class="rev-text-preview"
+                    title="{{ rev.ocr_text[:500] }}">
+                {{ rev.ocr_text[:160] if rev.ocr_text else '(пусто)' }}
+              </span>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <p class="text-zinc-500 text-xs mt-4">
+      Показано {{ revisions|length }} ревизий
+      (потолок одного запроса — 200).
+      JSON-версия: <a href="/api/screenshot/{{ shot_id }}/ocr-history.json"
+                      class="text-accent-400 hover:underline">
+        /api/screenshot/{{ shot_id }}/ocr-history.json</a>.
+    </p>
+  {% else %}
+    <div class="empty-notice">
+      <p class="text-base mb-1">У этого скриншота пока нет записей OCR-истории.</p>
+      <p class="text-sm">
+        История появляется после ручного ре-рана OCR через кнопку
+        <code>Re-run OCR</code> на странице скриншота
+        (с версии 1.46 каждый ре-ран записывает «до» и «после»).
+      </p>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

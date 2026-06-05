@@ -94,7 +94,8 @@ async def rerun_ocr_for_shot(shot_id: int) -> RerunResult:
 
     async with get_connection() as conn:
         cursor = await conn.execute(
-            "SELECT id, thumbnail_path, ocr_text FROM screenshots WHERE id = ?",
+            "SELECT id, thumbnail_path, ocr_text, ocr_rerun_count "
+            "FROM screenshots WHERE id = ?",
             (shot_id,),
         )
         row = await cursor.fetchone()
@@ -170,6 +171,38 @@ async def rerun_ocr_for_shot(shot_id: int) -> RerunResult:
     redacted = redact(raw_text) or ""
     char_count_after = len(redacted)
 
+    # v1.46 — append a snapshot of the PRIOR text to the per-shot OCR
+    # revision log (migration 126). The very first re-run on a
+    # never-rerun shot tags the prior snapshot as ``"initial"`` so the
+    # UI can label it as "the original OCR pass". Subsequent re-runs
+    # tag the prior snapshot as ``"rerun"`` (it was itself produced by
+    # a previous re-run). Best-effort: any failure here must NOT break
+    # the rerun, because the screenshot UPDATE below is the operator-
+    # visible outcome and the revision log is forensic side-channel.
+    #
+    # ``ocr_rerun_count`` reflects the count *before* this re-run (we
+    # bump it in the UPDATE below), so ``0`` means "this is the first
+    # re-run on a row whose ocr_text was written by the background
+    # worker" — that prior text is the ``initial`` revision.
+    from app.ocr_rerun_history import (  # noqa: PLC0415 — local import keeps cycles impossible
+        record_ocr_revision,
+    )
+
+    rerun_count_before = int(row["ocr_rerun_count"] or 0)
+    prior_source = "initial" if rerun_count_before == 0 else "rerun"
+    try:
+        await record_ocr_revision(
+            shot_id,
+            "" if prev_text is None else str(prev_text),
+            run_source=prior_source,
+        )
+    except Exception as exc:
+        log.warning(
+            "ocr_rerun.history_prior_failed",
+            shot_id=shot_id,
+            error=str(exc),
+        )
+
     async with get_connection() as conn:
         await conn.execute(
             "UPDATE screenshots "
@@ -180,6 +213,19 @@ async def rerun_ocr_for_shot(shot_id: int) -> RerunResult:
             (redacted, shot_id),
         )
         await conn.commit()
+
+    # Mirror snapshot of the NEW text post-UPDATE. Same best-effort
+    # rule: a failure here is a missed forensic row, not a broken
+    # rerun. Always tagged ``"rerun"`` because by definition this row
+    # is the output of an explicit manual re-run.
+    try:
+        await record_ocr_revision(shot_id, redacted, run_source="rerun")
+    except Exception as exc:
+        log.warning(
+            "ocr_rerun.history_new_failed",
+            shot_id=shot_id,
+            error=str(exc),
+        )
 
     log.info(
         "ocr_rerun.ok",
