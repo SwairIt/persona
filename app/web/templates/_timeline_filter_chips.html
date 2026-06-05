@@ -1,0 +1,85 @@
+{# Timeline filter chip bar — standalone HTMX fragment.
+
+   Served by ``GET /widget/timeline-filter-chips`` and intended to be
+   pulled into the timeline (``/``) page via:
+
+     <div hx-get="/widget/timeline-filter-chips"
+          hx-trigger="load"
+          hx-swap="innerHTML"></div>
+
+   No ``base.html`` extends — re-rendering this partial via an HTMX swap
+   must not rerun the page chrome.
+
+   Expects context:
+
+     * ``state`` — :class:`app.timeline_filters.ChipStateResult` dict
+       with at least ``state.chips`` (list of chip-view payloads, each
+       with ``chip_id``, ``label``, ``active``, ``description``,
+       ``routes_to_param``) and ``state.active_chip_ids``.
+     * ``current_app`` / ``current_window`` — current ``?app=`` /
+       ``?window=`` values, used so the "this app" / "this window" chips
+       know what to drop when toggled off. May be ``None``.
+
+   Toggling logic
+   --------------
+   Each chip is a plain ``<button>``. The inline ``onclick`` handler
+   parses the current URL, mutates only the ``chips`` CSV (and the
+   ``app`` / ``window`` legacy params for the two routed chips) and
+   reloads the page. We deliberately avoid pushState — the user
+   expects the timeline to repaint with the new filter applied, and
+   that needs a real navigation today (the integration tick will swap
+   this for an HTMX ``hx-get`` once the timeline route honours
+   ``?chips=``).
+#}
+<div class="timeline-filter-chips flex flex-wrap items-center gap-1.5"
+     data-active-chips="{{ state.active_chip_ids | join(',') }}"
+     data-current-app="{{ current_app or '' }}"
+     data-current-window="{{ current_window or '' }}">
+  {% for chip in state.chips %}
+    <button type="button"
+            data-chip-id="{{ chip.chip_id }}"
+            data-routes-to="{{ chip.routes_to_param or '' }}"
+            title="{{ chip.description }}"
+            aria-pressed="{{ 'true' if chip.active else 'false' }}"
+            class="px-2.5 py-1 rounded-full text-xs font-mono border transition
+                   {% if chip.active %}
+                     bg-accent-500/20 border-accent-500 text-accent-300
+                   {% else %}
+                     bg-ink-800 border-ink-700 text-zinc-400 hover:border-accent-500/60 hover:text-zinc-200
+                   {% endif %}"
+            onclick="(function(btn){
+              var url = new URL(window.location.href);
+              var raw = url.searchParams.get('chips') || '';
+              var current = raw.split(',').map(function(s){return s.trim();}).filter(Boolean);
+              var id = btn.getAttribute('data-chip-id');
+              var routes = btn.getAttribute('data-routes-to');
+              var isOn = btn.getAttribute('aria-pressed') === 'true';
+              if (routes) {
+                /* app_filter / window_filter just toggle the legacy URL param. */
+                if (isOn) {
+                  url.searchParams.delete(routes);
+                }
+              } else {
+                if (isOn) {
+                  current = current.filter(function(c){return c !== id;});
+                } else if (current.indexOf(id) === -1) {
+                  current.push(id);
+                }
+                if (current.length) {
+                  url.searchParams.set('chips', current.join(','));
+                } else {
+                  url.searchParams.delete('chips');
+                }
+              }
+              window.location.href = url.toString();
+            })(this);">
+      {{ chip.label }}
+    </button>
+  {% endfor %}
+  {% if state.active_chip_ids %}
+    <a href="?"
+       class="ml-1 text-xs font-mono text-zinc-500 hover:text-zinc-300 underline-offset-2 hover:underline">
+      reset
+    </a>
+  {% endif %}
+</div>

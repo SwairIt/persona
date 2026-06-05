@@ -1,0 +1,260 @@
+{% extends "base.html" %}
+
+{#
+  rate_advisor.html — v1.41.
+
+  Visualises :mod:`app.rate_advisor`. The page-render path always
+  computes a fresh non-persisted preview so the operator sees current
+  numbers without having to click anything; pressing Run persists the
+  recommendation as a new ``rate_advisor_run`` row (and reloads the
+  page so the history table updates). Apply / Dismiss act on the
+  most recent persisted row.
+#}
+
+{% block content %}
+<div class="max-w-4xl mx-auto" x-data="rateAdvisorPage()">
+
+  <div class="mb-8">
+    <h1 class="text-2xl font-bold tracking-tight">Совет по частоте</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Анализатор смотрит на дневной расход байтов за последние 7 дней и
+      предлагает новую пару <code class="text-accent-400">capture_interval_seconds</code>
+      и <code class="text-accent-400">dedup_hamming_threshold</code>,
+      чтобы укладываться в дневной лимит без потери контекста.
+      Совет не применяется автоматически — нужно подтвердить.
+    </p>
+  </div>
+
+  {% if preview %}
+    <section class="rounded-xl border bg-ink-800 p-6 mb-6
+                    {% if preview.severity == 'warn' %}border-rose-700{% else %}border-ink-700{% endif %}">
+      <div class="flex items-start justify-between gap-4 mb-4">
+        <div>
+          <h2 class="text-lg font-semibold text-zinc-100">Рекомендация</h2>
+          <p class="text-zinc-500 text-xs mt-1">
+            Окно анализа: {{ preview.lookback_days }} дн.,
+            данных собрано: {{ preview.samples }} строк
+            в <code>daily_budget_state</code>.
+          </p>
+        </div>
+        <span class="px-2.5 py-1 rounded-full text-xs font-medium
+                     {% if preview.severity == 'warn' %}
+                       bg-rose-900/40 text-rose-300 border border-rose-700
+                     {% else %}
+                       bg-accent-900/40 text-accent-300 border border-accent-700
+                     {% endif %}">
+          {{ preview.severity }}
+        </span>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        <div class="rounded-lg bg-ink-900 border border-ink-700 p-4">
+          <div class="text-xs uppercase tracking-widest text-zinc-500 mb-2">Сейчас</div>
+          <div class="space-y-1 text-sm">
+            <div class="flex justify-between">
+              <span class="text-zinc-400">Интервал захвата</span>
+              <span class="font-mono text-zinc-200">{{ "%.2f"|format(preview.current_interval_seconds) }} с</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-zinc-400">Порог дедупа</span>
+              <span class="font-mono text-zinc-200">{{ preview.current_dedup_threshold }}</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-zinc-400">Расход / лимит</span>
+              <span class="font-mono text-zinc-200">
+                {{ "%.2f"|format(preview.avg_daily_mb) }} / {{ "%.1f"|format(preview.cap_mb) }} МБ
+              </span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-zinc-400">Доля бюджета</span>
+              <span class="font-mono
+                           {% if preview.ratio > 0.85 %}text-rose-400
+                           {% elif preview.ratio < 0.40 %}text-accent-400
+                           {% else %}text-emerald-400{% endif %}">
+                {{ "%.0f"|format(preview.ratio * 100) }}%
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div class="rounded-lg bg-ink-900 border border-accent-700 p-4">
+          <div class="text-xs uppercase tracking-widest text-accent-400 mb-2">Предлагается</div>
+          <div class="space-y-1 text-sm">
+            <div class="flex justify-between">
+              <span class="text-zinc-400">Интервал захвата</span>
+              <span class="font-mono text-accent-200">{{ "%.2f"|format(preview.suggested_interval) }} с</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-zinc-400">Порог дедупа</span>
+              <span class="font-mono text-accent-200">{{ preview.suggested_dedup }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <p class="text-sm text-zinc-300 leading-relaxed mb-4">
+        {{ preview.rationale }}
+      </p>
+
+      <div class="flex flex-wrap items-center gap-3">
+        <button type="button"
+                @click="runAdvisor()"
+                :disabled="busy"
+                class="px-4 py-2 bg-accent-600 hover:bg-accent-500 disabled:opacity-50
+                       disabled:cursor-not-allowed rounded-lg font-medium text-sm transition">
+          <span x-show="!busy">Запустить и сохранить</span>
+          <span x-show="busy">Считаем…</span>
+        </button>
+
+        {% if last_run and not last_run.applied_at %}
+          <button type="button"
+                  @click="applyRun({{ last_run.id }})"
+                  :disabled="busy"
+                  class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50
+                         disabled:cursor-not-allowed rounded-lg font-medium text-sm transition">
+            Применить последний (#{{ last_run.id }})
+          </button>
+          <button type="button"
+                  @click="dismiss()"
+                  class="px-4 py-2 rounded-lg border border-ink-700 hover:border-zinc-500
+                         text-zinc-400 hover:text-zinc-200 text-sm transition">
+            Отклонить
+          </button>
+        {% endif %}
+        <a href="/settings/capture"
+           class="ml-auto text-xs text-zinc-500 hover:text-zinc-300 transition">
+          К настройкам захвата →
+        </a>
+      </div>
+
+      <p x-show="message"
+         x-text="message"
+         class="mt-3 text-sm text-emerald-400"></p>
+      <p x-show="error"
+         x-text="error"
+         class="mt-3 text-sm text-rose-400"></p>
+    </section>
+  {% else %}
+    <section class="rounded-xl border border-ink-700 bg-ink-800 p-6 mb-6">
+      <h2 class="text-lg font-semibold text-zinc-100">Совет недоступен</h2>
+      <p class="text-zinc-500 text-sm mt-2">
+        Не удалось собрать рекомендацию — проверьте логи
+        <code class="text-accent-400">persona.rate_advisor</code>.
+      </p>
+    </section>
+  {% endif %}
+
+  <section class="rounded-xl border border-ink-700 bg-ink-800 p-6">
+    <div class="flex items-baseline justify-between mb-4">
+      <h2 class="text-lg font-semibold text-zinc-100">История</h2>
+      <span class="text-xs text-zinc-500">
+        последние {{ history|length }} из 10
+      </span>
+    </div>
+
+    {% if history %}
+      <div class="overflow-x-auto -mx-2">
+        <table class="w-full text-sm">
+          <thead class="text-xs uppercase tracking-widest text-zinc-500">
+            <tr>
+              <th class="text-left px-2 py-2">Когда</th>
+              <th class="text-right px-2 py-2">МБ/день</th>
+              <th class="text-right px-2 py-2">Лимит</th>
+              <th class="text-right px-2 py-2">Интервал → </th>
+              <th class="text-right px-2 py-2">Дедуп →</th>
+              <th class="text-left px-2 py-2">Применено</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-ink-700">
+            {% for run in history %}
+              <tr class="hover:bg-ink-900/50">
+                <td class="px-2 py-2 text-zinc-400 font-mono text-xs">
+                  {{ run.run_at }}
+                </td>
+                <td class="px-2 py-2 text-right font-mono text-zinc-300">
+                  {{ "%.2f"|format(run.avg_daily_mb) }}
+                </td>
+                <td class="px-2 py-2 text-right font-mono text-zinc-500">
+                  {{ "%.1f"|format(run.cap_mb) }}
+                </td>
+                <td class="px-2 py-2 text-right font-mono text-zinc-300">
+                  {{ "%.2f"|format(run.current_interval_seconds) }}
+                  <span class="text-zinc-600">→</span>
+                  <span class="text-accent-300">{{ "%.2f"|format(run.suggested_interval_seconds) }}</span>
+                </td>
+                <td class="px-2 py-2 text-right font-mono text-zinc-300">
+                  {{ run.current_dedup_threshold }}
+                  <span class="text-zinc-600">→</span>
+                  <span class="text-accent-300">{{ run.suggested_dedup_threshold }}</span>
+                </td>
+                <td class="px-2 py-2 text-xs">
+                  {% if run.applied_at %}
+                    <span class="text-emerald-400 font-mono">{{ run.applied_at }}</span>
+                  {% else %}
+                    <span class="text-zinc-600">—</span>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="text-zinc-500 text-sm">
+        Пока пусто. Нажмите <em>Запустить и сохранить</em>, чтобы записать
+        первую рекомендацию.
+      </p>
+    {% endif %}
+  </section>
+</div>
+
+<script>
+  function rateAdvisorPage() {
+    return {
+      busy: false,
+      message: "",
+      error: "",
+      async runAdvisor() {
+        this.busy = true;
+        this.message = "";
+        this.error = "";
+        try {
+          const res = await fetch("/api/rate-advisor/run", { method: "POST" });
+          if (!res.ok) {
+            throw new Error("HTTP " + res.status);
+          }
+          const data = await res.json();
+          this.message = "Сохранена рекомендация #" + data.run_id + ". Перезагружаю…";
+          setTimeout(() => window.location.reload(), 600);
+        } catch (err) {
+          this.error = "Не удалось запустить: " + err.message;
+        } finally {
+          this.busy = false;
+        }
+      },
+      async applyRun(id) {
+        this.busy = true;
+        this.message = "";
+        this.error = "";
+        try {
+          const res = await fetch("/api/rate-advisor/apply/" + id, { method: "POST" });
+          if (!res.ok) {
+            throw new Error("HTTP " + res.status);
+          }
+          const data = await res.json();
+          this.message = "Применено: интервал " + data.applied_interval_seconds +
+                         "с, дедуп " + data.applied_dedup_threshold + ".";
+          setTimeout(() => window.location.reload(), 800);
+        } catch (err) {
+          this.error = "Не удалось применить: " + err.message;
+        } finally {
+          this.busy = false;
+        }
+      },
+      dismiss() {
+        this.message = "Рекомендация оставлена без применения.";
+      },
+    };
+  }
+</script>
+{% endblock %}

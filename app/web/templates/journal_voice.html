@@ -1,0 +1,381 @@
+{% extends "base.html" %}
+
+{# Standalone voice-dictation page for the journal.
+
+   The big record button drives ``MediaRecorder`` directly in the
+   browser. While the user is speaking we *also* fire up the Web Speech
+   API (when present) for an instant interim transcript — purely a UX
+   nicety; the authoritative transcript is what the server's Whisper
+   call returns and stores in the ``notes`` row.
+
+   Status states are reflected on the button via ``data-state``:
+     * ``idle``      — neutral, label "Записать"
+     * ``recording`` — red, label "Стоп"
+     * ``uploading`` — disabled, label "Сохранение…"
+
+   The status block uses ``data-tone`` (``ok`` / ``error`` / unset) so
+   CSS picks the colour. After a successful save we render an inline
+   link to the created note (``/notes#note-{id}``) so the operator can
+   jump straight to it. #}
+
+{% block content %}
+<div class="max-w-2xl mx-auto">
+  <div class="mb-6">
+    <h1 class="text-2xl font-bold tracking-tight">Голосовая запись в журнал</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Нажмите «Записать», говорите, нажмите «Стоп» — расшифровка появится
+      в журнале как отдельная запись. Браузер показывает черновой текст
+      сразу, окончательная версия — после расшифровки на сервере.
+    </p>
+  </div>
+
+  <div id="journal-voice"
+       class="rounded-lg border border-ink-700 bg-ink-800 p-6 space-y-5">
+
+    {# Big record button. The aria-live region below is the official
+       status channel; the button itself only conveys state via its
+       label + data-state attribute. #}
+    <div class="flex flex-col items-center gap-3">
+      <button type="button"
+              id="journal-voice-btn"
+              data-state="idle"
+              class="w-32 h-32 rounded-full border-2 border-accent-500 text-accent-300
+                     hover:bg-accent-600/10 transition flex items-center justify-center
+                     text-base font-medium disabled:opacity-60 disabled:cursor-progress
+                     focus:outline-none focus:ring-4 focus:ring-accent-500/30"
+              aria-label="Начать запись">
+        Записать
+      </button>
+      <div id="journal-voice-status"
+           role="status"
+           aria-live="polite"
+           class="text-sm text-zinc-400 min-h-[1.5em] text-center"></div>
+    </div>
+
+    {# Live preview panel — shows the Web Speech API interim transcript
+       (when available) while recording, and the server-confirmed
+       transcript after upload completes. #}
+    <div>
+      <div class="text-xs uppercase tracking-widest text-zinc-500 mb-2">
+        Предпросмотр
+      </div>
+      <div id="journal-voice-preview"
+           class="rounded border border-ink-700 bg-ink-900 p-4 min-h-[6rem]
+                  text-sm text-zinc-200 whitespace-pre-wrap leading-relaxed"
+           aria-live="polite">
+        <span class="text-zinc-600 italic">
+          Здесь появится текст по мере распознавания.
+        </span>
+      </div>
+    </div>
+
+    {# Result panel — hidden until a successful save, then shows the
+       link to the created note. We re-use the preview pane for the
+       server transcript itself so the user can compare it against the
+       browser-side draft. #}
+    <div id="journal-voice-result" hidden
+         class="rounded border border-emerald-700/40 bg-emerald-900/20 p-4 text-sm">
+      <div class="text-emerald-300 font-medium mb-1">Сохранено</div>
+      <div id="journal-voice-result-link" class="text-zinc-200"></div>
+    </div>
+  </div>
+
+  <p class="text-xs text-zinc-600 mt-4 text-center">
+    Лимит — 5 МБ (около 5 минут). Поддерживаются микрофоны в Chrome,
+    Firefox, Safari, Edge.
+  </p>
+</div>
+
+<style>
+  #journal-voice-btn[data-state="recording"] {
+    color: #f87171;
+    border-color: #ef4444;
+    box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.15);
+    animation: journal-voice-pulse 1.6s ease-in-out infinite;
+  }
+  #journal-voice-status[data-tone="error"] { color: #f87171; }
+  #journal-voice-status[data-tone="ok"]    { color: #34d399; }
+  #journal-voice-status a { color: inherit; text-decoration: underline; }
+  @keyframes journal-voice-pulse {
+    0%, 100% { box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.15); }
+    50%      { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0.05); }
+  }
+  /* Honour the global reduce-motion preference — when the body opts
+     out, kill the pulse so it doesn't compete with assistive tech. */
+  body[data-reduce-motion="true"] #journal-voice-btn[data-state="recording"] {
+    animation: none;
+  }
+</style>
+
+<script>
+  // Self-contained — no dependency on Alpine, htmx, or the v1.36 voice
+  // note widget. Vanilla ES2020. Bails silently if its root nodes are
+  // missing (defensive against future template refactors).
+  (function () {
+    "use strict";
+    var btn        = document.getElementById("journal-voice-btn");
+    var statusEl   = document.getElementById("journal-voice-status");
+    var previewEl  = document.getElementById("journal-voice-preview");
+    var resultEl   = document.getElementById("journal-voice-result");
+    var resultLink = document.getElementById("journal-voice-result-link");
+    if (!btn || !statusEl || !previewEl || !resultEl || !resultLink) return;
+
+    var recorder        = null;
+    var chunks          = [];
+    var stream          = null;
+    var speech          = null;   // Web Speech API recogniser (optional).
+    var interimText     = "";     // Browser-side draft, updated live.
+    var finalisedText   = "";     // Accumulated final segments from SR.
+    var hadAnySpeech    = false;  // Did the SR API ever produce content?
+
+    function setStatus(html, tone) {
+      // ``tone`` ∈ {"ok", "error", undefined}. Every dynamic substring
+      // here is either a server-side integer note_id or runs through
+      // ``escapeText`` first — no untrusted text reaches innerHTML raw.
+      if (tone) statusEl.setAttribute("data-tone", tone);
+      else      statusEl.removeAttribute("data-tone");
+      statusEl.innerHTML = html;
+    }
+
+    function setBtnState(state, label, ariaLabel) {
+      btn.setAttribute("data-state", state);
+      btn.textContent = label;
+      btn.disabled = (state === "uploading");
+      if (ariaLabel) btn.setAttribute("aria-label", ariaLabel);
+    }
+
+    function escapeText(value) {
+      var div = document.createElement("div");
+      div.textContent = String(value == null ? "" : value);
+      return div.innerHTML;
+    }
+
+    function renderPreview(text, isInterim) {
+      if (!text) {
+        previewEl.innerHTML = '<span class="text-zinc-600 italic">'
+          + 'Слушаю…</span>';
+        return;
+      }
+      var safe = escapeText(text);
+      previewEl.innerHTML = isInterim
+        ? safe + '<span class="text-zinc-500"> …</span>'
+        : safe;
+    }
+
+    function stopTracks() {
+      if (stream) {
+        stream.getTracks().forEach(function (t) { t.stop(); });
+        stream = null;
+      }
+    }
+
+    function stopSpeechRecognition() {
+      if (speech) {
+        try { speech.onresult = null; speech.onerror = null;
+              speech.onend = null; speech.stop(); }
+        catch (e) { /* already stopped — ignore */ }
+        speech = null;
+      }
+    }
+
+    // ----- Optional browser-side interim transcript -----------------
+    // The Web Speech API is best-effort and totally separate from the
+    // server's Whisper call. Its sole purpose is to make the page feel
+    // responsive while the server crunches the audio. If it's missing
+    // (Firefox without an extension, locked-down embeds), we skip it.
+    function startSpeechRecognition() {
+      var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SR) return;
+      try {
+        speech = new SR();
+      } catch (e) { speech = null; return; }
+      speech.continuous     = true;
+      speech.interimResults = true;
+      speech.lang           = (navigator.language || "ru-RU");
+
+      speech.onresult = function (evt) {
+        var interim = "";
+        for (var i = evt.resultIndex; i < evt.results.length; i++) {
+          var res = evt.results[i];
+          if (res.isFinal) {
+            finalisedText += (finalisedText ? " " : "") + res[0].transcript;
+            hadAnySpeech = true;
+          } else {
+            interim += res[0].transcript;
+          }
+        }
+        interimText = (finalisedText + (interim ? " " + interim : "")).trim();
+        renderPreview(interimText, !!interim);
+      };
+      speech.onerror = function () {
+        // Many browsers throw "no-speech" or "aborted" routinely — keep
+        // the user focused on the server pipeline and don't surface
+        // these as errors.
+        stopSpeechRecognition();
+      };
+      speech.onend = function () { speech = null; };
+
+      try { speech.start(); }
+      catch (e) { speech = null; }
+    }
+
+    // ----- Upload + server response --------------------------------
+    function handleUploadResponse(response) {
+      return response.json().then(function (body) {
+        if (response.status === 201 && body && body.note_id != null) {
+          var noteId   = parseInt(body.note_id, 10);
+          var serverTx = (body.transcript || "").toString();
+          var chars    = (body.char_count != null) ? body.char_count
+                                                   : serverTx.length;
+
+          // Replace the browser draft with the authoritative server
+          // transcript so the user sees exactly what got stored.
+          if (serverTx) {
+            renderPreview(serverTx, false);
+          } else {
+            previewEl.innerHTML = '<span class="text-zinc-500 italic">'
+              + '(тишина — записано, но речи не распознано)</span>';
+          }
+
+          var linkHtml = 'Запись #'
+            + '<a class="text-emerald-300 underline hover:text-emerald-200" '
+            +    'href="/notes#note-' + noteId + '">' + noteId + '</a>'
+            + ' · ' + chars + ' симв.';
+          resultLink.innerHTML = linkHtml;
+          resultEl.hidden = false;
+
+          setStatus("Сохранено в журнал.", "ok");
+          return;
+        }
+        if (response.status === 503) {
+          setStatus(
+            "Whisper не установлен на сервере — установите "
+            + "<code>openai-whisper</code> или <code>faster-whisper</code> "
+            + "и повторите.",
+            "error"
+          );
+          return;
+        }
+        if (response.status === 413) {
+          setStatus("Запись слишком длинная — максимум 5 МБ.", "error");
+          return;
+        }
+        if (response.status === 415) {
+          setStatus("Браузер выдал неподдерживаемый формат аудио.", "error");
+          return;
+        }
+        var detail = (body && (body.detail || body.status))
+          || ("HTTP " + response.status);
+        setStatus("Не удалось сохранить: " + escapeText(detail), "error");
+      }).catch(function () {
+        setStatus("Не удалось сохранить: HTTP " + response.status, "error");
+      });
+    }
+
+    function uploadBlob(blob) {
+      setBtnState("uploading", "Сохранение…", "Сохранение записи");
+      setStatus("Загружаю и расшифровываю на сервере…");
+
+      var form = new FormData();
+      var ext = (blob.type && blob.type.indexOf("webm") >= 0) ? "webm"
+              : (blob.type && blob.type.indexOf("ogg")  >= 0) ? "ogg"
+              : (blob.type && blob.type.indexOf("mp4")  >= 0) ? "mp4"
+              : "audio";
+      form.append("file", blob, "journal-voice." + ext);
+
+      fetch("/api/journal/voice-dictate", {
+        method: "POST",
+        body: form,
+        credentials: "same-origin"
+      }).then(handleUploadResponse).catch(function (err) {
+        setStatus("Сеть недоступна: "
+          + escapeText(err && err.message || err), "error");
+      }).then(function () {
+        setBtnState("idle", "Записать", "Начать запись");
+      });
+    }
+
+    // ----- MediaRecorder lifecycle ---------------------------------
+    function startRecording() {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setStatus(
+          "Этот браузер не поддерживает доступ к микрофону — "
+          + "попробуйте свежий Chrome, Firefox или Safari.",
+          "error"
+        );
+        return;
+      }
+      // Reset transient state so a second recording is clean.
+      interimText   = "";
+      finalisedText = "";
+      hadAnySpeech  = false;
+      resultEl.hidden = true;
+      resultLink.innerHTML = "";
+      renderPreview("", true);
+
+      setStatus("Запрос доступа к микрофону…");
+      navigator.mediaDevices.getUserMedia({ audio: true }).then(function (s) {
+        stream = s;
+        chunks = [];
+        try {
+          recorder = new MediaRecorder(stream);
+        } catch (err) {
+          stopTracks();
+          setStatus("Не удалось запустить запись: "
+            + escapeText(err && err.message || err), "error");
+          return;
+        }
+        recorder.addEventListener("dataavailable", function (evt) {
+          if (evt.data && evt.data.size > 0) chunks.push(evt.data);
+        });
+        recorder.addEventListener("stop", function () {
+          stopTracks();
+          stopSpeechRecognition();
+          if (chunks.length === 0) {
+            setStatus("Ничего не записано.", "error");
+            setBtnState("idle", "Записать", "Начать запись");
+            return;
+          }
+          var mime = recorder.mimeType
+                  || (chunks[0] && chunks[0].type)
+                  || "audio/webm";
+          var blob = new Blob(chunks, { type: mime });
+          chunks = [];
+          uploadBlob(blob);
+        });
+        recorder.start();
+        setBtnState("recording", "Стоп", "Остановить запись");
+        setStatus("Записываю… говорите.");
+        startSpeechRecognition();
+      }).catch(function (err) {
+        var name = err && err.name ? err.name : "";
+        if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+          setStatus(
+            "Доступ к микрофону запрещён — разрешите в настройках "
+            + "сайта и попробуйте снова.",
+            "error"
+          );
+        } else if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+          setStatus("Микрофон не найден на этом устройстве.", "error");
+        } else {
+          setStatus("Не удалось получить доступ к микрофону: "
+            + escapeText(err && err.message || name || err), "error");
+        }
+        setBtnState("idle", "Записать", "Начать запись");
+      });
+    }
+
+    function stopRecording() {
+      if (recorder && recorder.state === "recording") {
+        recorder.stop();
+      }
+    }
+
+    btn.addEventListener("click", function () {
+      var state = btn.getAttribute("data-state");
+      if      (state === "idle")      startRecording();
+      else if (state === "recording") stopRecording();
+    });
+  })();
+</script>
+{% endblock %}

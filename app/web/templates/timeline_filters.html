@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Timeline filter chips</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Small toggleable pills that narrow the screenshots shown on
+    <a href="/" class="text-accent-400 hover:underline">the timeline</a>.
+    This page is a live preview and a reference for what each chip does.
+  </p>
+</div>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
+  <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">Live preview</h2>
+  {% include "_timeline_filter_chips.html" %}
+  {% if state.active_chip_ids %}
+    <p class="mt-3 text-xs font-mono text-zinc-500">
+      Active: {{ state.active_chip_ids | join(', ') }}
+    </p>
+  {% else %}
+    <p class="mt-3 text-xs font-mono text-zinc-600">
+      No chips active yet — click one above to try it.
+    </p>
+  {% endif %}
+</section>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
+  <h2 class="text-lg font-semibold mb-4">What each chip does</h2>
+  <ul class="space-y-3">
+    {% for entry in catalogue %}
+      <li class="flex items-start gap-3 py-2 border-b border-ink-700/60 last:border-b-0">
+        <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-ink-900 text-accent-300 flex-shrink-0">
+          {{ entry.chip_id }}
+        </span>
+        <div class="flex-1 min-w-0">
+          <div class="text-zinc-200 font-medium">{{ entry.label }}</div>
+          <div class="text-xs text-zinc-500">{{ entry.description }}</div>
+          {% if entry.sql_clause_template %}
+            <pre class="mt-1 text-[10px] font-mono text-zinc-600 whitespace-pre-wrap">{{ entry.sql_clause_template }}</pre>
+          {% else %}
+            <div class="mt-1 text-[10px] font-mono text-zinc-700">
+              routes to existing ?app= / ?window= URL param — no extra SQL
+            </div>
+          {% endif %}
+        </div>
+      </li>
+    {% endfor %}
+  </ul>
+</section>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+  <h2 class="text-lg font-semibold mb-2">JSON state</h2>
+  <p class="text-xs text-zinc-500 mb-3">
+    The same payload is exposed at
+    <a class="text-accent-400 hover:underline" href="/api/timeline/filters/state.json">
+      <span class="font-mono">/api/timeline/filters/state.json</span>
+    </a>
+    so external dashboards can mirror the chip bar without re-deriving the SQL.
+  </p>
+  <pre class="text-[11px] font-mono text-zinc-400 whitespace-pre-wrap">{{ state }}</pre>
+</section>
+{% endblock %}

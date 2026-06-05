@@ -325,6 +325,9 @@ from app.web.routes import (
     shot_annotation_autosave as shot_annotation_autosave_routes,
     hotkey_settings as hotkey_settings_routes,
     ocr_rerun as ocr_rerun_routes,
+    timeline_filters as timeline_filters_routes,
+    rate_advisor as rate_advisor_routes,
+    journal_voice as journal_voice_routes,
 )
 from app.workers import (
     get_controller,
@@ -374,7 +377,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.46.0",
+        version="1.47.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -661,6 +664,9 @@ def create_app() -> FastAPI:
     app.include_router(shot_annotation_autosave_routes.router)
     app.include_router(hotkey_settings_routes.router)
     app.include_router(ocr_rerun_routes.router)
+    app.include_router(timeline_filters_routes.router)
+    app.include_router(rate_advisor_routes.router)
+    app.include_router(journal_voice_routes.router)
     app.include_router(sticky_search_routes.router)
     app.include_router(audit_replay_routes.router)
     app.include_router(tag_gallery_routes.router)
