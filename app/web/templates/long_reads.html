@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-center justify-between flex-wrap gap-3">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Long reads</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Windows you spent at least five minutes on without going idle — auto-bookmarked
+      so you can jump back to a focused session.
+    </p>
+  </div>
+  <a href="/api/long-reads.json?limit={{ limit }}"
+     class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700 text-xs text-zinc-400 hover:text-zinc-200">
+    JSON
+  </a>
+</div>
+
+{% if not items %}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-6 text-sm text-zinc-400">
+    No long-read sessions detected yet. The background worker checks every
+    ten minutes — come back after you've spent at least five uninterrupted
+    minutes on a single window.
+  </div>
+{% else %}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-ink-900 text-zinc-400 text-xs uppercase tracking-wider">
+        <tr>
+          <th class="text-left px-4 py-2 font-medium">Started</th>
+          <th class="text-left px-4 py-2 font-medium">Window</th>
+          <th class="text-left px-4 py-2 font-medium">App</th>
+          <th class="text-right px-4 py-2 font-medium w-24">Duration</th>
+          <th class="text-left px-4 py-2 font-medium w-40">Shots</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in items %}
+          <tr class="border-t border-ink-700 hover:bg-ink-900/50 align-top">
+            <td class="px-4 py-2 font-mono text-xs text-zinc-400 whitespace-nowrap"
+                title="started {{ item.started_at }} · ended {{ item.ended_at }}">
+              {{ item.started_at[:19] | replace('T', ' ') }}
+            </td>
+            <td class="px-4 py-2">
+              <span class="text-zinc-200 break-all">{{ item.window_title }}</span>
+            </td>
+            <td class="px-4 py-2 text-zinc-400">
+              {{ item.app_name if item.app_name else '—' }}
+            </td>
+            <td class="px-4 py-2 text-right font-mono text-zinc-200">
+              {{ item.duration_label }}
+            </td>
+            <td class="px-4 py-2 text-xs">
+              {% if item.screenshot_id_first %}
+                <a class="text-accent-400 hover:text-accent-300 underline-offset-2 hover:underline"
+                   href="/screenshot/{{ item.screenshot_id_first }}"
+                   title="first screenshot in this session">first</a>
+              {% else %}
+                <span class="text-zinc-600">first</span>
+              {% endif %}
+              <span class="text-zinc-600">·</span>
+              {% if item.screenshot_id_last %}
+                <a class="text-accent-400 hover:text-accent-300 underline-offset-2 hover:underline"
+                   href="/screenshot/{{ item.screenshot_id_last }}"
+                   title="last screenshot in this session">last</a>
+              {% else %}
+                <span class="text-zinc-600">last</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <p class="mt-4 text-xs text-zinc-500">
+    Sessions are recorded by the background detector — gaps longer than the
+    configured idle threshold close the run, and only spans of at least five
+    minutes are kept.
+  </p>
+{% endif %}
+{% endblock %}

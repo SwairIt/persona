@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Реакции</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Самые отмеченные скриншоты — сердце, звезда, смех, wtf и лампочка.
+  </p>
+</div>
+
+{# Emoji filter strip. The "all" pill clears ?emoji=; per-emoji pills
+   highlight when their glyph is the active filter. #}
+<section class="flex flex-wrap items-center gap-2 mb-6">
+  <a href="/reactions"
+     class="px-3 py-1.5 rounded-md text-sm font-mono transition
+            {% if not selected_emoji %}bg-accent-600/20 text-accent-400{% else %}text-zinc-400 hover:text-zinc-100 hover:bg-ink-800{% endif %}">
+    Все
+  </a>
+  {% for emoji in allowed_emoji %}
+    <a href="/reactions?emoji={{ emoji | urlencode }}"
+       class="px-3 py-1.5 rounded-md text-lg leading-none transition
+              {% if selected_emoji == emoji %}bg-accent-600/20 ring-1 ring-accent-500{% else %}hover:bg-ink-800{% endif %}"
+       title="{{ emoji }}">
+      <span>{{ emoji }}</span>
+    </a>
+  {% endfor %}
+</section>
+
+{% if shots %}
+  <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+    {% for shot in shots %}
+      <a href="/screenshot/{{ shot.id }}"
+         class="group block rounded-lg overflow-hidden bg-ink-800 border border-ink-700 hover:border-accent-500 transition relative">
+        {% if shot.thumbnail_path %}
+          <div class="aspect-video bg-ink-900 overflow-hidden">
+            <img src="{{ shot.thumbnail_path | thumbnail_url }}"
+                 alt=""
+                 loading="lazy"
+                 class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300">
+          </div>
+        {% else %}
+          <div class="aspect-video bg-ink-900 flex items-center justify-center text-zinc-600 text-xs">
+            metadata only
+          </div>
+        {% endif %}
+        <div class="absolute top-2 right-2 px-2 py-0.5 rounded-full text-xs font-mono bg-ink-900/80 border border-ink-700 text-zinc-100 flex items-center gap-1">
+          {% if selected_emoji %}
+            <span class="text-sm leading-none">{{ selected_emoji }}</span>
+          {% else %}
+            <span class="text-sm leading-none">★</span>
+          {% endif %}
+          <span class="tabular-nums">{{ shot.reaction_count }}</span>
+        </div>
+        <div class="px-2.5 py-2">
+          <div class="text-xs text-zinc-300 font-mono truncate" title="{{ shot.window_title or '' }}">
+            {{ (shot.app_name | app_alias) if shot.app_name else '—' }}
+          </div>
+          <div class="text-[10px] text-zinc-500 font-mono mt-0.5">
+            {{ shot.captured_at | localtime }}
+          </div>
+        </div>
+      </a>
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-8 text-center text-zinc-500">
+    {% if selected_emoji %}
+      Ни одной реакции {{ selected_emoji }} пока нет.
+    {% else %}
+      Ни одной реакции пока нет — нажми эмодзи под скриншотом, чтобы он появился здесь.
+    {% endif %}
+  </div>
+{% endif %}
+{% endblock %}
