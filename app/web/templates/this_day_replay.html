@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-8">
+  <h1 class="text-2xl font-bold tracking-tight">На этот день</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    {% if is_today_anchor %}
+      Anniversary replay anchored to today
+      <span class="font-mono text-zinc-400">({{ payload.today_iso }})</span>.
+    {% else %}
+      Anniversary replay anchored to
+      <span class="font-mono text-zinc-400">{{ anchor_date }}</span>.
+      <a href="/memory/replay" class="text-accent-400 hover:underline">Back to today</a>.
+    {% endif %}
+    Shots, notes and daily-pin from exactly 1, 2 and 3 years ago.
+  </p>
+</div>
+
+{% if not payload.replays %}
+  <section class="rounded-lg border border-dashed border-ink-700 bg-ink-900/40 p-12 text-center">
+    <div class="text-5xl mb-3">🗓</div>
+    <h2 class="text-lg font-semibold">Nothing to replay</h2>
+    <p class="text-zinc-500 text-sm mt-2 max-w-md mx-auto">
+      No anniversary offsets were requested.
+    </p>
+  </section>
+{% else %}
+  <ol class="relative border-l-2 border-ink-700 ml-3 space-y-10">
+    {% for year in payload.replays %}
+      <li class="ml-6">
+        <span class="absolute -left-2.5 flex items-center justify-center w-5 h-5 rounded-full bg-accent-600 ring-4 ring-ink-950 text-xs font-bold text-white">
+          {{ year.years_back }}
+        </span>
+
+        <article class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden">
+          <header class="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-5 py-3 border-b border-ink-700 bg-ink-900/60">
+            <h2 class="text-lg font-semibold">
+              {{ year.years_back }} year{% if year.years_back != 1 %}s{% endif %} ago
+            </h2>
+            <span class="font-mono text-sm text-zinc-400">{{ year.date }}</span>
+            <span class="text-xs text-zinc-500">
+              {{ year.total_shots }} shot{% if year.total_shots != 1 %}s{% endif %}
+            </span>
+            <a href="/memory/replay/{{ year.date }}"
+               class="ml-auto text-xs text-accent-400 hover:underline">
+              Bookmark this day →
+            </a>
+          </header>
+
+          {% if year.total_shots == 0 and not year.daily_pin_text and not year.sample_notes %}
+            <div class="px-5 py-8 text-center text-sm text-zinc-500 italic">
+              No data this far back.
+            </div>
+          {% else %}
+            <div class="p-5 space-y-5">
+
+              {% if year.daily_pin_text %}
+                <div class="text-sm">
+                  <span class="text-xs uppercase tracking-widest text-zinc-500 mr-2">Daily pin</span>
+                  <span class="text-zinc-300">{{ year.daily_pin_text }}</span>
+                </div>
+              {% endif %}
+
+              {% if year.sample_shots %}
+                <div>
+                  <h3 class="text-xs uppercase tracking-widest text-zinc-500 mb-2">
+                    Sample shots ({{ year.sample_shots|length }} of {{ year.total_shots }})
+                  </h3>
+                  <div class="flex gap-2 overflow-x-auto pb-1">
+                    {% for shot in year.sample_shots %}
+                      {% set thumb_src = shot.thumbnail_path | thumbnail_url %}
+                      <a href="/screenshot/{{ shot.id }}"
+                         class="shrink-0 block rounded border border-ink-700 bg-ink-900 hover:border-accent-500 transition"
+                         title="{{ shot.app_name or 'Unknown app' }} · {{ shot.captured_at }}">
+                        {% if thumb_src %}
+                          <img src="{{ thumb_src }}"
+                               alt="Shot #{{ shot.id }}"
+                               loading="lazy"
+                               class="h-24 w-auto rounded">
+                        {% else %}
+                          <div class="h-24 w-32 flex items-center justify-center text-xs text-zinc-500">
+                            no thumb
+                          </div>
+                        {% endif %}
+                      </a>
+                    {% endfor %}
+                  </div>
+                </div>
+              {% endif %}
+
+              {% if year.sample_notes %}
+                <div>
+                  <h3 class="text-xs uppercase tracking-widest text-zinc-500 mb-2">
+                    Notes ({{ year.sample_notes|length }})
+                  </h3>
+                  <ul class="space-y-3">
+                    {% for note in year.sample_notes %}
+                      <li class="rounded border border-ink-700 bg-ink-900/60 p-3">
+                        <div class="flex items-baseline gap-2 mb-1">
+                          {% if note.title %}
+                            <span class="font-semibold text-zinc-200 text-sm">{{ note.title }}</span>
+                          {% endif %}
+                          <span class="text-xs font-mono text-zinc-500 ml-auto">{{ note.created_at }}</span>
+                        </div>
+                        <p class="text-sm text-zinc-300 whitespace-pre-wrap break-words">{{ note.body }}</p>
+                      </li>
+                    {% endfor %}
+                  </ul>
+                </div>
+              {% endif %}
+
+              {% if year.total_shots > 0 and not year.sample_shots and not year.sample_notes %}
+                <p class="text-sm text-zinc-500 italic">
+                  {{ year.total_shots }} shots recorded — open the day view for details.
+                </p>
+              {% endif %}
+
+            </div>
+          {% endif %}
+        </article>
+      </li>
+    {% endfor %}
+  </ol>
+
+  <p class="text-xs text-zinc-500 mt-8">
+    Machine-readable counterpart at
+    <a href="/api/memory/replay.json" class="font-mono text-accent-400 hover:underline">/api/memory/replay.json</a>.
+  </p>
+{% endif %}
+{% endblock %}

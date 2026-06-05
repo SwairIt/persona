@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-start justify-between gap-4 flex-wrap">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Pinboard</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Every screenshot you&rsquo;ve pinned, laid out as a fluid Pinterest-style
+      masonry &mdash; newest pin first. Scroll to load more.
+      {% if tag %}
+        Filtered by <span class="font-mono text-accent-400">#{{ tag }}</span>
+        &middot; <a href="/pinboard" class="text-accent-400 hover:underline">clear</a>
+      {% endif %}
+    </p>
+  </div>
+  <div class="text-xs text-zinc-500 font-mono flex-shrink-0">
+    {{ total }} pinned{% if tag %} &middot; tag #{{ tag }}{% endif %}
+  </div>
+</div>
+
+{% if items %}
+  {# CSS columns give us a true masonry layout with zero JS.
+     Each card uses ``break-inside-avoid`` so cards never split across columns,
+     and ``mb-4`` plus ``inline-block w-full`` makes each card a clean block in
+     its column. ``columns-2 md:columns-3 lg:columns-4 xl:columns-5`` follows
+     the spec (3/4/5) and adds a 2-column step for narrow phones. #}
+  <div id="pinboard-grid"
+       class="columns-2 md:columns-3 lg:columns-4 xl:columns-5 gap-4 [column-fill:_balance]">
+    {% include "_pinboard_page.html" %}
+  </div>
+{% else %}
+  <div class="text-center py-20 px-6 rounded-lg border border-dashed border-ink-700 bg-ink-900/40">
+    <div class="text-5xl text-zinc-700 mb-4">&#128204;</div>
+    <h2 class="text-lg font-semibold text-zinc-300">
+      {% if tag %}
+        No pinned shots carry <span class="font-mono">#{{ tag }}</span>
+      {% else %}
+        No pinned screenshots yet
+      {% endif %}
+    </h2>
+    <p class="text-sm text-zinc-500 mt-2 max-w-md mx-auto">
+      Open any screenshot and pin it to protect it from the tier sweep. Pinned
+      shots stay full-resolution forever and show up here on a fluid masonry
+      board.
+    </p>
+    <a href="/"
+       class="inline-block mt-5 px-4 py-2 rounded-md bg-accent-600 hover:bg-accent-500 text-white text-sm font-medium transition">
+      Browse the timeline &rarr;
+    </a>
+  </div>
+{% endif %}
+{% endblock %}

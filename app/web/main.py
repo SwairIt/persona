@@ -361,6 +361,9 @@ from app.web.routes import (
     annotation_diff as annotation_diff_routes,
     url_time as url_time_routes,
     smart_dedup as smart_dedup_routes,
+    pinboard as pinboard_routes,
+    bulk_tag as bulk_tag_routes,
+    this_day_replay as this_day_replay_routes,
 )
 from app.workers import (
     get_controller,
@@ -410,7 +413,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.58.0",
+        version="1.59.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -733,6 +736,9 @@ def create_app() -> FastAPI:
     app.include_router(annotation_diff_routes.router)
     app.include_router(url_time_routes.router)
     app.include_router(smart_dedup_routes.router)
+    app.include_router(pinboard_routes.router)
+    app.include_router(bulk_tag_routes.router)
+    app.include_router(this_day_replay_routes.router)
     app.include_router(sticky_search_routes.router)
     app.include_router(audit_replay_routes.router)
     app.include_router(tag_gallery_routes.router)

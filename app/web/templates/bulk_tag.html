@@ -1,0 +1,224 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight flex items-center gap-3">
+    <span class="text-emerald-400">&#127991;</span> Bulk tag
+  </h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Add or remove a tag across every screenshot matching a structured
+    filter (by app, window-title substring, OCR substring, or just a
+    date range). Preview first to see the match count and a five-row
+    sample; the <strong>Apply</strong> button stays disabled until you have
+    previewed once with the current form values.
+  </p>
+</div>
+
+<div class="rounded-lg border border-amber-700/60 bg-amber-900/20 p-4 mb-8">
+  <p class="text-amber-100 text-sm">
+    <strong class="font-semibold">Heads up.</strong>
+    Adding a tag is idempotent ({{ '{' }}<code class="font-mono">INSERT OR IGNORE</code>{{ '}' }} —
+    re-running never duplicates the link). Removing a tag only touches the
+    <code class="font-mono">screenshot_tags</code> link rows; the tag itself
+    and the underlying screenshots stay put. Always preview before applying.
+  </p>
+</div>
+
+<form id="bulk-tag-form"
+      class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6 space-y-4"
+      onsubmit="return false;">
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <label class="block">
+      <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">Filter kind</span>
+      <select name="filter_kind" id="bt-filter-kind"
+              class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm focus:outline-none focus:border-emerald-500">
+        <option value="app">app (exact app name)</option>
+        <option value="window_contains">window_contains (substring of window title)</option>
+        <option value="ocr_contains">ocr_contains (substring of OCR text)</option>
+        <option value="date_only">date_only (date range only)</option>
+      </select>
+    </label>
+    <label class="block">
+      <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">Filter value</span>
+      <input name="filter_value" id="bt-filter-value" maxlength="500"
+             autocomplete="off"
+             placeholder="e.g. Code.exe / invoice / login"
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm focus:outline-none focus:border-emerald-500">
+    </label>
+    <label class="block">
+      <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">Date from (YYYY-MM-DD, optional)</span>
+      <input name="date_from" id="bt-date-from" type="date"
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm focus:outline-none focus:border-emerald-500">
+    </label>
+    <label class="block">
+      <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">Date to (YYYY-MM-DD, optional, inclusive)</span>
+      <input name="date_to" id="bt-date-to" type="date"
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm focus:outline-none focus:border-emerald-500">
+    </label>
+    <label class="block">
+      <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">Tag</span>
+      <input name="tag" id="bt-tag" required minlength="1" maxlength="60"
+             autocomplete="off"
+             placeholder="e.g. archive"
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm focus:outline-none focus:border-emerald-500">
+    </label>
+    <label class="block">
+      <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">Action</span>
+      <select name="action" id="bt-action"
+              class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm focus:outline-none focus:border-emerald-500">
+        <option value="add">add (INSERT OR IGNORE)</option>
+        <option value="remove">remove (DELETE matching rows)</option>
+      </select>
+    </label>
+  </div>
+
+  <div class="flex items-center gap-3 pt-2">
+    <button type="button" id="bt-preview-btn"
+            class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-sm font-medium">
+      Preview matches
+    </button>
+    <button type="button" id="bt-apply-btn" disabled
+            class="px-4 py-2 bg-rose-600 hover:bg-rose-500 disabled:bg-zinc-700 disabled:cursor-not-allowed text-white rounded text-sm font-medium">
+      Apply
+    </button>
+    <span class="text-xs text-zinc-500" id="bt-hint">Preview first to enable Apply.</span>
+  </div>
+</form>
+
+<div id="bulk-tag-preview" class="rounded-lg border border-ink-700 bg-ink-800 p-5 min-h-[80px]">
+  <p class="text-zinc-500 text-sm">No preview yet. Fill in the form and click <em>Preview matches</em>.</p>
+</div>
+
+<div id="bulk-tag-result" class="mt-4"></div>
+
+<script>
+  (function () {
+    var previewBtn = document.getElementById('bt-preview-btn');
+    var applyBtn = document.getElementById('bt-apply-btn');
+    var hint = document.getElementById('bt-hint');
+    var previewPane = document.getElementById('bulk-tag-preview');
+    var resultPane = document.getElementById('bulk-tag-result');
+
+    // Snapshot of form values that produced the last successful preview;
+    // we only re-enable Apply while the form still matches that snapshot.
+    var lastPreviewSig = null;
+
+    function formData() {
+      var fd = new FormData();
+      fd.append('filter_kind', document.getElementById('bt-filter-kind').value);
+      fd.append('filter_value', document.getElementById('bt-filter-value').value);
+      fd.append('date_from', document.getElementById('bt-date-from').value);
+      fd.append('date_to', document.getElementById('bt-date-to').value);
+      fd.append('tag', document.getElementById('bt-tag').value);
+      fd.append('action', document.getElementById('bt-action').value);
+      return fd;
+    }
+
+    function currentSig() {
+      var parts = [
+        document.getElementById('bt-filter-kind').value,
+        document.getElementById('bt-filter-value').value,
+        document.getElementById('bt-date-from').value,
+        document.getElementById('bt-date-to').value,
+      ];
+      return parts.join('|');
+    }
+
+    function escapeHtml(s) {
+      if (s === null || s === undefined) return '';
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function renderPreview(data) {
+      var rows = (data.sample || []).map(function (r) {
+        return '<tr class="border-t border-ink-700">' +
+          '<td class="px-2 py-1 font-mono text-xs text-zinc-400">' + escapeHtml(r.id) + '</td>' +
+          '<td class="px-2 py-1 font-mono text-xs text-zinc-400">' + escapeHtml(r.captured_at) + '</td>' +
+          '<td class="px-2 py-1 text-xs">' + escapeHtml(r.app_name) + '</td>' +
+          '<td class="px-2 py-1 text-xs">' + escapeHtml(r.window_title) + '</td>' +
+          '<td class="px-2 py-1 font-mono text-xs">' + escapeHtml(r.ocr_status) + '</td>' +
+          '</tr>';
+      }).join('');
+      var table = rows
+        ? '<table class="w-full mt-3 text-left"><thead><tr class="text-xs uppercase tracking-wider text-zinc-500">' +
+          '<th class="px-2 py-1">id</th><th class="px-2 py-1">captured_at</th>' +
+          '<th class="px-2 py-1">app</th><th class="px-2 py-1">window</th>' +
+          '<th class="px-2 py-1">ocr</th></tr></thead><tbody>' + rows + '</tbody></table>'
+        : '<p class="text-zinc-500 text-sm mt-3">No matching shots.</p>';
+      previewPane.innerHTML =
+        '<p class="text-sm"><strong>' + escapeHtml(data.count) +
+        '</strong> matching shot(s). Sample (first 5):</p>' + table;
+    }
+
+    previewBtn.addEventListener('click', function () {
+      previewPane.innerHTML = '<p class="text-zinc-500 text-sm">Previewing&hellip;</p>';
+      resultPane.innerHTML = '';
+      applyBtn.disabled = true;
+      hint.textContent = 'Previewing&hellip;';
+      fetch('/api/bulk-tag/preview', { method: 'POST', body: formData() })
+        .then(function (r) {
+          if (!r.ok) {
+            return r.text().then(function (t) { throw new Error(t || ('HTTP ' + r.status)); });
+          }
+          return r.json();
+        })
+        .then(function (data) {
+          renderPreview(data);
+          lastPreviewSig = currentSig();
+          applyBtn.disabled = false;
+          hint.textContent = 'Preview ready. Apply will run on these matches.';
+        })
+        .catch(function (err) {
+          previewPane.innerHTML = '<p class="text-rose-400 text-sm">Preview failed: ' +
+            escapeHtml(err.message || err) + '</p>';
+          lastPreviewSig = null;
+          applyBtn.disabled = true;
+          hint.textContent = 'Preview failed. Fix the form and try again.';
+        });
+    });
+
+    applyBtn.addEventListener('click', function () {
+      if (lastPreviewSig === null || lastPreviewSig !== currentSig()) {
+        hint.textContent = 'Form changed since preview. Preview again.';
+        applyBtn.disabled = true;
+        return;
+      }
+      var action = document.getElementById('bt-action').value;
+      var tag = document.getElementById('bt-tag').value;
+      if (!confirm('About to ' + action + ' tag "' + tag + '" on the previewed shots. Continue?')) {
+        return;
+      }
+      applyBtn.disabled = true;
+      hint.textContent = 'Applying&hellip;';
+      fetch('/api/bulk-tag/apply', { method: 'POST', body: formData() })
+        .then(function (r) {
+          if (!r.ok) {
+            return r.text().then(function (t) { throw new Error(t || ('HTTP ' + r.status)); });
+          }
+          return r.json();
+        })
+        .then(function (data) {
+          resultPane.innerHTML =
+            '<div class="rounded-lg border border-emerald-700/60 bg-emerald-900/20 p-4 text-sm">' +
+            '<strong>Done.</strong> action=<code class="font-mono">' + escapeHtml(data.action) +
+            '</code>, tag=<code class="font-mono">' + escapeHtml(data.tag) +
+            '</code>, affected=<strong>' + escapeHtml(data.affected) + '</strong>' +
+            '</div>';
+          hint.textContent = 'Preview again to enable Apply.';
+          lastPreviewSig = null;
+        })
+        .catch(function (err) {
+          resultPane.innerHTML = '<div class="rounded-lg border border-rose-700/60 bg-rose-900/20 p-4 text-sm text-rose-200">' +
+            'Apply failed: ' + escapeHtml(err.message || err) + '</div>';
+          hint.textContent = 'Apply failed. Preview again to retry.';
+          lastPreviewSig = null;
+        });
+    });
+  })();
+</script>
+{% endblock %}

@@ -1,0 +1,68 @@
+{# Pinboard page fragment — one page of cards + an HTMX sentinel.
+
+   Used in two contexts:
+
+   1. Embedded inside ``pinboard.html`` for the initial render — the
+      surrounding ``#pinboard-grid`` provides the CSS-columns container.
+   2. Returned standalone as the HTMX response when the bottom-of-page
+      sentinel fires; HTMX swaps ``outerHTML`` of the sentinel itself
+      so the new cards land at the end of the same column container.
+
+   Each card uses ``break-inside-avoid`` so a single shot is never split
+   across two columns, and ``inline-block w-full mb-4`` makes every card
+   a clean block within its column. We let the image preserve its real
+   aspect ratio (``h-auto``) so the masonry can do its job — varied
+   heights are the whole point. #}
+
+{% for shot in items %}
+  <article id="pinboard-shot-{{ shot.id }}"
+           class="group relative break-inside-avoid mb-4 inline-block w-full
+                  rounded-lg overflow-hidden bg-ink-800 border border-ink-700
+                  hover:border-accent-500 transition">
+    <a href="/screenshot/{{ shot.id }}" class="block relative">
+      {% if shot.thumbnail_url %}
+        <img src="{{ shot.thumbnail_url }}"
+             alt="{{ shot.window_title or shot.app_name or 'Pinned screenshot' }}"
+             loading="lazy"
+             class="w-full h-auto block group-hover:scale-[1.02] transition-transform duration-300">
+      {% else %}
+        <div class="bg-ink-900 flex items-center justify-center text-zinc-600 text-xs h-32">
+          metadata only
+        </div>
+      {% endif %}
+      <span class="absolute top-1.5 left-1.5 text-[11px] text-amber-400 bg-ink-900/80 rounded px-1.5 py-0.5"
+            title="Pinned">&#128204;</span>
+    </a>
+
+    <div class="px-3 py-2 min-w-0">
+      <div class="text-sm text-zinc-200 font-medium truncate"
+           title="{{ shot.app_name or '' }}">
+        {{ shot.app_name or '&mdash;' }}
+      </div>
+      {% if shot.window_title %}
+        <div class="text-xs text-zinc-400 truncate" title="{{ shot.window_title }}">
+          {{ shot.window_title }}
+        </div>
+      {% endif %}
+      <div class="text-[11px] text-zinc-500 font-mono mt-0.5">
+        {{ shot.captured_at }}
+      </div>
+    </div>
+  </article>
+{% endfor %}
+
+{% if has_more %}
+  {# HTMX sentinel — fires once as it scrolls into view, swaps itself
+     with the next page fragment. ``hx-swap="outerHTML"`` means the
+     sentinel is *replaced* by the new chunk (which itself ends with
+     another sentinel if more pages remain), so we never end up with
+     duplicate triggers. The ``hx=1`` query param tells the route to
+     return this very partial instead of the full page. #}
+  <div id="pinboard-sentinel-{{ next_offset }}"
+       class="w-full text-center text-xs text-zinc-600 py-6 col-span-full break-inside-avoid"
+       hx-get="/pinboard?offset={{ next_offset }}&limit={{ limit }}{% if tag %}&tag={{ tag | urlencode }}{% endif %}&hx=1"
+       hx-trigger="revealed"
+       hx-swap="outerHTML">
+    Loading more&hellip;
+  </div>
+{% endif %}
