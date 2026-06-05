@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-end justify-between flex-wrap gap-3">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Smart dedup</h1>
+    <p class="text-zinc-500 text-sm mt-1 max-w-3xl">
+      Second-pass suppressor for trivial visual changes (blinking cursor, ticking
+      clock, single-pixel antialias drift). Pairs of consecutive shots with the
+      same app + similar window title + close pHash + OCR text equivalent after
+      stripping digits/whitespace/punctuation get bundled into one
+      <span class="text-emerald-300">kept</span> shot; the rest are marked
+      <span class="text-amber-300">trivial dup</span>.
+    </p>
+  </div>
+  <div class="text-xs text-zinc-500 font-mono whitespace-nowrap">
+    {{ "{:,}".format(marked) }} marked
+    &middot; {{ "{:,}".format(anchors) }} bundles
+  </div>
+</div>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 mb-6">
+  <header class="px-4 py-3 border-b border-ink-700 bg-ink-900
+                 flex items-center justify-between flex-wrap gap-3">
+    <div class="text-sm text-zinc-300">
+      <span class="text-xs uppercase tracking-widest text-zinc-500 mr-2">Last run</span>
+      {% if last_run %}
+        <span class="font-mono text-accent-400">{{ last_run | localtime("full") }}</span>
+      {% else %}
+        <span class="text-zinc-500 italic">never (worker has not run via the manual button yet)</span>
+      {% endif %}
+    </div>
+    <form action="/api/smart-dedup/scan" method="post" class="inline">
+      <button type="submit"
+              class="px-3 py-1.5 rounded text-xs font-medium
+                     bg-emerald-700 hover:bg-emerald-600 text-white transition">
+        Run Now
+      </button>
+    </form>
+  </header>
+  <div class="px-4 py-3 text-xs text-zinc-500">
+    The worker also runs every 30 minutes in the background while
+    <code class="font-mono">smart_dedup_enabled</code> is set to <code>1</code>.
+    JSON view: <a href="/api/smart-dedup/stats.json"
+                  class="text-accent-400 hover:underline font-mono">/api/smart-dedup/stats.json</a>
+  </div>
+</section>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden">
+  <header class="px-4 py-3 border-b border-ink-700 bg-ink-900">
+    <h2 class="text-sm font-semibold text-zinc-200">Recent bundles</h2>
+    <p class="text-xs text-zinc-500 mt-1">
+      The latest anchors with their trivial dependants. Anchor shots are still
+      visible everywhere; the followers are hidden by the (future) display
+      filter once the worker has marked them.
+    </p>
+  </header>
+  {% if groupings %}
+    <ul class="divide-y divide-ink-700">
+      {% for group in groupings %}
+        <li class="px-4 py-3">
+          <div class="flex items-start justify-between flex-wrap gap-3">
+            <div class="min-w-0">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="text-xs uppercase tracking-widest text-zinc-500">Anchor</span>
+                <a href="/screenshot/{{ group.anchor.id }}"
+                   class="font-mono text-sm text-accent-400 hover:underline">
+                  #{{ group.anchor.id }}
+                </a>
+                <span class="font-mono text-[10px] text-zinc-500">
+                  {{ group.anchor.captured_at | localtime("full") }}
+                </span>
+                <span class="px-2 py-0.5 rounded-full bg-ink-700 text-zinc-300
+                             text-[10px] font-mono uppercase tracking-wider">
+                  {{ group.follower_count }} dup{{ "" if group.follower_count == 1 else "s" }}
+                </span>
+              </div>
+              <div class="mt-1 text-xs text-zinc-400 truncate max-w-2xl">
+                {% if group.anchor.app_name %}
+                  <span class="text-zinc-500">{{ group.anchor.app_name | app_alias }}</span>
+                  &middot;
+                {% endif %}
+                {{ group.anchor.window_title or "(untitled window)" }}
+              </div>
+            </div>
+            <div class="text-[10px] text-zinc-500 font-mono space-x-1 max-w-md text-right">
+              {% for f in group.followers %}
+                <a href="/screenshot/{{ f.id }}"
+                   class="text-amber-300 hover:underline"
+                   title="{{ f.captured_at }}">#{{ f.id }}</a>{% if not loop.last %},{% endif %}
+              {% endfor %}
+              {% if group.follower_count > group.followers | length %}
+                <span class="text-zinc-600">
+                  +{{ group.follower_count - (group.followers | length) }} more
+                </span>
+              {% endif %}
+            </div>
+          </div>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <div class="px-4 py-6 text-sm text-zinc-500 italic">
+      No trivial-dup bundles recorded yet. Hit
+      <span class="text-emerald-300 not-italic font-medium">Run Now</span>
+      to scan the last few hours.
+    </div>
+  {% endif %}
+</section>
+{% endblock %}

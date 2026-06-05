@@ -358,6 +358,9 @@ from app.web.routes import (
     capture_quality as capture_quality_routes,
     changelog as changelog_routes,
     mobile_bottom_nav as mobile_bottom_nav_routes,
+    annotation_diff as annotation_diff_routes,
+    url_time as url_time_routes,
+    smart_dedup as smart_dedup_routes,
 )
 from app.workers import (
     get_controller,
@@ -407,7 +410,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.57.0",
+        version="1.58.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -727,6 +730,9 @@ def create_app() -> FastAPI:
     app.include_router(capture_quality_routes.router)
     app.include_router(changelog_routes.router)
     app.include_router(mobile_bottom_nav_routes.router)
+    app.include_router(annotation_diff_routes.router)
+    app.include_router(url_time_routes.router)
+    app.include_router(smart_dedup_routes.router)
     app.include_router(sticky_search_routes.router)
     app.include_router(audit_replay_routes.router)
     app.include_router(tag_gallery_routes.router)
@@ -914,6 +920,20 @@ async def _run_audit_log_rotation_worker(controller: object) -> None:
     await run_audit_log_rotation_worker()
 
 
+async def _run_url_time_worker(controller: object) -> None:
+    """Adapter for the v1.58 browser-window URL-time aggregator."""
+    from app.workers.url_time_worker import run_url_time_worker  # noqa: PLC0415
+
+    await run_url_time_worker()
+
+
+async def _run_smart_dedup_worker(controller: object) -> None:
+    """Adapter for the v1.58 trivial-dup smart-dedup worker."""
+    from app.workers.smart_dedup_worker import run_smart_dedup_worker  # noqa: PLC0415
+
+    await run_smart_dedup_worker()
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialise DB, start workers, and tear them down on shutdown."""
@@ -1013,6 +1033,14 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         asyncio.create_task(
             _run_audit_log_rotation_worker(controller),
             name="audit-log-rotation-worker",
+        ),
+        asyncio.create_task(
+            _run_url_time_worker(controller),
+            name="url-time-worker",
+        ),
+        asyncio.create_task(
+            _run_smart_dedup_worker(controller),
+            name="smart-dedup-worker",
         ),
     ]
 

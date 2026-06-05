@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+
+{#
+  v1.46 — Visual diff between two ``shot_annotation_revision`` rows.
+
+  Two stacked SVG containers, one per revision. Each container draws
+  the screenshot thumbnail as a background image and overlays:
+    * Revision A — its own SVG primitives, with REMOVED primitives
+      additionally outlined in red (the ones that disappeared in B).
+    * Revision B — its own SVG primitives, with ADDED primitives
+      additionally outlined in green (the ones that appeared in B).
+
+  Why a server-rendered overlay rather than a client-side regex parse:
+  the diff bucket already carries a bbox per element, so the template
+  can emit the outline ``<rect>``s deterministically without shipping
+  extra JS. The page loads with no scripts at all — robust to a strict
+  CSP and easy to screenshot for sharing.
+
+  Security: ``rev_a_svg`` / ``rev_b_svg`` have already been piped through
+  :func:`app.shot_annotations.sanitise_svg` in the route handler, which
+  strips ``<script>`` and ``on*`` handlers. The bbox values come from
+  the Python diff routine (float, coerced) — never user-supplied raw
+  text — so the ``{{ ... }}`` interpolations below cannot smuggle SVG
+  attributes.
+#}
+
+{% block content %}
+<div class="mb-4 flex flex-wrap items-center gap-2 justify-between text-sm">
+  <a href="/screenshot/{{ shot.id }}"
+     class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700">← к скриншоту #{{ shot.id }}</a>
+  <a href="/shot/{{ shot.id }}/annotate"
+     class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700">редактор аннотаций</a>
+</div>
+
+<div class="mb-4 rounded-lg border border-ink-700 bg-ink-900 p-3 text-sm space-y-2">
+  <div class="flex flex-wrap items-center gap-4">
+    <span class="inline-flex items-center gap-2">
+      <span class="inline-block w-4 h-4 rounded border-2 border-rose-500"></span>
+      <span>удалено в B (есть только в ревизии A): <strong>{{ removed | length }}</strong></span>
+    </span>
+    <span class="inline-flex items-center gap-2">
+      <span class="inline-block w-4 h-4 rounded border-2 border-emerald-500"></span>
+      <span>добавлено в B (есть только в ревизии B): <strong>{{ added | length }}</strong></span>
+    </span>
+    <span class="inline-flex items-center gap-2 text-zinc-400">
+      <span class="inline-block w-4 h-4 rounded border-2 border-zinc-500"></span>
+      <span>без изменений: <strong>{{ kept_count }}</strong></span>
+    </span>
+  </div>
+  <div class="text-xs text-zinc-500">
+    Сравнение ревизий
+    <span class="font-mono">#{{ rev_a_id }}</span>
+    (<span class="font-mono">{{ rev_a_saved_at }}</span>)
+    →
+    <span class="font-mono">#{{ rev_b_id }}</span>
+    (<span class="font-mono">{{ rev_b_saved_at }}</span>).
+    Подсветка рисуется поверх оригинального SVG: красные рамки — фигуры,
+    исчезнувшие в B; зелёные — появившиеся.
+  </div>
+</div>
+
+{% if shot.thumbnail_path %}
+  {% set thumb_src = shot.thumbnail_path | thumbnail_url %}
+
+  <section class="space-y-2 mb-6">
+    <h2 class="text-sm font-semibold text-zinc-300">
+      Ревизия A — <span class="font-mono">#{{ rev_a_id }}</span>
+      <span class="text-zinc-500 font-normal">({{ rev_a_saved_at }})</span>
+    </h2>
+    <div class="relative inline-block max-w-full rounded-lg overflow-hidden border border-ink-700 bg-ink-900">
+      <img src="{{ thumb_src }}"
+           alt="Screenshot #{{ shot.id }} — revision A"
+           draggable="false"
+           class="block max-w-full h-auto pointer-events-none">
+      <svg xmlns="http://www.w3.org/2000/svg"
+           viewBox="0 0 {{ shot.width or 1 }} {{ shot.height or 1 }}"
+           preserveAspectRatio="none"
+           class="absolute inset-0 w-full h-full pointer-events-none">
+        <g aria-label="revision-a-content">{{ rev_a_svg | safe }}</g>
+        <g aria-label="removed-outline" fill="none" stroke="#f43f5e" stroke-width="4" stroke-dasharray="8 6">
+          {% for el in removed %}
+            {% if el.bbox %}
+              <rect x="{{ el.bbox.x }}"
+                    y="{{ el.bbox.y }}"
+                    width="{{ el.bbox.width }}"
+                    height="{{ el.bbox.height }}"></rect>
+            {% endif %}
+          {% endfor %}
+        </g>
+      </svg>
+    </div>
+  </section>
+
+  <section class="space-y-2">
+    <h2 class="text-sm font-semibold text-zinc-300">
+      Ревизия B — <span class="font-mono">#{{ rev_b_id }}</span>
+      <span class="text-zinc-500 font-normal">({{ rev_b_saved_at }})</span>
+    </h2>
+    <div class="relative inline-block max-w-full rounded-lg overflow-hidden border border-ink-700 bg-ink-900">
+      <img src="{{ thumb_src }}"
+           alt="Screenshot #{{ shot.id }} — revision B"
+           draggable="false"
+           class="block max-w-full h-auto pointer-events-none">
+      <svg xmlns="http://www.w3.org/2000/svg"
+           viewBox="0 0 {{ shot.width or 1 }} {{ shot.height or 1 }}"
+           preserveAspectRatio="none"
+           class="absolute inset-0 w-full h-full pointer-events-none">
+        <g aria-label="revision-b-content">{{ rev_b_svg | safe }}</g>
+        <g aria-label="added-outline" fill="none" stroke="#10b981" stroke-width="4" stroke-dasharray="8 6">
+          {% for el in added %}
+            {% if el.bbox %}
+              <rect x="{{ el.bbox.x }}"
+                    y="{{ el.bbox.y }}"
+                    width="{{ el.bbox.width }}"
+                    height="{{ el.bbox.height }}"></rect>
+            {% endif %}
+          {% endfor %}
+        </g>
+      </svg>
+    </div>
+  </section>
+
+  {% if added or removed %}
+    <section class="mt-6 grid gap-4 md:grid-cols-2 text-xs">
+      <div class="rounded-lg border border-ink-700 bg-ink-900 p-3">
+        <h3 class="font-semibold text-rose-300 mb-2">Удалено ({{ removed | length }})</h3>
+        {% if removed %}
+          <ul class="space-y-1 font-mono text-zinc-400">
+            {% for el in removed %}
+              <li><span class="text-rose-300">&lt;{{ el.tag }}&gt;</span> {{ el.attrs_str }}</li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="text-zinc-500">Ничего не удалено.</p>
+        {% endif %}
+      </div>
+      <div class="rounded-lg border border-ink-700 bg-ink-900 p-3">
+        <h3 class="font-semibold text-emerald-300 mb-2">Добавлено ({{ added | length }})</h3>
+        {% if added %}
+          <ul class="space-y-1 font-mono text-zinc-400">
+            {% for el in added %}
+              <li><span class="text-emerald-300">&lt;{{ el.tag }}&gt;</span> {{ el.attrs_str }}</li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="text-zinc-500">Ничего не добавлено.</p>
+        {% endif %}
+      </div>
+    </section>
+  {% else %}
+    <p class="mt-6 text-sm text-zinc-500">
+      Различий между ревизиями не найдено — все примитивы совпадают.
+    </p>
+  {% endif %}
+{% else %}
+  <div class="aspect-video flex items-center justify-center text-zinc-500 bg-ink-900 rounded-lg border border-ink-700">
+    Миниатюра удалена политикой ретенции — нечего сравнивать визуально.
+  </div>
+{% endif %}
+{% endblock %}

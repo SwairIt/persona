@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-center justify-between flex-wrap gap-3">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Время на страницах</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      {{ start_day }} → {{ end_day }} ·
+      топ {{ items | length }} страниц по оценочному времени:
+      <strong class="text-zinc-300 font-mono">{{ total_duration }}</strong>
+      <span class="text-zinc-600">({{ total_seconds }}s)</span>
+    </p>
+  </div>
+  <div class="flex items-center gap-2 text-sm">
+    <a href="/api/stats/url-time.json?day={{ today_iso }}"
+       class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700">JSON</a>
+  </div>
+</div>
+
+<p class="mb-4 text-xs text-zinc-500 leading-relaxed">
+  Best-effort: окно браузера → отрезанный суффикс (« — Google Chrome» и т.п.) →
+  ярлык страницы. Реальный URL мы не знаем — две вкладки с одинаковым заголовком
+  склеятся, а одна страница с меняющимся title — разделится. Секунды считаются как
+  ``screen_count × capture_interval_seconds`` на момент агрегации воркером.
+</p>
+
+{% if not items %}
+  <p class="text-zinc-500">
+    Пока ничего не агрегировано. Воркер обновит данные за последние трое суток
+    в течение получаса; либо включён флаг <code>url_time_tracking_enabled</code>?
+  </p>
+{% else %}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-ink-900 text-zinc-400 text-xs uppercase tracking-wider">
+        <tr>
+          <th class="text-left px-4 py-2 font-medium">Страница</th>
+          <th class="text-left px-4 py-2 font-medium w-32">Браузер</th>
+          <th class="text-right px-4 py-2 font-medium w-28">Время</th>
+          <th class="text-right px-4 py-2 font-medium w-20">Шотов</th>
+          <th class="text-left px-4 py-2 font-medium w-1/3">Доля</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in items %}
+          <tr class="border-t border-ink-700 hover:bg-ink-900/50">
+            <td class="px-4 py-2">
+              <span class="text-zinc-200 truncate block max-w-md"
+                    title="{{ item.page_label }}">{{ item.page_label }}</span>
+            </td>
+            <td class="px-4 py-2 text-zinc-400 truncate">{{ item.browser }}</td>
+            <td class="px-4 py-2 text-right font-mono text-zinc-300">{{ item.duration }}</td>
+            <td class="px-4 py-2 text-right font-mono text-zinc-400">{{ item.screen_count }}</td>
+            <td class="px-4 py-2">
+              <div class="bg-ink-900 rounded h-2 overflow-hidden"
+                   title="{{ '%.1f' | format(item.percent) }}% от самого крупного">
+                <div class="h-full bg-accent-500"
+                     style="width: {{ '%.2f' | format(item.percent) }}%"></div>
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <p class="mt-4 text-xs text-zinc-500">
+    Ширина бара = доля от страницы с самым большим est_seconds в этом окне.
+  </p>
+{% endif %}
+{% endblock %}
