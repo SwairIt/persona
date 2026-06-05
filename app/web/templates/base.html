@@ -84,6 +84,10 @@
      the mouse. Self-contained vanilla JS; silent no-op when no shot
      can be resolved from the focus chain. #}
   <script src="/static/quick_pin.js" defer></script>
+  {# v1.45 — configurable hotkey loader. Fetches /api/hotkeys.json on
+     DOMContentLoaded and registers a single global keydown listener
+     that dispatches to ``window.PersonaHotkeys.handlers[action]``. #}
+  <script src="/static/hotkey_loader.js" defer></script>
   <script src="/static/timeline_scrubber.js" defer></script>
   {% block head_extra %}{% endblock %}
   <script>

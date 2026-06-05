@@ -101,6 +101,27 @@
       </div>
     {% endif %}
 
+    {# v1.23 — manual single-shot OCR re-run. Renders even when
+       shot.ocr_text is empty (the OCR section below is gated on
+       presence of text, so without this block the operator would
+       have no way to retry a shot whose first pass returned
+       nothing). HTMX POST returns the RerunResult dict on 200;
+       hx-swap=none + the location.reload hook means the page
+       refreshes and the new OCR text appears in the section below.
+       See app/ocr_rerun.py + app/web/routes/ocr_rerun.py. #}
+    {% if shot.thumbnail_path %}
+      <div class="flex items-center gap-2 text-xs text-zinc-500">
+        <button type="button"
+                hx-post="/api/screenshot/{{ shot.id }}/ocr-rerun"
+                hx-swap="none"
+                hx-on::after-request="location.reload()"
+                class="px-3 py-1.5 bg-ink-700 hover:bg-ink-600 rounded text-zinc-200">
+          {{ t('btn_rerun_ocr') if t('btn_rerun_ocr') != 'btn_rerun_ocr' else 'Re-run OCR' }}
+        </button>
+        <span>Re-process this shot with the current Tesseract settings.</span>
+      </div>
+    {% endif %}
+
     {% if shot.ocr_text %}
       <section class="rounded-lg border border-ink-700 bg-ink-800 p-4"
                x-data="ocrHistory({{ shot.id }})">

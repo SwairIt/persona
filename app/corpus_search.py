@@ -360,6 +360,12 @@ async def _search_audio(
     optional UI-language translation. Both are searched LIKE (the
     column is short — typically <2 KB — and there is no FTS5 mirror
     for audio yet).
+
+    v1.40 (migration 123): rows whose ``merged_into_id`` is non-NULL
+    were rolled up into a canonical merged row by
+    :mod:`app.audio_segment_merge`. Search must skip them so a single
+    utterance that was VAD-split into three fragments shows up once,
+    not three times.
     """
     if not term:
         return []
@@ -368,9 +374,11 @@ async def _search_audio(
         "SELECT id, captured_at, duration_seconds, codec, transcript, "
         "       transcript_translated "
         "FROM audio_segment "
-        "WHERE (transcript IS NOT NULL AND LOWER(transcript) LIKE LOWER(?) ESCAPE '\\') "
-        "   OR (transcript_translated IS NOT NULL "
-        "       AND LOWER(transcript_translated) LIKE LOWER(?) ESCAPE '\\') "
+        "WHERE merged_into_id IS NULL "
+        "  AND ((transcript IS NOT NULL "
+        "        AND LOWER(transcript) LIKE LOWER(?) ESCAPE '\\') "
+        "    OR (transcript_translated IS NOT NULL "
+        "        AND LOWER(transcript_translated) LIKE LOWER(?) ESCAPE '\\')) "
         "ORDER BY captured_at DESC, id DESC "
         "LIMIT ?"
     )

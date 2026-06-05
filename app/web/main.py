@@ -323,6 +323,8 @@ from app.web.routes import (
     weekly_rollup_settings as weekly_rollup_settings_routes,
     active_window_timeline as active_window_timeline_routes,
     shot_annotation_autosave as shot_annotation_autosave_routes,
+    hotkey_settings as hotkey_settings_routes,
+    ocr_rerun as ocr_rerun_routes,
 )
 from app.workers import (
     get_controller,
@@ -372,7 +374,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.45.0",
+        version="1.46.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -657,6 +659,8 @@ def create_app() -> FastAPI:
     app.include_router(weekly_rollup_settings_routes.router)
     app.include_router(active_window_timeline_routes.router)
     app.include_router(shot_annotation_autosave_routes.router)
+    app.include_router(hotkey_settings_routes.router)
+    app.include_router(ocr_rerun_routes.router)
     app.include_router(sticky_search_routes.router)
     app.include_router(audit_replay_routes.router)
     app.include_router(tag_gallery_routes.router)
@@ -809,6 +813,13 @@ async def _run_weekly_rollup_worker(controller: object) -> None:
     await run_weekly_rollup_worker()
 
 
+async def _run_audio_merge_worker(controller: object) -> None:
+    """Adapter for the v1.46 sub-second audio-segment merge worker."""
+    from app.workers.audio_merge_worker import run_audio_merge_worker  # noqa: PLC0415
+
+    await run_audio_merge_worker()
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialise DB, start workers, and tear them down on shutdown."""
@@ -888,6 +899,10 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         asyncio.create_task(
             _run_weekly_rollup_worker(controller),
             name="weekly-rollup-worker",
+        ),
+        asyncio.create_task(
+            _run_audio_merge_worker(controller),
+            name="audio-merge-worker",
         ),
     ]
 

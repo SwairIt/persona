@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Горячие клавиши</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Настройте сочетания для постановки на паузу захвата, моментального
+    кадра, микрофона и других действий. Изменения сохраняются сразу
+    после клика на «Save» в строке. Кнопка <em>Reset</em> внизу
+    возвращает все клавиши к значениям по умолчанию.
+  </p>
+</div>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5 max-w-4xl">
+  <table class="w-full text-sm">
+    <thead>
+      <tr class="text-xs uppercase tracking-wide text-zinc-500 border-b border-ink-700">
+        <th class="text-left py-2 pr-3 font-medium">Action</th>
+        <th class="text-left py-2 px-3 font-medium w-44">Current binding</th>
+        <th class="text-left py-2 px-3 font-medium w-32">Default</th>
+        <th class="py-2 pl-3 font-medium w-24"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr class="border-b border-ink-700/60 align-top" data-action="{{ row.action }}">
+        <td class="py-3 pr-3">
+          <div class="text-zinc-200">{{ row.title }}</div>
+          <div class="text-xs text-zinc-500 mt-0.5">{{ row.description }}</div>
+          <div class="text-[10px] text-zinc-600 font-mono mt-0.5">{{ row.action }}</div>
+        </td>
+        <td class="py-3 px-3">
+          <input
+            type="text"
+            name="key_combo"
+            value="{{ row.key_combo }}"
+            autocomplete="off"
+            spellcheck="false"
+            data-input-for="{{ row.action }}"
+            class="w-full px-2 py-1.5 bg-ink-900 border border-ink-700 rounded text-sm font-mono tracking-wide focus:border-accent-500 focus:outline-none"
+            placeholder="{{ row.default_combo }}">
+        </td>
+        <td class="py-3 px-3">
+          <code class="text-xs text-zinc-500">{{ row.default_combo }}</code>
+        </td>
+        <td class="py-3 pl-3 text-right">
+          <button type="button"
+                  data-save-for="{{ row.action }}"
+                  class="px-3 py-1.5 bg-accent-600 hover:bg-accent-500 rounded text-xs font-medium">
+            Save
+          </button>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <div class="flex items-center justify-between pt-4 mt-3 border-t border-ink-700">
+    <p class="text-xs text-zinc-500 max-w-lg">
+      Use literal letters (<code class="text-zinc-300">P</code>,
+      <code class="text-zinc-300">M</code>), the special tokens
+      <code class="text-zinc-300">Question</code> /
+      <code class="text-zinc-300">Slash</code> for <kbd>?</kbd> /
+      <kbd>/</kbd>, or modifier combos like
+      <code class="text-zinc-300">Cmd+K</code>,
+      <code class="text-zinc-300">Shift+P</code>,
+      <code class="text-zinc-300">Cmd+.</code>.
+    </p>
+    <button type="button"
+            id="hotkeys-reset-btn"
+            class="px-4 py-2 bg-ink-900 hover:bg-ink-700 border border-ink-700 rounded text-sm">
+      Reset to defaults
+    </button>
+  </div>
+
+  <p id="hotkeys-status" class="text-xs text-zinc-500 mt-3 min-h-[1em]" aria-live="polite"></p>
+</section>
+
+<script>
+  /*
+   * Per-row save + global reset. Vanilla ES2020 — no framework. Each
+   * Save button posts {key_combo} to /settings/hotkeys/{action}; the
+   * Reset button hits /api/hotkeys/reset and re-loads the table from
+   * the server so the inputs reflect the canonical defaults.
+   */
+  (function () {
+    'use strict';
+    const status = document.getElementById('hotkeys-status');
+
+    function flash(msg, isError) {
+      if (!status) return;
+      status.textContent = msg;
+      status.style.color = isError ? '#fb7185' : '#a3e635';
+      setTimeout(function () {
+        if (status.textContent === msg) status.textContent = '';
+      }, 3000);
+    }
+
+    document.querySelectorAll('[data-save-for]').forEach(function (btn) {
+      btn.addEventListener('click', async function () {
+        const action = btn.getAttribute('data-save-for');
+        const input = document.querySelector('[data-input-for="' + action + '"]');
+        if (!(input instanceof HTMLInputElement)) return;
+        const combo = input.value.trim();
+        if (!combo) {
+          flash('Combo cannot be empty', true);
+          return;
+        }
+        try {
+          const res = await fetch('/settings/hotkeys/' + encodeURIComponent(action), {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify({ key_combo: combo }),
+          });
+          if (!res.ok) {
+            const detail = await res.text();
+            flash('Save failed: ' + res.status + ' ' + detail, true);
+            return;
+          }
+          const json = await res.json();
+          input.value = json.key_combo;
+          flash('Saved ' + action + ' → ' + json.key_combo, false);
+        } catch (err) {
+          flash('Network error: ' + String(err), true);
+        }
+      });
+    });
+
+    const resetBtn = document.getElementById('hotkeys-reset-btn');
+    if (resetBtn) {
+      resetBtn.addEventListener('click', async function () {
+        try {
+          const res = await fetch('/api/hotkeys/reset', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Accept': 'application/json' },
+          });
+          if (!res.ok) {
+            flash('Reset failed: HTTP ' + res.status, true);
+            return;
+          }
+          // Re-render the table by reloading the page; the simple,
+          // race-free choice over surgically rewriting eight inputs.
+          window.location.reload();
+        } catch (err) {
+          flash('Network error: ' + String(err), true);
+        }
+      });
+    }
+  })();
+</script>
+{% endblock %}
