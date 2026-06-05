@@ -1,0 +1,359 @@
+{% extends "base.html" %}
+
+{#
+  v1.47 — Privacy mask editor.
+
+  Renders the screenshot's thumbnail inside a <canvas> and lets the
+  user paint black rectangles by mouse-drag. Each completed drag posts
+  a JSON body to /api/screenshot/{id}/privacy-mask with coordinates
+  translated into the thumbnail's natural pixel space (so subsequent
+  reloads paint them at the same logical location regardless of the
+  viewport). Existing masks are listed below the canvas with a Delete
+  button per row.
+
+  Implementation notes:
+   * Vanilla JS — no Alpine, no htmx. The interactions are intrinsically
+     stateful (mouse-down -> mouse-move -> mouse-up) and dropping into
+     framework state machines for a single canvas would be overkill.
+   * Coordinates: the canvas's CSS width is responsive, but its
+     ``width`` / ``height`` attributes mirror the natural pixel
+     dimensions of the underlying image. Mouse events therefore land
+     in image-native coordinates after we divide by the bounding-rect
+     scale ratio.
+   * Save: every completed drag fires its own POST. There is no "save"
+     button for new masks — the rectangle is persisted immediately,
+     so navigating away never loses work. A "Re-render PNG" button
+     just refreshes the redacted preview <img> below the list.
+#}
+
+{% block content %}
+<div class="mb-4 flex flex-wrap items-center gap-2 justify-between text-sm">
+  <a href="/screenshot/{{ shot.id }}"
+     class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700">&larr; к скриншоту #{{ shot.id }}</a>
+  <span class="text-xs text-zinc-500">
+    {% if shot.app_name %}<span class="font-mono">{{ shot.app_name }}</span>{% endif %}
+    {% if shot.captured_at %} &middot; {{ shot.captured_at }}{% endif %}
+  </span>
+</div>
+
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Privacy mask</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Закрасьте чувствительные участки скриншота чёрными прямоугольниками.
+    Каждое перетаскивание сохраняется автоматически. Используйте
+    кнопку <em>Скачать PNG</em>, чтобы получить безопасную для обмена
+    версию.
+  </p>
+</div>
+
+{% if not thumb_url %}
+  <div class="rounded border border-amber-500/40 bg-amber-500/10 text-amber-200 p-4 text-sm">
+    У этого скриншота нет миниатюры на диске &mdash; редактировать маски невозможно.
+  </div>
+{% else %}
+  <div id="privacy-mask-root"
+       data-shot-id="{{ shot.id }}"
+       data-thumb-url="{{ thumb_url }}"
+       class="space-y-4">
+
+    <div class="rounded-lg border border-ink-700 bg-ink-900 p-3">
+      <div class="relative inline-block max-w-full">
+        <img id="pm-source"
+             src="{{ thumb_url }}"
+             alt="Source screenshot"
+             class="hidden"
+             crossorigin="anonymous">
+        <canvas id="pm-canvas"
+                class="block max-w-full cursor-crosshair border border-ink-700 rounded bg-ink-950"
+                style="touch-action: none;"></canvas>
+      </div>
+      <p class="text-xs text-zinc-500 mt-2" id="pm-hint">
+        Загружаем изображение&hellip;
+      </p>
+    </div>
+
+    <div class="flex flex-wrap items-center gap-2">
+      <a id="pm-download"
+         href="/api/screenshot/{{ shot.id }}/privacy-mask/render.png"
+         download="persona-shot-{{ shot.id }}-masked.png"
+         class="px-3 py-1.5 rounded bg-accent-600 hover:bg-accent-500 text-white text-sm font-semibold">
+        Скачать PNG
+      </a>
+      <button type="button" id="pm-refresh"
+              class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700 text-sm">
+        Обновить превью
+      </button>
+      <span id="pm-status" class="text-xs text-zinc-500 ml-auto"></span>
+    </div>
+
+    <section class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+      <h2 class="text-lg font-semibold mb-3">Существующие маски</h2>
+      <ul id="pm-mask-list" class="space-y-2">
+        {% for mask in masks %}
+          <li class="flex items-center gap-3 rounded border border-ink-700 bg-ink-900 px-3 py-2"
+              data-mask-id="{{ mask.id }}">
+            <span class="text-xs font-mono text-zinc-400">#{{ mask.id }}</span>
+            <span class="text-sm text-zinc-200 flex-1 min-w-0 truncate">
+              {% if mask.label %}{{ mask.label }}{% else %}<span class="text-zinc-500">(без метки)</span>{% endif %}
+            </span>
+            <span class="text-xs font-mono text-zinc-500">
+              {{ mask.x }},{{ mask.y }} &middot; {{ mask.width }}&times;{{ mask.height }}
+            </span>
+            <button type="button"
+                    class="pm-delete px-2 py-1 text-xs rounded border border-ink-700 text-zinc-400 hover:text-red-400 hover:border-red-500"
+                    data-mask-id="{{ mask.id }}">
+              Удалить
+            </button>
+          </li>
+        {% endfor %}
+      </ul>
+      <p id="pm-empty" class="text-sm text-zinc-500"
+         {% if masks %}style="display: none;"{% endif %}>
+        Масок пока нет — нарисуйте прямоугольник на изображении.
+      </p>
+    </section>
+
+    <section class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+      <h2 class="text-lg font-semibold mb-3">Безопасная версия (PNG)</h2>
+      <img id="pm-preview"
+           src="/api/screenshot/{{ shot.id }}/privacy-mask/render.png?cb=0"
+           alt="Masked preview"
+           class="max-w-full rounded border border-ink-700"
+           onerror="this.style.display='none'; document.getElementById('pm-preview-empty').style.display='block';">
+      <p id="pm-preview-empty" class="text-sm text-zinc-500"
+         {% if masks %}style="display: none;"{% else %}style="display: block;"{% endif %}>
+        Нечего рендерить — нет масок.
+      </p>
+    </section>
+  </div>
+
+<script>
+(function () {
+  "use strict";
+
+  const root = document.getElementById("privacy-mask-root");
+  if (!root) { return; }
+
+  const shotId = parseInt(root.dataset.shotId, 10);
+  const img = document.getElementById("pm-source");
+  const canvas = document.getElementById("pm-canvas");
+  const ctx = canvas.getContext("2d");
+  const status = document.getElementById("pm-status");
+  const hint = document.getElementById("pm-hint");
+  const listEl = document.getElementById("pm-mask-list");
+  const emptyEl = document.getElementById("pm-empty");
+  const preview = document.getElementById("pm-preview");
+  const previewEmpty = document.getElementById("pm-preview-empty");
+
+  // Authoritative list of masks rendered on top of the canvas.
+  let masks = {{ masks | tojson }};
+
+  // Drag state — null when idle, otherwise {x0, y0, x1, y1} in
+  // image-native pixel coordinates.
+  let drag = null;
+
+  function setStatus(message, isError) {
+    status.textContent = message || "";
+    status.classList.toggle("text-red-400", !!isError);
+    status.classList.toggle("text-zinc-500", !isError);
+  }
+
+  function repaint() {
+    if (!img.complete || !img.naturalWidth) { return; }
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "rgba(0, 0, 0, 1)";
+    for (const m of masks) {
+      ctx.fillRect(m.x, m.y, m.width, m.height);
+    }
+    if (drag) {
+      const x = Math.min(drag.x0, drag.x1);
+      const y = Math.min(drag.y0, drag.y1);
+      const w = Math.abs(drag.x1 - drag.x0);
+      const h = Math.abs(drag.y1 - drag.y0);
+      ctx.fillStyle = "rgba(0, 0, 0, 0.75)";
+      ctx.fillRect(x, y, w, h);
+      ctx.strokeStyle = "rgba(167, 139, 250, 0.9)";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x, y, w, h);
+    }
+  }
+
+  function renderList() {
+    // Wipe and rebuild — simpler than diffing for a list this small.
+    listEl.innerHTML = "";
+    for (const m of masks) {
+      const li = document.createElement("li");
+      li.className = "flex items-center gap-3 rounded border border-ink-700 bg-ink-900 px-3 py-2";
+      li.dataset.maskId = String(m.id);
+
+      const idSpan = document.createElement("span");
+      idSpan.className = "text-xs font-mono text-zinc-400";
+      idSpan.textContent = "#" + m.id;
+
+      const labelSpan = document.createElement("span");
+      labelSpan.className = "text-sm text-zinc-200 flex-1 min-w-0 truncate";
+      if (m.label) {
+        labelSpan.textContent = m.label;
+      } else {
+        const noLabel = document.createElement("span");
+        noLabel.className = "text-zinc-500";
+        noLabel.textContent = "(без метки)";
+        labelSpan.appendChild(noLabel);
+      }
+
+      const dimsSpan = document.createElement("span");
+      dimsSpan.className = "text-xs font-mono text-zinc-500";
+      dimsSpan.textContent = m.x + "," + m.y + " · " + m.width + "×" + m.height;
+
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "pm-delete px-2 py-1 text-xs rounded border border-ink-700 text-zinc-400 hover:text-red-400 hover:border-red-500";
+      btn.dataset.maskId = String(m.id);
+      btn.textContent = "Удалить";
+      btn.addEventListener("click", () => deleteMask(m.id));
+
+      li.appendChild(idSpan);
+      li.appendChild(labelSpan);
+      li.appendChild(dimsSpan);
+      li.appendChild(btn);
+      listEl.appendChild(li);
+    }
+    emptyEl.style.display = masks.length === 0 ? "block" : "none";
+  }
+
+  function refreshPreview() {
+    const url = "/api/screenshot/" + shotId + "/privacy-mask/render.png?cb=" + Date.now();
+    preview.style.display = "block";
+    previewEmpty.style.display = "none";
+    preview.onerror = function () {
+      preview.style.display = "none";
+      previewEmpty.style.display = "block";
+    };
+    preview.src = url;
+  }
+
+  function eventToImageCoords(evt) {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    return {
+      x: Math.max(0, Math.min(canvas.width, (evt.clientX - rect.left) * scaleX)),
+      y: Math.max(0, Math.min(canvas.height, (evt.clientY - rect.top) * scaleY)),
+    };
+  }
+
+  async function saveDrag(rect) {
+    const x = Math.round(Math.min(rect.x0, rect.x1));
+    const y = Math.round(Math.min(rect.y0, rect.y1));
+    const width = Math.round(Math.abs(rect.x1 - rect.x0));
+    const height = Math.round(Math.abs(rect.y1 - rect.y0));
+
+    if (width < 4 || height < 4) {
+      // Treat tiny drags as accidental clicks.
+      setStatus("Слишком маленький прямоугольник — пропускаем.", false);
+      return;
+    }
+
+    const labelRaw = window.prompt("Метка (необязательно):", "");
+    const label = labelRaw === null ? null : labelRaw.trim() || null;
+
+    setStatus("Сохраняем…", false);
+    try {
+      const res = await fetch("/api/screenshot/" + shotId + "/privacy-mask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ x: x, y: y, width: width, height: height, label: label }),
+      });
+      if (!res.ok) {
+        throw new Error("HTTP " + res.status);
+      }
+      const created = await res.json();
+      masks.push(created);
+      renderList();
+      repaint();
+      refreshPreview();
+      setStatus("Сохранено #" + created.id, false);
+    } catch (err) {
+      setStatus("Ошибка: " + (err && err.message ? err.message : err), true);
+    }
+  }
+
+  async function deleteMask(id) {
+    setStatus("Удаляем #" + id + "…", false);
+    try {
+      const res = await fetch(
+        "/api/screenshot/" + shotId + "/privacy-mask/" + id,
+        { method: "DELETE" }
+      );
+      if (!res.ok) {
+        throw new Error("HTTP " + res.status);
+      }
+      masks = masks.filter((m) => m.id !== id);
+      renderList();
+      repaint();
+      refreshPreview();
+      setStatus("Удалено #" + id, false);
+    } catch (err) {
+      setStatus("Ошибка: " + (err && err.message ? err.message : err), true);
+    }
+  }
+
+  // ── Canvas wiring ─────────────────────────────────────────────────
+  img.addEventListener("load", function () {
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    hint.textContent = "Перетащите мышью, чтобы нарисовать чёрный прямоугольник. Размер: " +
+      img.naturalWidth + "×" + img.naturalHeight + " px.";
+    renderList();
+    repaint();
+  });
+  img.addEventListener("error", function () {
+    hint.textContent = "Не удалось загрузить миниатюру.";
+    setStatus("Источник недоступен.", true);
+  });
+  // The hidden <img> in the markup may already be cached — force a
+  // fresh assignment so the ``load`` listener fires reliably.
+  img.src = root.dataset.thumbUrl;
+
+  canvas.addEventListener("mousedown", function (evt) {
+    const p = eventToImageCoords(evt);
+    drag = { x0: p.x, y0: p.y, x1: p.x, y1: p.y };
+    repaint();
+  });
+  canvas.addEventListener("mousemove", function (evt) {
+    if (!drag) { return; }
+    const p = eventToImageCoords(evt);
+    drag.x1 = p.x;
+    drag.y1 = p.y;
+    repaint();
+  });
+  function endDrag(evt) {
+    if (!drag) { return; }
+    const p = eventToImageCoords(evt);
+    drag.x1 = p.x;
+    drag.y1 = p.y;
+    const finished = drag;
+    drag = null;
+    repaint();
+    saveDrag(finished);
+  }
+  canvas.addEventListener("mouseup", endDrag);
+  canvas.addEventListener("mouseleave", function (evt) {
+    if (drag) { endDrag(evt); }
+  });
+
+  // Wire existing per-row Delete buttons rendered server-side.
+  for (const btn of root.querySelectorAll(".pm-delete")) {
+    btn.addEventListener("click", function () {
+      const id = parseInt(btn.dataset.maskId, 10);
+      if (!Number.isNaN(id)) { deleteMask(id); }
+    });
+  }
+
+  document.getElementById("pm-refresh").addEventListener(
+    "click", refreshPreview
+  );
+})();
+</script>
+{% endif %}
+{% endblock %}

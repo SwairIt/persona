@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Focus whitelist</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Apps that <em>belong</em> to the current deep-work block &mdash; your IDE, Figma, the spec
+    PDF. While a focus session is active the capture loop skips every shot whose foreground
+    window is <strong>not</strong> on this list. Outside a session the list has no effect.
+    Leave the list empty for &ldquo;open mode&rdquo; (nothing extra is blocked); pair it with
+    the <a href="/settings/focus-blocklist" class="text-accent-400 hover:underline">distraction
+    blocklist</a> for fine-grained control. Matching is case-insensitive and ignores
+    surrounding whitespace.
+  </p>
+</div>
+
+<form action="/focus/whitelist" method="post" class="flex gap-2 mb-6">
+  <input name="app_name" placeholder="e.g. Code.exe" required
+         list="focus-whitelist-suggestions"
+         autocomplete="off"
+         class="flex-1 px-3 py-2 bg-ink-800 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
+  <datalist id="focus-whitelist-suggestions">
+    {% for s in suggestions %}
+      <option value="{{ s }}"></option>
+    {% endfor %}
+  </datalist>
+  <button type="submit" class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
+    Allow during focus
+  </button>
+</form>
+
+{% if whitelisted %}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden mb-8">
+    <table class="w-full text-sm">
+      <thead class="bg-ink-900 text-zinc-500 text-xs uppercase tracking-wider">
+        <tr>
+          <th class="text-left py-2 px-4">App</th>
+          <th class="text-left py-2 px-4">Added</th>
+          <th class="py-2 px-4"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for entry in whitelisted %}
+          <tr class="border-t border-ink-700">
+            <td class="py-2 px-4 font-mono text-zinc-200">{{ entry.app_name }}</td>
+            <td class="py-2 px-4 text-zinc-500 text-xs">{{ entry.added_at }}</td>
+            <td class="py-2 px-4 text-right">
+              <form action="/focus/whitelist/{{ entry.id }}/delete" method="post" class="inline"
+                    onsubmit="return confirm('Remove {{ entry.app_name }} from the focus whitelist?')">
+                <button class="text-xs px-2 py-1 rounded bg-rose-900/40 hover:bg-rose-900 text-rose-300">remove</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  <p class="text-zinc-500 text-sm mb-8">
+    Whitelist is empty &mdash; focus sessions capture every window (open mode).
+  </p>
+{% endif %}
+
+{% if suggestions %}
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">Apps seen on your timeline</h2>
+    <p class="text-zinc-500 text-xs mb-3">
+      Click <em>allow</em> next to each app whose screenshots should be kept during focus
+      sessions. Everything not on the resulting list will be skipped while a session is active.
+    </p>
+    <div class="flex flex-wrap gap-2">
+      {% for s in suggestions %}
+        <form action="/focus/whitelist" method="post" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-ink-900 border border-ink-700">
+          <input type="hidden" name="app_name" value="{{ s }}">
+          <span class="text-zinc-300 text-xs truncate max-w-[14rem]">{{ s }}</span>
+          <button class="text-xs px-1.5 py-0.5 rounded bg-ink-700 hover:bg-accent-600 text-zinc-200">allow</button>
+        </form>
+      {% endfor %}
+    </div>
+  </section>
+{% endif %}
+{% endblock %}

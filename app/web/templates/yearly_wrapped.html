@@ -1,0 +1,227 @@
+{% extends "base.html" %}
+
+{# Yearly Wrapped — Spotify-style year-in-review.
+
+   Full-page presentation built out of a hero card + 6-tile stat grid +
+   two top-5 lists + share footer. Every stat tile carries an
+   ``ywrap-card`` class so the stagger-fade-in CSS picks it up; the
+   animation uses ``IntersectionObserver`` so cards animate in only
+   once they scroll into view (and bail out cleanly when the
+   ``reduce_motion`` body attribute is set). All numbers come from
+   ``compute_yearly_wrapped`` — see ``app/yearly_wrapped.py``. #}
+
+{% block head_extra %}
+<style>
+  /* Card base — opacity-0 / translate-y-4 by default, lifted by the
+     ``.ywrap-visible`` class set from the IntersectionObserver below.
+     Honours the reduce_motion body flag so motion-sensitive users get
+     the final state immediately without the transform. */
+  .ywrap-card {
+    opacity: 0;
+    transform: translateY(16px);
+    transition: opacity 600ms ease-out, transform 600ms ease-out;
+    will-change: opacity, transform;
+  }
+  .ywrap-card.ywrap-visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  /* Stagger — six pre-computed delays. Anything past index 5 reuses
+     the last bucket which is fine since the page only has six tiles. */
+  .ywrap-stagger-0 { transition-delay: 0ms; }
+  .ywrap-stagger-1 { transition-delay: 80ms; }
+  .ywrap-stagger-2 { transition-delay: 160ms; }
+  .ywrap-stagger-3 { transition-delay: 240ms; }
+  .ywrap-stagger-4 { transition-delay: 320ms; }
+  .ywrap-stagger-5 { transition-delay: 400ms; }
+  body[data-reduce-motion="1"] .ywrap-card {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+  /* Hero number — clamp so a six-figure shot count still fits on a
+     phone screen without overflow. */
+  .ywrap-hero-number {
+    font-size: clamp(4.5rem, 14vw, 9rem);
+    line-height: 0.95;
+    letter-spacing: -0.04em;
+  }
+  /* Bar list — accent-coloured fill with rounded ends. */
+  .ywrap-bar {
+    height: 0.5rem;
+    border-radius: 9999px;
+    background: linear-gradient(90deg, #8b5cf6, #a78bfa);
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+{% set w = wrapped %}
+
+<section class="space-y-12">
+
+  {# -------------------- hero card -------------------- #}
+  <header class="ywrap-card ywrap-stagger-0 rounded-3xl bg-gradient-to-br from-accent-600 via-accent-500 to-fuchsia-500 text-white shadow-2xl p-8 sm:p-12">
+    <p class="uppercase tracking-[0.3em] text-xs sm:text-sm text-white/80 mb-4">Your year on Persona</p>
+    <h1 class="font-black ywrap-hero-number mb-2">{{ w.total_shots }}</h1>
+    <p class="text-lg sm:text-2xl font-semibold opacity-90">
+      shots captured in <span class="font-black">{{ year }}</span>
+    </p>
+    {% if w.first_capture_date and w.last_capture_date %}
+      <p class="mt-4 text-sm text-white/80">
+        From <span class="font-mono">{{ w.first_capture_date }}</span>
+        to <span class="font-mono">{{ w.last_capture_date }}</span>
+        · {{ w.total_active_days }} active days
+        · avg {{ "%.1f"|format(w.average_daily_shots) }} shots/day
+      </p>
+    {% else %}
+      <p class="mt-4 text-sm text-white/80">No captures yet — go make some history.</p>
+    {% endif %}
+  </header>
+
+  {# -------------------- 6-tile stat grid -------------------- #}
+  <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+
+    {# voice hours #}
+    <article class="ywrap-card ywrap-stagger-0 rounded-2xl border border-ink-700 bg-ink-900/60 dark:bg-ink-900/70 p-6">
+      <p class="uppercase tracking-widest text-xs text-accent-400">Voice</p>
+      <p class="text-5xl font-black mt-2 text-zinc-100">{{ "%.1f"|format(w.total_voice_hours) }}<span class="text-2xl font-semibold text-zinc-400">h</span></p>
+      <p class="text-sm text-zinc-400 mt-2">hours of audio captured</p>
+    </article>
+
+    {# unique apps #}
+    <article class="ywrap-card ywrap-stagger-1 rounded-2xl border border-ink-700 bg-ink-900/60 dark:bg-ink-900/70 p-6">
+      <p class="uppercase tracking-widest text-xs text-accent-400">Apps</p>
+      <p class="text-5xl font-black mt-2 text-zinc-100">{{ w.total_unique_apps }}</p>
+      <p class="text-sm text-zinc-400 mt-2">unique apps used</p>
+    </article>
+
+    {# notes #}
+    <article class="ywrap-card ywrap-stagger-2 rounded-2xl border border-ink-700 bg-ink-900/60 dark:bg-ink-900/70 p-6">
+      <p class="uppercase tracking-widest text-xs text-accent-400">Notes</p>
+      <p class="text-5xl font-black mt-2 text-zinc-100">{{ w.total_notes }}</p>
+      <p class="text-sm text-zinc-400 mt-2">inbox notes written</p>
+    </article>
+
+    {# busiest day #}
+    <article class="ywrap-card ywrap-stagger-3 rounded-2xl border border-ink-700 bg-ink-900/60 dark:bg-ink-900/70 p-6">
+      <p class="uppercase tracking-widest text-xs text-accent-400">Busiest day</p>
+      {% if w.busiest_day %}
+        <p class="text-3xl font-black mt-2 text-zinc-100 font-mono">{{ w.busiest_day.day }}</p>
+        <p class="text-sm text-zinc-400 mt-2">{{ w.busiest_day.shot_count }} shots</p>
+      {% else %}
+        <p class="text-3xl font-black mt-2 text-zinc-500">—</p>
+        <p class="text-sm text-zinc-400 mt-2">no busy day to crown</p>
+      {% endif %}
+      {% if w.busiest_hour_of_day is not none %}
+        <p class="text-xs text-zinc-500 mt-1">peak hour: {{ "%02d"|format(w.busiest_hour_of_day) }}:00</p>
+      {% endif %}
+    </article>
+
+    {# longest focus session #}
+    <article class="ywrap-card ywrap-stagger-4 rounded-2xl border border-ink-700 bg-ink-900/60 dark:bg-ink-900/70 p-6">
+      <p class="uppercase tracking-widest text-xs text-accent-400">Longest focus</p>
+      {% if w.longest_focus_session %}
+        <p class="text-5xl font-black mt-2 text-zinc-100">{{ w.longest_focus_session.duration_minutes }}<span class="text-2xl font-semibold text-zinc-400">m</span></p>
+        <p class="text-sm text-zinc-400 mt-2">
+          {% if w.longest_focus_session.dominant_app %}
+            mostly in <span class="text-zinc-200 font-semibold">{{ w.longest_focus_session.dominant_app }}</span>
+          {% else %}
+            session #{{ w.longest_focus_session.id }}
+          {% endif %}
+        </p>
+      {% else %}
+        <p class="text-5xl font-black mt-2 text-zinc-500">—</p>
+        <p class="text-sm text-zinc-400 mt-2">no focus sessions logged</p>
+      {% endif %}
+    </article>
+
+    {# active streak — the quirky stat #}
+    <article class="ywrap-card ywrap-stagger-5 rounded-2xl border border-ink-700 bg-ink-900/60 dark:bg-ink-900/70 p-6">
+      <p class="uppercase tracking-widest text-xs text-accent-400">Longest streak</p>
+      <p class="text-5xl font-black mt-2 text-zinc-100">{{ w.longest_active_streak }}<span class="text-2xl font-semibold text-zinc-400">d</span></p>
+      <p class="text-sm text-zinc-400 mt-2">consecutive active days</p>
+    </article>
+
+  </section>
+
+  {# -------------------- top-5 apps -------------------- #}
+  <section class="ywrap-card ywrap-stagger-0 rounded-2xl border border-ink-700 bg-ink-900/60 p-6">
+    <h2 class="text-xl font-bold text-zinc-100 mb-4">Top 5 apps</h2>
+    {% if w.top_5_apps %}
+      {% set top_max = w.top_5_apps[0].shots if w.top_5_apps[0].shots > 0 else 1 %}
+      <ol class="space-y-3">
+        {% for entry in w.top_5_apps %}
+          <li>
+            <div class="flex items-baseline justify-between mb-1">
+              <span class="text-sm sm:text-base font-semibold text-zinc-200">
+                <span class="text-accent-400 mr-2">{{ loop.index }}.</span>{{ entry.app|app_alias }}
+              </span>
+              <span class="text-xs text-zinc-400 font-mono">{{ entry.shots }} shots</span>
+            </div>
+            <div class="ywrap-bar" style="width: {{ ((entry.shots * 100) // top_max) }}%;"></div>
+          </li>
+        {% endfor %}
+      </ol>
+    {% else %}
+      <p class="text-sm text-zinc-400">No app data for {{ year }}.</p>
+    {% endif %}
+  </section>
+
+  {# -------------------- top-5 tags as chips -------------------- #}
+  <section class="ywrap-card ywrap-stagger-1 rounded-2xl border border-ink-700 bg-ink-900/60 p-6">
+    <h2 class="text-xl font-bold text-zinc-100 mb-4">Top 5 tags</h2>
+    {% if w.top_5_tags %}
+      <ul class="flex flex-wrap gap-2">
+        {% for tag in w.top_5_tags %}
+          <li class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-accent-600/20 border border-accent-500/40 text-accent-300 text-sm">
+            <span class="font-semibold">#{{ tag.tag }}</span>
+            <span class="text-xs text-accent-400/80 font-mono">{{ tag.uses }}</span>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="text-sm text-zinc-400">No tags used in {{ year }}.</p>
+    {% endif %}
+  </section>
+
+  {# -------------------- share footer -------------------- #}
+  <footer class="ywrap-card ywrap-stagger-2 rounded-2xl border border-ink-700 bg-ink-900/40 p-6 text-center">
+    <p class="text-sm text-zinc-400 mb-3">Share your {{ year }} highlights</p>
+    <div class="flex flex-wrap justify-center gap-2">
+      <a href="/share/insights/top-app" class="px-4 py-2 rounded-lg bg-ink-800 hover:bg-ink-700 text-zinc-200 text-sm transition">Share top app</a>
+      <a href="/share/insights/longest-focus" class="px-4 py-2 rounded-lg bg-ink-800 hover:bg-ink-700 text-zinc-200 text-sm transition">Share longest focus</a>
+      <a href="/share/insights/streak" class="px-4 py-2 rounded-lg bg-ink-800 hover:bg-ink-700 text-zinc-200 text-sm transition">Share streak</a>
+      <a href="/share/insights/most-active-hour" class="px-4 py-2 rounded-lg bg-ink-800 hover:bg-ink-700 text-zinc-200 text-sm transition">Share peak hour</a>
+      <a href="/api/wrapped/{{ year }}.json" class="px-4 py-2 rounded-lg bg-ink-800 hover:bg-ink-700 text-zinc-400 text-sm font-mono transition">JSON</a>
+    </div>
+  </footer>
+
+</section>
+
+<script>
+  // Stagger-fade-in on scroll. Each ``.ywrap-card`` reveals once it
+  // crosses the viewport — repeat reveals are disabled by unobserving
+  // after the first hit so a fast scroll up + down doesn't re-animate.
+  // Reduced-motion users get the final state in CSS already; we still
+  // mark them visible so the bar widths and chip colours look right.
+  (function () {
+    var cards = document.querySelectorAll('.ywrap-card');
+    if (!cards.length) return;
+    var reduce = document.body.getAttribute('data-reduce-motion') === '1';
+    if (reduce || !('IntersectionObserver' in window)) {
+      cards.forEach(function (el) { el.classList.add('ywrap-visible'); });
+      return;
+    }
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('ywrap-visible');
+          io.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.15 });
+    cards.forEach(function (el) { io.observe(el); });
+  })();
+</script>
+{% endblock %}

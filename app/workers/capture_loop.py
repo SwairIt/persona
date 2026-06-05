@@ -34,6 +34,8 @@ from app.capture_blocklist import (
 from app.dedup import compute_phash, find_or_create_dedup_group
 from app.focus import current_session as current_focus_session
 from app.focus_blocklist import is_blocked as is_focus_blocked
+from app.focus_whitelist import is_focus_allowed as is_focus_whitelist_allowed
+from app.focus_whitelist import record_skip as record_focus_whitelist_skip
 from app.logging_setup import get_logger
 from app.privacy_mode import is_private_window as is_privacy_match
 from app.privacy_mode import record_skip as record_privacy_skip
@@ -190,6 +192,40 @@ async def run_capture_loop(controller: CaptureController | None = None) -> None:
             except TimeoutError:
                 continue
             continue
+
+        # v1.47 — focus-session app whitelist. Inverse of focus_blocklist:
+        # while a focus_session is active, skip any shot whose active
+        # window is NOT on the whitelist. Empty whitelist means "open
+        # mode" and the helper returns ``True`` so this branch is a
+        # no-op — paying for the helper is one indexed SQLite read,
+        # cheap enough to keep on the hot path. Mirrors the privacy
+        # hook style above: failure modes (DB error, lookup failure)
+        # never stop capture, by design.
+        try:
+            focus_window = (
+                privacy_window
+                if privacy_window is not None
+                else await asyncio.to_thread(get_active_window)
+            )
+            focus_active = await current_focus_session()
+            if focus_active is not None:
+                focus_app = focus_window.app_name if focus_window is not None else None
+                if not await is_focus_whitelist_allowed(focus_app):
+                    await record_focus_whitelist_skip(
+                        focus_app,
+                        focus_active["id"],
+                    )
+                    sleep_for = live_interval or settings.capture_interval_seconds
+                    try:
+                        await asyncio.wait_for(
+                            ctrl.stop_event.wait(),
+                            timeout=sleep_for,
+                        )
+                    except TimeoutError:
+                        continue
+                    continue
+        except Exception as exc:
+            log.debug("capture_loop.focus_whitelist_check_failed", error=str(exc))
 
         rate_pause = await _enforce_rate_guard()
         battery_pause = False

@@ -346,6 +346,9 @@ from app.web.routes import (
     ai_reminders as ai_reminders_routes,
     timeline_log as timeline_log_routes,
     monthly_comparison as monthly_comparison_routes,
+    focus_whitelist as focus_whitelist_routes,
+    shot_privacy_masks as shot_privacy_masks_routes,
+    yearly_wrapped as yearly_wrapped_routes,
 )
 from app.workers import (
     get_controller,
@@ -395,7 +398,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.53.0",
+        version="1.54.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -703,6 +706,9 @@ def create_app() -> FastAPI:
     app.include_router(ai_reminders_routes.router)
     app.include_router(timeline_log_routes.router)
     app.include_router(monthly_comparison_routes.router)
+    app.include_router(focus_whitelist_routes.router)
+    app.include_router(shot_privacy_masks_routes.router)
+    app.include_router(yearly_wrapped_routes.router)
     app.include_router(sticky_search_routes.router)
     app.include_router(audit_replay_routes.router)
     app.include_router(tag_gallery_routes.router)
