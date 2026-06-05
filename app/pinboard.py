@@ -119,11 +119,15 @@ async def list_pinned(
     if normalised_tag == "":
         normalised_tag = None
 
+    # v1.66 — pinning is stored via the ``tier='pinned'`` enum on
+    # ``screenshots``, NOT a ``pinned_at`` timestamp column. The original
+    # v1.59 agent invented a column that does not exist in the schema.
+    # ``created_at`` is the only timestamp we have, so it doubles as the
+    # ordering key (newest pin first by capture time — close enough).
     async with get_connection() as conn:
         if normalised_tag is None:
             count_cursor = await conn.execute(
-                "SELECT COUNT(*) AS n FROM screenshots "
-                "WHERE pinned_at IS NOT NULL",
+                "SELECT COUNT(*) AS n FROM screenshots WHERE tier = 'pinned'",
             )
             count_row = await count_cursor.fetchone()
             total = int(count_row["n"]) if count_row is not None else 0
@@ -131,10 +135,10 @@ async def list_pinned(
             cursor = await conn.execute(
                 """
                 SELECT id, captured_at, app_name, window_title,
-                       thumbnail_path, pinned_at
+                       thumbnail_path, created_at AS pinned_at
                 FROM screenshots
-                WHERE pinned_at IS NOT NULL
-                ORDER BY pinned_at DESC
+                WHERE tier = 'pinned'
+                ORDER BY created_at DESC
                 LIMIT ? OFFSET ?
                 """,
                 (safe_limit, safe_offset),
@@ -147,7 +151,7 @@ async def list_pinned(
                 FROM screenshots s
                 JOIN screenshot_tags st ON st.screenshot_id = s.id
                 JOIN tags t ON t.id = st.tag_id
-                WHERE s.pinned_at IS NOT NULL AND t.name = ?
+                WHERE s.tier = 'pinned' AND t.name = ?
                 """,
                 (normalised_tag,),
             )
@@ -161,12 +165,12 @@ async def list_pinned(
                        s.app_name AS app_name,
                        s.window_title AS window_title,
                        s.thumbnail_path AS thumbnail_path,
-                       s.pinned_at AS pinned_at
+                       s.created_at AS pinned_at
                 FROM screenshots s
                 JOIN screenshot_tags st ON st.screenshot_id = s.id
                 JOIN tags t ON t.id = st.tag_id
-                WHERE s.pinned_at IS NOT NULL AND t.name = ?
-                ORDER BY s.pinned_at DESC
+                WHERE s.tier = 'pinned' AND t.name = ?
+                ORDER BY s.created_at DESC
                 LIMIT ? OFFSET ?
                 """,
                 (normalised_tag, safe_limit, safe_offset),

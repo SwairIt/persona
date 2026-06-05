@@ -10,6 +10,44 @@ html:not(.dark) {
 
 body {
   font-feature-settings: "cv11", "ss01";
+  /* iOS dynamic viewport: 100svh (small viewport) учитывает свёрнутый
+     Safari toolbar и не прыгает при scroll, в отличие от 100vh. */
+  min-height: 100vh;
+  min-height: 100svh;
+}
+
+/* iOS safe-area inset для notch/home-indicator — применяется ТОЛЬКО в
+   PWA standalone (Add to Home Screen). В обычном Safari iOS сам кладёт
+   safe-area через свой UI, поэтому body padding ломает sticky header. */
+@media (display-mode: standalone) {
+  body {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+  /* Fixed-bottom элементы (mobile bottom nav v1.57) должны быть выше
+     home-indicator. */
+  .fixed-bottom-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* iPhone touch-target — все интерактивные элементы должны быть ≥44x44 pt
+   (Apple Human Interface Guidelines). Применяется только к touch-устройствам,
+   чтобы не раздувать UI на desktop. */
+@media (pointer: coarse) {
+  button:not(.btn-compact),
+  a.btn:not(.btn-compact),
+  input[type="submit"]:not(.btn-compact),
+  input[type="button"]:not(.btn-compact) {
+    min-height: 44px;
+  }
+}
+
+/* Selection-color чтобы не светило системным синим на тёмной теме. */
+::selection {
+  background: rgba(139, 92, 246, 0.35);
 }
 
 ::-webkit-scrollbar {

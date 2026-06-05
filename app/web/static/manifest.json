@@ -1,15 +1,56 @@
 {
   "name": "Persona",
   "short_name": "Persona",
-  "start_url": "/timeline",
+  "description": "Your local memory.",
+  "start_url": "/now",
+  "scope": "/",
   "display": "standalone",
+  "orientation": "any",
   "background_color": "#0f172a",
   "theme_color": "#6366f1",
   "icons": [
     {
+      "src": "/static/icon-180.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    },
+    {
+      "src": "/static/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
       "src": "/static/icon-512.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/static/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Now",
+      "short_name": "Now",
+      "url": "/now",
+      "description": "Current activity dashboard"
+    },
+    {
+      "name": "Ask",
+      "short_name": "Ask",
+      "url": "/ask",
+      "description": "LLM Q&A over your memory"
+    },
+    {
+      "name": "Quick actions",
+      "short_name": "Quick",
+      "url": "/quick-actions",
+      "description": "One-click capture toggles, notes, pins"
     }
   ]
 }

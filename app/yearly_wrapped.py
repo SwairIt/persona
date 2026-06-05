@@ -204,9 +204,12 @@ async def _active_day_list(
 
 async def _voice_hours(conn: Any, start_iso: str, end_iso: str) -> float:
     """Return the total recorded audio in the window, expressed in hours."""
+    # v1.66 — schema has ``audio_segment.duration_seconds`` and
+    # ``captured_at``, not ``duration_s``/``started_at`` (the v1.54 agent
+    # named them after a different table).
     cursor = await conn.execute(
-        "SELECT COALESCE(SUM(duration_s), 0.0) AS secs FROM audio_segment "
-        "WHERE started_at >= ? AND started_at < ?",
+        "SELECT COALESCE(SUM(duration_seconds), 0.0) AS secs FROM audio_segment "
+        "WHERE captured_at >= ? AND captured_at < ?",
         (start_iso, end_iso),
     )
     row = await cursor.fetchone()

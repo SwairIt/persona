@@ -6,17 +6,28 @@
 <html lang="{{ get_ui_language() }}"{% if _persona_theme == 'dark' %} class="dark"{% elif _persona_theme == 'light' %} class=""{% endif %}>
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  {# v1.66 — viewport-fit=cover включает safe-area вокруг notch/home-indicator,
+     viewport-content-fit=cover отключает iOS zoom на orientation flip,
+     user-scalable=no убирает случайный pinch-zoom (но размер шрифта остаётся
+     управляемым через системные accessibility-настройки iOS). #}
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>{{ title }} — Persona</title>
   <link rel="manifest" href="/static/manifest.json">
-  <meta name="theme-color" content="#6366f1">
-  {# v1.24.1 — iOS-specific PWA tags. Без них Add-to-Home-Screen на iPhone
-     создаёт скриншотную иконку и открывает Safari с шапкой; с ними —
-     полноэкранный native-like запуск. #}
-  <link rel="apple-touch-icon" href="/static/icon-512.png">
+  <meta name="theme-color" content="#6366f1" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  {# v1.24.1 / v1.66 — iOS-specific PWA tags. apple-touch-icon должна быть 180x180
+     именно — iOS Safari выбирает размер по имени sizes; без атрибута Safari
+     просто берёт первую попавшуюся. v1.66 добавил multi-size, status-bar
+     translucent + apple-mobile-web-app-title под manifest. #}
+  <link rel="apple-touch-icon" href="/static/icon-180.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/icon-180.png">
+  <link rel="apple-touch-icon" sizes="192x192" href="/static/icon-192.png">
+  <link rel="apple-touch-icon" sizes="512x512" href="/static/icon-512.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Persona">
+  <meta name="format-detection" content="telephone=no">
   <script>
     // v0.94 — register the service worker so /timeline is installable as a
     // PWA and cached pages stay readable offline. We only register over a
