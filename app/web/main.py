@@ -333,6 +333,9 @@ from app.web.routes import (
     capture_sessions as capture_sessions_routes,
     weekly_highlights as weekly_highlights_routes,
     dup_finder as dup_finder_routes,
+    demo_seeder as demo_seeder_routes,
+    app_budgets as app_budgets_routes,
+    insight_cards as insight_cards_routes,
 )
 from app.workers import (
     get_controller,
@@ -382,7 +385,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.49.0",
+        version="1.50.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -677,6 +680,9 @@ def create_app() -> FastAPI:
     app.include_router(capture_sessions_routes.router)
     app.include_router(weekly_highlights_routes.router)
     app.include_router(dup_finder_routes.router)
+    app.include_router(demo_seeder_routes.router)
+    app.include_router(app_budgets_routes.router)
+    app.include_router(insight_cards_routes.router)
     app.include_router(sticky_search_routes.router)
     app.include_router(audit_replay_routes.router)
     app.include_router(tag_gallery_routes.router)
@@ -843,6 +849,13 @@ async def _run_capture_session_worker(controller: object) -> None:
     await run_capture_session_worker()
 
 
+async def _run_app_budget_worker(controller: object) -> None:
+    """Adapter for the v1.50 per-app daily-minutes budget alerter."""
+    from app.workers.app_budget_worker import run_app_budget_worker  # noqa: PLC0415
+
+    await run_app_budget_worker()
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialise DB, start workers, and tear them down on shutdown."""
@@ -930,6 +943,10 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         asyncio.create_task(
             _run_capture_session_worker(controller),
             name="capture-session-worker",
+        ),
+        asyncio.create_task(
+            _run_app_budget_worker(controller),
+            name="app-budget-worker",
         ),
     ]
 

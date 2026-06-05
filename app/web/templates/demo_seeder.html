@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+
+{#
+  demo_seeder.html — v1.47.
+
+  Operator UI for `app/demo_seeder.py`. The page shows how many demo
+  rows are currently in each of the four affected tables, plus a Seed
+  form (days + shots_per_day) and a Purge button. Both actions hit
+  the JSON API and reload the page on success so the counts refresh.
+#}
+
+{% block content %}
+<div class="max-w-3xl mx-auto" x-data="demoSeederPage()">
+
+  <div class="mb-8">
+    <h1 class="text-2xl font-bold tracking-tight">Demo data</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Populate the database with plausible-looking screenshots, notes,
+      hourly cards and a daily pin so the UI is non-empty when you
+      record a screencast or grab README screenshots. Every seeded row
+      carries <code class="text-accent-400">is_demo = 1</code> and can
+      be removed in one click.
+    </p>
+  </div>
+
+  <section class="rounded-xl border border-ink-700 bg-ink-800 p-6 mb-6">
+    <h2 class="text-lg font-semibold text-zinc-100 mb-4">Currently seeded</h2>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+      <div class="rounded-lg bg-ink-900 border border-ink-700 p-4">
+        <div class="text-xs uppercase tracking-widest text-zinc-500 mb-1">Screenshots</div>
+        <div class="font-mono text-2xl text-zinc-100">{{ counts.shots }}</div>
+      </div>
+      <div class="rounded-lg bg-ink-900 border border-ink-700 p-4">
+        <div class="text-xs uppercase tracking-widest text-zinc-500 mb-1">Notes</div>
+        <div class="font-mono text-2xl text-zinc-100">{{ counts.notes }}</div>
+      </div>
+      <div class="rounded-lg bg-ink-900 border border-ink-700 p-4">
+        <div class="text-xs uppercase tracking-widest text-zinc-500 mb-1">Hourly cards</div>
+        <div class="font-mono text-2xl text-zinc-100">{{ counts.cards }}</div>
+      </div>
+      <div class="rounded-lg bg-ink-900 border border-ink-700 p-4">
+        <div class="text-xs uppercase tracking-widest text-zinc-500 mb-1">Daily pins</div>
+        <div class="font-mono text-2xl text-zinc-100">{{ counts.pins }}</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="rounded-xl border border-ink-700 bg-ink-800 p-6 mb-6">
+    <h2 class="text-lg font-semibold text-zinc-100 mb-4">Seed</h2>
+    <p class="text-zinc-500 text-sm mb-4">
+      Generates ~<span x-text="days * shotsPerDay"></span> screenshots
+      spread across weekdays of the last <span x-text="days"></span>
+      calendar days (09:00–18:00 UTC), plus 30 notes, 5 hourly cards and
+      1 daily pin. Refuses if the screenshots table already has more
+      than 50 real rows.
+    </p>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+      <label class="block">
+        <span class="text-xs uppercase tracking-widest text-zinc-500">Days</span>
+        <input type="number"
+               x-model.number="days"
+               min="1" max="60"
+               class="mt-1 w-full bg-ink-900 border border-ink-700 rounded-lg px-3 py-2
+                      text-sm font-mono text-zinc-100 focus:outline-none focus:border-accent-500">
+      </label>
+      <label class="block">
+        <span class="text-xs uppercase tracking-widest text-zinc-500">Shots per day</span>
+        <input type="number"
+               x-model.number="shotsPerDay"
+               min="1" max="200"
+               class="mt-1 w-full bg-ink-900 border border-ink-700 rounded-lg px-3 py-2
+                      text-sm font-mono text-zinc-100 focus:outline-none focus:border-accent-500">
+      </label>
+    </div>
+
+    <div class="flex flex-wrap items-center gap-3">
+      <button type="button"
+              @click="seed()"
+              :disabled="busy"
+              class="px-4 py-2 bg-accent-600 hover:bg-accent-500 disabled:opacity-50
+                     disabled:cursor-not-allowed rounded-lg font-medium text-sm transition">
+        <span x-show="!busy">Seed demo data</span>
+        <span x-show="busy">Seeding…</span>
+      </button>
+
+      <button type="button"
+              @click="purge()"
+              :disabled="busy"
+              class="px-4 py-2 bg-rose-700 hover:bg-rose-600 disabled:opacity-50
+                     disabled:cursor-not-allowed rounded-lg font-medium text-sm transition">
+        <span x-show="!busy">Purge demo data</span>
+        <span x-show="busy">Purging…</span>
+      </button>
+
+      <a href="/timeline"
+         class="ml-auto text-xs text-zinc-500 hover:text-zinc-300 transition">
+        Open timeline →
+      </a>
+    </div>
+
+    <p x-show="message"
+       x-text="message"
+       class="mt-3 text-sm text-emerald-400"></p>
+    <p x-show="error"
+       x-text="error"
+       class="mt-3 text-sm text-rose-400"></p>
+  </section>
+
+  <section class="rounded-xl border border-ink-700 bg-ink-800 p-6">
+    <h2 class="text-lg font-semibold text-zinc-100 mb-2">How it works</h2>
+    <ul class="text-zinc-400 text-sm space-y-2 list-disc list-inside">
+      <li>
+        Every screenshot is tagged with
+        <code class="text-accent-400">is_demo = 1</code> (see
+        migration <code>129_demo_data.sql</code>) and gets an
+        <code>ocr_text</code> prefixed with <code>[DEMO]</code>.
+      </li>
+      <li>
+        Hourly cards and the daily pin are tagged via the same
+        <code>[DEMO]</code> prefix on the <code>summary</code> /
+        <code>pin</code> column — the purge query targets that prefix.
+      </li>
+      <li>
+        Timestamps are seeded from a fixed RNG seed so reruns produce
+        an identical-looking gallery — convenient for reproducible
+        screenshots.
+      </li>
+      <li>
+        Thumbnail paths are <code>NULL</code> — the seeder does not
+        write any image files. The timeline renders the empty-thumb
+        placeholder for demo rows.
+      </li>
+    </ul>
+  </section>
+</div>
+
+<script>
+  function demoSeederPage() {
+    return {
+      busy: false,
+      days: 7,
+      shotsPerDay: 30,
+      message: "",
+      error: "",
+      async seed() {
+        this.busy = true;
+        this.message = "";
+        this.error = "";
+        try {
+          const res = await fetch("/api/demo-seeder/seed", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              days: this.days,
+              shots_per_day: this.shotsPerDay,
+            }),
+          });
+          if (!res.ok) {
+            let detail = "HTTP " + res.status;
+            try {
+              const body = await res.json();
+              if (body && body.detail) detail = body.detail;
+            } catch (_) { /* keep generic */ }
+            throw new Error(detail);
+          }
+          const data = await res.json();
+          this.message =
+            "Inserted " + data.inserted_shots + " shots, " +
+            data.inserted_notes + " notes, " +
+            data.inserted_cards + " cards, " +
+            data.inserted_pins + " pins (" + data.day_range + "). Reloading…";
+          setTimeout(() => window.location.reload(), 800);
+        } catch (err) {
+          this.error = "Seed failed: " + err.message;
+        } finally {
+          this.busy = false;
+        }
+      },
+      async purge() {
+        this.busy = true;
+        this.message = "";
+        this.error = "";
+        try {
+          const res = await fetch("/api/demo-seeder/purge", { method: "POST" });
+          if (!res.ok) {
+            throw new Error("HTTP " + res.status);
+          }
+          const data = await res.json();
+          this.message =
+            "Purged " + data.deleted_shots + " shots, " +
+            data.deleted_notes + " notes, " +
+            data.deleted_cards + " cards, " +
+            data.deleted_pins + " pins. Reloading…";
+          setTimeout(() => window.location.reload(), 800);
+        } catch (err) {
+          this.error = "Purge failed: " + err.message;
+        } finally {
+          this.busy = false;
+        }
+      },
+    };
+  }
+</script>
+{% endblock %}

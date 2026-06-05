@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-end justify-between flex-wrap gap-3">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight flex items-center gap-3">
+      <span class="text-accent-400">▣</span> Поделиться инсайтами
+    </h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Четыре отдельные 1200×630 PNG-карточки — по одной на метрику.
+      Бросайте в Twitter, Telegram или iMessage без unfurl-предпросмотра.
+    </p>
+  </div>
+  <a href="/dashboard/card"
+     class="rounded-md border border-ink-700 px-3 py-1 text-sm text-zinc-300 hover:bg-ink-800">
+    Карточка дня →
+  </a>
+</div>
+
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+  {% for card in cards %}
+    <section class="rounded-lg border border-ink-700 bg-ink-900 p-4"
+             data-insight-card="{{ card.kind }}">
+      <header class="mb-3 flex items-center justify-between">
+        <h2 class="text-base font-semibold text-zinc-100">{{ card.title }}</h2>
+        <span class="text-xs text-zinc-500 font-mono">{{ card.kind }}</span>
+      </header>
+      <div class="rounded-md overflow-hidden border border-ink-800 bg-ink-950">
+        <img src="{{ card.png_url }}"
+             width="{{ card_width }}"
+             height="{{ card_height }}"
+             alt="Persona insight card — {{ card.title }}"
+             loading="lazy"
+             class="w-full h-auto block" />
+      </div>
+      <div class="mt-3 flex items-center gap-2 flex-wrap">
+        <button type="button"
+                class="persona-copy-insight rounded-md bg-accent-600 text-white px-3 py-1.5 text-xs font-semibold hover:bg-accent-500"
+                data-card-url="{{ card.png_url }}">
+          Copy URL
+        </button>
+        <a href="{{ card.png_url }}"
+           target="_blank"
+           rel="noopener"
+           class="rounded-md border border-ink-700 px-3 py-1.5 text-xs text-zinc-300 hover:bg-ink-800">
+          Open PNG
+        </a>
+        <a href="{{ card.png_url }}"
+           download
+           class="rounded-md border border-ink-700 px-3 py-1.5 text-xs text-zinc-300 hover:bg-ink-800">
+          Download
+        </a>
+        <span class="persona-copy-insight-status text-xs text-zinc-500"
+              role="status"
+              aria-live="polite"></span>
+      </div>
+    </section>
+  {% endfor %}
+</div>
+
+<p class="text-xs text-zinc-600 mt-6">
+  Каждый URL относительный — добавьте свой Persona-хост, прежде чем делиться
+  снаружи. Карточки кэшируются на 60 секунд, поэтому свежий захват
+  может появиться не мгновенно.
+</p>
+
+<script>
+  // v1 — copy-to-clipboard for each card. Mirrors the helper in
+  // dashboard_card_preview.html but scoped per-section so every card
+  // has its own status line + button. Falls back to a hidden textarea
+  // + execCommand for plain-http LAN deployments.
+  (function () {
+    'use strict';
+    function ready(fn) {
+      if (document.readyState !== 'loading') { fn(); return; }
+      document.addEventListener('DOMContentLoaded', fn);
+    }
+    function copy(text, done) {
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(
+          function () { done(true); },
+          function () { done(false); }
+        );
+        return;
+      }
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'absolute';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        var ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        done(ok);
+      } catch (err) {
+        done(false);
+      }
+    }
+    ready(function () {
+      var buttons = document.querySelectorAll('.persona-copy-insight');
+      buttons.forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var section = btn.closest('[data-insight-card]');
+          var status = section ? section.querySelector('.persona-copy-insight-status') : null;
+          var rel = btn.getAttribute('data-card-url') || '';
+          var abs = window.location.origin + rel;
+          copy(abs, function (ok) {
+            if (!status) { return; }
+            status.textContent = ok ? 'Copied ' + abs : 'Copy failed — select the URL manually';
+            setTimeout(function () { status.textContent = ''; }, 4000);
+          });
+        });
+      });
+    });
+  })();
+</script>
+{% endblock %}

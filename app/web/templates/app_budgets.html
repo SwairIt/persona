@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Бюджеты приложений</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Задайте суточный лимит в минутах для каждого приложения. Когда сумма
+    сегодняшних снимков по приложению переводится в минуты и достигает лимита,
+    в колокольчик уведомлений падает запись с выбранной серьёзностью. Лимит
+    можно временно выключить переключателем &mdash; правило сохраняется.
+  </p>
+</div>
+
+<form action="/settings/app-budgets/new" method="post"
+      class="grid grid-cols-1 md:grid-cols-[1fr_8rem_8rem_6rem] gap-2 mb-8">
+  <input name="app_name" placeholder="например, Slack" required
+         list="app-budget-suggestions"
+         autocomplete="off"
+         class="px-3 py-2 bg-ink-800 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
+  <datalist id="app-budget-suggestions">
+    {% for s in suggestions %}
+      <option value="{{ s }}"></option>
+    {% endfor %}
+  </datalist>
+  <input name="daily_minutes_cap" type="number" min="0" placeholder="мин/день"
+         required
+         class="px-3 py-2 bg-ink-800 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
+  <select name="alert_severity"
+          class="px-3 py-2 bg-ink-800 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
+    <option value="info">info</option>
+    <option value="warn">warn</option>
+  </select>
+  <button type="submit"
+          class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
+    сохранить
+  </button>
+</form>
+
+{% if rows %}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden mb-8">
+    <table class="w-full text-sm">
+      <thead class="bg-ink-900 text-zinc-500 text-xs uppercase tracking-wider">
+        <tr>
+          <th class="text-left py-2 px-4">Приложение</th>
+          <th class="text-left py-2 px-4">Лимит, мин</th>
+          <th class="text-left py-2 px-4">Сегодня</th>
+          <th class="text-left py-2 px-4">Тон</th>
+          <th class="text-left py-2 px-4">Статус</th>
+          <th class="py-2 px-4"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          <tr class="border-t border-ink-700 {% if row.breached %}bg-rose-900/10{% endif %}">
+            <td class="py-2 px-4 font-mono text-zinc-200">{{ row.app_name }}</td>
+            <td class="py-2 px-4 text-zinc-300">{{ row.daily_minutes_cap }}</td>
+            <td class="py-2 px-4">
+              <div class="flex items-center gap-2">
+                <div class="flex-1 h-2 rounded bg-ink-900 overflow-hidden min-w-[6rem]">
+                  <div class="h-full transition-all
+                              {% if row.percent >= 100 %}bg-rose-500
+                              {% elif row.percent >= 80 %}bg-amber-500
+                              {% else %}bg-emerald-500{% endif %}"
+                       style="width: {{ row.percent if row.percent <= 100 else 100 }}%"></div>
+                </div>
+                <span class="text-xs text-zinc-400 whitespace-nowrap">
+                  {{ '%.0f'|format(row.used_minutes) }} мин ({{ '%.0f'|format(row.percent) }}%)
+                </span>
+              </div>
+            </td>
+            <td class="py-2 px-4">
+              <span class="text-xs px-2 py-0.5 rounded
+                           {% if row.alert_severity == 'warn' %}bg-amber-900/40 text-amber-300
+                           {% else %}bg-sky-900/40 text-sky-300{% endif %}">
+                {{ row.alert_severity }}
+              </span>
+            </td>
+            <td class="py-2 px-4">
+              {% if row.enabled %}
+                <span class="text-xs text-emerald-300">включено</span>
+              {% else %}
+                <span class="text-xs text-zinc-500">пауза</span>
+              {% endif %}
+            </td>
+            <td class="py-2 px-4 text-right space-x-1">
+              <form action="/settings/app-budgets/{{ row.id }}/toggle"
+                    method="post" class="inline">
+                <button class="text-xs px-2 py-1 rounded bg-ink-700 hover:bg-ink-600 text-zinc-200">
+                  {% if row.enabled %}пауза{% else %}включить{% endif %}
+                </button>
+              </form>
+              <form action="/settings/app-budgets/{{ row.id }}/delete"
+                    method="post" class="inline"
+                    onsubmit="return confirm('Удалить бюджет для {{ row.app_name }}?')">
+                <button class="text-xs px-2 py-1 rounded bg-rose-900/40 hover:bg-rose-900 text-rose-300">
+                  удалить
+                </button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  <p class="text-zinc-500 text-sm mb-8">
+    Бюджеты не настроены &mdash; добавьте первый через форму выше.
+  </p>
+{% endif %}
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+  <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">
+    Как считается «использовано»
+  </h2>
+  <p class="text-zinc-400 text-xs leading-relaxed">
+    Число сегодняшних снимков по приложению умножается на текущий интервал
+    захвата (<code>capture_interval_seconds</code>) и делится на 60. Это
+    приближённая, но устойчивая прокси-метрика &mdash; она реагирует на
+    реальные переключения окна и не требует отдельного учёта фокуса.
+    Точные секунды считает <a href="/stats/time-on-app"
+    class="text-accent-400 hover:underline">отчёт «Time on app»</a>.
+  </p>
+</section>
+{% endblock %}
