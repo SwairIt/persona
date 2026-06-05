@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Готовые наборы PII-фильтров</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Каждый набор — это пачка заранее проверенных regex-правил для маскирования
+    типичной чувствительной информации в OCR-тексте. Установка идемпотентна:
+    одинаковые правила (по <code class="text-zinc-300">name</code>) пропускаются,
+    свои изменения вы не потеряете. Управлять отдельными правилами можно на
+    странице <a href="/settings/redaction" class="text-accent-400 hover:text-accent-300 underline">OCR redaction</a>.
+  </p>
+</div>
+
+{% if flash %}
+  <div class="mb-6 rounded-lg border border-accent-500/40 bg-accent-600/10 px-4 py-3 text-sm text-accent-200">
+    {{ flash }}
+  </div>
+{% endif %}
+
+<div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+  {% for pack_id, pack in packs.items() %}
+    <article class="rounded-lg border border-ink-700 bg-ink-800 p-5 flex flex-col">
+      <header class="mb-3">
+        <h2 class="text-lg font-semibold tracking-tight">{{ pack.title }}</h2>
+        <p class="text-zinc-400 text-sm mt-1">{{ pack.description }}</p>
+      </header>
+
+      <div class="mb-4 flex-1">
+        <h3 class="text-xs uppercase tracking-widest text-zinc-500 mb-2">
+          Sample patterns ({{ pack.patterns|length }})
+        </h3>
+        <ul class="space-y-1.5 text-xs font-mono text-zinc-300">
+          {% for pattern in pack.patterns %}
+            <li class="flex items-baseline gap-2">
+              <span class="inline-block px-1.5 py-0.5 rounded bg-accent-600/20 text-accent-400 shrink-0">
+                {{ pattern.name }}
+              </span>
+              <span class="text-zinc-400 break-all">{{ pattern.sample_match }}</span>
+            </li>
+          {% endfor %}
+        </ul>
+      </div>
+
+      <form action="/settings/redaction-packs/{{ pack_id|urlencode }}/install"
+            method="post"
+            class="mt-auto">
+        <button type="submit"
+                class="w-full px-4 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium">
+          Install pack
+        </button>
+      </form>
+    </article>
+  {% endfor %}
+</div>
+
+<section class="mt-8 rounded-lg border border-ink-700 bg-ink-800 p-5">
+  <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">How it works</h2>
+  <ul class="text-zinc-400 text-sm space-y-2 list-disc list-inside">
+    <li>
+      Installation uses <code class="text-zinc-300">INSERT … ON CONFLICT(name) DO NOTHING</code>,
+      so re-installing a pack only adds rules that are missing.
+    </li>
+    <li>
+      Each rule lands enabled. Pause or remove individual entries from the
+      <a href="/settings/redaction" class="text-accent-400 hover:text-accent-300 underline">redaction admin</a>.
+    </li>
+    <li>
+      Full machine-readable catalogue is available at
+      <a href="/api/redaction-packs.json" class="text-accent-400 hover:text-accent-300 underline">/api/redaction-packs.json</a>.
+    </li>
+    <li>
+      Patterns only mask OCR text before it is stored. The original screenshot
+      image is never modified.
+    </li>
+  </ul>
+</section>
+{% endblock %}

@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto">
+  <div class="mb-6">
+    <h1 class="text-2xl font-bold tracking-tight">No match</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Nothing was captured within
+      <span class="font-mono text-zinc-300">{{ window_minutes }}</span>
+      minutes of the target moment.
+    </p>
+  </div>
+
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500 mb-1">Target timestamp</div>
+    <div class="font-mono text-zinc-200 break-all">{{ target_at }}</div>
+  </section>
+
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-4">
+    <h2 class="text-lg font-semibold mb-2">Try a wider window</h2>
+    <p class="text-sm text-zinc-400 mb-3">
+      Persona only looks
+      <span class="font-mono text-zinc-300">&plusmn;{{ window_minutes }}</span>
+      minutes around the target by default. Re-run the same lookup with
+      a window of
+      <span class="font-mono text-zinc-300">&plusmn;{{ suggested_window }}</span>
+      minutes:
+    </p>
+    <a href="{{ suggested_url }}"
+       class="inline-flex items-center gap-2 px-4 py-2 rounded bg-accent-500 hover:bg-accent-400 text-white text-sm font-medium">
+      Search &plusmn;{{ suggested_window }} min
+    </a>
+  </section>
+
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <h2 class="text-lg font-semibold mb-2">Other options</h2>
+    <ul class="text-sm text-zinc-400 space-y-1 list-disc list-inside">
+      <li>Check that capture was running at that time on the <a href="/timeline" class="text-accent-400 hover:text-accent-300">timeline</a>.</li>
+      <li>The target may fall inside a pause window or quiet hours.</li>
+      <li>Drop the ``Z`` / offset from the URL only if you really meant UTC.</li>
+    </ul>
+  </section>
+</div>
+{% endblock %}

@@ -305,6 +305,9 @@ from app.web.routes import (
     focus_ics_export as focus_ics_export_routes,
     obsidian_settings as obsidian_settings_routes,
     dashboard_widget_editor as dashboard_widget_editor_routes,
+    daily_pin_enrichment_settings as daily_pin_enrichment_settings_routes,
+    jump_to as jump_to_routes,
+    redaction_packs as redaction_packs_routes,
 )
 from app.workers import (
     get_controller,
@@ -354,7 +357,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.39.0",
+        version="1.40.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -621,6 +624,9 @@ def create_app() -> FastAPI:
     app.include_router(focus_ics_export_routes.router)
     app.include_router(obsidian_settings_routes.router)
     app.include_router(dashboard_widget_editor_routes.router)
+    app.include_router(daily_pin_enrichment_settings_routes.router)
+    app.include_router(jump_to_routes.router)
+    app.include_router(redaction_packs_routes.router)
     app.include_router(sticky_search_routes.router)
     app.include_router(audit_replay_routes.router)
     app.include_router(tag_gallery_routes.router)
@@ -745,6 +751,13 @@ async def _run_obsidian_sync_worker(controller: object) -> None:
     await run_obsidian_sync_worker()
 
 
+async def _run_daily_pin_enrichment_worker(controller: object) -> None:
+    """Adapter for the v1.40 daily_pin LLM enrichment worker."""
+    from app.workers.daily_pin_enrichment_worker import run_daily_pin_enrichment_worker  # noqa: PLC0415
+
+    await run_daily_pin_enrichment_worker()
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialise DB, start workers, and tear them down on shutdown."""
@@ -808,6 +821,10 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         asyncio.create_task(
             _run_obsidian_sync_worker(controller),
             name="obsidian-sync-worker",
+        ),
+        asyncio.create_task(
+            _run_daily_pin_enrichment_worker(controller),
+            name="daily-pin-enrichment-worker",
         ),
     ]
 
