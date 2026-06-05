@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">API токены</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Read-only Bearer-токены для внешних инструментов, которые читают данные Persona
+    через <code class="font-mono">/api/v1/*</code>. Persona хранит только SHA-256-хеш —
+    plaintext-значение показывается <strong>один раз</strong> на странице выдачи.
+    Заголовок: <code class="font-mono">Authorization: Bearer &lt;token&gt;</code>.
+  </p>
+</div>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
+  <h2 class="text-lg font-semibold mb-3">Выдать новый токен</h2>
+  <form action="/admin/api-tokens/issue" method="post" class="space-y-4">
+    <label class="flex flex-col gap-1">
+      <span class="text-xs uppercase tracking-widest text-zinc-500">Метка</span>
+      <input type="text" name="label" required
+             placeholder="например, grafana-readonly, partner-acme, qa-scanner"
+             class="px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
+    </label>
+    <label class="flex flex-col gap-1">
+      <span class="text-xs uppercase tracking-widest text-zinc-500">Scopes</span>
+      <input type="text" name="scopes" value="read"
+             placeholder="read"
+             class="px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
+      <span class="text-xs text-zinc-500">
+        По умолчанию <code class="font-mono">read</code>. Через запятую можно добавить
+        дополнительные scope-строки, если интеграция должна делать больше, чем читать.
+      </span>
+    </label>
+    <label class="flex flex-col gap-1">
+      <span class="text-xs uppercase tracking-widest text-zinc-500">Срок жизни (дней)</span>
+      <input type="number" name="days_valid" value="0" min="0" step="1"
+             class="px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
+      <span class="text-xs text-zinc-500">
+        <code class="font-mono">0</code> — токен не истекает. Любое положительное
+        число задаёт жёсткий <code class="font-mono">expires_at</code>; после него
+        <code class="font-mono">verify_token</code> отвечает 401 без возможности продления.
+      </span>
+    </label>
+    <div class="flex justify-end">
+      <button type="submit"
+              class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
+        Выдать токен
+      </button>
+    </div>
+  </form>
+</section>
+
+{% if tokens %}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-ink-900 text-zinc-500 text-xs uppercase tracking-wider">
+        <tr>
+          <th class="text-left py-2 px-3">Метка</th>
+          <th class="text-left py-2 px-3">Scopes</th>
+          <th class="text-left py-2 px-3">Создан</th>
+          <th class="text-left py-2 px-3">Истекает</th>
+          <th class="text-left py-2 px-3">Последний запрос</th>
+          <th class="text-left py-2 px-3">Использований</th>
+          <th class="text-left py-2 px-3">Статус</th>
+          <th class="py-2 px-3"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in tokens %}
+          <tr class="border-t border-ink-700 {% if t.revoked_at %}opacity-60{% endif %}">
+            <td class="py-2 px-3">
+              <span class="font-medium">{{ t.label or '—' }}</span>
+              <span class="text-zinc-600 font-mono text-[10px] ml-2">#{{ t.id }}</span>
+            </td>
+            <td class="py-2 px-3 font-mono text-xs text-accent-400">{{ t.scopes }}</td>
+            <td class="py-2 px-3 text-xs text-zinc-500 font-mono">{{ t.created_at }}</td>
+            <td class="py-2 px-3 text-xs text-zinc-500 font-mono">{{ t.expires_at or '∞' }}</td>
+            <td class="py-2 px-3 text-xs text-zinc-500 font-mono">{{ t.last_used_at or '—' }}</td>
+            <td class="py-2 px-3 text-xs text-zinc-300 font-mono">{{ t.use_count }}</td>
+            <td class="py-2 px-3 text-xs">
+              {% if t.revoked_at %}
+                <span class="text-rose-400 font-mono">revoked {{ t.revoked_at }}</span>
+              {% else %}
+                <span class="text-emerald-400 font-mono">active</span>
+              {% endif %}
+            </td>
+            <td class="py-2 px-3 text-right">
+              {% if not t.revoked_at %}
+                <form action="/admin/api-tokens/{{ t.id }}/revoke" method="post" class="inline"
+                      onsubmit="return confirm('Отозвать токен? Любой клиент с ним сразу получит 401.');">
+                  <button type="submit"
+                          class="text-xs px-2 py-1 rounded bg-rose-900/40 hover:bg-rose-900 text-rose-300">
+                    revoke
+                  </button>
+                </form>
+              {% else %}
+                <span class="text-zinc-600 text-xs">&mdash;</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  <p class="text-zinc-500 text-sm">Пока ни одного токена не выдано.</p>
+{% endif %}
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mt-8 text-xs text-zinc-400 space-y-2">
+  <h2 class="text-sm font-semibold text-zinc-200">Пример использования</h2>
+  <pre class="font-mono bg-ink-900 border border-ink-700 rounded p-3 overflow-x-auto"><code>curl -H "Authorization: Bearer &lt;token&gt;" \
+     http://127.0.0.1:8765/api/v1/screenshots.json</code></pre>
+  <p>
+    Машинно-читаемый список выданных токенов (без хешей) доступен на
+    <code class="font-mono">GET /api/api-tokens.json</code> — пригодится для дашбордов
+    инвентаризации, не показывает plaintext ни одного токена.
+  </p>
+</section>
+{% endblock %}

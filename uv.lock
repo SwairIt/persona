@@ -1269,7 +1269,7 @@ wheels = [
 
 [[package]]
 name = "persona"
-version = "1.60.0"
+version = "1.61.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },

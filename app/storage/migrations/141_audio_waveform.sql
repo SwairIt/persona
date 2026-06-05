@@ -1,0 +1,36 @@
+-- v1.53 — Pre-rendered SVG waveform thumbnail per ``audio_segment``.
+--
+-- The inline player route (``app.web.routes.audio_player``) already
+-- computes per-bucket peaks on demand from the encoded audio file,
+-- but that path is *too slow* for the timeline lists: rendering 50
+-- segments on the day view spawns 50 ``soundfile.read`` calls and the
+-- first paint stalls for a noticeable fraction of a second.
+--
+-- This migration adds the cache side of a pre-render pipeline. A
+-- background worker (``app.workers.audio_waveform_worker``) walks
+-- rows whose ``waveform_svg`` is still NULL, calls
+-- :func:`app.audio_waveform.generate_waveform`, and stores the
+-- rendered SVG document straight in the row. List templates that
+-- want an inline sparkline can then read ``waveform_svg`` and embed
+-- it directly — zero filesystem touch on the hot path.
+--
+-- Column contract
+-- ---------------
+--   * ``waveform_svg`` — the rendered ``<svg>...</svg>`` markup,
+--     stored verbatim. NULL until the worker fills it; NULL also
+--     means "could not render" (file missing, decoder dependency
+--     absent, …) — the worker logs each failure but does not insert
+--     a placeholder. Re-running the worker after a fix retries.
+--   * ``waveform_generated_at`` — ISO-8601 UTC wall-clock at which
+--     the render succeeded. Lets the operator spot stale renders
+--     (e.g. after switching to a new bar height) and selectively
+--     re-fire the regenerate endpoint.
+--
+-- Existing rows survive with NULLs; the idempotent migration runner
+-- swallows the "duplicate column" error on a re-run. No index — the
+-- only query that touches these columns is the worker's
+-- ``WHERE waveform_svg IS NULL`` scan, which is bounded by the
+-- worker's own LIMIT 50 and runs every 600 s.
+
+ALTER TABLE audio_segment ADD COLUMN waveform_svg TEXT;
+ALTER TABLE audio_segment ADD COLUMN waveform_generated_at TEXT;

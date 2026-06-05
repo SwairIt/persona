@@ -1,0 +1,120 @@
+{# Quick-actions panel fragment.
+
+   Renders the catalogue as a responsive grid of buttons. Each button
+   fires ``POST /api/quick-actions/{action_id}/run`` via vanilla fetch
+   so the widget works on any host page, with or without HTMX.
+
+   The ``add_note`` action needs free-text input — that button expands
+   into a tiny inline form when clicked. Every other button POSTs with
+   an empty body.
+
+   Result text lands in the dedicated ``data-result`` cell next to the
+   button it came from so multiple actions can be fired in a row
+   without their messages stomping each other. #}
+<div id="quick-actions-panel"
+     class="grid grid-cols-2 md:grid-cols-3 gap-3">
+  {% for a in actions %}
+    <div class="rounded-lg border border-ink-700 bg-ink-800 p-3 flex flex-col gap-2"
+         data-quick-action="{{ a.action_id }}">
+      <div class="flex items-start gap-2">
+        <span class="text-xl leading-none shrink-0" aria-hidden="true">{{ a.icon_glyph }}</span>
+        <div class="min-w-0 flex-1">
+          <div class="text-sm font-semibold text-zinc-100 truncate">{{ a.label }}</div>
+          <div class="text-xs text-zinc-500 leading-snug">{{ a.description }}</div>
+        </div>
+      </div>
+      {% if a.action_id == 'add_note' %}
+        <div class="flex gap-1">
+          <input type="text"
+                 data-qa-input="{{ a.action_id }}"
+                 placeholder="note body…"
+                 maxlength="500"
+                 class="flex-1 min-w-0 text-xs px-2 py-1 rounded bg-ink-900 border border-ink-700 text-zinc-200 placeholder-zinc-600 focus:border-accent-500 focus:outline-none" />
+          <button type="button"
+                  data-qa-run="{{ a.action_id }}"
+                  data-qa-requires-input="1"
+                  class="shrink-0 text-xs px-3 py-1 rounded bg-accent-600/30 text-accent-300 border border-accent-500/40 hover:bg-accent-600/50">
+            run
+          </button>
+        </div>
+      {% else %}
+        <button type="button"
+                data-qa-run="{{ a.action_id }}"
+                class="text-xs px-3 py-1.5 rounded bg-accent-600/30 text-accent-300 border border-accent-500/40 hover:bg-accent-600/50">
+          run
+        </button>
+      {% endif %}
+      <div data-qa-result="{{ a.action_id }}"
+           class="text-xs text-zinc-500 min-h-[1rem]"
+           role="status"
+           aria-live="polite"></div>
+    </div>
+  {% endfor %}
+</div>
+
+<script>
+  // Vanilla ES2020 — single delegated click handler so the widget keeps
+  // working when injected via HTMX into a page that re-renders parts of
+  // the DOM under it.
+  (function () {
+    function showResult(actionId, text, isError) {
+      var cell = document.querySelector('[data-qa-result="' + actionId + '"]');
+      if (!cell) { return; }
+      cell.textContent = text;
+      cell.classList.toggle('text-rose-400', !!isError);
+      cell.classList.toggle('text-emerald-400', !isError);
+    }
+
+    function readInput(actionId) {
+      var input = document.querySelector('[data-qa-input="' + actionId + '"]');
+      if (!input) { return null; }
+      var value = (input.value || '').trim();
+      return value || null;
+    }
+
+    document.addEventListener('click', function (event) {
+      var btn = event.target.closest('[data-qa-run]');
+      if (!btn) { return; }
+      var actionId = btn.getAttribute('data-qa-run');
+      if (!actionId) { return; }
+      var requiresInput = btn.getAttribute('data-qa-requires-input') === '1';
+      var body = {};
+      if (requiresInput) {
+        var value = readInput(actionId);
+        if (!value) {
+          showResult(actionId, 'input required', true);
+          return;
+        }
+        body.input = value;
+      }
+      btn.disabled = true;
+      showResult(actionId, 'running…', false);
+      fetch('/api/quick-actions/' + encodeURIComponent(actionId) + '/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }).then(function (response) {
+        return response.json().then(function (data) {
+          return { ok: response.ok, data: data };
+        });
+      }).then(function (outcome) {
+        if (outcome.ok && outcome.data && outcome.data.ok) {
+          showResult(actionId, outcome.data.message || 'ok', false);
+          if (requiresInput) {
+            var input = document.querySelector('[data-qa-input="' + actionId + '"]');
+            if (input) { input.value = ''; }
+          }
+        } else {
+          var detail = (outcome.data && (outcome.data.detail || outcome.data.message)) || 'failed';
+          showResult(actionId, detail, true);
+        }
+      }).catch(function (err) {
+        showResult(actionId, 'network error', true);
+        // eslint-disable-next-line no-console
+        console.warn('quick-actions: ' + actionId + ' failed', err);
+      }).finally(function () {
+        btn.disabled = false;
+      });
+    });
+  })();
+</script>

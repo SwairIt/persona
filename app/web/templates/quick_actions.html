@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Quick actions</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Common one-click operations. Each button fires a direct DB call —
+    no extra HTTP fan-out. The embeddable widget at
+    <code class="text-xs font-mono text-zinc-400">/widget/quick-actions</code>
+    renders the same grid for HTMX hosts.
+  </p>
+</div>
+
+{% include "_quick_actions_widget.html" %}
+
+<div class="mt-8 rounded-lg border border-ink-700 bg-ink-800 p-4 text-xs text-zinc-500">
+  Tip: the raw catalogue is exposed at
+  <a href="/api/quick-actions.json" class="text-accent-400 hover:underline font-mono">/api/quick-actions.json</a>
+  — useful for building a TG-bot keyboard or a CLI alias set without
+  hard-coding action ids.
+</div>
+{% endblock %}

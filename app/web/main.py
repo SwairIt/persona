@@ -370,6 +370,9 @@ from app.web.routes import (
     health_dashboard as health_dashboard_routes,
     heartbeat_alerts as heartbeat_alerts_routes,
     db_integrity as db_integrity_routes,
+    quick_actions as quick_actions_routes,
+    api_tokens_admin as api_tokens_admin_routes,
+    audio_waveform as audio_waveform_routes,
 )
 from app.workers import (
     get_controller,
@@ -419,7 +422,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.61.0",
+        version="1.62.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -751,6 +754,9 @@ def create_app() -> FastAPI:
     app.include_router(health_dashboard_routes.router)
     app.include_router(heartbeat_alerts_routes.router)
     app.include_router(db_integrity_routes.router)
+    app.include_router(quick_actions_routes.router)
+    app.include_router(api_tokens_admin_routes.router)
+    app.include_router(audio_waveform_routes.router)
     app.include_router(sticky_search_routes.router)
     app.include_router(audit_replay_routes.router)
     app.include_router(tag_gallery_routes.router)
@@ -982,6 +988,13 @@ async def _run_db_integrity_worker(controller: object) -> None:
     await run_db_integrity_worker()
 
 
+async def _run_audio_waveform_worker(controller: object) -> None:
+    """Adapter for the v1.62 audio-segment SVG waveform backfill worker."""
+    from app.workers.audio_waveform_worker import run_audio_waveform_worker  # noqa: PLC0415
+
+    await run_audio_waveform_worker()
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialise DB, start workers, and tear them down on shutdown."""
@@ -1105,6 +1118,10 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         asyncio.create_task(
             _run_db_integrity_worker(controller),
             name="db-integrity-worker",
+        ),
+        asyncio.create_task(
+            _run_audio_waveform_worker(controller),
+            name="audio-waveform-worker",
         ),
     ]
 
