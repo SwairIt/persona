@@ -1,0 +1,286 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Webhook CSV pipeline</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Каждое назначение — это URL внешней системы (Notion DB, Google Sheets
+    через Apps Script, Zapier-хук) плюс выбранный <code>csv_kind</code>
+    и окно в днях. Раз в час воркер смотрит, какие назначения сейчас
+    должны сработать (<code>hour_local</code> совпадает с текущим
+    часом, последняя отправка была более 23 часов назад,
+    <code>enabled = 1</code>), для каждого собирает CSV-дамп через
+    стриминговые экспортёры из <code>app.csv_export</code> и POSTит
+    на указанный URL с заголовком <code>Content-Type: text/csv</code>.
+  </p>
+  <p class="text-zinc-500 text-xs mt-2">
+    <a href="/csv-export" class="hover:text-zinc-300 underline">→ ручной CSV-экспорт</a>
+    &middot;
+    <a href="/settings/webhooks" class="hover:text-zinc-300 underline">event-вебхуки</a>
+  </p>
+  <p class="text-xs mt-2">
+    Статус воркера:
+    {% if worker_enabled %}
+      <span class="inline-block px-2 py-0.5 rounded bg-emerald-900/40 border border-emerald-700/40 text-emerald-200">
+        включён
+      </span>
+    {% else %}
+      <span class="inline-block px-2 py-0.5 rounded bg-amber-900/30 border border-amber-700/40 text-amber-200">
+        выключен
+      </span>
+      <span class="text-zinc-500">— строки ниже сохранятся, но POSTов не будет, пока
+        <code>webhook_csv_pipeline_enabled=1</code> в <code>kv_settings</code>.</span>
+    {% endif %}
+  </p>
+</div>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5 max-w-4xl">
+  <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">
+    Существующие назначения ({{ destinations|length }})
+  </h2>
+  {% if destinations %}
+  <table class="w-full text-sm">
+    <thead>
+      <tr class="text-xs uppercase text-zinc-500 border-b border-ink-700">
+        <th class="text-left py-2 pr-2">name</th>
+        <th class="text-left py-2 pr-2">kind</th>
+        <th class="text-left py-2 pr-2">окно</th>
+        <th class="text-left py-2 pr-2">час</th>
+        <th class="text-left py-2 pr-2">статус</th>
+        <th class="text-left py-2 pr-2">последний</th>
+        <th class="text-right py-2">действия</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for dest in destinations %}
+      <tr class="border-b border-ink-700/50">
+        <td class="py-2 pr-2 font-mono text-accent-300">{{ dest.name }}</td>
+        <td class="py-2 pr-2 text-zinc-300">
+          {{ kind_labels.get(dest.csv_kind, dest.csv_kind) }}
+          <div class="text-xs text-zinc-500 font-mono">{{ dest.csv_kind }}</div>
+        </td>
+        <td class="py-2 pr-2 text-zinc-400 font-mono">{{ dest.days_window }}d</td>
+        <td class="py-2 pr-2 text-zinc-400 font-mono">{{ '%02d'|format(dest.hour_local) }}:00</td>
+        <td class="py-2 pr-2">
+          {% if not dest.enabled %}
+            <span class="text-zinc-500 text-xs">paused</span>
+          {% elif dest.last_status_code is none and dest.last_error is none %}
+            <span class="text-zinc-500 text-xs">не запускался</span>
+          {% elif dest.last_error %}
+            <span class="text-rose-300 text-xs" title="{{ dest.last_error }}">transport</span>
+          {% elif dest.last_status_code >= 200 and dest.last_status_code < 300 %}
+            <span class="text-emerald-300 text-xs">{{ dest.last_status_code }}</span>
+          {% else %}
+            <span class="text-amber-300 text-xs">{{ dest.last_status_code }}</span>
+          {% endif %}
+        </td>
+        <td class="py-2 pr-2 text-zinc-500 font-mono text-xs">
+          {% if dest.last_sent_at %}{{ dest.last_sent_at[:16] }}{% else %}—{% endif %}
+        </td>
+        <td class="py-2 text-right whitespace-nowrap">
+          <button type="button"
+                  data-webhook-csv-send="{{ dest.id }}"
+                  class="px-2 py-1 border border-ink-700 hover:border-accent-500 rounded text-xs">
+            отправить
+          </button>
+          <form action="/settings/webhook-csv/{{ dest.id }}/delete"
+                method="post" class="inline ml-1">
+            <button type="submit"
+                    class="px-2 py-1 border border-rose-800/60 hover:border-rose-500 text-rose-300 rounded text-xs"
+                    onclick="return confirm('Удалить назначение {{ dest.name }}?');">
+              удалить
+            </button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <p class="text-zinc-500 text-sm">
+      Назначений пока нет. Добавьте первое — форма ниже.
+    </p>
+  {% endif %}
+</section>
+
+<form action="/settings/webhook-csv/new" method="post"
+      class="mt-6 rounded-lg border border-ink-700 bg-ink-800 p-5 space-y-5 max-w-4xl">
+  <h2 class="text-sm uppercase tracking-widest text-zinc-500">
+    Новое назначение
+  </h2>
+
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    <label class="block">
+      <div class="text-sm font-medium text-zinc-200 mb-1">Имя</div>
+      <div class="text-xs text-zinc-500 mb-2">
+        Уникальная метка. Повторная отправка с тем же именем
+        перезаписывает строку.
+      </div>
+      <input name="name" type="text" required
+             placeholder="notion-screenshots"
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
+    </label>
+
+    <label class="block">
+      <div class="text-sm font-medium text-zinc-200 mb-1">Тип данных</div>
+      <div class="text-xs text-zinc-500 mb-2">
+        Что выгружать. Маппится 1:1 на четыре потоковых экспортёра
+        в <code>app.csv_export</code>.
+      </div>
+      <select name="csv_kind"
+              class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
+        {% for kind, label in kind_labels.items() %}
+          <option value="{{ kind }}">{{ label }} ({{ kind }})</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label class="block sm:col-span-2">
+      <div class="text-sm font-medium text-zinc-200 mb-1">URL вебхука</div>
+      <div class="text-xs text-zinc-500 mb-2">
+        Полный URL получателя. Может содержать токен в query — мы не
+        логируем этот URL и не отображаем его в сообщениях об ошибках.
+      </div>
+      <input name="webhook_url" type="url" required
+             placeholder="https://hooks.zapier.com/hooks/catch/123/abc/"
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
+    </label>
+
+    <label class="block">
+      <div class="text-sm font-medium text-zinc-200 mb-1">Окно (дней)</div>
+      <div class="text-xs text-zinc-500 mb-2">
+        Сколько последних дней включать в дамп. <code>1</code> — вчера.
+      </div>
+      <input name="days_window" type="number" min="1" max="365" value="1" required
+             class="w-24 px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
+    </label>
+
+    <label class="block">
+      <div class="text-sm font-medium text-zinc-200 mb-1">Час (0..23)</div>
+      <div class="text-xs text-zinc-500 mb-2">
+        По умолчанию <code>5</code> — раннее утро. Локальное время сервера.
+      </div>
+      <input name="hour_local" type="number" min="0" max="23" value="5" required
+             class="w-24 px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
+    </label>
+
+    <label class="block sm:col-span-2">
+      <div class="text-sm font-medium text-zinc-200 mb-1">Заголовки (JSON)</div>
+      <div class="text-xs text-zinc-500 mb-2">
+        Необязательно. JSON-объект дополнительных заголовков, например
+        <code>{"Authorization": "Bearer xxx", "Notion-Version": "2022-06-28"}</code>.
+        <code>Content-Type: text/csv</code> добавляется автоматически.
+      </div>
+      <textarea name="headers_json" rows="3"
+                placeholder='{"Authorization": "Bearer xxx"}'
+                class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500"></textarea>
+    </label>
+
+    <label class="flex items-center gap-2 sm:col-span-2">
+      <input name="enabled" type="checkbox" value="on" checked
+             class="rounded border-ink-700 bg-ink-900 focus:outline-none focus:border-accent-500">
+      <span class="text-sm text-zinc-200">включено</span>
+      <span class="text-xs text-zinc-500">— снимите галочку, чтобы временно
+        приостановить без удаления.</span>
+    </label>
+  </div>
+
+  <div class="pt-2">
+    <button type="submit"
+            class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
+      сохранить назначение
+    </button>
+  </div>
+</form>
+
+<div id="webhook-csv-send-result"
+     class="mt-4 hidden rounded-lg border px-4 py-3 text-sm font-mono max-w-4xl"></div>
+
+<section class="mt-6 rounded-lg border border-ink-700 bg-ink-800 p-5 max-w-4xl">
+  <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">
+    Как это работает
+  </h2>
+  <ul class="text-zinc-400 text-xs leading-relaxed list-disc pl-5 space-y-1">
+    <li>
+      Воркер <code>webhook-csv</code> просыпается раз в час и читает
+      все включённые назначения, чей <code>hour_local</code> совпадает
+      с текущим локальным часом, а <code>last_sent_at</code> старше
+      23 часов (или <code>NULL</code>).
+    </li>
+    <li>
+      Для каждого подходящего назначения собирается CSV-дамп через
+      потоковые экспортёры из <code>app.csv_export</code>, в окне
+      <code>[today - days_window, today)</code>.
+    </li>
+    <li>
+      Тело отправляется одним <code>POST</code> через stdlib
+      <code>urllib.request</code> — без зависимостей от
+      <code>httpx</code> — с заголовком <code>Content-Type: text/csv</code>
+      и опциональными заголовками из <code>headers_json</code>.
+    </li>
+    <li>
+      Результат пишется в <code>last_sent_at</code>,
+      <code>last_status_code</code> и <code>last_error</code> — даже
+      провал с <code>5xx</code> или transport-ошибка фиксируются и
+      видны в таблице выше.
+    </li>
+    <li>
+      URL вебхука трактуется как секрет: ни логи, ни сообщения об
+      ошибках его не показывают — query в URL может содержать токен.
+    </li>
+  </ul>
+</section>
+
+<script>
+  (function () {
+    const out = document.getElementById('webhook-csv-send-result');
+    if (!out) {
+      return;
+    }
+    function paint(kind, text) {
+      out.classList.remove('hidden',
+        'border-emerald-700/40', 'bg-emerald-900/20', 'text-emerald-200',
+        'border-rose-700/40',    'bg-rose-900/20',    'text-rose-200',
+        'border-amber-700/40',   'bg-amber-900/20',   'text-amber-200');
+      const palette = {
+        ok:   ['border-emerald-700/40', 'bg-emerald-900/20', 'text-emerald-200'],
+        bad:  ['border-rose-700/40',    'bg-rose-900/20',    'text-rose-200'],
+        warn: ['border-amber-700/40',   'bg-amber-900/20',   'text-amber-200']
+      }[kind];
+      palette.forEach(function (cls) { out.classList.add(cls); });
+      out.textContent = text;
+    }
+    document.querySelectorAll('[data-webhook-csv-send]').forEach(function (btn) {
+      btn.addEventListener('click', async function () {
+        const destId = btn.getAttribute('data-webhook-csv-send');
+        const original = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = 'отправляем...';
+        try {
+          const r = await fetch('/api/webhook-csv/' + destId + '/send-now', { method: 'POST' });
+          const j = await r.json();
+          const bytes = j.body_bytes_sent || 0;
+          if (j.status === 'sent') {
+            paint('ok', 'OK ' + j.status_code + ' (' + bytes + ' байт). Перезагрузите страницу, чтобы обновить статус.');
+          } else if (j.status === 'http_error') {
+            paint('warn', 'HTTP ' + j.status_code + ' (' + bytes + ' байт ушло). Проверьте URL и заголовки.');
+          } else if (j.status === 'transport_error') {
+            paint('bad', 'Transport error: тело собрано (' + bytes + ' байт), но соединение/TLS/DNS упали. Подробности в last_error.');
+          } else if (j.status === 'disabled') {
+            paint('warn', 'Назначение выключено — включите чекбокс и сохраните.');
+          } else if (j.status === 'missing') {
+            paint('bad', 'Назначение удалено.');
+          } else {
+            paint('bad', 'Неожиданный ответ: ' + JSON.stringify(j));
+          }
+        } catch (e) {
+          paint('bad', 'Сетевая ошибка: ' + (e && e.message ? e.message : e));
+        } finally {
+          btn.disabled = false;
+          btn.textContent = original;
+        }
+      });
+    });
+  })();
+</script>
+{% endblock %}

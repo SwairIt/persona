@@ -40,6 +40,8 @@ from app.logging_setup import get_logger
 from app.privacy_mode import is_private_window as is_privacy_match
 from app.privacy_mode import record_skip as record_privacy_skip
 from app.settings import get_settings
+from app.sleep_mode import record_state_change as record_sleep_state_change
+from app.sleep_mode import should_sleep as sleep_mode_should_sleep
 from app.storage.app_overrides import lookup_override
 from app.storage.db import get_connection
 from app.storage.process_remap import lookup_remap
@@ -72,6 +74,19 @@ rate_guard_log = get_logger("persona.capture.rate_guard")
 # for a meeting.
 _recent_app_names: deque[str] = deque(maxlen=3)
 _active_meeting_event_id: int | None = None
+
+# v1.62 — sleep-mode auto-detector edge cache.
+#
+# The capture loop calls ``sleep_mode.should_sleep`` on every iteration
+# but only persists a ``sleep_mode_event`` row on the *transition*
+# (sleep→wake or wake→sleep). Without this cache the steady-state
+# branch would INSERT once per tick — every five seconds for hours
+# while the user is away. Holding the last observed state in process
+# memory makes the steady state a pure no-op.
+#
+# ``None`` means "we haven't classified yet" so the first observation
+# never logs a wake event spuriously at process start.
+_last_sleep_state: str | None = None
 
 
 async def run_capture_loop(controller: CaptureController | None = None) -> None:  # noqa: PLR0912, PLR0915
@@ -129,6 +144,54 @@ async def run_capture_loop(controller: CaptureController | None = None) -> None:
                 continue
         except Exception as exc:
             log.debug("capture_loop.live_kv_check_failed", error=str(exc))
+
+        # v1.62 — sleep-mode auto-detector.
+        #
+        # Sampled BEFORE the meeting / privacy / blocklist / focus
+        # branches so that, when the user is away from the desk, we
+        # do not even probe the active window — that probe wakes a
+        # CGEventSource on macOS and hits IPC on Linux, both of which
+        # are noisy on a quiet machine. ``should_sleep`` reads two kv
+        # rows and short-circuits to ``disabled`` when the operator
+        # has not opted in, so the cost in the common case is two
+        # indexed SQLite reads.
+        #
+        # Transitions (sleep / wake) are persisted to
+        # ``sleep_mode_event`` via the module-level
+        # ``_last_sleep_state`` edge cache so the steady-state branch
+        # never INSERTs. Failures in the sleep probe NEVER halt the
+        # loop — by design, an audit-log hiccup must not silently
+        # stop screenshots.
+        global _last_sleep_state  # noqa: PLW0603 — single module-wide cache by design
+        try:
+            idle_for_sleep = float(seconds_since_last_input())
+            decision = await sleep_mode_should_sleep(idle_for_sleep)
+        except Exception as exc:
+            log.debug("capture_loop.sleep_check_failed", error=str(exc))
+            decision = {"sleeping": False, "reason": "error"}
+        sleeping_now = bool(decision.get("sleeping"))
+        if sleeping_now and _last_sleep_state != "sleep":
+            await record_sleep_state_change(
+                "sleep",
+                float(decision.get("idle_seconds", 0.0)),
+            )
+            _last_sleep_state = "sleep"
+        elif not sleeping_now and _last_sleep_state == "sleep":
+            await record_sleep_state_change(
+                "wake",
+                float(decision.get("idle_seconds", 0.0)),
+            )
+            _last_sleep_state = "wake"
+        if sleeping_now:
+            sleep_for = live_interval or settings.capture_interval_seconds
+            try:
+                await asyncio.wait_for(
+                    ctrl.stop_event.wait(),
+                    timeout=sleep_for,
+                )
+            except TimeoutError:
+                continue
+            continue
 
         # v1.19 — smart-pause for Zoom/Teams/Meet/Discord/etc.
         #

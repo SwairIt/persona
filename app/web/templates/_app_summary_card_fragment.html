@@ -1,0 +1,167 @@
+{# Per-app summary card fragment.
+
+   Embedded by:
+     * app_summary_card.html (full page)
+     * /widget/app-card/{app_name} (HTMX consumers)
+
+   Context contract:
+     - app_name                 — display string
+     - card                     — dict from app.app_summary_card.build_app_card
+         .total_shots
+         .total_voice_seconds
+         .top_titles            — list[{title, count}]
+         .first_seen            — ISO string | None
+         .last_seen             — ISO string | None
+         .sample_shot_id        — int | None
+         .sample_shot_thumb_path — relative path | None
+         .sparkline_per_day     — list[int]
+         .days                  — window size (int)
+     - icon                     — IconRow dict (glyph + colour chip)
+     - first_seen_days_ago      — int | None  (precomputed by route)
+     - last_seen_days_ago       — int | None  (precomputed by route)
+
+   Rendered as a single self-contained <article>. No <html>/<body>; no
+   navbar; no <script>. Drop-in safe for hx-get-style embeds. #}
+
+{# Sparkline SVG. Compute the geometry inline so a downstream consumer
+   that only ships the fragment doesn't need a custom helper module.
+   Width/height are CSS-controlled via the wrapper; the path uses
+   abstract 0..100 coordinates for portability. #}
+{% set _spark_max = (card.sparkline_per_day | max) if card.sparkline_per_day else 0 %}
+{% set _spark_len = card.sparkline_per_day | length %}
+
+<article class="rounded-xl border border-ink-700 bg-ink-800 p-5 shadow-sm"
+         data-app-summary-card
+         data-app-name="{{ app_name }}">
+  {# ---------- Header: icon chip + app name + window label ---------- #}
+  <header class="flex items-center gap-3 mb-4">
+    <span class="inline-flex items-center justify-center w-10 h-10 rounded-full text-white font-semibold select-none shadow-sm ring-1 ring-black/20 text-base"
+          style="background-color: {{ icon.icon_color }};"
+          title="{{ icon.app_name }} ({{ icon.source }})"
+          aria-label="{{ icon.app_name }}">
+      {{ icon.icon_path }}
+    </span>
+    <div class="min-w-0 flex-1">
+      <h2 class="text-lg font-bold tracking-tight truncate">
+        {{ app_name | app_alias }}
+      </h2>
+      <p class="text-xs text-zinc-500">Last {{ card.days }} day{{ '' if card.days == 1 else 's' }}</p>
+    </div>
+  </header>
+
+  {# ---------- Four big numbers (shots / voice / first / last) ---------- #}
+  <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+    <div class="rounded-lg bg-ink-900 border border-ink-700 p-3">
+      <div class="text-[10px] uppercase tracking-wider text-zinc-500">Shots</div>
+      <div class="text-2xl font-mono font-bold text-accent-400 mt-0.5">
+        {{ card.total_shots }}
+      </div>
+    </div>
+    <div class="rounded-lg bg-ink-900 border border-ink-700 p-3">
+      <div class="text-[10px] uppercase tracking-wider text-zinc-500">Voice</div>
+      <div class="text-2xl font-mono font-bold text-emerald-400 mt-0.5">
+        {{ (card.total_voice_seconds / 60.0) | round(1) }}<span class="text-xs text-zinc-500 ml-1">min</span>
+      </div>
+    </div>
+    <div class="rounded-lg bg-ink-900 border border-ink-700 p-3">
+      <div class="text-[10px] uppercase tracking-wider text-zinc-500">First seen</div>
+      <div class="text-2xl font-mono font-bold text-sky-400 mt-0.5">
+        {% if first_seen_days_ago is not none %}
+          {{ first_seen_days_ago }}<span class="text-xs text-zinc-500 ml-1">d ago</span>
+        {% else %}
+          <span class="text-zinc-600 text-base">—</span>
+        {% endif %}
+      </div>
+    </div>
+    <div class="rounded-lg bg-ink-900 border border-ink-700 p-3">
+      <div class="text-[10px] uppercase tracking-wider text-zinc-500">Last seen</div>
+      <div class="text-2xl font-mono font-bold text-amber-400 mt-0.5">
+        {% if last_seen_days_ago is not none %}
+          {{ last_seen_days_ago }}<span class="text-xs text-zinc-500 ml-1">d ago</span>
+        {% else %}
+          <span class="text-zinc-600 text-base">—</span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  {# ---------- Top window titles bar list ---------- #}
+  <section class="mb-5">
+    <h3 class="text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-2">
+      Top window titles
+    </h3>
+    {% if card.top_titles %}
+      {% set _max_title_n = card.top_titles | map(attribute='count') | max %}
+      <ul class="space-y-1">
+        {% for row in card.top_titles %}
+          <li class="flex items-center gap-3 text-xs">
+            <span class="text-zinc-200 flex-1 truncate" title="{{ row.title }}">{{ row.title }}</span>
+            <div class="w-32 sm:w-48 bg-ink-900 rounded h-2.5 overflow-hidden">
+              <div class="h-full bg-sky-500"
+                   style="width: {{ ((row.count / _max_title_n) * 100) | round(1) }}%"></div>
+            </div>
+            <span class="font-mono text-zinc-400 w-10 text-right">{{ row.count }}</span>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="text-zinc-500 text-xs">No window titles in this window.</p>
+    {% endif %}
+  </section>
+
+  {# ---------- 7-day SVG sparkline ----------
+     SVG viewBox is 0..100 horizontally and 0..40 vertically. Each
+     bucket is a vertical bar scaled to the window max; we draw bars
+     instead of a polyline so a single non-zero day still shows up
+     visually instead of degenerating to a dot. #}
+  <section class="mb-5">
+    <h3 class="text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-2">
+      {{ card.days }}-day activity
+    </h3>
+    {% if _spark_len > 0 %}
+      <svg viewBox="0 0 100 40" preserveAspectRatio="none"
+           class="w-full h-12 bg-ink-900 rounded border border-ink-700"
+           role="img"
+           aria-label="{{ card.days }}-day shots sparkline">
+        {% set _bar_w = (100 / _spark_len) %}
+        {% for n in card.sparkline_per_day %}
+          {% set _h = ((n / _spark_max) * 36) if _spark_max > 0 else 0 %}
+          <rect x="{{ (loop.index0 * _bar_w) | round(3) }}"
+                y="{{ (38 - _h) | round(3) }}"
+                width="{{ (_bar_w * 0.85) | round(3) }}"
+                height="{{ _h | round(3) }}"
+                fill="#6366f1"
+                rx="0.6"></rect>
+        {% endfor %}
+      </svg>
+      <div class="flex justify-between text-[10px] text-zinc-600 font-mono mt-1">
+        <span>−{{ card.days - 1 }}d</span>
+        <span>today</span>
+      </div>
+    {% else %}
+      <p class="text-zinc-500 text-xs">No activity to plot.</p>
+    {% endif %}
+  </section>
+
+  {# ---------- Sample shot thumbnail ---------- #}
+  {% if card.sample_shot_id %}
+    <section>
+      <h3 class="text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-2">
+        Most recent shot
+      </h3>
+      <a href="/screenshot/{{ card.sample_shot_id }}"
+         class="block rounded-lg overflow-hidden bg-ink-900 border border-ink-700 hover:border-accent-500 transition aspect-video">
+        {% if card.sample_shot_thumb_path %}
+          <img src="{{ card.sample_shot_thumb_path | thumbnail_url }}"
+               alt="Most recent {{ app_name }} shot"
+               loading="lazy"
+               class="w-full h-full object-cover">
+        {% else %}
+          <div class="w-full h-full flex items-center justify-center text-zinc-600 text-xs">
+            metadata only
+          </div>
+        {% endif %}
+      </a>
+    </section>
+  {% endif %}
+</article>

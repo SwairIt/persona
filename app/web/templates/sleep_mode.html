@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Спящий режим</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Когда клавиатура и мышь молчат дольше выбранного порога, capture-loop сам ставит
+    себя на паузу: ни скриншотов, ни OCR, ни строк в базе. Касание клавиш или мыши
+    мгновенно возвращает съёмку. Похоже на
+    <a href="/settings/meeting-pause" class="text-accent-400 hover:underline">smart-pause для созвонов</a>,
+    но смотрит не на активное окно, а на простой ввода — выручает на обедах, в чужих
+    переговорках и при свёрнутом ноутбуке.
+  </p>
+</div>
+
+<section class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <div class="text-xs uppercase tracking-widest text-zinc-500 mb-2">Статус</div>
+    <div class="text-3xl font-bold tabular-nums text-zinc-100">
+      {% if not enabled %}
+        выкл
+      {% elif currently_sleeping %}
+        спит
+      {% else %}
+        бодрствует
+      {% endif %}
+    </div>
+    <div class="text-xs text-zinc-500 mt-1">
+      {% if not enabled %}
+        переключатель ниже арм-ирует детектор
+      {% elif currently_sleeping %}
+        идёт пауза, ждём ввода
+      {% else %}
+        capture-loop работает в обычном режиме
+      {% endif %}
+    </div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <div class="text-xs uppercase tracking-widest text-zinc-500 mb-2">Простой сейчас</div>
+    <div class="text-3xl font-bold tabular-nums text-zinc-100">{{ current_idle_seconds }}<span class="text-base text-zinc-500 ml-1">с</span></div>
+    <div class="text-xs text-zinc-500 mt-1">секунд с последнего нажатия / движения</div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <div class="text-xs uppercase tracking-widest text-zinc-500 mb-2">Порог</div>
+    <div class="text-3xl font-bold tabular-nums text-zinc-100">{{ threshold_minutes }}<span class="text-base text-zinc-500 ml-1">мин</span></div>
+    <div class="text-xs text-zinc-500 mt-1">после этого простоя капчура останавливается</div>
+  </div>
+</section>
+
+<form action="/settings/sleep-mode" method="post" class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-8">
+  <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-4">Настройки</h2>
+
+  <label class="flex items-center gap-3 mb-5 cursor-pointer">
+    <input type="checkbox" name="enabled" value="1" {% if enabled %}checked{% endif %}
+           class="h-4 w-4 rounded border-ink-700 bg-ink-900 text-accent-500 focus:ring-accent-500">
+    <span class="text-sm text-zinc-200">Включить автоматический спящий режим</span>
+  </label>
+
+  <div class="mb-5">
+    <div class="flex items-baseline justify-between mb-2">
+      <label for="threshold-slider" class="text-sm text-zinc-300">Порог простоя, минут</label>
+      <output id="threshold-output" for="threshold-slider"
+              class="font-mono text-sm text-accent-400 tabular-nums">{{ threshold_minutes }}</output>
+    </div>
+    <input id="threshold-slider" type="range" name="threshold_minutes"
+           min="{{ slider_min }}" max="{{ slider_max }}" step="1"
+           value="{{ threshold_minutes }}"
+           oninput="document.getElementById('threshold-output').value = this.value;"
+           class="w-full accent-accent-500">
+    <div class="flex justify-between text-xs text-zinc-500 mt-1">
+      <span>{{ slider_min }} мин</span>
+      <span>по умолчанию {{ threshold_default }} мин</span>
+      <span>{{ slider_max }} мин</span>
+    </div>
+  </div>
+
+  <div class="flex items-center gap-3">
+    <button type="submit" class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
+      Сохранить
+    </button>
+    <span class="text-xs text-zinc-500">изменения подхватятся следующей итерацией capture-loop</span>
+  </div>
+</form>
+
+<section class="mb-8">
+  <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">Последние переходы</h2>
+  {% if events %}
+    <div class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-ink-900 text-zinc-500 text-xs uppercase tracking-wider">
+          <tr>
+            <th class="text-left py-2 px-4">Когда</th>
+            <th class="text-left py-2 px-4 w-28">Событие</th>
+            <th class="text-right py-2 px-4 w-32">Простой, c</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for event in events %}
+            <tr class="border-t border-ink-700">
+              <td class="py-2 px-4 font-mono text-xs text-zinc-300">{{ event.occurred_at }}</td>
+              <td class="py-2 px-4">
+                {% if event.state == 'sleep' %}
+                  <span class="px-2 py-0.5 rounded bg-indigo-900/40 text-indigo-300 text-xs font-medium">sleep</span>
+                {% else %}
+                  <span class="px-2 py-0.5 rounded bg-emerald-900/40 text-emerald-300 text-xs font-medium">wake</span>
+                {% endif %}
+              </td>
+              <td class="py-2 px-4 text-right tabular-nums text-zinc-300">{{ event.idle_seconds }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="text-xs text-zinc-500 mt-2">
+      То же в JSON: <a class="text-accent-400 hover:underline" href="/api/sleep-mode/events.json">/api/sleep-mode/events.json</a>
+    </p>
+  {% else %}
+    <p class="text-zinc-500 text-sm">Переходов ещё не было — либо детектор только что включили, либо вы ни разу не отходили от компьютера дольше порога.</p>
+  {% endif %}
+</section>
+
+<section class="rounded-lg border border-ink-700 bg-ink-900/40 p-5 text-sm text-zinc-400">
+  <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-2">Как это работает</h2>
+  <p>
+    Каждую итерацию capture-loop читает <code>seconds_since_last_input()</code> и сверяет с
+    порогом из kv-настроек. Если простой больше порога — итерация пропускается так же, как
+    при smart-pause для созвонов; в таблицу <code>sleep_mode_event</code> пишется один
+    переход в состояние <code>sleep</code>. Любое нажатие клавиши или движение мыши
+    обнуляет счётчик, следующий тик возвращает капчуру и пишет переход <code>wake</code>.
+    Стационарные тики ничего не пишут — модульный кэш <code>_last_sleep_state</code>
+    защищает таблицу от спама.
+  </p>
+</section>
+{% endblock %}

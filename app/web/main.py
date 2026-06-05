@@ -379,6 +379,9 @@ from app.web.routes import (
     smart_pin as smart_pin_routes,
     tag_email_digest as tag_email_digest_routes,
     changelog_rss as changelog_rss_routes,
+    app_summary_card as app_summary_card_routes,
+    webhook_csv_pipeline as webhook_csv_pipeline_routes,
+    sleep_mode as sleep_mode_routes,
 )
 from app.workers import (
     get_controller,
@@ -428,7 +431,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.64.0",
+        version="1.65.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -769,6 +772,9 @@ def create_app() -> FastAPI:
     app.include_router(smart_pin_routes.router)
     app.include_router(tag_email_digest_routes.router)
     app.include_router(changelog_rss_routes.router)
+    app.include_router(app_summary_card_routes.router)
+    app.include_router(webhook_csv_pipeline_routes.router)
+    app.include_router(sleep_mode_routes.router)
     app.include_router(sticky_search_routes.router)
     app.include_router(audit_replay_routes.router)
     app.include_router(tag_gallery_routes.router)
@@ -1021,6 +1027,13 @@ async def _run_tag_email_digest_worker(controller: object) -> None:
     await run_tag_email_digest_worker()
 
 
+async def _run_webhook_csv_worker(controller: object) -> None:
+    """Adapter for the v1.65 hourly webhook-CSV pipeline dispatcher."""
+    from app.workers.webhook_csv_worker import run_webhook_csv_worker  # noqa: PLC0415
+
+    await run_webhook_csv_worker()
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialise DB, start workers, and tear them down on shutdown."""
@@ -1156,6 +1169,10 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         asyncio.create_task(
             _run_tag_email_digest_worker(controller),
             name="tag-email-digest-worker",
+        ),
+        asyncio.create_task(
+            _run_webhook_csv_worker(controller),
+            name="webhook-csv-worker",
         ),
     ]
 

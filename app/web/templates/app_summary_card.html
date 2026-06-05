@@ -1,0 +1,37 @@
+{# Per-app summary card — standalone page.
+
+   Extends ``base.html`` so it picks up the Persona navbar / theme /
+   PWA chrome; the actual card markup is delegated to
+   ``_app_summary_card_fragment.html`` so the HTMX-widget endpoint and
+   this page render identical bodies.
+
+   Context contract (set by app.web.routes.app_summary_card):
+     - title                    — "App: {app_name}" (used by base.html)
+     - active_nav               — "stats" (highlights Stats nav slot)
+     - app_name                 — display string
+     - card                     — dict from build_app_card
+     - icon                     — IconRow dict
+     - first_seen_days_ago      — int | None
+     - last_seen_days_ago       — int | None #}
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto">
+  {# ---------- Breadcrumb back to the apps index ---------- #}
+  <div class="mb-4 flex items-center justify-between gap-3">
+    <h1 class="text-xl font-bold tracking-tight">App summary</h1>
+    <a href="/apps" class="text-accent-400 text-sm hover:underline">← all apps</a>
+  </div>
+
+  {# Delegate the actual card to the partial so the HTMX-widget endpoint
+     stays in lockstep — one source of truth for the layout. #}
+  {% include "_app_summary_card_fragment.html" %}
+
+  {# ---------- Embed hint for the curious operator ---------- #}
+  <details class="mt-6 text-xs text-zinc-500">
+    <summary class="cursor-pointer hover:text-zinc-300">Embed this card</summary>
+    <pre class="mt-2 bg-ink-900 border border-ink-700 rounded p-3 overflow-x-auto"><code>&lt;div hx-get="/widget/app-card/{{ app_name | urlencode }}?days={{ card.days }}" hx-trigger="load"&gt;&lt;/div&gt;</code></pre>
+    <p class="mt-2">Or fetch JSON: <code class="text-zinc-300">/api/app/{{ app_name | urlencode }}/summary.json?days={{ card.days }}</code></p>
+  </details>
+</div>
+{% endblock %}
