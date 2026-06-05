@@ -317,6 +317,9 @@ from app.web.routes import (
     privacy_bundles_admin as privacy_bundles_admin_routes,
     pareto as pareto_routes,
     tag_feed as tag_feed_routes,
+    notifications as notifications_routes,
+    tour as tour_routes,
+    day_markdown_export as day_markdown_export_routes,
 )
 from app.workers import (
     get_controller,
@@ -366,7 +369,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.43.0",
+        version="1.44.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -645,6 +648,9 @@ def create_app() -> FastAPI:
     app.include_router(privacy_bundles_admin_routes.router)
     app.include_router(pareto_routes.router)
     app.include_router(tag_feed_routes.router)
+    app.include_router(notifications_routes.router)
+    app.include_router(tour_routes.router)
+    app.include_router(day_markdown_export_routes.router)
     app.include_router(sticky_search_routes.router)
     app.include_router(audit_replay_routes.router)
     app.include_router(tag_gallery_routes.router)

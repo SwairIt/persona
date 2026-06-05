@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+
+{#
+  day_markdown_preview.html — v1.41 per-day Markdown export preview.
+
+  Renders the comprehensive day journal Markdown through markdown-it
+  (already loaded as a CDN script by base.html). The raw markdown is
+  embedded server-side as a JSON literal so the client never has to
+  re-fetch it; a "Download .md" button hands the same content off as
+  a file via the sibling /export/day/{day_iso}.md endpoint.
+
+  active_nav = "timeline" so the navigation chip on the header lights
+  up the same column the day scrubber and day kanban do — this is a
+  timeline-shaped surface, not a separate destination.
+#}
+
+{% block content %}
+<div class="mb-6 flex flex-wrap items-end justify-between gap-3">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Day journal — {{ day }}</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Comprehensive Markdown export. Valid for Obsidian, GitHub and Pandoc.
+    </p>
+  </div>
+
+  <nav class="flex flex-wrap items-center gap-2 text-sm">
+    <a href="{{ download_url }}"
+       class="px-4 py-2 rounded bg-accent-600 hover:bg-accent-500 text-white font-medium"
+       title="Download this day as a .md file">
+      Download .md
+    </a>
+    <a href="/scrubber/{{ day }}"
+       class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700 border border-ink-700 text-zinc-300"
+       title="Open the day scrubber for this day">Scrubber</a>
+    <a href="/kanban/{{ day }}"
+       class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700 border border-ink-700 text-zinc-300"
+       title="Open the day kanban for this day">Kanban</a>
+  </nav>
+</div>
+
+<div class="rounded-lg border border-ink-700 bg-ink-900 p-6 overflow-x-auto"
+     id="day-md-root">
+  <div id="day-md-rendered"
+       class="prose prose-invert prose-sm sm:prose-base max-w-none
+              prose-headings:text-zinc-100 prose-p:text-zinc-300
+              prose-li:text-zinc-300 prose-strong:text-zinc-100
+              prose-a:text-accent-400 hover:prose-a:text-accent-300
+              prose-code:text-amber-300 prose-table:text-zinc-300
+              prose-th:text-zinc-100 prose-th:border-ink-700
+              prose-td:border-ink-700 prose-em:text-zinc-400">
+    {# Filled in by the markdown-it pass below. The pre-render fallback
+       keeps the page readable when JavaScript is disabled — we ship the
+       raw markdown inside a <pre> so the user still sees the content
+       verbatim instead of an empty container. #}
+    <noscript>
+      <pre class="whitespace-pre-wrap text-zinc-300 font-mono text-xs">{{ markdown_body }}</pre>
+    </noscript>
+  </div>
+</div>
+
+{# Embed the markdown body as a JSON literal so quoting / newlines /
+   backticks never get mangled by HTML attribute parsing. Jinja's
+   ``|tojson`` is safe in a <script> context. #}
+<script id="day-md-source" type="application/json">{{ markdown_body | tojson }}</script>
+
+<script>
+  /*
+   * day_markdown_preview — vanilla JS, depends on the markdown-it CDN
+   * script loaded by base.html. Reads the markdown body from the inline
+   * JSON node, renders it once on DOM-ready, and silently degrades to
+   * the <noscript> <pre> fallback if markdown-it is missing for any
+   * reason (CDN blocked, offline preview, etc.).
+   */
+  (function () {
+    function render() {
+      var src = document.getElementById('day-md-source');
+      var target = document.getElementById('day-md-rendered');
+      if (!src || !target) return;
+      var body;
+      try {
+        body = JSON.parse(src.textContent || '""');
+      } catch (e) {
+        body = '';
+      }
+      if (typeof window.markdownit !== 'function') {
+        // markdown-it not loaded — keep the <noscript> fallback visible
+        // by replacing target's content with a <pre> dump so JS-enabled
+        // browsers still see the content even when the CDN is blocked.
+        var pre = document.createElement('pre');
+        pre.className = 'whitespace-pre-wrap text-zinc-300 font-mono text-xs';
+        pre.textContent = body;
+        target.innerHTML = '';
+        target.appendChild(pre);
+        return;
+      }
+      var md = window.markdownit({
+        html: false,
+        linkify: true,
+        breaks: false,
+        typographer: true,
+      });
+      target.innerHTML = md.render(body);
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', render);
+    } else {
+      render();
+    }
+  })();
+</script>
+{% endblock %}

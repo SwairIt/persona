@@ -1,0 +1,362 @@
+{# Focus-aware notification bell widget (v1.44).
+
+   Served by ``GET /widget/notification-bell`` (see
+   :mod:`app.web.routes.notifications`) and embedded via HTMX
+   (``<div hx-get="/widget/notification-bell" hx-trigger="load"></div>``)
+   on any host page that wants the bell — typically the dashboard
+   header.
+
+   Context contract
+   ----------------
+     * ``widget_id`` — short random hex string injected by the route so
+       multiple bells on one page can coexist without DOM-id clashes.
+
+   Behaviour
+   ---------
+     * On render: GETs ``/api/notifications/unseen.json`` once for the
+       initial badge state, then opens an ``EventSource`` to
+       ``/api/notifications/stream`` for live updates.
+     * Click on the bell toggles a collapsible list.
+     * Click on a single list row marks just that one as read and
+       removes it locally (server is the source of truth — we refetch
+       the count on the next stream tick to reconcile).
+     * "Clear all" sweeps the badge via POST ``/all-seen``.
+
+   Styling
+   -------
+   The widget uses plain CSS classes (``notif-bell-…``) defined inline
+   so the partial renders consistently whether or not the host page
+   loaded Tailwind. The dimensions are conservative — bell sits in a
+   header, the panel anchors top-right and is ~320px wide. #}
+<div class="notif-bell"
+     data-widget-id="{{ widget_id }}"
+     id="notif-bell-{{ widget_id }}">
+  <style>
+    .notif-bell {
+      position: relative;
+      display: inline-block;
+      font-family: system-ui, -apple-system, sans-serif;
+    }
+    .notif-bell__btn {
+      cursor: pointer;
+      background: transparent;
+      border: none;
+      padding: 0.25rem 0.5rem;
+      font-size: 1.1rem;
+      color: inherit;
+      position: relative;
+    }
+    .notif-bell__btn:hover {
+      opacity: 0.8;
+    }
+    .notif-bell__badge {
+      position: absolute;
+      top: -2px;
+      right: -2px;
+      min-width: 1.1rem;
+      height: 1.1rem;
+      padding: 0 0.3rem;
+      border-radius: 0.55rem;
+      background: #dc2626;
+      color: #ffffff;
+      font-size: 0.7rem;
+      line-height: 1.1rem;
+      text-align: center;
+      font-weight: 600;
+      display: none;
+    }
+    .notif-bell__badge[data-count]:not([data-count="0"]) {
+      display: inline-block;
+    }
+    .notif-bell__panel {
+      position: absolute;
+      top: 100%;
+      right: 0;
+      width: 320px;
+      max-height: 420px;
+      overflow-y: auto;
+      background: var(--surface, #ffffff);
+      color: inherit;
+      border: 1px solid rgba(127, 127, 127, 0.3);
+      border-radius: 0.5rem;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+      margin-top: 0.25rem;
+      z-index: 1000;
+      display: none;
+    }
+    .notif-bell__panel[data-open="1"] {
+      display: block;
+    }
+    .notif-bell__panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.5rem 0.75rem;
+      border-bottom: 1px solid rgba(127, 127, 127, 0.2);
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+    .notif-bell__clear {
+      background: transparent;
+      border: 1px solid rgba(127, 127, 127, 0.3);
+      border-radius: 0.25rem;
+      padding: 0.15rem 0.5rem;
+      cursor: pointer;
+      font-size: 0.75rem;
+      color: inherit;
+    }
+    .notif-bell__clear:hover {
+      background: rgba(127, 127, 127, 0.1);
+    }
+    .notif-bell__list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+    .notif-bell__item {
+      padding: 0.55rem 0.75rem;
+      border-bottom: 1px solid rgba(127, 127, 127, 0.15);
+      cursor: pointer;
+      display: block;
+    }
+    .notif-bell__item:hover {
+      background: rgba(127, 127, 127, 0.08);
+    }
+    .notif-bell__item[data-severity="warn"] {
+      border-left: 3px solid #f59e0b;
+    }
+    .notif-bell__item[data-severity="error"] {
+      border-left: 3px solid #dc2626;
+    }
+    .notif-bell__item[data-severity="info"] {
+      border-left: 3px solid #3b82f6;
+    }
+    .notif-bell__title {
+      font-size: 0.85rem;
+      font-weight: 600;
+      margin: 0 0 0.15rem 0;
+    }
+    .notif-bell__body {
+      font-size: 0.75rem;
+      opacity: 0.85;
+      margin: 0;
+    }
+    .notif-bell__time {
+      font-size: 0.65rem;
+      opacity: 0.6;
+      margin-top: 0.2rem;
+      display: block;
+    }
+    .notif-bell__empty {
+      padding: 1rem 0.75rem;
+      font-size: 0.8rem;
+      opacity: 0.65;
+      text-align: center;
+    }
+  </style>
+
+  <button type="button"
+          class="notif-bell__btn"
+          aria-label="Notifications"
+          aria-expanded="false">
+    <span class="notif-bell__icon" aria-hidden="true">&#x1F514;</span>
+    <span class="notif-bell__badge" data-count="0">0</span>
+  </button>
+
+  <div class="notif-bell__panel" role="region" aria-label="Notifications list">
+    <div class="notif-bell__panel-header">
+      <span>Notifications</span>
+      <button type="button" class="notif-bell__clear">Clear all</button>
+    </div>
+    <ul class="notif-bell__list"></ul>
+    <div class="notif-bell__empty" hidden>No new notifications.</div>
+  </div>
+
+  <script>
+  (function() {
+    "use strict";
+    var widgetId = {{ widget_id|tojson }};
+    var root = document.getElementById("notif-bell-" + widgetId);
+    if (!root) {
+      // HTMX swap placed the script outside its own wrapper — bail
+      // rather than touch unrelated DOM.
+      return;
+    }
+
+    var btn = root.querySelector(".notif-bell__btn");
+    var badge = root.querySelector(".notif-bell__badge");
+    var panel = root.querySelector(".notif-bell__panel");
+    var listEl = root.querySelector(".notif-bell__list");
+    var emptyEl = root.querySelector(".notif-bell__empty");
+    var clearBtn = root.querySelector(".notif-bell__clear");
+
+    // Local state: the latest items array (ids unique) so the click
+    // handlers can mutate without re-fetching.
+    var items = [];
+
+    function escapeText(value) {
+      var div = document.createElement("div");
+      div.textContent = String(value == null ? "" : value);
+      return div.innerHTML;
+    }
+
+    function setBadge(count) {
+      var n = Math.max(0, parseInt(count, 10) || 0);
+      badge.setAttribute("data-count", String(n));
+      badge.textContent = n > 99 ? "99+" : String(n);
+    }
+
+    function renderList() {
+      listEl.innerHTML = "";
+      if (items.length === 0) {
+        emptyEl.hidden = false;
+        return;
+      }
+      emptyEl.hidden = true;
+      items.forEach(function(item) {
+        var li = document.createElement("li");
+        li.className = "notif-bell__item";
+        li.setAttribute("data-severity", item.severity || "info");
+        li.setAttribute("data-notif-id", String(item.id));
+
+        var titleEl = document.createElement("p");
+        titleEl.className = "notif-bell__title";
+        titleEl.innerHTML = escapeText(item.title);
+        li.appendChild(titleEl);
+
+        if (item.body) {
+          var bodyEl = document.createElement("p");
+          bodyEl.className = "notif-bell__body";
+          bodyEl.innerHTML = escapeText(item.body);
+          li.appendChild(bodyEl);
+        }
+
+        var timeEl = document.createElement("span");
+        timeEl.className = "notif-bell__time";
+        timeEl.textContent = item.created_at || "";
+        li.appendChild(timeEl);
+
+        li.addEventListener("click", function(evt) {
+          evt.preventDefault();
+          markOneSeen(item.id, item.link);
+        });
+
+        listEl.appendChild(li);
+      });
+    }
+
+    function setItems(next) {
+      items = Array.isArray(next) ? next : [];
+      setBadge(items.length);
+      renderList();
+    }
+
+    function fetchSnapshot() {
+      fetch("/api/notifications/unseen.json", {
+        credentials: "same-origin",
+        headers: { "Accept": "application/json" }
+      }).then(function(r) {
+        if (!r.ok) { return; }
+        return r.json();
+      }).then(function(payload) {
+        if (payload && Array.isArray(payload.items)) {
+          setItems(payload.items);
+        }
+      }).catch(function() {
+        // Network hiccup — the SSE channel will reconcile shortly.
+      });
+    }
+
+    function markOneSeen(notifId, link) {
+      // Optimistic local removal — server is the source of truth and
+      // the next SSE tick will reconcile if the POST somehow failed.
+      items = items.filter(function(it) { return it.id !== notifId; });
+      setBadge(items.length);
+      renderList();
+      fetch("/api/notifications/" + encodeURIComponent(notifId) + "/seen", {
+        method: "POST",
+        credentials: "same-origin"
+      }).then(function() {
+        if (link) {
+          window.location.href = link;
+        }
+      }).catch(function() {
+        // Server didn't ack — refetch to reconcile.
+        fetchSnapshot();
+      });
+    }
+
+    function clearAll() {
+      items = [];
+      setBadge(0);
+      renderList();
+      fetch("/api/notifications/all-seen", {
+        method: "POST",
+        credentials: "same-origin"
+      }).catch(function() {
+        fetchSnapshot();
+      });
+    }
+
+    function togglePanel() {
+      var open = panel.getAttribute("data-open") === "1";
+      if (open) {
+        panel.removeAttribute("data-open");
+        btn.setAttribute("aria-expanded", "false");
+      } else {
+        panel.setAttribute("data-open", "1");
+        btn.setAttribute("aria-expanded", "true");
+      }
+    }
+
+    btn.addEventListener("click", function(evt) {
+      evt.stopPropagation();
+      togglePanel();
+    });
+
+    clearBtn.addEventListener("click", function(evt) {
+      evt.stopPropagation();
+      clearAll();
+    });
+
+    // Click outside closes the panel.
+    document.addEventListener("click", function(evt) {
+      if (!root.contains(evt.target)
+          && panel.getAttribute("data-open") === "1") {
+        panel.removeAttribute("data-open");
+        btn.setAttribute("aria-expanded", "false");
+      }
+    });
+
+    // Initial snapshot, then live stream.
+    fetchSnapshot();
+
+    if (typeof EventSource !== "undefined") {
+      try {
+        var es = new EventSource("/api/notifications/stream");
+        es.onmessage = function(evt) {
+          if (!evt || !evt.data) { return; }
+          try {
+            var payload = JSON.parse(evt.data);
+            if (payload && payload.type === "notifications"
+                && Array.isArray(payload.items)) {
+              setItems(payload.items);
+            }
+          } catch (err) {
+            // Malformed frame — ignore; next tick is fine.
+          }
+        };
+        es.onerror = function() {
+          // EventSource auto-reconnects; nothing to do.
+        };
+      } catch (err) {
+        // SSE construction failed (very old browser). Fall back to
+        // periodic polling — keeps the badge fresh, just less live.
+        setInterval(fetchSnapshot, 15000);
+      }
+    } else {
+      setInterval(fetchSnapshot, 15000);
+    }
+  })();
+  </script>
+</div>

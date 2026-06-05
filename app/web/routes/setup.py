@@ -378,4 +378,17 @@ async def setup_wizard_save(request: Request) -> RedirectResponse:
         retention_cold_days=cold_days,
         retention_delete_days=delete_days,
     )
+
+    # v1.25 — bounce first-time installs into the 5-step interactive
+    # tour before they land on /timeline. The tour route owns its own
+    # kv flag (``tour_completed=1``), so once the user finishes (or
+    # skips) the overlay we never redirect again — re-saving the
+    # wizard a second time still goes straight to /timeline.
+    # Re-opening the connection here rather than threading the tour
+    # check through the big upsert block above keeps the kv writes in
+    # a clean transactional scope.
+    async with get_connection() as conn:
+        tour_seen = await get_kv(conn, "tour_completed")
+    if tour_seen != "1":
+        return RedirectResponse(url="/tour", status_code=303)
     return RedirectResponse(url="/timeline", status_code=303)
