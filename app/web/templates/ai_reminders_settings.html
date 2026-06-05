@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">AI напоминания — настройки</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Воркер просыпается каждые ~30 минут, и когда местный час совпадает
+    с выбранным, передаёт активность за день в LLM, получает до 3 подсказок
+    «что не забыть завтра» и сохраняет их. Изменения вступают в силу к
+    следующему срабатыванию таймера.
+  </p>
+</div>
+
+<form action="/settings/ai-reminders" method="post"
+      class="rounded-lg border border-ink-700 bg-ink-800 p-5 space-y-5 max-w-xl">
+  <label class="block">
+    <div class="text-sm font-medium text-zinc-200 mb-1">Час срабатывания (0..23)</div>
+    <div class="text-xs text-zinc-500 mb-2">
+      По умолчанию 22 — поздний вечер, когда основные события дня уже произошли,
+      но перед сном ещё можно подсмотреть список на завтра.
+    </div>
+    <input name="hour" type="number" min="0" max="23" value="{{ hour }}" required
+           class="w-24 px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
+  </label>
+
+  <label class="flex items-start gap-3 cursor-pointer">
+    <input type="checkbox" name="enabled" value="on" {% if enabled %}checked{% endif %}
+           class="mt-1 w-4 h-4 rounded border-ink-700 bg-ink-900 text-accent-500 focus:ring-accent-500">
+    <span>
+      <span class="text-sm font-medium text-zinc-200">Включить генерацию подсказок</span>
+      <span class="block text-xs text-zinc-500 mt-0.5">
+        По умолчанию выключено. Когда выключено, воркер просыпается, видит
+        флаг и сразу засыпает — токены не тратятся.
+      </span>
+    </span>
+  </label>
+
+  <div class="pt-2">
+    <button type="submit"
+            class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
+      сохранить
+    </button>
+    <a href="/reminders/ai" class="ml-3 text-sm text-zinc-400 hover:text-zinc-200">
+      ← к списку
+    </a>
+  </div>
+</form>
+
+<section class="mt-6 rounded-lg border border-ink-700 bg-ink-800 p-5 max-w-xl">
+  <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">
+    Откуда LLM берёт сигнал
+  </h2>
+  <ul class="text-zinc-400 text-xs leading-relaxed list-disc pl-5 space-y-1">
+    <li>Часовые карточки за выбранный день (<code>hourly_card.summary</code>).</li>
+    <li>Дневной pin (<code>daily_pin.pin</code>) — если уже посчитан.</li>
+    <li>Заметки, созданные сегодня (<code>notes.body</code>).</li>
+  </ul>
+  <p class="text-zinc-500 text-xs mt-3">
+    Подсказки складываются в <code>ai_reminder</code>; список и кнопки
+    Dismiss / Snooze живут на <a href="/reminders/ai" class="text-accent-400 hover:underline">/reminders/ai</a>.
+  </p>
+</section>
+{% endblock %}

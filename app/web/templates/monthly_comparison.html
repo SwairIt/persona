@@ -1,0 +1,211 @@
+{% extends "base.html" %}
+
+{#
+  monthly_comparison.html — month-vs-prior-month report.
+
+  Rendered by ``GET /stats/monthly-comparison``. Four delta cards along
+  the top (shots, voice, apps, notes), two ranked columns underneath
+  (Top Growth + Top Declines) with mini SVG comparison bars for the
+  top-5 movers in each direction, and a prev / next month nav strip.
+
+  Expects context:
+
+    * ``this_month``         — MonthTotals dict for the selected month.
+    * ``last_month``         — MonthTotals dict for the prior month.
+    * ``deltas``             — {shots, voice, apps, notes} percentage deltas.
+    * ``top_growth``         — list of {app, this, last, percent}.
+    * ``top_declines``       — list of {app, this, last, percent}.
+    * ``daily_average_this`` — per-day shot average this month.
+    * ``daily_average_last`` — per-day shot average last month.
+    * ``prev_month_iso``     — YYYY-MM for the prev-month nav link.
+    * ``next_month_iso``     — YYYY-MM for the next-month nav link.
+#}
+
+{% macro delta_pill(value) -%}
+  {# Coloured delta pill — emerald for positive, rose for negative,
+     muted zinc for "no change". The threshold mirrors
+     :func:`app.today_vs_average._direction_for` so the two surfaces
+     paint the same noise floor. #}
+  {% if value > 0.5 %}
+    <span class="text-emerald-400 font-mono text-sm">▲ {{ "%+.1f"|format(value) }}%</span>
+  {% elif value < -0.5 %}
+    <span class="text-rose-400 font-mono text-sm">▼ {{ "%+.1f"|format(value) }}%</span>
+  {% else %}
+    <span class="text-zinc-500 font-mono text-sm">● {{ "%+.1f"|format(value) }}%</span>
+  {% endif %}
+{%- endmacro %}
+
+{% macro compare_bars(row, max_value) -%}
+  {# Mini SVG two-bar chart: top bar = this month, bottom bar = last
+     month. Width is scaled against ``max_value`` (the largest count
+     across both bars in the current ranking) so all rows in the
+     column share a consistent scale and the eye can compare row
+     heights without re-reading the numbers. #}
+  {% set safe_max = max_value if max_value > 0 else 1 %}
+  {% set this_w = (row.this / safe_max * 220) | round(0, 'common') | int %}
+  {% set last_w = (row.last / safe_max * 220) | round(0, 'common') | int %}
+  {% set this_w = this_w if this_w > 2 else 2 %}
+  {% set last_w = last_w if last_w > 2 else 2 %}
+  <svg width="240" height="36" viewBox="0 0 240 36" role="img"
+       aria-label="this {{ row.this }} versus last {{ row.last }}">
+    <rect x="0" y="4" width="220" height="12" fill="#1a1a1f" />
+    <rect x="0" y="4" width="{{ this_w }}" height="12" fill="#a78bfa" />
+    <rect x="0" y="20" width="220" height="12" fill="#1a1a1f" />
+    <rect x="0" y="20" width="{{ last_w }}" height="12" fill="#52525b" />
+  </svg>
+{%- endmacro %}
+
+{% block content %}
+<div class="mb-6 flex items-center justify-between flex-wrap gap-3">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Месячное сравнение</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      {{ this_month.month }} против {{ last_month.month }} —
+      скриншоты, голос, уникальные приложения и заметки месяц к месяцу.
+    </p>
+  </div>
+  <div class="flex items-center gap-2 text-xs">
+    <a href="/stats/monthly-comparison?month={{ prev_month_iso }}"
+       class="px-3 py-1 rounded-full border bg-ink-800 border-ink-700 hover:border-zinc-500 text-zinc-400 transition"
+       title="Предыдущий месяц">
+      ← {{ prev_month_iso }}
+    </a>
+    <a href="/stats/monthly-comparison?month={{ next_month_iso }}"
+       class="px-3 py-1 rounded-full border bg-ink-800 border-ink-700 hover:border-zinc-500 text-zinc-400 transition"
+       title="Следующий месяц">
+      {{ next_month_iso }} →
+    </a>
+    <a href="/api/stats/monthly-comparison.json?month={{ this_month.month }}"
+       class="px-3 py-1 rounded-full border bg-ink-800 border-ink-700 hover:border-zinc-500 text-zinc-400 transition">
+      JSON
+    </a>
+  </div>
+</div>
+
+{# Four headline delta cards. Each shows this-month value, last-month
+   value underneath, and the coloured delta pill. #}
+<section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Скриншоты</div>
+    <div class="text-3xl font-bold mt-1 text-accent-400">{{ this_month.shots }}</div>
+    <div class="text-xs text-zinc-500 mt-1 font-mono">
+      прошлый месяц: {{ last_month.shots }}
+    </div>
+    <div class="mt-2">{{ delta_pill(deltas.shots) }}</div>
+  </div>
+
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Голос (мин)</div>
+    <div class="text-3xl font-bold mt-1 text-accent-400">
+      {{ "%.1f"|format(this_month.voice_seconds / 60.0) }}
+    </div>
+    <div class="text-xs text-zinc-500 mt-1 font-mono">
+      прошлый месяц: {{ "%.1f"|format(last_month.voice_seconds / 60.0) }} мин
+    </div>
+    <div class="mt-2">{{ delta_pill(deltas.voice) }}</div>
+  </div>
+
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Уникальные приложения</div>
+    <div class="text-3xl font-bold mt-1 text-accent-400">{{ this_month.unique_apps }}</div>
+    <div class="text-xs text-zinc-500 mt-1 font-mono">
+      прошлый месяц: {{ last_month.unique_apps }}
+    </div>
+    <div class="mt-2">{{ delta_pill(deltas.apps) }}</div>
+  </div>
+
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Заметок создано</div>
+    <div class="text-3xl font-bold mt-1 text-accent-400">{{ this_month.notes_created }}</div>
+    <div class="text-xs text-zinc-500 mt-1 font-mono">
+      прошлый месяц: {{ last_month.notes_created }}
+    </div>
+    <div class="mt-2">{{ delta_pill(deltas.notes) }}</div>
+  </div>
+</section>
+
+{# Daily-average strip — small row underneath the headline cards so the
+   operator can compare per-day intensity at a glance without dividing
+   in their head. #}
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-4 mb-8 flex flex-wrap items-center gap-6 text-sm">
+  <div>
+    <span class="text-zinc-500 uppercase tracking-widest text-xs">Среднее в день</span>
+    <span class="ml-2 font-mono text-accent-400">{{ "%.1f"|format(daily_average_this) }}</span>
+    <span class="text-zinc-600 text-xs ml-1">({{ this_month.days_in_month }} дн.)</span>
+  </div>
+  <div>
+    <span class="text-zinc-500 uppercase tracking-widest text-xs">Прошлый месяц / день</span>
+    <span class="ml-2 font-mono text-zinc-300">{{ "%.1f"|format(daily_average_last) }}</span>
+    <span class="text-zinc-600 text-xs ml-1">({{ last_month.days_in_month }} дн.)</span>
+  </div>
+</section>
+
+{# Two-column growth / decline rankings. Each row shows the app name,
+   this/last counts, the percent delta and the comparison bars. Rows
+   are filtered to apps with at least 10 shots in either month —
+   below that the percentages are dominated by noise. #}
+<section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <h2 class="text-lg font-semibold mb-3">Top Growth</h2>
+    {% if top_growth %}
+      {% set growth_max = top_growth | map(attribute='this') | max %}
+      {% set growth_max_last = top_growth | map(attribute='last') | max %}
+      {% set growth_scale = growth_max if growth_max > growth_max_last else growth_max_last %}
+      <ul class="space-y-3">
+        {% for row in top_growth %}
+          <li class="rounded bg-ink-900 p-3">
+            <div class="flex items-baseline justify-between gap-3">
+              <div class="font-medium text-zinc-100 truncate" title="{{ row.app }}">
+                {{ row.app }}
+              </div>
+              {{ delta_pill(row.percent) }}
+            </div>
+            <div class="mt-2">{{ compare_bars(row, growth_scale) }}</div>
+            <div class="text-xs text-zinc-500 mt-1 font-mono">
+              этот: {{ row.this }} · прошлый: {{ row.last }}
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="text-zinc-500 text-sm">
+        Нет приложений с ростом ≥ 10 скриншотов в месяце.
+      </p>
+    {% endif %}
+  </div>
+
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <h2 class="text-lg font-semibold mb-3">Top Declines</h2>
+    {% if top_declines %}
+      {% set decline_max = top_declines | map(attribute='this') | max %}
+      {% set decline_max_last = top_declines | map(attribute='last') | max %}
+      {% set decline_scale = decline_max if decline_max > decline_max_last else decline_max_last %}
+      <ul class="space-y-3">
+        {% for row in top_declines %}
+          <li class="rounded bg-ink-900 p-3">
+            <div class="flex items-baseline justify-between gap-3">
+              <div class="font-medium text-zinc-100 truncate" title="{{ row.app }}">
+                {{ row.app }}
+              </div>
+              {{ delta_pill(row.percent) }}
+            </div>
+            <div class="mt-2">{{ compare_bars(row, decline_scale) }}</div>
+            <div class="text-xs text-zinc-500 mt-1 font-mono">
+              этот: {{ row.this }} · прошлый: {{ row.last }}
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="text-zinc-500 text-sm">
+        Нет приложений с падением при пороге ≥ 10 скриншотов.
+      </p>
+    {% endif %}
+  </div>
+</section>
+
+<div class="mt-6 text-xs text-zinc-600">
+  Пороговое значение шума: приложение должно набрать ≥ 10 скриншотов хотя бы
+  в одном из двух месяцев, иначе его не показываем.
+</div>
+{% endblock %}

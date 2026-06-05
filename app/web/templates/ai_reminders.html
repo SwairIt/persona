@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-start justify-between gap-4">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">AI напоминания</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Что вам подсказала модель не забыть на завтра. Считается из активности
+      за последние 24 часа: часовые карточки, дневной pin и заметки. Источник
+      и время указаны рядом с каждой подсказкой.
+    </p>
+  </div>
+  <a href="/settings/ai-reminders"
+     class="shrink-0 text-xs px-3 py-2 rounded bg-ink-800 border border-ink-700 hover:border-accent-500 text-zinc-300">
+    настройки
+  </a>
+</div>
+
+{% if items %}
+  <div class="space-y-3" id="ai-reminders-list">
+    {% for r in items %}
+      <article id="ai-reminder-{{ r.id }}"
+               class="rounded-lg border bg-ink-800 p-4
+                      {% if r.severity == 'action' %}border-rose-700/60
+                      {% elif r.severity == 'warn' %}border-amber-700/60
+                      {% else %}border-ink-700{% endif %}">
+        <div class="flex items-start justify-between gap-3">
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 mb-1">
+              <span class="text-xs px-2 py-0.5 rounded uppercase tracking-wider
+                           {% if r.severity == 'action' %}bg-rose-900/40 text-rose-300
+                           {% elif r.severity == 'warn' %}bg-amber-900/40 text-amber-300
+                           {% else %}bg-sky-900/40 text-sky-300{% endif %}">
+                {{ r.severity }}
+              </span>
+              <span class="text-xs text-zinc-500 font-mono">
+                из {{ r.source_day }}
+              </span>
+              {% if r.due_at %}
+                <span class="text-xs text-zinc-400 font-mono"
+                      title="due_at">⏱ {{ r.due_at }}</span>
+              {% endif %}
+            </div>
+            <h2 class="text-base font-semibold text-zinc-100 leading-snug">
+              {{ r.title }}
+            </h2>
+            {% if r.body %}
+              <p class="text-sm text-zinc-400 mt-1 leading-relaxed whitespace-pre-line">{{ r.body }}</p>
+            {% endif %}
+          </div>
+          <div class="shrink-0 flex flex-col gap-1">
+            <button type="button"
+                    data-action="dismiss"
+                    data-reminder-id="{{ r.id }}"
+                    class="text-xs px-3 py-1.5 rounded bg-ink-700 hover:bg-emerald-700 text-zinc-200">
+              dismiss
+            </button>
+            <div class="flex gap-1">
+              <button type="button"
+                      data-action="snooze"
+                      data-reminder-id="{{ r.id }}"
+                      data-hours="3"
+                      class="text-xs px-2 py-1 rounded bg-ink-700 hover:bg-amber-700 text-zinc-200">
+                +3h
+              </button>
+              <button type="button"
+                      data-action="snooze"
+                      data-reminder-id="{{ r.id }}"
+                      data-hours="24"
+                      class="text-xs px-2 py-1 rounded bg-ink-700 hover:bg-amber-700 text-zinc-200">
+                +1d
+              </button>
+            </div>
+          </div>
+        </div>
+      </article>
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-6 text-center text-zinc-500 text-sm">
+    Пока пусто. Подсказки появляются после того, как воркер обработает
+    активность за день — обычно вечером. Включить и поменять час можно в
+    <a href="/settings/ai-reminders" class="text-accent-400 hover:underline">настройках</a>.
+  </div>
+{% endif %}
+
+<script>
+  // Wire the dismiss / snooze buttons to the JSON endpoints so the
+  // page updates without a full reload. The endpoints are idempotent
+  // on the row level (404 on a stale id) which the handler treats as
+  // "already gone" and just removes the card.
+  (function () {
+    function send(reminderId, action, hours) {
+      var url = '/api/ai-reminders/' + reminderId + '/' + action;
+      var init = { method: 'POST', headers: { 'Content-Type': 'application/json' } };
+      if (action === 'snooze') {
+        init.body = JSON.stringify({ hours: hours });
+      }
+      return fetch(url, init);
+    }
+
+    document.addEventListener('click', function (event) {
+      var btn = event.target.closest('[data-action]');
+      if (!btn) { return; }
+      var action = btn.getAttribute('data-action');
+      var id = btn.getAttribute('data-reminder-id');
+      if (!id) { return; }
+      var hours = parseInt(btn.getAttribute('data-hours') || '0', 10);
+      btn.disabled = true;
+      send(id, action, hours).then(function (response) {
+        if (action === 'dismiss' || response.ok) {
+          var card = document.getElementById('ai-reminder-' + id);
+          if (card) { card.remove(); }
+        } else {
+          btn.disabled = false;
+        }
+      }).catch(function () {
+        btn.disabled = false;
+      });
+    });
+  })();
+</script>
+{% endblock %}

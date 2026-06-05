@@ -343,6 +343,9 @@ from app.web.routes import (
     palette_commands as palette_commands_routes,
     palette_command_admin as palette_command_admin_routes,
     chrono_parse as chrono_parse_routes,
+    ai_reminders as ai_reminders_routes,
+    timeline_log as timeline_log_routes,
+    monthly_comparison as monthly_comparison_routes,
 )
 from app.workers import (
     get_controller,
@@ -392,7 +395,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.52.0",
+        version="1.53.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -697,6 +700,9 @@ def create_app() -> FastAPI:
     app.include_router(palette_commands_routes.router)
     app.include_router(palette_command_admin_routes.router)
     app.include_router(chrono_parse_routes.router)
+    app.include_router(ai_reminders_routes.router)
+    app.include_router(timeline_log_routes.router)
+    app.include_router(monthly_comparison_routes.router)
     app.include_router(sticky_search_routes.router)
     app.include_router(audit_replay_routes.router)
     app.include_router(tag_gallery_routes.router)
@@ -870,6 +876,13 @@ async def _run_app_budget_worker(controller: object) -> None:
     await run_app_budget_worker()
 
 
+async def _run_ai_reminders_worker(controller: object) -> None:
+    """Adapter for the v1.53 nightly AI-suggested reminders worker."""
+    from app.workers.ai_reminders_worker import run_ai_reminders_worker  # noqa: PLC0415
+
+    await run_ai_reminders_worker()
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialise DB, start workers, and tear them down on shutdown."""
@@ -961,6 +974,10 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         asyncio.create_task(
             _run_app_budget_worker(controller),
             name="app-budget-worker",
+        ),
+        asyncio.create_task(
+            _run_ai_reminders_worker(controller),
+            name="ai-reminders-worker",
         ),
     ]
 

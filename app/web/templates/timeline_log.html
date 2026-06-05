@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+
+{#
+  timeline_log.html — git-style text-mode timeline log.
+
+  Renders the merged event stream from ``app.timeline_log.build_log_lines``
+  as a monospace ``<pre>`` block. Each line has a fixed-width left gutter
+  with one ANSI-style glyph, an ISO timestamp, the ``kind`` label and
+  the one-line summary body.
+
+  Context provided by ``app.web.routes.timeline_log.timeline_log_page``:
+
+    * ``day``            — requested ``YYYY-MM-DD`` (may be ``None`` →
+                           treated as "today" in the URL builder below).
+    * ``lines``          — list of ``LogLine`` dicts already filtered by
+                           the active ``?kind=`` chip.
+    * ``total``          — pre-filter count (informational).
+    * ``shown``          — post-filter count (matches ``lines | length``).
+    * ``limit``          — effective per-request cap (informational).
+    * ``current_kind``   — active chip id, or ``None`` for "all".
+    * ``kind_catalogue`` — tuple of ``(kind, glyph, color)`` tuples used
+                           to build the chip bar without restating the
+                           vocabulary here.
+
+  Why a ``<pre>`` block rather than the vertical-rail card layout used
+  by audit_timeline.html? The brief explicitly asks for a "git-style"
+  log — a flat terminal-flavoured stream. Each row therefore lives on
+  exactly one line, the colour gutter aligns by virtue of the monospace
+  font, and copy-paste from the browser drops into a terminal as-is.
+
+  The chip bar is a thin self-contained piece of vanilla JS (the same
+  pattern already in _timeline_filter_chips.html): clicking a chip
+  mutates the ``?kind=`` URL param and reloads. No HTMX swap because
+  the route owns no fragment endpoint — reloading the page is the
+  simplest behaviour that survives every browser back/forward stack.
+#}
+
+{% block content %}
+<div class="mb-6 flex items-center justify-between flex-wrap gap-3">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">События дня</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      {{ shown }} of {{ total }} event{% if total != 1 %}s{% endif %}
+      &middot; newest first
+      {% if current_kind %}
+        &middot; <span class="text-accent-400 font-mono">kind={{ current_kind }}</span>
+      {% endif %}
+      {% if total >= limit %}
+        &middot; <span class="text-amber-400">truncated at {{ limit }}</span>
+      {% endif %}
+    </p>
+  </div>
+  <div class="flex items-center gap-2">
+    {# Machine-readable + plain-text companions, mirroring the layout used
+       by every other day-view in the repo. The ``.txt`` link carries
+       the same ``day`` / ``kind`` query so curl/grep workflows reproduce
+       what the user sees on screen. #}
+    <a href="/api/timeline/log.json{% if day %}?day={{ day }}{% endif %}{% if current_kind %}{% if day %}&{% else %}?{% endif %}kind={{ current_kind }}{% endif %}"
+       class="px-3 py-1 rounded-full text-xs border bg-ink-800 border-ink-700 hover:border-zinc-500 text-zinc-400 transition"
+       title="Machine-readable companion">
+      JSON
+    </a>
+    <a href="/api/timeline/log.txt{% if day %}?day={{ day }}{% endif %}{% if current_kind %}{% if day %}&{% else %}?{% endif %}kind={{ current_kind }}{% endif %}"
+       class="px-3 py-1 rounded-full text-xs border bg-ink-800 border-ink-700 hover:border-zinc-500 text-zinc-400 transition"
+       title="Plain-text companion (loopback-only)">
+      TXT
+    </a>
+  </div>
+</div>
+
+{# Filter chip bar.
+   Each chip carries data-kind so the inline onclick handler can mutate
+   only the kind param without rebuilding the rest of the URL. The
+   "all" chip clears the param entirely. Mirrors the toggle behaviour
+   of the existing _timeline_filter_chips.html partial; we re-implement
+   inline rather than importing because that partial is bound to the
+   chip-state catalogue (``state.chips``) and not to a flat (kind,
+   glyph, colour) tuple. #}
+<div class="mb-4 flex flex-wrap items-center gap-1.5"
+     data-current-kind="{{ current_kind or '' }}">
+  <button type="button"
+          data-kind=""
+          aria-pressed="{{ 'true' if not current_kind else 'false' }}"
+          class="px-2.5 py-1 rounded-full text-xs font-mono border transition
+                 {% if not current_kind %}
+                   bg-accent-500/20 border-accent-500 text-accent-300
+                 {% else %}
+                   bg-ink-800 border-ink-700 text-zinc-400 hover:border-accent-500/60 hover:text-zinc-200
+                 {% endif %}"
+          onclick="(function(){
+            var url = new URL(window.location.href);
+            url.searchParams.delete('kind');
+            window.location.href = url.toString();
+          })();">
+    all
+  </button>
+  {% for kind, glyph, color in kind_catalogue %}
+    <button type="button"
+            data-kind="{{ kind }}"
+            aria-pressed="{{ 'true' if current_kind == kind else 'false' }}"
+            title="Show only {{ kind }} events"
+            class="px-2.5 py-1 rounded-full text-xs font-mono border transition flex items-center gap-1.5
+                   {% if current_kind == kind %}
+                     bg-accent-500/20 border-accent-500 text-accent-300
+                   {% else %}
+                     bg-ink-800 border-ink-700 text-zinc-400 hover:border-accent-500/60 hover:text-zinc-200
+                   {% endif %}"
+            onclick="(function(btn){
+              var url = new URL(window.location.href);
+              var id = btn.getAttribute('data-kind');
+              var current = url.searchParams.get('kind') || '';
+              if (current === id) {
+                url.searchParams.delete('kind');
+              } else {
+                url.searchParams.set('kind', id);
+              }
+              window.location.href = url.toString();
+            })(this);">
+      <span class="{{ color }}">{{ glyph }}</span>
+      <span>{{ kind }}</span>
+    </button>
+  {% endfor %}
+</div>
+
+{% if shown == 0 %}
+  <div class="text-center py-24">
+    <p class="text-zinc-400">
+      {% if current_kind %}
+        No <span class="font-mono text-accent-400">{{ current_kind }}</span> events
+      {% else %}
+        No events
+      {% endif %}
+      {% if day %}on {{ day }}{% else %}today{% endif %}.
+    </p>
+    <p class="text-zinc-600 text-sm mt-2">
+      The visual timeline lives at
+      <a href="/" class="text-accent-400 hover:underline">/</a>.
+    </p>
+  </div>
+{% else %}
+  {# The monospace block.
+     - ``whitespace-pre`` keeps the gutter aligned without forcing wrap.
+     - ``overflow-x-auto`` lets long titles scroll horizontally rather
+       than blowing out the page on narrow screens.
+     - Each row is a flex of three spans (glyph / ts / text) so the
+       colour classes per kind only colour the glyph + kind label,
+       leaving the body unstyled — same convention `git log --oneline`
+       follows (only the hash is coloured). #}
+  <pre class="font-mono text-xs leading-6 bg-ink-900/60 border border-ink-700 rounded-lg p-4 overflow-x-auto whitespace-pre">{% for row in lines %}<span class="flex items-baseline gap-2"><span class="{{ row.color }} w-3 inline-block text-center" aria-hidden="true">{{ row.glyph }}</span><span class="text-zinc-500 tabular-nums">{{ row.ts_iso }}</span><span class="{{ row.color }} uppercase tracking-wider text-[10px] w-24 inline-block">{{ row.kind }}</span><span class="text-zinc-300 break-all">{{ row.text }}</span></span>
+{% endfor %}</pre>
+{% endif %}
+
+{% endblock %}
