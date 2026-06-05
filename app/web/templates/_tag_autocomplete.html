@@ -1,0 +1,101 @@
+{# Tag autocomplete fragment served by /widget/tag-autocomplete?prefix=...
+
+   Designed to be dropped into any page that wants a "type a tag" input —
+   the palette, the sketch-note editor, the bulk-tag dialog. Two surfaces
+   live side-by-side so the host page can pick whichever fits:
+
+   * <datalist id="tag-autocomplete-options"> — wire a native
+     <input list="tag-autocomplete-options"> against it and the browser
+     does the dropdown for free.
+   * Button list — for HTMX flows where the host wants click-to-fill
+     (or for keyboard-only / mobile-webview users who don't get the
+     <datalist> popover).
+
+   The fragment carries its own root id so HTMX can swap it in via
+   hx-swap="outerHTML" without leaking stale buttons. The leading
+   <header> doubles as the empty-state surface when nothing matches. #}
+<section id="tag-autocomplete"
+         class="rounded-lg border border-ink-700 bg-ink-800 p-3"
+         data-prefix="{{ prefix }}">
+  <header class="flex items-center justify-between mb-2">
+    <h3 class="text-xs uppercase tracking-widest text-zinc-500">
+      Tag suggestions
+      {% if prefix %}
+        <span class="text-zinc-600 font-mono">· "{{ prefix }}"</span>
+      {% else %}
+        <span class="text-zinc-600">· top tags</span>
+      {% endif %}
+    </h3>
+    <span class="text-[10px] text-zinc-600 font-mono">{{ suggestions|length }}</span>
+  </header>
+
+  {# Native datalist — invisible to the eye, useful when the host page has
+     an <input list="tag-autocomplete-options">. Each option carries the
+     count as the user-facing label so the dropdown surfaces popularity. #}
+  <datalist id="tag-autocomplete-options">
+    {% for s in suggestions %}
+      <option value="{{ s.tag }}" label="{{ s.tag }} ({{ s.count }})"></option>
+    {% endfor %}
+  </datalist>
+
+  {% if suggestions %}
+    <ul class="flex flex-wrap gap-1.5"
+        data-tag-autocomplete-list>
+      {% for s in suggestions %}
+        <li>
+          <button type="button"
+                  class="inline-flex items-center gap-1 rounded-full bg-ink-900 border border-ink-700 px-2 py-0.5 text-xs text-zinc-200 hover:bg-ink-700 transition"
+                  data-tag-autocomplete-pick
+                  data-tag="{{ s.tag }}"
+                  title="Source: {{ s.source }} · used {{ s.count }} time{{ '' if s.count == 1 else 's' }}">
+            <span class="font-mono">#{{ s.tag }}</span>
+            <span class="text-[9px] text-zinc-500 font-mono">{{ s.count }}</span>
+            <span class="text-[8px] uppercase tracking-wide
+                         {% if s.source == 'shots' %}text-accent-300
+                         {% elif s.source == 'sketches' %}text-sky-300
+                         {% else %}text-emerald-300{% endif %}">{{ s.source }}</span>
+          </button>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="text-xs text-zinc-500 italic">
+      {% if prefix %}
+        No tags start with "{{ prefix }}".
+      {% else %}
+        No tags yet — attach a hashtag to a screenshot or sketch to seed the list.
+      {% endif %}
+    </p>
+  {% endif %}
+
+  <script>
+    (function () {
+      // Scope every lookup to this fragment so a host page swapping the
+      // widget multiple times (palette + sketch editor on the same page)
+      // doesn't double-bind handlers.
+      var root = document.getElementById("tag-autocomplete");
+      if (!root) { return; }
+      var picks = root.querySelectorAll("[data-tag-autocomplete-pick]");
+      picks.forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          var tag = btn.getAttribute("data-tag");
+          if (!tag) { return; }
+          // Fire a CustomEvent on the root so host pages can wire their
+          // own handler (e.g. set the value of a tag input, close the
+          // popover, focus the next field) without us hard-coding a
+          // particular DOM shape. The detail carries both the picked tag
+          // and the prefix the user typed, so handlers can choose to
+          // append vs. replace.
+          var ev = new CustomEvent("tag-autocomplete:pick", {
+            bubbles: true,
+            detail: {
+              tag: tag,
+              prefix: root.getAttribute("data-prefix") || ""
+            }
+          });
+          root.dispatchEvent(ev);
+        });
+      });
+    })();
+  </script>
+</section>

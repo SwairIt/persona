@@ -1,0 +1,538 @@
+{# Voice-search standalone page.
+
+   Served by ``GET /search/voice`` (see
+   :mod:`app.web.routes.voice_search`). The page is the conversational
+   complement of ``/search/everything`` — instead of typing a query the
+   operator taps the big record button, speaks a phrase, and the page
+   POSTs the audio blob to ``/api/voice-search``. The response carries
+   the Whisper transcript + the same six-bucket dict
+   ``corpus_search`` returns; the client renders both inline.
+
+   Context contract
+   ----------------
+     * ``title``         — page title, plumbed through ``base.html``.
+     * ``active_nav``    — set to ``"search"`` so the top-nav search
+                           item stays highlighted.
+     * ``kinds``         — list of corpus-search bucket names, used
+                           purely to size the empty placeholders.
+     * ``limit``         — per-source row cap so the "capped at N" hint
+                           stays in sync with the route's call.
+     * ``max_upload_mb`` — surface the 5 MiB cap into the inline help. #}
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Поиск голосом</h1>
+  <p class="text-zinc-500 text-sm mt-1 max-w-2xl">
+    Скажи фразу — Whisper её распознает, и мы прогоним
+    транскрипт по всему корпусу: OCR скриншотов, заметки,
+    аннотации, стикеры, буфер обмена и голосовые сегменты.
+    Каждый источник ограничен {{ limit }} строками.
+  </p>
+</div>
+
+{# ---- Record button + status + transcript echo ------------------ #}
+<section id="voice-search-recorder"
+         class="mb-8 rounded-xl border border-ink-700 bg-ink-900/60 p-6">
+  <div class="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+    <button id="voice-search-btn"
+            type="button"
+            data-state="idle"
+            aria-label="Записать голосовой запрос"
+            class="flex-shrink-0 inline-flex items-center justify-center gap-2 px-6 py-4
+                   rounded-full text-base font-semibold bg-accent-600 hover:bg-accent-500
+                   text-white shadow-lg transition disabled:opacity-60
+                   disabled:cursor-progress">
+      <span id="voice-search-btn-icon" class="text-xl leading-none">●</span>
+      <span id="voice-search-btn-label">Записать</span>
+    </button>
+    <div class="flex-1 min-w-0">
+      <div id="voice-search-status"
+           class="text-sm text-zinc-300 min-h-[1.5em]"
+           role="status"
+           aria-live="polite">
+        Нажми «Записать», произнеси фразу и нажми «Стоп» —
+        результаты появятся ниже.
+      </div>
+      <div class="mt-2 text-xs text-zinc-500">
+        Максимум {{ max_upload_mb }} МБ ·
+        нужен Whisper на сервере (<code class="font-mono text-zinc-400">openai-whisper</code>
+        или <code class="font-mono text-zinc-400">faster-whisper</code>).
+      </div>
+    </div>
+  </div>
+
+  {# Transcript echo — shown only after a successful upload. #}
+  <div id="voice-search-transcript-row" class="mt-4 hidden">
+    <p class="text-xs uppercase tracking-wider text-zinc-500 mb-1">
+      Расшифровка
+    </p>
+    <blockquote id="voice-search-transcript"
+                class="border-l-2 border-accent-500 pl-3 text-sm text-zinc-200
+                       font-mono whitespace-pre-wrap break-words"></blockquote>
+  </div>
+</section>
+
+{# ---- Results grid ---------------------------------------------- #}
+<section id="voice-search-results" class="hidden">
+  <p id="voice-search-summary"
+     class="text-xs uppercase tracking-wider text-zinc-500 mb-3"></p>
+
+  <div x-data="{ tab: 'shots' }" class="mt-2">
+    {% set _labels = {
+      'shots':       'Screenshots',
+      'notes':       'Notes',
+      'annotations': 'Annotations',
+      'stickies':    'Stickies',
+      'clipboard':   'Clipboard',
+      'audio':       'Voice'
+    } %}
+
+    <div role="tablist"
+         class="flex flex-wrap gap-1 border-b border-ink-700 mb-4 text-sm">
+      {% for kind in kinds %}
+        <button type="button"
+                role="tab"
+                data-tab-button="{{ kind }}"
+                :aria-selected="tab === '{{ kind }}'"
+                @click="tab = '{{ kind }}'"
+                :class="tab === '{{ kind }}'
+                  ? 'border-accent-500 text-accent-300'
+                  : 'border-transparent text-zinc-400 hover:text-zinc-200'"
+                class="px-3 py-2 border-b-2 -mb-px transition font-medium">
+          {{ _labels.get(kind, kind) }}
+          <span class="ml-1 text-xs font-mono text-zinc-500"
+                data-tab-count="{{ kind }}">0</span>
+        </button>
+      {% endfor %}
+    </div>
+
+    {% for kind in kinds %}
+      <section role="tabpanel"
+               data-tab-panel="{{ kind }}"
+               x-show="tab === '{{ kind }}'"
+               x-cloak>
+        <ul data-results-list="{{ kind }}" class="space-y-3"></ul>
+        <p data-results-empty="{{ kind }}"
+           class="hidden rounded-lg border border-ink-700 bg-ink-800 p-6
+                  text-center text-sm text-zinc-400">
+          Здесь пока пусто.
+        </p>
+      </section>
+    {% endfor %}
+  </div>
+
+  <style>[x-cloak] { display: none !important; }</style>
+</section>
+
+<script>
+(function () {
+  "use strict";
+
+  var btn      = document.getElementById("voice-search-btn");
+  var btnIcon  = document.getElementById("voice-search-btn-icon");
+  var btnLabel = document.getElementById("voice-search-btn-label");
+  var statusEl = document.getElementById("voice-search-status");
+  var transcriptRow = document.getElementById("voice-search-transcript-row");
+  var transcriptEl  = document.getElementById("voice-search-transcript");
+  var resultsRoot   = document.getElementById("voice-search-results");
+  var summaryEl     = document.getElementById("voice-search-summary");
+
+  if (!btn || !statusEl || !resultsRoot) {
+    // Defensive: template + script live in one file but a future
+    // refactor could split them; silent no-op is safer than a hard
+    // exception that prevents the page from rendering at all.
+    return;
+  }
+
+  var recorder = null;
+  var chunks = [];
+  var stream = null;
+
+  function setStatus(text, tone) {
+    statusEl.textContent = "";
+    if (tone === "error") {
+      statusEl.className = "text-sm text-rose-400 min-h-[1.5em]";
+    } else if (tone === "ok") {
+      statusEl.className = "text-sm text-emerald-400 min-h-[1.5em]";
+    } else {
+      statusEl.className = "text-sm text-zinc-300 min-h-[1.5em]";
+    }
+    statusEl.textContent = text;
+  }
+
+  function setBtnState(state) {
+    btn.setAttribute("data-state", state);
+    if (state === "recording") {
+      btn.className = "flex-shrink-0 inline-flex items-center justify-center gap-2 px-6 py-4 "
+                    + "rounded-full text-base font-semibold bg-rose-600 hover:bg-rose-500 "
+                    + "text-white shadow-lg transition";
+      btnIcon.textContent  = "■";
+      btnLabel.textContent = "Стоп";
+      btn.disabled = false;
+    } else if (state === "uploading") {
+      btn.className = "flex-shrink-0 inline-flex items-center justify-center gap-2 px-6 py-4 "
+                    + "rounded-full text-base font-semibold bg-zinc-700 text-zinc-300 "
+                    + "shadow-lg transition opacity-60 cursor-progress";
+      btnIcon.textContent  = "⋯";
+      btnLabel.textContent = "Распознаю…";
+      btn.disabled = true;
+    } else {
+      btn.className = "flex-shrink-0 inline-flex items-center justify-center gap-2 px-6 py-4 "
+                    + "rounded-full text-base font-semibold bg-accent-600 hover:bg-accent-500 "
+                    + "text-white shadow-lg transition";
+      btnIcon.textContent  = "●";
+      btnLabel.textContent = "Записать";
+      btn.disabled = false;
+    }
+  }
+
+  function stopTracks() {
+    if (stream) {
+      stream.getTracks().forEach(function (track) { track.stop(); });
+      stream = null;
+    }
+  }
+
+  // ---- Result-rendering helpers ---------------------------------
+  //
+  // Every hit object came straight from the server; the snippet /
+  // excerpt fields are already HTML-escaped server-side with only
+  // literal ``<mark>`` tags in them (see app.corpus_search), so we
+  // can render them via ``innerHTML``. All other fields go through
+  // a textContent round-trip — including app names, captured-at
+  // timestamps, and codecs — because those columns can legally
+  // contain ``<`` / ``>`` / ``&`` (e.g. a window title from a buggy
+  // app), and we never want a stray angle bracket to break out into
+  // markup.
+
+  function escapeHtml(value) {
+    var div = document.createElement("div");
+    div.textContent = String(value == null ? "" : value);
+    return div.innerHTML;
+  }
+
+  function buildShotsLi(hit) {
+    var li = document.createElement("li");
+    li.className = "rounded-lg border border-ink-700 bg-ink-800 "
+                 + "hover:border-accent-500/60 transition";
+    var thumb = hit.thumbnail_path
+      ? '<img src="' + escapeHtml(hit.thumbnail_path) + '" '
+        + 'alt="Screenshot #' + escapeHtml(hit.id) + '" '
+        + 'loading="lazy" class="w-full h-full object-cover">'
+      : '<div class="w-full h-full flex items-center justify-center '
+        + 'text-[10px] text-zinc-600">shot #' + escapeHtml(hit.id) + '</div>';
+    li.innerHTML =
+      '<a href="/screenshot/' + escapeHtml(hit.id) + '" '
+      + 'class="flex items-stretch gap-4 p-3 sm:p-4">'
+      +   '<div class="flex-shrink-0 w-32 sm:w-48 aspect-video rounded-md '
+      +        'overflow-hidden bg-ink-900 border border-ink-700">'
+      +     thumb
+      +   '</div>'
+      +   '<div class="flex-1 min-w-0 flex flex-col justify-between gap-2">'
+      +     '<header class="flex items-center justify-between gap-2 '
+      +              'text-xs font-mono text-zinc-500">'
+      +       '<span class="truncate" title="' + escapeHtml(hit.window_title || "") + '">'
+      +         escapeHtml(hit.app_name || ("shot #" + hit.id))
+      +       '</span>'
+      +       '<time class="flex-shrink-0">' + escapeHtml(hit.captured_at) + '</time>'
+      +     '</header>'
+      +     '<p class="text-sm text-zinc-200 leading-snug">' + (hit.snippet || "") + '</p>'
+      +   '</div>'
+      + '</a>';
+    return li;
+  }
+
+  function buildNotesLi(hit) {
+    var li = document.createElement("li");
+    li.className = "rounded-lg border border-ink-700 bg-ink-800 "
+                 + "hover:border-accent-500/60 transition";
+    li.innerHTML =
+      '<a href="/screenshot/' + escapeHtml(hit.id) + '" class="block p-4">'
+      +   '<header class="flex items-center justify-between mb-2 '
+      +            'text-xs text-zinc-500">'
+      +     '<span class="font-mono">note #' + escapeHtml(hit.id) + '</span>'
+      +     (hit.created_at
+        ? '<time class="font-mono">' + escapeHtml(hit.created_at) + '</time>'
+        : '')
+      +   '</header>'
+      +   '<p class="text-sm text-zinc-200 leading-relaxed">' + (hit.snippet || "") + '</p>'
+      + '</a>';
+    return li;
+  }
+
+  function buildAnnotationsLi(hit) {
+    var li = document.createElement("li");
+    li.className = "rounded-lg border border-ink-700 bg-ink-800 "
+                 + "hover:border-accent-500/60 transition";
+    li.innerHTML =
+      '<a href="/screenshot/' + escapeHtml(hit.screenshot_id) + '" class="block p-4">'
+      +   '<header class="flex items-center justify-between mb-2 '
+      +            'text-xs text-zinc-500">'
+      +     '<span class="font-mono">annotation #' + escapeHtml(hit.id)
+      +       ' · shot #' + escapeHtml(hit.screenshot_id) + '</span>'
+      +     '<time class="font-mono">' + escapeHtml(hit.created_at) + '</time>'
+      +   '</header>'
+      +   '<p class="text-sm text-zinc-200 leading-relaxed">' + (hit.excerpt || "") + '</p>'
+      + '</a>';
+    return li;
+  }
+
+  function buildStickiesLi(hit) {
+    var li = document.createElement("li");
+    li.className = "rounded-lg border border-ink-700 bg-ink-800 "
+                 + "hover:border-accent-500/60 transition";
+    li.innerHTML =
+      '<a href="/screenshot/' + escapeHtml(hit.shot_id)
+      +    '#sticky-' + escapeHtml(hit.sticky_id) + '" class="block p-4">'
+      +   '<header class="flex items-center justify-between mb-2 '
+      +            'text-xs text-zinc-500">'
+      +     '<span class="font-mono">sticker #' + escapeHtml(hit.sticky_id)
+      +       ' · shot #' + escapeHtml(hit.shot_id) + '</span>'
+      +     '<time class="font-mono">' + escapeHtml(hit.created_at) + '</time>'
+      +   '</header>'
+      +   '<p class="bg-yellow-200/90 text-zinc-900 text-sm leading-snug '
+      +     'rounded-md px-3 py-2 whitespace-pre-wrap break-words">'
+      +     (hit.excerpt || "")
+      +   '</p>'
+      + '</a>';
+    return li;
+  }
+
+  function buildClipboardLi(hit) {
+    var li = document.createElement("li");
+    li.className = "rounded-lg border border-ink-700 bg-ink-800 p-4 "
+                 + "hover:border-accent-500/60 transition";
+    li.innerHTML =
+      '<header class="flex items-center justify-between mb-2 '
+      +          'text-xs text-zinc-500 font-mono">'
+      +   '<span class="truncate" title="' + escapeHtml(hit.app_name || "") + '">'
+      +     'clip #' + escapeHtml(hit.id)
+      +     (hit.app_name ? ' · ' + escapeHtml(hit.app_name) : '')
+      +   '</span>'
+      +   '<span class="flex-shrink-0">'
+      +     escapeHtml(hit.length) + ' ch · ' + escapeHtml(hit.captured_at)
+      +   '</span>'
+      + '</header>'
+      + '<p class="text-sm text-zinc-200 leading-relaxed whitespace-pre-wrap '
+      +    'break-words font-mono">' + (hit.preview || "") + '</p>';
+    return li;
+  }
+
+  function buildAudioLi(hit) {
+    var li = document.createElement("li");
+    li.className = "rounded-lg border border-ink-700 bg-ink-800 p-4 "
+                 + "hover:border-accent-500/60 transition";
+    var dur = (hit.duration_seconds != null)
+      ? Number(hit.duration_seconds).toFixed(1)
+      : "0.0";
+    li.innerHTML =
+      '<header class="flex items-center justify-between gap-2 '
+      +          'text-xs font-mono text-zinc-500 mb-2">'
+      +   '<a href="/audio-segment/' + escapeHtml(hit.id) + '/player" '
+      +      'class="text-accent-400 hover:underline">'
+      +     '🔊 segment #' + escapeHtml(hit.id)
+      +   '</a>'
+      +   '<span>' + escapeHtml(dur) + 's · ' + escapeHtml(hit.codec || "") + '</span>'
+      +   '<time>' + escapeHtml(hit.captured_at) + '</time>'
+      + '</header>'
+      + '<p class="text-sm text-zinc-200 leading-snug">' + (hit.excerpt || "") + '</p>';
+    return li;
+  }
+
+  var BUILDERS = {
+    shots:       buildShotsLi,
+    notes:       buildNotesLi,
+    annotations: buildAnnotationsLi,
+    stickies:    buildStickiesLi,
+    clipboard:   buildClipboardLi,
+    audio:       buildAudioLi
+  };
+
+  function renderBucket(kind, hits) {
+    var list  = resultsRoot.querySelector('[data-results-list="'  + kind + '"]');
+    var empty = resultsRoot.querySelector('[data-results-empty="' + kind + '"]');
+    var count = resultsRoot.querySelector('[data-tab-count="'     + kind + '"]');
+    if (!list || !empty || !count) return;
+    list.innerHTML = "";
+    var builder = BUILDERS[kind];
+    if (!builder || !hits || hits.length === 0) {
+      empty.classList.remove("hidden");
+      count.textContent = "0";
+      return;
+    }
+    empty.classList.add("hidden");
+    for (var i = 0; i < hits.length; i++) {
+      list.appendChild(builder(hits[i]));
+    }
+    count.textContent = String(hits.length);
+  }
+
+  function renderResults(payload) {
+    var results = (payload && payload.results) || {};
+    var kinds = ["shots", "notes", "annotations", "stickies", "clipboard", "audio"];
+    for (var i = 0; i < kinds.length; i++) {
+      renderBucket(kinds[i], results[kinds[i]] || []);
+    }
+    var total = (payload && typeof payload.total_matches === "number")
+      ? payload.total_matches : 0;
+    var transcript = (payload && payload.transcript) || "";
+    summaryEl.textContent = total + " совпаден"
+      + (total === 1 ? "ие" : "ий")
+      + " по запросу «" + transcript + "»";
+    resultsRoot.classList.remove("hidden");
+  }
+
+  function showTranscript(text) {
+    if (!text) {
+      transcriptRow.classList.add("hidden");
+      transcriptEl.textContent = "";
+      return;
+    }
+    transcriptEl.textContent = text;
+    transcriptRow.classList.remove("hidden");
+  }
+
+  // ---- Upload pipeline -----------------------------------------
+
+  function handleResponse(response) {
+    return response.json().then(function (body) {
+      if (response.status === 200 && body && body.status === "ok") {
+        showTranscript(body.transcript || "");
+        renderResults(body);
+        var total = body.total_matches || 0;
+        setStatus("Найдено совпадений: " + total + ".", "ok");
+        return;
+      }
+      if (response.status === 200 && body && body.status === "empty_transcript") {
+        showTranscript("");
+        resultsRoot.classList.add("hidden");
+        setStatus("Тишина в записи — Whisper не услышал слов. Попробуй ещё раз.", "error");
+        return;
+      }
+      if (response.status === 503) {
+        setStatus(
+          "Whisper не установлен на сервере — поставь openai-whisper "
+          + "или faster-whisper и попробуй снова.",
+          "error"
+        );
+        return;
+      }
+      if (response.status === 413) {
+        setStatus("Запись слишком длинная — максимум {{ max_upload_mb }} МБ.", "error");
+        return;
+      }
+      if (response.status === 415) {
+        setStatus("Браузер сформировал неподдерживаемый аудиоформат.", "error");
+        return;
+      }
+      if (response.status === 400) {
+        setStatus("Запись пустая.", "error");
+        return;
+      }
+      var detail = (body && (body.detail || body.status)) || ("HTTP " + response.status);
+      setStatus("Ошибка распознавания: " + detail, "error");
+    }).catch(function () {
+      setStatus("Не удалось разобрать ответ сервера (HTTP " + response.status + ").", "error");
+    });
+  }
+
+  function uploadBlob(blob) {
+    setBtnState("uploading");
+    setStatus("Распознаю и ищу…");
+    var form = new FormData();
+    var ext = (blob.type && blob.type.indexOf("webm") >= 0) ? "webm"
+            : (blob.type && blob.type.indexOf("ogg")  >= 0) ? "ogg"
+            : (blob.type && blob.type.indexOf("mp4")  >= 0) ? "mp4"
+            : "audio";
+    form.append("file", blob, "voice-search." + ext);
+
+    fetch("/api/voice-search", {
+      method: "POST",
+      body: form,
+      credentials: "same-origin"
+    }).then(handleResponse).catch(function (err) {
+      setStatus("Сетевая ошибка: " + (err && err.message || err), "error");
+    }).then(function () {
+      setBtnState("idle");
+    });
+  }
+
+  function startRecording() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setStatus(
+        "Этот браузер не даёт доступ к микрофону — нужен свежий Chrome / Firefox / Safari.",
+        "error"
+      );
+      return;
+    }
+    setStatus("Запрашиваю микрофон…");
+    navigator.mediaDevices.getUserMedia({ audio: true }).then(function (s) {
+      stream = s;
+      chunks = [];
+      try {
+        recorder = new MediaRecorder(stream);
+      } catch (err) {
+        stopTracks();
+        setStatus(
+          "Не удалось запустить запись: " + (err && err.message || err),
+          "error"
+        );
+        return;
+      }
+      recorder.addEventListener("dataavailable", function (evt) {
+        if (evt.data && evt.data.size > 0) {
+          chunks.push(evt.data);
+        }
+      });
+      recorder.addEventListener("stop", function () {
+        stopTracks();
+        if (chunks.length === 0) {
+          setStatus("Ничего не записалось.", "error");
+          setBtnState("idle");
+          return;
+        }
+        var mime = recorder.mimeType || (chunks[0] && chunks[0].type) || "audio/webm";
+        var blob = new Blob(chunks, { type: mime });
+        chunks = [];
+        uploadBlob(blob);
+      });
+      recorder.start();
+      setBtnState("recording");
+      setStatus("Запись… нажми «Стоп», когда договоришь.");
+    }).catch(function (err) {
+      var name = err && err.name ? err.name : "";
+      if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+        setStatus(
+          "Доступ к микрофону запрещён — включи его в настройках сайта и попробуй ещё раз.",
+          "error"
+        );
+      } else if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+        setStatus("Микрофон не найден на этом устройстве.", "error");
+      } else {
+        setStatus(
+          "Не удалось получить микрофон: " + (err && err.message || name || err),
+          "error"
+        );
+      }
+      setBtnState("idle");
+    });
+  }
+
+  function stopRecording() {
+    if (recorder && recorder.state === "recording") {
+      recorder.stop();
+    }
+  }
+
+  btn.addEventListener("click", function () {
+    var state = btn.getAttribute("data-state");
+    if (state === "idle") {
+      startRecording();
+    } else if (state === "recording") {
+      stopRecording();
+    }
+  });
+})();
+</script>
+{% endblock %}
