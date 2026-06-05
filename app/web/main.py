@@ -472,7 +472,8 @@ def create_app() -> FastAPI:
     app.include_router(export.router)
     app.include_router(summary_routes.router)
     app.include_router(health.router)
-    app.include_router(csv_export.router)
+    # csv_export is registered later under the csv_export_routes alias —
+    # registering both here AND there duplicated every /export/*.csv route.
     app.include_router(calendar_routes.router)
     app.include_router(tags_routes.router)
     app.include_router(analysis_routes.router)
@@ -574,7 +575,8 @@ def create_app() -> FastAPI:
     app.include_router(app_icons_routes.router)
     app.include_router(encrypted_notes_routes.router)
     app.include_router(retention_preview_routes.router)
-    app.include_router(tag_colour_routes.router)
+    # tag_colour is nested inside tags_routes (app/web/routes/tags.py uses
+    # router.include_router(tag_colour_router)) — registering here too duped routes.
     app.include_router(day_kanban_routes.router)
     app.include_router(notes_timeline_routes.router)
     app.include_router(dup_suggest_routes.router)
@@ -686,7 +688,8 @@ def create_app() -> FastAPI:
     app.include_router(auto_translate_settings_routes.router)
     app.include_router(timeline_preview_routes.router)
     app.include_router(multi_monitor_routes.router)
-    app.include_router(qa_stream_routes.router)
+    # qa_stream is nested inside qa_routes (app/web/routes/qa.py uses
+    # router.include_router(qa_stream_router)) — registering here too duped routes.
     app.include_router(settings_hub_routes.router)
     app.include_router(shot_alt_text_settings_routes.router)
     app.include_router(auto_pin_admin_routes.router)
@@ -732,13 +735,15 @@ def create_app() -> FastAPI:
     app.include_router(demo_seeder_routes.router)
     app.include_router(app_budgets_routes.router)
     app.include_router(insight_cards_routes.router)
-    app.include_router(day_pdf_export_routes.router)
+    # day_pdf_export is nested inside day_markdown_export_routes — registering
+    # it again here duped /export/day/{day}.pdf + /day/{day}/pdf-preview.
     app.include_router(hashtag_suggest_routes.router)
     app.include_router(csv_export_routes.router)
     app.include_router(i18n_de_check_routes.router)
     app.include_router(palette_commands_routes.router)
     app.include_router(palette_command_admin_routes.router)
-    app.include_router(chrono_parse_routes.router)
+    # chrono_parse is nested inside qa_routes (qa.py uses
+    # router.include_router(chrono_parse_router)) — registering here duped.
     app.include_router(ai_reminders_routes.router)
     app.include_router(timeline_log_routes.router)
     app.include_router(monthly_comparison_routes.router)
@@ -763,14 +768,12 @@ def create_app() -> FastAPI:
     app.include_router(now_dashboard_routes.router)
     app.include_router(email_weekly_digest_settings_routes.router)
     app.include_router(memory_of_day_settings_routes.router)
-    app.include_router(health_dashboard_routes.router)
     app.include_router(heartbeat_alerts_routes.router)
     app.include_router(db_integrity_routes.router)
     app.include_router(quick_actions_routes.router)
     app.include_router(api_tokens_admin_routes.router)
     app.include_router(audio_waveform_routes.router)
     app.include_router(tag_canonicaliser_routes.router)
-    app.include_router(app_icons_routes.router)
     app.include_router(stale_note_pruner_routes.router)
     app.include_router(smart_pin_routes.router)
     app.include_router(tag_email_digest_routes.router)

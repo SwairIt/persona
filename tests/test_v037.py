@@ -85,7 +85,9 @@ async def test_heartbeat_beat_and_read() -> None:
 
 
 async def test_health_dashboard_page(client: AsyncClient) -> None:
-    resp = await client.get("/admin/health")
+    # v1.61 moved the dashboard from /admin/health to /health-dashboard and
+    # kept the old URL as a 307 redirect for bookmarks.
+    resp = await client.get("/admin/health", follow_redirects=True)
     assert resp.status_code == 200
 
 

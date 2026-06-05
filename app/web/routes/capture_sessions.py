@@ -224,9 +224,14 @@ async def _transcripts_in_window(
     ]
 
 
-@router.get("/sessions", response_class=HTMLResponse)
+@router.get("/capture-sessions", response_class=HTMLResponse)
 async def sessions_page(request: Request) -> HTMLResponse:
-    """Render the journal-style sessions list, newest first."""
+    """Render the journal-style sessions list, newest first.
+
+    Renamed in v1.66 from ``/sessions`` to ``/capture-sessions`` because
+    the earlier focus-analysis ``/sessions`` page is still wired and was
+    being silently shadowed.
+    """
     sessions = await _list_sessions(limit=_LIST_LIMIT)
     return templates.TemplateResponse(
         request,
