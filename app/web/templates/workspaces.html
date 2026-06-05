@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto px-3 sm:px-6 py-6">
+  <header class="mb-6 flex items-baseline justify-between">
+    <div>
+      <h1 class="text-2xl font-bold">Рабочие пространства</h1>
+      <p class="text-sm text-zinc-500 mt-1">
+        Группа настроек (тема, частота, фокус-профиль, блоклист, фильтр таймлайна), переключается одним кликом.
+      </p>
+    </div>
+    {% if active_workspace %}
+      <span class="px-3 py-1 rounded-full bg-accent-600/20 text-accent-400 text-sm font-mono">
+        активно: {{ active_workspace.name }}
+      </span>
+    {% endif %}
+  </header>
+
+  {% if pending_presets %}
+    <section class="mb-8">
+      <h2 class="text-sm font-semibold uppercase tracking-wide text-zinc-500 mb-3">Готовые наборы</h2>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {% for preset in pending_presets %}
+          <form method="post" action="/workspaces/install-preset/{{ preset.name }}"
+                class="rounded border border-dashed border-zinc-300 dark:border-ink-700 p-4 bg-white dark:bg-ink-900">
+            <div class="font-semibold">{{ preset.name }}</div>
+            <div class="text-xs text-zinc-500 mt-1">{{ preset.description or "" }}</div>
+            <button type="submit"
+                    class="mt-3 px-3 py-1 rounded bg-zinc-200 dark:bg-ink-800 text-sm hover:bg-accent-600 hover:text-white transition">
+              Установить
+            </button>
+          </form>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+
+  <section class="mb-8">
+    <h2 class="text-sm font-semibold uppercase tracking-wide text-zinc-500 mb-3">Мои пространства</h2>
+    {% if workspaces %}
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {% for ws in workspaces %}
+          <div class="rounded border {% if ws.is_active %}border-accent-500{% else %}border-zinc-300 dark:border-ink-700{% endif %} p-4 bg-white dark:bg-ink-900 flex flex-col gap-2">
+            <div class="flex items-start justify-between gap-2">
+              <div>
+                <div class="font-semibold">{{ ws.name }}</div>
+                <div class="text-xs text-zinc-500">{{ ws.description or "" }}</div>
+              </div>
+              {% if ws.is_active %}
+                <span class="text-xs font-mono text-accent-400">активно</span>
+              {% endif %}
+            </div>
+            <dl class="text-xs text-zinc-500 grid grid-cols-2 gap-x-3 gap-y-1 mt-2">
+              {% if ws.theme %}<dt>тема</dt><dd class="font-mono text-zinc-700 dark:text-zinc-200">{{ ws.theme }}</dd>{% endif %}
+              {% if ws.capture_interval_seconds %}<dt>интервал</dt><dd class="font-mono text-zinc-700 dark:text-zinc-200">{{ ws.capture_interval_seconds }}s</dd>{% endif %}
+              {% if ws.focus_profile_id %}<dt>фокус</dt><dd class="font-mono text-zinc-700 dark:text-zinc-200">#{{ ws.focus_profile_id }}</dd>{% endif %}
+              {% if ws.default_timeline_filter %}<dt>фильтр</dt><dd class="font-mono text-zinc-700 dark:text-zinc-200">{{ ws.default_timeline_filter }}</dd>{% endif %}
+            </dl>
+            <div class="flex gap-2 mt-3">
+              {% if not ws.is_active %}
+                <form method="post" action="/workspaces/{{ ws.id }}/activate">
+                  <button type="submit"
+                          class="px-3 py-1 rounded bg-accent-600 text-white text-sm hover:bg-accent-500 transition">
+                    Активировать
+                  </button>
+                </form>
+              {% endif %}
+              <form method="post" action="/workspaces/{{ ws.id }}/delete"
+                    onsubmit="return confirm('Удалить пространство «{{ ws.name }}»?')">
+                <button type="submit"
+                        class="px-3 py-1 rounded border border-zinc-300 dark:border-ink-700 text-sm text-zinc-500 hover:border-red-500 hover:text-red-500 transition">
+                  Удалить
+                </button>
+              </form>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="text-zinc-500 text-sm">Пока ни одного пространства. Установите готовый набор выше или создайте своё ниже.</p>
+    {% endif %}
+  </section>
+
+  <section>
+    <h2 class="text-sm font-semibold uppercase tracking-wide text-zinc-500 mb-3">Создать своё</h2>
+    <form method="post" action="/workspaces/new"
+          class="rounded border border-zinc-300 dark:border-ink-700 p-4 bg-white dark:bg-ink-900 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+      <label class="flex flex-col">
+        <span class="text-xs text-zinc-500 mb-1">Имя</span>
+        <input type="text" name="name" required maxlength="64"
+               class="px-2 py-1 rounded border border-zinc-300 dark:border-ink-700 bg-white dark:bg-ink-900">
+      </label>
+      <label class="flex flex-col sm:col-span-1">
+        <span class="text-xs text-zinc-500 mb-1">Описание</span>
+        <input type="text" name="description" maxlength="256"
+               class="px-2 py-1 rounded border border-zinc-300 dark:border-ink-700 bg-white dark:bg-ink-900">
+      </label>
+      <label class="flex flex-col">
+        <span class="text-xs text-zinc-500 mb-1">Тема</span>
+        <select name="theme"
+                class="px-2 py-1 rounded border border-zinc-300 dark:border-ink-700 bg-white dark:bg-ink-900">
+          <option value="">— не менять —</option>
+          {% for t in valid_themes %}
+            <option value="{{ t }}">{{ t }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="flex flex-col">
+        <span class="text-xs text-zinc-500 mb-1">Интервал захвата, сек</span>
+        <input type="number" name="capture_interval_seconds" step="0.5" min="0.5" max="60"
+               class="px-2 py-1 rounded border border-zinc-300 dark:border-ink-700 bg-white dark:bg-ink-900">
+      </label>
+      <label class="flex flex-col">
+        <span class="text-xs text-zinc-500 mb-1">Фокус-профиль</span>
+        <select name="focus_profile_id"
+                class="px-2 py-1 rounded border border-zinc-300 dark:border-ink-700 bg-white dark:bg-ink-900">
+          <option value="">— не использовать —</option>
+          {% for fp in focus_profiles %}
+            <option value="{{ fp.id }}">{{ fp.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="flex flex-col">
+        <span class="text-xs text-zinc-500 mb-1">Фильтр таймлайна</span>
+        <input type="text" name="default_timeline_filter" maxlength="128"
+               class="px-2 py-1 rounded border border-zinc-300 dark:border-ink-700 bg-white dark:bg-ink-900">
+      </label>
+      <div class="sm:col-span-2">
+        <button type="submit"
+                class="px-4 py-1.5 rounded bg-accent-600 text-white hover:bg-accent-500 transition">
+          Создать
+        </button>
+      </div>
+    </form>
+  </section>
+</div>
+{% endblock %}

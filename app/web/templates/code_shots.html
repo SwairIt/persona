@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto px-3 sm:px-6 py-6">
+  <header class="mb-6">
+    <h1 class="text-2xl font-bold">Code shots</h1>
+    <p class="text-sm text-zinc-500 mt-1">
+      Screenshots whose OCR text looks like source code (heuristic, off-by-default re-classified by the background worker).
+    </p>
+  </header>
+
+  <form method="get" action="/code-shots" class="mb-6 flex flex-wrap gap-3 items-end text-sm">
+    <label class="flex flex-col">
+      <span class="text-xs text-zinc-500 mb-1">Days</span>
+      <input type="number" name="days" min="1" max="365" value="{{ days }}"
+             class="px-2 py-1 rounded border border-zinc-300 dark:border-ink-700 bg-white dark:bg-ink-900 w-20">
+    </label>
+    <label class="flex flex-col">
+      <span class="text-xs text-zinc-500 mb-1">Limit</span>
+      <input type="number" name="limit" min="1" max="500" value="{{ limit }}"
+             class="px-2 py-1 rounded border border-zinc-300 dark:border-ink-700 bg-white dark:bg-ink-900 w-20">
+    </label>
+    <button type="submit"
+            class="px-3 py-1 rounded bg-accent-600 text-white hover:bg-accent-500 transition">
+      Apply
+    </button>
+  </form>
+
+  {% if shots %}
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      {% for shot in shots %}
+        <a href="/screenshot/{{ shot.id }}"
+           class="block rounded border border-zinc-200 dark:border-ink-700 bg-white dark:bg-ink-900 overflow-hidden hover:border-accent-500 transition">
+          {% if shot.thumbnail_path %}
+            <img src="/thumbs/{{ shot.thumbnail_path }}"
+                 alt="shot {{ shot.id }}"
+                 class="w-full aspect-video object-cover">
+          {% else %}
+            <div class="w-full aspect-video bg-zinc-200 dark:bg-ink-800"></div>
+          {% endif %}
+          <div class="p-3 text-xs">
+            <div class="font-mono text-zinc-500 truncate">{{ shot.captured_at }}</div>
+            <div class="font-semibold truncate">{{ shot.app_name or "?" }}</div>
+            <div class="text-zinc-500 truncate">{{ shot.window_title or "" }}</div>
+            {% if shot.ocr_preview %}
+              <pre class="mt-2 font-mono text-[10px] leading-snug whitespace-pre-wrap line-clamp-4 text-zinc-600 dark:text-zinc-400">{{ shot.ocr_preview }}</pre>
+            {% endif %}
+          </div>
+        </a>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="text-zinc-500">No code shots in the last {{ days }} days. The background classifier runs every 30 minutes.</p>
+  {% endif %}
+</div>
+{% endblock %}
