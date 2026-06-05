@@ -1,0 +1,188 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-start justify-between gap-4">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Аудит-лог ротация</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Воркер просыпается раз в 30 минут, и когда местный час совпадает с
+      выбранным, проверяет размер таблицы <code>audit_log</code>. Если
+      строк больше порога — самые старые сбрасываются в gzipped JSONL на
+      диск, а из таблицы удаляются. Архивы хранятся в
+      <code>{{ archive_dir }}</code> и в БД больше не читаются — это
+      форензика.
+    </p>
+  </div>
+</div>
+
+<section class="mb-6 rounded-lg border border-ink-700 bg-ink-800 p-5 max-w-2xl">
+  <div class="flex items-center justify-between gap-4">
+    <div>
+      <div class="text-sm uppercase tracking-widest text-zinc-500 mb-1">
+        Сейчас в <code>audit_log</code>
+      </div>
+      <div class="text-3xl font-bold tabular-nums">
+        {{ "{:,}".format(current_count).replace(",", "&nbsp;") | safe }}
+      </div>
+      <div class="text-xs text-zinc-500 mt-1">
+        порог: {{ keep_rows }} {% if current_count > keep_rows %}
+          <span class="text-amber-400">
+            (превышен на {{ current_count - keep_rows }})
+          </span>
+        {% else %}
+          <span class="text-zinc-500">(в пределах нормы)</span>
+        {% endif %}
+      </div>
+    </div>
+    <button id="run-now-btn" type="button"
+            class="shrink-0 px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition disabled:opacity-50">
+      запустить сейчас
+    </button>
+  </div>
+  <div id="run-now-result" class="mt-4 text-xs font-mono text-zinc-400 hidden"></div>
+</section>
+
+<section class="mb-6 rounded-lg border border-ink-700 bg-ink-800 p-5 max-w-2xl">
+  <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">
+    Последние {{ runs | length }} архивных запусков
+  </h2>
+  {% if runs %}
+    <div class="overflow-x-auto">
+      <table class="w-full text-xs">
+        <thead>
+          <tr class="text-zinc-500 border-b border-ink-700">
+            <th class="text-left py-2 pr-3 font-normal">когда</th>
+            <th class="text-right py-2 pr-3 font-normal">строк</th>
+            <th class="text-right py-2 pr-3 font-normal">размер</th>
+            <th class="text-left py-2 font-normal">файл</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for run in runs %}
+            <tr class="border-b border-ink-800/60">
+              <td class="py-2 pr-3 font-mono text-zinc-300">{{ run.archived_at }}</td>
+              <td class="py-2 pr-3 text-right tabular-nums">{{ run.rows_archived }}</td>
+              <td class="py-2 pr-3 text-right tabular-nums text-zinc-400">
+                {{ run.file_size_bytes }} B
+              </td>
+              <td class="py-2 font-mono text-zinc-400 truncate" title="{{ run.file_path }}">
+                {{ run.file_name }}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="text-zinc-500 text-xs">
+      Архивов ещё нет — таблица ни разу не превышала порог.
+    </p>
+  {% endif %}
+</section>
+
+<form action="/admin/audit-log-rotation/settings" method="post"
+      class="rounded-lg border border-ink-700 bg-ink-800 p-5 space-y-5 max-w-2xl">
+  <h2 class="text-sm uppercase tracking-widest text-zinc-500">Настройки</h2>
+
+  <label class="block">
+    <div class="text-sm font-medium text-zinc-200 mb-1">Час срабатывания (0..23)</div>
+    <div class="text-xs text-zinc-500 mb-2">
+      По умолчанию 4 — глубокая ночь, I/O-всплеск ни с чем не конкурирует.
+    </div>
+    <input name="hour" type="number" min="0" max="23" value="{{ hour }}" required
+           class="w-24 px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
+  </label>
+
+  <label class="block">
+    <div class="text-sm font-medium text-zinc-200 mb-1">Порог строк в таблице</div>
+    <div class="text-xs text-zinc-500 mb-2">
+      Когда строк больше — лишние самые старые уезжают в архив. По умолчанию
+      5000 (примерно 3 месяца для одного пользователя).
+    </div>
+    <input name="keep_rows" type="number" min="0" max="1000000" value="{{ keep_rows }}" required
+           class="w-32 px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
+  </label>
+
+  <label class="flex items-start gap-3 cursor-pointer">
+    <input type="checkbox" name="enabled" value="on" {% if enabled %}checked{% endif %}
+           class="mt-1 w-4 h-4 rounded border-ink-700 bg-ink-900 text-accent-500 focus:ring-accent-500">
+    <span>
+      <span class="text-sm font-medium text-zinc-200">Ротация включена</span>
+      <span class="block text-xs text-zinc-500 mt-0.5">
+        По умолчанию включено — данные не теряются (сначала на диск, потом
+        удаление). Отключайте только если вам нужен полный append-only лог.
+      </span>
+    </span>
+  </label>
+
+  <div class="pt-2">
+    <button type="submit"
+            class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
+      сохранить
+    </button>
+  </div>
+</form>
+
+<section class="mt-6 rounded-lg border border-ink-700 bg-ink-800 p-5 max-w-2xl">
+  <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">
+    Архивные файлы на диске
+  </h2>
+  <p class="text-xs text-zinc-500 mb-3">
+    JSON-список текущих файлов под <code>{{ archive_dir }}</code> —
+    источник истины «что реально лежит на диске» (а не «что числится в
+    таблице»). Помогает заметить дрейф.
+  </p>
+  <button id="list-archives-btn" type="button"
+          class="text-xs px-3 py-1.5 rounded bg-ink-900 border border-ink-700 hover:border-accent-500 text-zinc-300">
+    обновить список
+  </button>
+  <pre id="archives-json" class="mt-3 text-[11px] font-mono text-zinc-400 whitespace-pre-wrap break-all max-h-64 overflow-auto"></pre>
+</section>
+
+<script>
+  // Run-now button + archive listing — straight fetch() rather than
+  // htmx so we don't depend on lazily-rendered form behaviour
+  // (see project memory: htmx + Alpine-generated forms misfire).
+  (function () {
+    var runBtn = document.getElementById('run-now-btn');
+    var runOut = document.getElementById('run-now-result');
+
+    runBtn.addEventListener('click', function () {
+      runBtn.disabled = true;
+      runBtn.textContent = 'работаю...';
+      runOut.classList.remove('hidden');
+      runOut.textContent = '…';
+      fetch('/api/audit-log-rotation/run-now', { method: 'POST' })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          runOut.textContent = JSON.stringify(data, null, 2);
+        })
+        .catch(function (err) {
+          runOut.textContent = 'ошибка: ' + (err && err.message ? err.message : err);
+        })
+        .finally(function () {
+          runBtn.disabled = false;
+          runBtn.textContent = 'запустить сейчас';
+          // Refresh the page after a short delay so the count + run
+          // list re-render. Skipping the reload would leave the user
+          // wondering whether anything changed.
+          setTimeout(function () { window.location.reload(); }, 1500);
+        });
+    });
+
+    var listBtn = document.getElementById('list-archives-btn');
+    var listOut = document.getElementById('archives-json');
+    listBtn.addEventListener('click', function () {
+      listOut.textContent = '…';
+      fetch('/api/audit-log-rotation/archives.json')
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          listOut.textContent = JSON.stringify(data, null, 2);
+        })
+        .catch(function (err) {
+          listOut.textContent = 'ошибка: ' + (err && err.message ? err.message : err);
+        });
+    });
+  })();
+</script>
+{% endblock %}

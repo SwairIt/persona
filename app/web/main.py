@@ -349,6 +349,9 @@ from app.web.routes import (
     focus_whitelist as focus_whitelist_routes,
     shot_privacy_masks as shot_privacy_masks_routes,
     yearly_wrapped as yearly_wrapped_routes,
+    ai_reminders_ics as ai_reminders_ics_routes,
+    audit_log_rotation as audit_log_rotation_routes,
+    sketch_notes as sketch_notes_routes,
 )
 from app.workers import (
     get_controller,
@@ -398,7 +401,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.54.0",
+        version="1.55.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -709,6 +712,9 @@ def create_app() -> FastAPI:
     app.include_router(focus_whitelist_routes.router)
     app.include_router(shot_privacy_masks_routes.router)
     app.include_router(yearly_wrapped_routes.router)
+    app.include_router(ai_reminders_ics_routes.router)
+    app.include_router(audit_log_rotation_routes.router)
+    app.include_router(sketch_notes_routes.router)
     app.include_router(sticky_search_routes.router)
     app.include_router(audit_replay_routes.router)
     app.include_router(tag_gallery_routes.router)
@@ -889,6 +895,13 @@ async def _run_ai_reminders_worker(controller: object) -> None:
     await run_ai_reminders_worker()
 
 
+async def _run_audit_log_rotation_worker(controller: object) -> None:
+    """Adapter for the v1.55 nightly audit-log rotation + gzip archive worker."""
+    from app.workers.audit_log_rotation_worker import run_audit_log_rotation_worker  # noqa: PLC0415
+
+    await run_audit_log_rotation_worker()
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialise DB, start workers, and tear them down on shutdown."""
@@ -984,6 +997,10 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         asyncio.create_task(
             _run_ai_reminders_worker(controller),
             name="ai-reminders-worker",
+        ),
+        asyncio.create_task(
+            _run_audit_log_rotation_worker(controller),
+            name="audit-log-rotation-worker",
         ),
     ]
 

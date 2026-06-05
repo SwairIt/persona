@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Подписка на AI напоминания</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Календарь (Apple, Google, Outlook) сам опрашивает фид раз в несколько
+    часов и подтягивает новые напоминания. Когда вы нажмёте
+    <span class="text-zinc-300">Dismiss</span> или
+    <span class="text-zinc-300">Snooze</span> на
+    <a href="/reminders/ai" class="text-accent-400 hover:underline">/reminders/ai</a>,
+    изменения подтянутся в календарь автоматически.
+  </p>
+</div>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-6 max-w-2xl">
+  <h2 class="text-lg font-semibold mb-1">Ссылка на фид</h2>
+  <p class="text-zinc-500 text-sm mb-3">
+    Копируйте именно эту ссылку — она доступна только с локального хоста
+    (<code class="text-zinc-400">127.0.0.1</code> / <code class="text-zinc-400">::1</code>).
+    Для удалённого календаря пробросьте SSH-туннель.
+  </p>
+  <pre class="px-3 py-2 bg-ink-900 border border-ink-700 rounded text-xs font-mono text-zinc-200 whitespace-pre-wrap break-all">{{ feed_url }}</pre>
+</section>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-6 max-w-2xl mt-6">
+  <h2 class="text-lg font-semibold mb-3">Apple Calendar (macOS / iOS)</h2>
+  <ol class="text-sm text-zinc-300 space-y-2 list-decimal list-inside">
+    <li>
+      Самый быстрый путь — кликните по
+      <a href="{{ webcal_url }}" class="text-accent-400 hover:underline break-all">{{ webcal_url }}</a>.
+      Схема <code class="text-zinc-400">webcal://</code> сразу откроет окно
+      «Подписаться на календарь».
+    </li>
+    <li>
+      Или вручную: <span class="text-zinc-200">File &rarr; New Calendar Subscription</span>,
+      вставьте ссылку выше, нажмите <span class="text-zinc-200">Subscribe</span>.
+    </li>
+    <li>
+      Выберите частоту обновления (по умолчанию каждый час) и снимите галку
+      <span class="text-zinc-200">Remove: Alerts</span>, чтобы тревоги
+      <code class="text-zinc-400">warn</code> и <code class="text-zinc-400">action</code>
+      звенели как задумано.
+    </li>
+  </ol>
+</section>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-6 max-w-2xl mt-6">
+  <h2 class="text-lg font-semibold mb-3">Google Calendar</h2>
+  <ol class="text-sm text-zinc-300 space-y-2 list-decimal list-inside">
+    <li>
+      Откройте
+      <a href="https://calendar.google.com/calendar/u/0/r/settings/addbyurl"
+         class="text-accent-400 hover:underline" target="_blank" rel="noopener">
+        Settings &rarr; Add calendar &rarr; From URL
+      </a>.
+    </li>
+    <li>
+      Вставьте ссылку на фид и нажмите <span class="text-zinc-200">Add calendar</span>.
+    </li>
+    <li>
+      Помните: Google живёт в облаке, а фид — на
+      <code class="text-zinc-400">127.0.0.1</code>. Чтобы Google его увидел,
+      проксируйте Persona наружу (через SSH-туннель + публичный домен) и
+      используйте этот публичный URL.
+    </li>
+  </ol>
+</section>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-6 max-w-2xl mt-6">
+  <h2 class="text-lg font-semibold mb-3">Outlook (Microsoft 365 / Outlook.com)</h2>
+  <ol class="text-sm text-zinc-300 space-y-2 list-decimal list-inside">
+    <li>
+      В веб-интерфейсе: <span class="text-zinc-200">Add calendar &rarr;
+      Subscribe from web</span>.
+    </li>
+    <li>
+      Вставьте ссылку, задайте имя календаря (например,
+      <span class="text-zinc-200">Persona AI</span>) и выберите цвет.
+    </li>
+    <li>
+      Outlook, как и Google, тянет фид из облака — нужен публичный
+      reachable URL.
+    </li>
+  </ol>
+</section>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-6 max-w-2xl mt-6">
+  <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">
+    Что попадает в каждое событие
+  </h2>
+  <ul class="text-zinc-400 text-xs leading-relaxed list-disc pl-5 space-y-1">
+    <li>
+      <span class="text-zinc-200">Время</span> — <code class="text-zinc-400">due_at</code>
+      из <code class="text-zinc-400">ai_reminder</code>, длительность 30 минут по умолчанию.
+    </li>
+    <li>
+      <span class="text-zinc-200">Заголовок и описание</span> — <code class="text-zinc-400">title</code>
+      и <code class="text-zinc-400">body</code> подсказки.
+    </li>
+    <li>
+      <span class="text-zinc-200">Тревога (VALARM)</span> — за 30 минут для
+      <code class="text-zinc-400">action</code>, за 15 минут для
+      <code class="text-zinc-400">warn</code>, без тревоги для
+      <code class="text-zinc-400">info</code>.
+    </li>
+    <li>
+      <span class="text-zinc-200">UID</span> — <code class="text-zinc-400">persona-reminder-{id}@persona.local</code>,
+      стабилен между опросами, чтобы календарь не плодил дубли.
+    </li>
+  </ul>
+  <p class="text-zinc-500 text-xs mt-3">
+    Подсказки исчезают из фида, когда вы их Dismiss; Snooze сдвигает
+    <code class="text-zinc-400">due_at</code>, и календарь увидит новый
+    слот при следующем опросе.
+  </p>
+</section>
+{% endblock %}

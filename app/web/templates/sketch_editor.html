@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-start justify-between gap-4">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Sketch</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Quick freehand notes &mdash; draw with a stylus, trackpad, or mouse.
+      The canvas captures every stroke as an SVG path; nothing is rasterised,
+      so your scribbles stay crisp at any zoom. Saved sketches live alongside
+      your text notes on <a href="/sketches" class="text-accent-400 hover:underline">/sketches</a>.
+    </p>
+  </div>
+  <a href="/sketches"
+     class="shrink-0 text-xs px-3 py-2 rounded bg-ink-800 border border-ink-700 hover:border-accent-500 text-zinc-300">
+    all sketches
+  </a>
+</div>
+
+<div class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-4">
+  <div class="flex flex-wrap items-end gap-3 mb-3">
+    <label class="flex-1 min-w-[12rem]">
+      <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">Title</span>
+      <input id="sketch-title" type="text" maxlength="512"
+             placeholder="optional"
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
+    </label>
+    <label class="flex-1 min-w-[12rem]">
+      <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">Tags</span>
+      <input id="sketch-tags" type="text" maxlength="512"
+             placeholder="comma,separated"
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
+    </label>
+    <div class="flex items-end gap-2">
+      <label class="block">
+        <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">Stroke</span>
+        <input id="sketch-stroke" type="range" min="1" max="20" value="3"
+               class="w-32 align-middle">
+      </label>
+      <button type="button" id="sketch-clear"
+              class="px-3 py-2 rounded bg-ink-900 border border-ink-700 hover:border-rose-500 text-rose-300 text-xs">
+        clear
+      </button>
+      <button type="button" id="sketch-undo"
+              class="px-3 py-2 rounded bg-ink-900 border border-ink-700 hover:border-accent-500 text-zinc-200 text-xs">
+        undo
+      </button>
+      <button type="button" id="sketch-save"
+              class="px-5 py-2 rounded bg-accent-600 hover:bg-accent-500 text-sm font-medium transition">
+        save
+      </button>
+    </div>
+  </div>
+
+  <div id="sketch-status" class="text-xs text-zinc-500 mb-2" aria-live="polite">
+    Ready to draw &mdash; press and drag on the canvas below.
+  </div>
+
+  <div class="border border-ink-700 rounded overflow-hidden bg-zinc-100">
+    <svg id="sketch-canvas"
+         viewBox="0 0 1024 640"
+         width="100%"
+         style="touch-action: none; display: block; aspect-ratio: 1024 / 640;"
+         xmlns="http://www.w3.org/2000/svg">
+      <rect x="0" y="0" width="100%" height="100%" fill="#ffffff"></rect>
+    </svg>
+  </div>
+</div>
+
+<script>
+  // v1.48 — freehand sketch editor.
+  // Pointer events (pointerdown/move/up) are used over mouse events so a
+  // stylus and a touch screen both feed the same code path. Each drag
+  // accumulates points; on pointermove we re-write the active <path>'s
+  // ``d`` attribute with a fresh MQ... command string, then commit the
+  // path to history on pointerup. Save POSTs the full ``<svg>`` outer
+  // markup so the server stores exactly what the browser drew.
+  (function () {
+    var svg = document.getElementById('sketch-canvas');
+    var statusEl = document.getElementById('sketch-status');
+    var strokeInput = document.getElementById('sketch-stroke');
+    var titleInput = document.getElementById('sketch-title');
+    var tagsInput = document.getElementById('sketch-tags');
+    var clearBtn = document.getElementById('sketch-clear');
+    var undoBtn = document.getElementById('sketch-undo');
+    var saveBtn = document.getElementById('sketch-save');
+
+    var SVG_NS = 'http://www.w3.org/2000/svg';
+    var VIEWBOX_W = 1024;
+    var VIEWBOX_H = 640;
+
+    var drawing = false;
+    var activePath = null;
+    var points = [];
+
+    function localPoint(event) {
+      // Map a pointer event into the SVG's viewBox coordinate space so
+      // strokes drawn on a resized window line up with strokes drawn on
+      // the original-size window.
+      var rect = svg.getBoundingClientRect();
+      var x = (event.clientX - rect.left) * (VIEWBOX_W / rect.width);
+      var y = (event.clientY - rect.top) * (VIEWBOX_H / rect.height);
+      return { x: Math.round(x * 100) / 100, y: Math.round(y * 100) / 100 };
+    }
+
+    function pointsToPath(pts) {
+      if (pts.length === 0) { return ''; }
+      var parts = ['M', pts[0].x, pts[0].y];
+      for (var i = 1; i < pts.length; i++) {
+        parts.push('L', pts[i].x, pts[i].y);
+      }
+      return parts.join(' ');
+    }
+
+    function onPointerDown(event) {
+      if (event.button !== undefined && event.button !== 0) { return; }
+      drawing = true;
+      svg.setPointerCapture(event.pointerId);
+      var p = localPoint(event);
+      points = [p];
+      activePath = document.createElementNS(SVG_NS, 'path');
+      activePath.setAttribute('d', pointsToPath(points));
+      activePath.setAttribute('fill', 'none');
+      activePath.setAttribute('stroke', '#111827');
+      activePath.setAttribute('stroke-width', String(strokeInput.value));
+      activePath.setAttribute('stroke-linecap', 'round');
+      activePath.setAttribute('stroke-linejoin', 'round');
+      svg.appendChild(activePath);
+      statusEl.textContent = 'Drawing...';
+    }
+
+    function onPointerMove(event) {
+      if (!drawing || !activePath) { return; }
+      var p = localPoint(event);
+      points.push(p);
+      activePath.setAttribute('d', pointsToPath(points));
+    }
+
+    function onPointerUp(event) {
+      if (!drawing) { return; }
+      drawing = false;
+      try { svg.releasePointerCapture(event.pointerId); } catch (err) {
+        // Some browsers reject release on a cancelled pointer — ignore.
+      }
+      activePath = null;
+      points = [];
+      statusEl.textContent = 'Saved stroke. Keep drawing or hit save.';
+    }
+
+    svg.addEventListener('pointerdown', onPointerDown);
+    svg.addEventListener('pointermove', onPointerMove);
+    svg.addEventListener('pointerup', onPointerUp);
+    svg.addEventListener('pointercancel', onPointerUp);
+    svg.addEventListener('pointerleave', function (event) {
+      if (drawing) { onPointerUp(event); }
+    });
+
+    clearBtn.addEventListener('click', function () {
+      // Wipe every <path> but leave the background <rect> intact so the
+      // canvas keeps a white-paper look.
+      var paths = svg.querySelectorAll('path');
+      paths.forEach(function (node) { node.remove(); });
+      statusEl.textContent = 'Cleared.';
+    });
+
+    undoBtn.addEventListener('click', function () {
+      var paths = svg.querySelectorAll('path');
+      if (paths.length === 0) { return; }
+      paths[paths.length - 1].remove();
+      statusEl.textContent = 'Undid last stroke.';
+    });
+
+    saveBtn.addEventListener('click', function () {
+      var paths = svg.querySelectorAll('path');
+      if (paths.length === 0) {
+        statusEl.textContent = 'Nothing to save yet — draw something first.';
+        return;
+      }
+      saveBtn.disabled = true;
+      statusEl.textContent = 'Saving...';
+      var payload = {
+        title: titleInput.value || null,
+        svg_payload: svg.outerHTML,
+        width: VIEWBOX_W,
+        height: VIEWBOX_H,
+        tags: tagsInput.value || null
+      };
+      fetch('/api/sketches', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      }).then(function (response) {
+        if (!response.ok) { throw new Error('HTTP ' + response.status); }
+        return response.json();
+      }).then(function (data) {
+        statusEl.textContent = 'Saved as #' + data.id + '. Redirecting...';
+        window.location.href = '/sketch/' + data.id;
+      }).catch(function (err) {
+        statusEl.textContent = 'Save failed: ' + err.message;
+        saveBtn.disabled = false;
+      });
+    });
+  })();
+</script>
+{% endblock %}

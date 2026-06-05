@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-4 flex items-start justify-between gap-4">
+  <div class="min-w-0">
+    <h1 class="text-2xl font-bold tracking-tight truncate">
+      {{ sketch.title or 'Sketch #' ~ sketch.id }}
+    </h1>
+    <div class="text-xs text-zinc-500 font-mono mt-1">
+      {{ sketch.created_at }} &middot; {{ sketch.width }}&times;{{ sketch.height }}
+      {% if sketch.tags %}
+        &middot; <span class="text-accent-400">#{{ sketch.tags }}</span>
+      {% endif %}
+    </div>
+  </div>
+  <div class="shrink-0 flex gap-2">
+    <a href="/sketches"
+       class="text-xs px-3 py-2 rounded bg-ink-800 border border-ink-700 hover:border-accent-500 text-zinc-300">
+      all
+    </a>
+    <a href="/sketch"
+       class="text-xs px-3 py-2 rounded bg-accent-600 hover:bg-accent-500 text-white">
+      new
+    </a>
+    <button type="button"
+            id="sketch-delete"
+            data-sketch-id="{{ sketch.id }}"
+            class="text-xs px-3 py-2 rounded bg-rose-900/40 hover:bg-rose-900 text-rose-300">
+      delete
+    </button>
+  </div>
+</div>
+
+<div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+  <div class="bg-zinc-100 rounded overflow-hidden"
+       style="aspect-ratio: {{ sketch.width }} / {{ sketch.height }};">
+    <img src="/api/sketch/{{ sketch.id }}/render.svg"
+         alt="{{ sketch.title or 'Sketch #' ~ sketch.id }}"
+         class="w-full h-full object-contain">
+  </div>
+</div>
+
+<script>
+  // v1.48 — delete button hits the JSON endpoint and bounces to the
+  // list view. The DELETE handler is idempotent, so a double-click
+  // is safe.
+  (function () {
+    var btn = document.getElementById('sketch-delete');
+    if (!btn) { return; }
+    btn.addEventListener('click', function () {
+      if (!window.confirm('Delete this sketch?')) { return; }
+      btn.disabled = true;
+      var id = btn.getAttribute('data-sketch-id');
+      fetch('/api/sketches/' + id, { method: 'DELETE' })
+        .then(function (response) {
+          if (!response.ok) { throw new Error('HTTP ' + response.status); }
+          window.location.href = '/sketches';
+        })
+        .catch(function (err) {
+          btn.disabled = false;
+          window.alert('Delete failed: ' + err.message);
+        });
+    });
+  })();
+</script>
+{% endblock %}
