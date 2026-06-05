@@ -35,6 +35,8 @@ from app.dedup import compute_phash, find_or_create_dedup_group
 from app.focus import current_session as current_focus_session
 from app.focus_blocklist import is_blocked as is_focus_blocked
 from app.logging_setup import get_logger
+from app.privacy_mode import is_private_window as is_privacy_match
+from app.privacy_mode import record_skip as record_privacy_skip
 from app.settings import get_settings
 from app.storage.app_overrides import lookup_override
 from app.storage.db import get_connection
@@ -145,6 +147,40 @@ async def run_capture_loop(controller: CaptureController | None = None) -> None:
             log.debug("capture_loop.meeting_check_failed", error=str(exc))
             meeting_active = False
         if meeting_active:
+            sleep_for = live_interval or settings.capture_interval_seconds
+            try:
+                await asyncio.wait_for(
+                    ctrl.stop_event.wait(),
+                    timeout=sleep_for,
+                )
+            except TimeoutError:
+                continue
+            continue
+
+        # v1.40 — privacy-mode sentinel. Sample the active window once
+        # and, if it matches one of the hard-coded privacy patterns
+        # (Incognito, password manager, banking, ...), record a hashed
+        # skip event and short-circuit BEFORE ``_single_iteration``
+        # writes any metadata row. Stricter than the regex blocklist
+        # above: that path still logs the matched window title in the
+        # structlog stream, this path keeps only a truncated sha256.
+        # Failure modes never stop capture by design — a broken
+        # privacy probe must not silently halt the loop.
+        try:
+            privacy_window = await asyncio.to_thread(get_active_window)
+            matched, pattern = is_privacy_match(
+                privacy_window.app_name if privacy_window is not None else None,
+                privacy_window.title if privacy_window is not None else None,
+            )
+        except Exception as exc:
+            log.debug("capture_loop.privacy_check_failed", error=str(exc))
+            matched, pattern, privacy_window = False, None, None
+        if matched and pattern is not None:
+            await record_privacy_skip(
+                privacy_window.app_name if privacy_window is not None else None,
+                privacy_window.title if privacy_window is not None else None,
+                pattern,
+            )
             sleep_for = live_interval or settings.capture_interval_seconds
             try:
                 await asyncio.wait_for(

@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Privacy mode</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Когда активное окно совпадает с одним из защитных шаблонов (Chrome Incognito,
+    Firefox Private Browsing, KeePass, 1Password, Bitwarden, банковские интерфейсы),
+    capture-loop <strong>не сохраняет ничего</strong>: ни скриншот, ни строку метаданных,
+    ни OCR. Это строже, чем <a href="/settings/blocklist" class="text-accent-400 hover:underline">регекс-блоклист</a>
+    — там в логи попадает заголовок окна, здесь &mdash; только усечённый SHA-256.
+  </p>
+</div>
+
+<section class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <div class="text-xs uppercase tracking-widest text-zinc-500 mb-2">Сегодня</div>
+    <div class="text-3xl font-bold tabular-nums text-zinc-100">{{ today }}</div>
+    <div class="text-xs text-zinc-500 mt-1">тихих пропусков с полуночи</div>
+  </div>
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <div class="text-xs uppercase tracking-widest text-zinc-500 mb-2">7 дней</div>
+    <div class="text-3xl font-bold tabular-nums text-zinc-100">{{ last7d }}</div>
+    <div class="text-xs text-zinc-500 mt-1">пропусков за последнюю неделю</div>
+  </div>
+</section>
+
+{% if by_pattern %}
+  <section class="mb-8">
+    <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">Сработавшие шаблоны (7д)</h2>
+    <div class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-ink-900 text-zinc-500 text-xs uppercase tracking-wider">
+          <tr>
+            <th class="text-left py-2 px-4">Pattern</th>
+            <th class="text-right py-2 px-4 w-24">Count</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in by_pattern %}
+            <tr class="border-t border-ink-700">
+              <td class="py-2 px-4 font-mono text-zinc-200">{{ row.pattern or '—' }}</td>
+              <td class="py-2 px-4 text-right tabular-nums text-zinc-300">{{ row.count }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+{% else %}
+  <p class="text-zinc-500 text-sm mb-8">За неделю ничего не сработало — privacy mode молча сторожит, но никто к нему пока не подходил.</p>
+{% endif %}
+
+<section class="mb-8">
+  <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">Защитные шаблоны (read-only)</h2>
+  <p class="text-zinc-500 text-xs mb-3">
+    Список зашит в коде (<code>app/privacy_mode.py</code>, константа <code>PRIVACY_PATTERNS</code>).
+    Чтобы отключить функцию глобально &mdash; очистите кортеж и пересоберите. Тогглов в админке нет
+    сознательно: переключатель, до которого может дотянуться злоумышленник, обесценил бы режим.
+  </p>
+  <div class="flex flex-wrap gap-2">
+    {% for p in patterns %}
+      <span class="px-2.5 py-1 rounded bg-ink-900 border border-ink-700 font-mono text-xs text-zinc-300">{{ p }}</span>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="rounded-lg border border-ink-700 bg-ink-900/40 p-5 text-sm text-zinc-400">
+  <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-2">Что хранится</h2>
+  <p>
+    В таблицу <code>privacy_skip_event</code> пишется только: момент срабатывания,
+    название шаблона, имя приложения и первые 16 hex-символов SHA-256 от заголовка окна.
+    Сам заголовок не сохраняется &mdash; даже усечённый «raw»-заголовок банковского окна
+    мог бы выдать номера счетов или имена контрагентов. Хеша достаточно, чтобы доказать
+    факт пропуска и узнать повторяющиеся контексты, но недостаточно, чтобы восстановить
+    исходный текст.
+  </p>
+</section>
+{% endblock %}

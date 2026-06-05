@@ -1,0 +1,317 @@
+{% extends "base.html" %}
+
+{#
+  s3_sync_settings.html — S3-compatible cross-machine sync settings.
+
+  Persisted kv rows:
+    * s3_sync_enabled        — checkbox
+    * s3_sync_hour_local     — number 0..23
+    * s3_sync_bucket         — text
+    * s3_sync_prefix         — text (no leading/trailing slashes)
+    * s3_sync_access_key     — text
+    * s3_sync_secret_key     — password (masked, leave blank to keep)
+    * s3_sync_endpoint_url   — URL (R2/MinIO custom endpoint)
+    * s3_sync_passphrase     — password (masked, leave blank to keep)
+
+  Plus a "Run now" button that POSTs /api/s3-sync/run-now and renders
+  the JSON result inline.
+#}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">S3-синхронизация</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Раз в сутки Persona заливает зашифрованный snapshot SQLite и
+    свежие миниатюры в S3-совместимый bucket (AWS S3, Cloudflare R2,
+    Backblaze B2, MinIO). Синхронизация — <strong>write-only</strong>,
+    Persona никогда ничего не читает обратно. Все файлы шифруются
+    локально (Fernet, ключ выводится из вашей passphrase) до того,
+    как покинут машину.
+  </p>
+</div>
+
+<div class="rounded-lg border border-amber-700/40 bg-amber-900/20 text-amber-200 px-4 py-3 mb-6 text-xs">
+  <strong>Зависимости:</strong> для работы нужны Python-пакеты
+  <code class="font-mono">boto3</code> и
+  <code class="font-mono">cryptography</code>. В будущем релизе они
+  переедут в опциональный extra <code class="font-mono">[s3]</code> —
+  пока установите их вручную (<code class="font-mono">uv add boto3 cryptography</code>),
+  иначе вкладка молча отдаст <code class="font-mono">status=missing_dep</code>.
+</div>
+
+<form action="/settings/s3-sync" method="post"
+      class="space-y-6 max-w-2xl">
+
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
+    <h2 class="text-lg font-semibold mb-4">Расписание</h2>
+
+    <label class="flex items-start gap-3 cursor-pointer mb-4">
+      <input type="checkbox"
+             name="enabled"
+             value="1"
+             {% if enabled %}checked{% endif %}
+             class="mt-1 h-4 w-4 rounded border-ink-700 bg-ink-900 accent-accent-500">
+      <span>
+        <span class="block text-sm text-zinc-200 font-medium">Включить ночную синхронизацию</span>
+        <span class="block text-xs text-zinc-500 mt-0.5">
+          Воркер просыпается раз в 30 минут, и в час локального
+          времени, заданный ниже, заливает в bucket свежий снэпшот.
+          Когда выключено — каждый тик логирует
+          <code class="font-mono">disabled</code> и засыпает обратно.
+        </span>
+      </span>
+    </label>
+
+    <div>
+      <label for="hour" class="block text-sm text-zinc-300 mb-1.5">
+        Час локального запуска (0–23):
+      </label>
+      <input id="hour"
+             type="number"
+             name="hour"
+             value="{{ hour }}"
+             min="{{ hour_min }}"
+             max="{{ hour_max }}"
+             step="1"
+             class="w-24 px-3 py-2 bg-ink-900 border border-ink-700 rounded-lg
+                    focus:outline-none focus:border-accent-500 font-mono text-sm">
+      <p class="text-xs text-zinc-500 mt-1.5">
+        По умолчанию <code class="font-mono">3</code> (3 часа ночи) —
+        вне пиков захвата экранов. Выберите час, когда машина включена
+        и интернет стабилен.
+      </p>
+    </div>
+  </section>
+
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 space-y-4">
+    <h2 class="text-lg font-semibold">Bucket</h2>
+
+    <div>
+      <label for="bucket" class="block text-sm text-zinc-300 mb-1.5">Имя bucket</label>
+      <input id="bucket"
+             type="text"
+             name="bucket"
+             value="{{ bucket }}"
+             placeholder="persona-backup"
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded-lg
+                    focus:outline-none focus:border-accent-500 font-mono text-sm">
+    </div>
+
+    <div>
+      <label for="prefix" class="block text-sm text-zinc-300 mb-1.5">Префикс (опционально)</label>
+      <input id="prefix"
+             type="text"
+             name="prefix"
+             value="{{ prefix }}"
+             placeholder="laptop-01"
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded-lg
+                    focus:outline-none focus:border-accent-500 font-mono text-sm">
+      <p class="text-xs text-zinc-500 mt-1.5">
+        Подпапка внутри bucket — удобно для нескольких машин, которые
+        пишут в один общий bucket (например,
+        <code class="font-mono">laptop-01/</code> и
+        <code class="font-mono">desktop/</code>). Без слэшей —
+        Persona добавит их сама.
+      </p>
+    </div>
+
+    <div>
+      <label for="endpoint_url" class="block text-sm text-zinc-300 mb-1.5">
+        Endpoint URL (для R2 / MinIO / B2 — пусто для AWS)
+      </label>
+      <input id="endpoint_url"
+             type="text"
+             name="endpoint_url"
+             value="{{ endpoint_url }}"
+             placeholder="https://<account>.r2.cloudflarestorage.com"
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded-lg
+                    focus:outline-none focus:border-accent-500 font-mono text-sm">
+      <p class="text-xs text-zinc-500 mt-1.5">
+        Для AWS S3 оставьте пустым — boto3 сам подберёт регион.
+        Для Cloudflare R2 / Backblaze B2 / MinIO — вставьте URL
+        endpoint'а из их UI.
+      </p>
+    </div>
+  </section>
+
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 space-y-4">
+    <h2 class="text-lg font-semibold">Учётные данные</h2>
+
+    <div>
+      <label for="access_key" class="block text-sm text-zinc-300 mb-1.5">Access key ID</label>
+      <input id="access_key"
+             type="text"
+             name="access_key"
+             value="{{ access_key }}"
+             autocomplete="off"
+             placeholder="AKIA…"
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded-lg
+                    focus:outline-none focus:border-accent-500 font-mono text-sm">
+    </div>
+
+    <div>
+      <label for="secret_key" class="block text-sm text-zinc-300 mb-1.5">Secret access key</label>
+      <input id="secret_key"
+             type="password"
+             name="secret_key"
+             value=""
+             autocomplete="new-password"
+             placeholder="{% if has_secret_key %}●●●●●● — оставьте пустым, чтобы не менять{% else %}секретный ключ от bucket{% endif %}"
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded-lg
+                    focus:outline-none focus:border-accent-500 font-mono text-sm">
+      <p class="text-xs text-zinc-500 mt-1.5">
+        Persona никогда не возвращает сохранённый секрет обратно в
+        форму. Пустое поле = «не менять». Чтобы стереть, очистите
+        bucket-имя — sync отключится по
+        <code class="font-mono">missing_config</code>.
+      </p>
+    </div>
+
+    <div>
+      <label for="passphrase" class="block text-sm text-zinc-300 mb-1.5">
+        Passphrase для шифрования (Fernet)
+      </label>
+      <input id="passphrase"
+             type="password"
+             name="passphrase"
+             value=""
+             autocomplete="new-password"
+             placeholder="{% if has_passphrase %}●●●●●● — оставьте пустым, чтобы не менять{% else %}минимум 12 символов{% endif %}"
+             class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded-lg
+                    focus:outline-none focus:border-accent-500 font-mono text-sm">
+      <p class="text-xs text-zinc-500 mt-1.5">
+        Запишите её отдельно — без неё восстановить snapshot из bucket
+        невозможно. Persona никогда не отправляет её наружу и не
+        восстанавливает по запросу.
+      </p>
+    </div>
+  </section>
+
+  <div class="flex items-center gap-3 pt-2">
+    <button type="submit"
+            class="px-5 py-2.5 bg-accent-600 hover:bg-accent-500 rounded-lg font-medium transition">
+      Сохранить
+    </button>
+    <a href="/settings"
+       class="px-4 py-2.5 rounded-lg border border-ink-700 hover:border-zinc-500 text-zinc-400 transition text-sm">
+      Назад к настройкам
+    </a>
+  </div>
+</form>
+
+<section class="mt-8 rounded-lg border border-ink-700 bg-ink-800 p-5 max-w-2xl">
+  <h2 class="text-lg font-semibold mb-3">Запустить синхронизацию сейчас</h2>
+  <p class="text-xs text-zinc-500 mb-3">
+    Использует уже сохранённые поля. Сохраните форму перед нажатием,
+    иначе будут использованы предыдущие значения.
+  </p>
+  <button type="button"
+          id="s3-run-now"
+          class="px-4 py-2 border border-ink-700 hover:border-accent-500 rounded text-sm transition">
+    Run now
+  </button>
+
+  <div id="s3-result"
+       class="mt-4 hidden rounded-lg border px-4 py-3 text-sm font-mono whitespace-pre-wrap"></div>
+</section>
+
+<section class="mt-8 rounded-lg border border-ink-700 bg-ink-800 p-5 max-w-2xl text-sm text-zinc-400 space-y-2">
+  <h2 class="text-lg font-semibold text-zinc-200">Где взять bucket</h2>
+  <ul class="list-disc list-inside space-y-1">
+    <li>
+      <strong>Cloudflare R2</strong> — бесплатный egress, 10 GB free tier.
+      <a href="https://developers.cloudflare.com/r2/api/s3/tokens/"
+         target="_blank"
+         rel="noopener"
+         class="text-accent-400 hover:underline">Гайд по R2 API tokens</a>.
+    </li>
+    <li>
+      <strong>Backblaze B2</strong> — $0.005/GB/мес.
+      <a href="https://www.backblaze.com/docs/cloud-storage-s3-compatible-api"
+         target="_blank"
+         rel="noopener"
+         class="text-accent-400 hover:underline">Документация S3-совместимого API</a>.
+    </li>
+    <li>
+      <strong>MinIO</strong> — self-hosted на VPS, нулевая стоимость передачи
+      между домашними машинами.
+      <a href="https://min.io/docs/minio/linux/operations/installation.html"
+         target="_blank"
+         rel="noopener"
+         class="text-accent-400 hover:underline">Установка</a>.
+    </li>
+    <li>
+      <strong>AWS S3</strong> — оставьте поле endpoint пустым;
+      <a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_access-keys.html"
+         target="_blank"
+         rel="noopener"
+         class="text-accent-400 hover:underline">создайте IAM-пользователя</a>
+      с правом <code class="font-mono">s3:PutObject</code> только на ваш bucket.
+    </li>
+  </ul>
+</section>
+
+<script>
+  (function () {
+    const btn = document.getElementById('s3-run-now');
+    const out = document.getElementById('s3-result');
+    if (!btn || !out) {
+      return;
+    }
+    function paint(kind, text) {
+      out.classList.remove('hidden',
+        'border-emerald-700/40', 'bg-emerald-900/20', 'text-emerald-200',
+        'border-rose-700/40',    'bg-rose-900/20',    'text-rose-200',
+        'border-amber-700/40',   'bg-amber-900/20',   'text-amber-200');
+      const palette = {
+        ok:   ['border-emerald-700/40', 'bg-emerald-900/20', 'text-emerald-200'],
+        bad:  ['border-rose-700/40',    'bg-rose-900/20',    'text-rose-200'],
+        warn: ['border-amber-700/40',   'bg-amber-900/20',   'text-amber-200']
+      }[kind];
+      palette.forEach(function (cls) { out.classList.add(cls); });
+      out.textContent = text;
+    }
+    function formatBytes(n) {
+      if (!n || n < 1024) return n + ' B';
+      const units = ['KB', 'MB', 'GB'];
+      let v = n / 1024;
+      let i = 0;
+      while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+      return v.toFixed(2) + ' ' + units[i];
+    }
+    btn.addEventListener('click', async function () {
+      btn.disabled = true;
+      const original = btn.textContent;
+      btn.textContent = 'Запускаю…';
+      paint('warn', 'Заливка в bucket…');
+      try {
+        const r = await fetch('/api/s3-sync/run-now', { method: 'POST' });
+        let body = null;
+        try { body = await r.json(); } catch (_e) { body = null; }
+        if (r.ok && body && body.status === 'ok') {
+          const lines = [
+            'Статус: ok',
+            'SQLite-снэпшотов залито: ' + body.db_uploaded,
+            'Миниатюр залито: ' + body.thumbnails_uploaded,
+            'Передано: ' + formatBytes(body.bytes_total)
+          ];
+          paint('ok', lines.join('\n'));
+        } else if (body && body.status === 'missing_dep') {
+          paint('warn', 'Не установлены boto3 / cryptography — установите их и повторите.');
+        } else if (body && body.status === 'missing_config') {
+          paint('warn', 'Не заполнены обязательные поля (bucket, access key, secret key, passphrase). Сохраните форму и повторите.');
+        } else if (body && body.status === 'error') {
+          paint('bad', 'Ошибка: ' + (body.error || 'неизвестная ошибка'));
+        } else {
+          paint('bad', 'HTTP ' + r.status + ' — неожиданный ответ');
+        }
+      } catch (e) {
+        paint('bad', 'Сеть: ' + (e && e.message ? e.message : e));
+      } finally {
+        btn.disabled = false;
+        btn.textContent = original;
+      }
+    });
+  })();
+</script>
+{% endblock %}

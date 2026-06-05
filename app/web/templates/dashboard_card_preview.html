@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-end justify-between flex-wrap gap-3">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight flex items-center gap-3">
+      <span class="text-accent-400">▣</span> Dashboard share card
+    </h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      A single 1200×630 PNG snapshot of {{ share_label }}'s stats — paste it
+      straight into Telegram, Slack or iMessage. No unfurl required.
+    </p>
+  </div>
+  <form method="get" action="/dashboard/card"
+        class="flex items-center gap-2 text-sm">
+    <label for="day" class="text-zinc-400">Day</label>
+    <input id="day" name="day" type="date" value="{{ day }}"
+           class="rounded-md bg-ink-800 border border-ink-700 px-2 py-1 text-zinc-100" />
+    <button type="submit"
+            class="rounded-md bg-accent-600/20 text-accent-300 border border-accent-600/40 px-3 py-1 hover:bg-accent-600/30">
+      Render
+    </button>
+  </form>
+</div>
+
+<div class="rounded-lg border border-ink-700 bg-ink-900 p-4 mb-4">
+  <img src="{{ png_url }}"
+       width="{{ card_width }}"
+       height="{{ card_height }}"
+       alt="Persona dashboard card for {{ share_label }}"
+       class="max-w-full h-auto rounded-md shadow-lg" />
+</div>
+
+<div class="flex items-center gap-3 flex-wrap">
+  <button type="button"
+          id="persona-copy-card-url"
+          data-card-url="{{ png_url }}"
+          class="rounded-md bg-accent-600 text-white px-4 py-2 text-sm font-semibold hover:bg-accent-500">
+    Copy share URL
+  </button>
+  <a href="{{ png_url }}"
+     download
+     class="rounded-md border border-ink-700 px-4 py-2 text-sm text-zinc-300 hover:bg-ink-800">
+    Download PNG
+  </a>
+  <span id="persona-copy-card-status"
+        class="text-xs text-zinc-500"
+        role="status"
+        aria-live="polite"></span>
+</div>
+
+<p class="text-xs text-zinc-600 mt-6">
+  The URL is relative; prepend your Persona host to share off-device.
+  Cached for 60 s, so a freshly-captured shot may need a moment to land.
+</p>
+
+<script>
+  // v1 — minimal copy-to-clipboard helper. Uses the async Clipboard API
+  // when available (HTTPS / localhost), falls back to a hidden textarea +
+  // execCommand for legacy contexts so plain-http LAN deployments still
+  // work. No external deps; runs once on DOMContentLoaded.
+  (function () {
+    'use strict';
+    function ready(fn) {
+      if (document.readyState !== 'loading') { fn(); return; }
+      document.addEventListener('DOMContentLoaded', fn);
+    }
+    ready(function () {
+      var btn = document.getElementById('persona-copy-card-url');
+      var status = document.getElementById('persona-copy-card-status');
+      if (!btn || !status) { return; }
+      btn.addEventListener('click', function () {
+        var rel = btn.getAttribute('data-card-url') || '';
+        var abs = window.location.origin + rel;
+        var done = function (ok) {
+          status.textContent = ok ? 'Copied ' + abs : 'Copy failed — select the URL manually';
+          setTimeout(function () { status.textContent = ''; }, 4000);
+        };
+        if (navigator.clipboard && window.isSecureContext) {
+          navigator.clipboard.writeText(abs).then(
+            function () { done(true); },
+            function () { done(false); }
+          );
+          return;
+        }
+        try {
+          var ta = document.createElement('textarea');
+          ta.value = abs;
+          ta.setAttribute('readonly', '');
+          ta.style.position = 'absolute';
+          ta.style.left = '-9999px';
+          document.body.appendChild(ta);
+          ta.select();
+          var ok = document.execCommand('copy');
+          document.body.removeChild(ta);
+          done(ok);
+        } catch (err) {
+          done(false);
+        }
+      });
+    });
+  })();
+</script>
+{% endblock %}

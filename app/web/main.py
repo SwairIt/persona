@@ -311,6 +311,9 @@ from app.web.routes import (
     metrics_export as metrics_export_routes,
     shot_reactions as shot_reactions_routes,
     long_reads as long_reads_routes,
+    privacy_mode_admin as privacy_mode_admin_routes,
+    s3_sync_settings as s3_sync_settings_routes,
+    dashboard_card_png as dashboard_card_png_routes,
 )
 from app.workers import (
     get_controller,
@@ -360,7 +363,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.41.0",
+        version="1.42.0",
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,
@@ -633,6 +636,9 @@ def create_app() -> FastAPI:
     app.include_router(metrics_export_routes.router)
     app.include_router(shot_reactions_routes.router)
     app.include_router(long_reads_routes.router)
+    app.include_router(privacy_mode_admin_routes.router)
+    app.include_router(s3_sync_settings_routes.router)
+    app.include_router(dashboard_card_png_routes.router)
     app.include_router(sticky_search_routes.router)
     app.include_router(audit_replay_routes.router)
     app.include_router(tag_gallery_routes.router)
@@ -771,6 +777,13 @@ async def _run_long_read_worker(controller: object) -> None:
     await run_long_read_worker()
 
 
+async def _run_s3_sync_worker(controller: object) -> None:
+    """Adapter for the v1.42 nightly S3-compatible sync worker."""
+    from app.workers.s3_sync_worker import run_s3_sync_worker  # noqa: PLC0415
+
+    await run_s3_sync_worker()
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialise DB, start workers, and tear them down on shutdown."""
@@ -842,6 +855,10 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         asyncio.create_task(
             _run_long_read_worker(controller),
             name="long-read-worker",
+        ),
+        asyncio.create_task(
+            _run_s3_sync_worker(controller),
+            name="s3-sync-worker",
         ),
     ]
 
