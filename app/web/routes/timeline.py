@@ -45,21 +45,21 @@ async def home(
     date: str | None = Query(default=None),
     app: str | None = Query(default=None),
     sort_by: str = Query(default=_DEFAULT_SORT),
-    full: int = Query(default=0),
+    # v1.66 — ``full`` оставлен для back-compat (старые bookmarks/share-link
+    # могли содержать ?full=1 чтобы opt-IN в полный layout). Семантически
+    # уже no-op потому что mobile-redirect выключен.
+    full: int = Query(default=0),  # noqa: ARG001
 ) -> HTMLResponse | RedirectResponse:
     """Render the main timeline.
 
-    v1.30 — phone-UA shortcut: when the User-Agent looks like a mobile
-    browser AND the user did not explicitly request ``?full=1``, redirect
-    to /m (the dedicated compact view). Desktop UAs see the full timeline
-    as before. ``?full=1`` lets a phone user opt INTO the full layout.
+    v1.66 — phone-UA auto-redirect к /m выключен. Изначально (v1.30) iPhone
+    пользователей тихо бросало на text-only огрызок с одним поисковым полем,
+    что выглядело как сломанный сайт. С v1.66 PWA-сетап (180/192/512 иконки,
+    safe-area, manifest shortcuts, viewport-fit=cover) делает полный
+    timeline отлично работающим на iPhone. /m остаётся доступным как
+    осознанный choice — ссылка живёт в hamburger drawer и в footer /timeline,
+    но больше не подменяет main flow.
     """
-    if not date and not app and full != 1:
-        ua = (request.headers.get("user-agent") or "").lower()
-        mobile_markers = ("iphone", "ipod", "android", "mobile safari", "fennec")
-        if any(m in ua for m in mobile_markers):
-            return RedirectResponse(url="/m", status_code=303)
-
     target_day = _parse_date(date)
     since, until = _day_bounds(target_day)
     sort_key = _coerce_sort(sort_by)

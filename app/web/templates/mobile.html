@@ -2,8 +2,13 @@
 <html lang="en" class="dark">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>{{ title }}</title>
+  <link rel="manifest" href="/static/manifest.json">
+  <link rel="apple-touch-icon" href="/static/icon-180.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#6366f1">
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="/static/css/app.css">
   <script>
@@ -14,29 +19,61 @@
   </script>
 </head>
 <body class="bg-ink-950 text-zinc-100 min-h-screen p-4 font-sans antialiased">
-  <header class="mb-6">
+  <header class="mb-4">
     <div class="flex items-center justify-between">
-      <h1 class="text-xl font-bold tracking-tight">Persona <span class="text-zinc-500 text-xs font-mono ml-1">mobile</span></h1>
-      <a href="/" class="text-accent-400 text-xs">desktop →</a>
+      <h1 class="text-xl font-bold tracking-tight">Persona <span class="text-zinc-500 text-xs font-mono ml-1">m</span></h1>
+      <a href="/" class="text-accent-400 text-xs">full site →</a>
     </div>
   </header>
 
-  <form action="/search" method="get" class="mb-6 flex gap-2">
-    <input type="text" name="q" placeholder="search…"
-           class="flex-1 px-3 py-2 bg-ink-800 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
-    <button type="submit" class="px-4 py-2 bg-accent-600 rounded text-sm">Go</button>
+  <form action="/search" method="get" class="mb-5 flex gap-2">
+    <input type="search" name="q" placeholder="search…" autocomplete="off"
+           class="flex-1 px-3 py-3 bg-ink-800 border border-ink-700 rounded text-base focus:outline-none focus:border-accent-500">
+    <button type="submit" class="px-4 py-3 bg-accent-600 rounded text-sm font-semibold">Go</button>
   </form>
 
+  {# v1.66 — mobile hub: компактные тапы на ключевые pages. Раньше /m был
+     ТОЛЬКО поиск + сегодня, и iPhone redirect делал из этого "сломанный
+     сайт". Теперь тут проложены ссылки на /now, /ask, /quick-actions,
+     /memory/replay, /wrapped, /pinboard — основной набор того что юзер
+     реально тыкает с телефона. #}
+  <nav class="grid grid-cols-3 gap-2 mb-5">
+    <a href="/now" class="flex flex-col items-center gap-1 rounded-lg bg-ink-800 border border-ink-700 p-3 text-center hover:border-accent-500 transition">
+      <span class="text-2xl leading-none">●</span>
+      <span class="text-xs text-zinc-300">Now</span>
+    </a>
+    <a href="/ask" class="flex flex-col items-center gap-1 rounded-lg bg-ink-800 border border-ink-700 p-3 text-center hover:border-accent-500 transition">
+      <span class="text-2xl leading-none">?</span>
+      <span class="text-xs text-zinc-300">Ask</span>
+    </a>
+    <a href="/quick-actions" class="flex flex-col items-center gap-1 rounded-lg bg-ink-800 border border-ink-700 p-3 text-center hover:border-accent-500 transition">
+      <span class="text-2xl leading-none">+</span>
+      <span class="text-xs text-zinc-300">Quick</span>
+    </a>
+    <a href="/memory/replay" class="flex flex-col items-center gap-1 rounded-lg bg-ink-800 border border-ink-700 p-3 text-center hover:border-accent-500 transition">
+      <span class="text-2xl leading-none">↺</span>
+      <span class="text-xs text-zinc-300">Replay</span>
+    </a>
+    <a href="/wrapped" class="flex flex-col items-center gap-1 rounded-lg bg-ink-800 border border-ink-700 p-3 text-center hover:border-accent-500 transition">
+      <span class="text-2xl leading-none">★</span>
+      <span class="text-xs text-zinc-300">Wrapped</span>
+    </a>
+    <a href="/pinboard" class="flex flex-col items-center gap-1 rounded-lg bg-ink-800 border border-ink-700 p-3 text-center hover:border-accent-500 transition">
+      <span class="text-2xl leading-none">📌</span>
+      <span class="text-xs text-zinc-300">Pins</span>
+    </a>
+  </nav>
+
   {% if digest %}
-    <section class="mb-6 rounded-lg border border-ink-700 bg-ink-800 p-3">
+    <section class="mb-5 rounded-lg border border-ink-700 bg-ink-800 p-3">
       <div class="text-xs uppercase tracking-widest text-zinc-500 mb-2">Yesterday's digest · {{ digest.day }}</div>
-      <p class="text-sm text-zinc-200 leading-relaxed whitespace-pre-wrap line-clamp-2">{{ digest.body }}</p>
+      <p class="text-sm text-zinc-200 leading-relaxed whitespace-pre-wrap line-clamp-3">{{ digest.body }}</p>
       <a href="/digest/daily/{{ digest.day }}" class="text-accent-400 text-xs mt-2 inline-block">read more →</a>
     </section>
   {% endif %}
 
   {% if notes %}
-    <section class="mb-6">
+    <section class="mb-5">
       <h2 class="text-xs uppercase tracking-widest text-zinc-500 mb-2">Recent notes</h2>
       <div class="space-y-2">
         {% for note in notes %}
@@ -53,8 +90,8 @@
   {% endif %}
 
   {% if latest %}
-    <section>
-      <h2 class="text-xs uppercase tracking-widest text-zinc-500 mb-2">Today</h2>
+    <section class="pb-8">
+      <h2 class="text-xs uppercase tracking-widest text-zinc-500 mb-2">Today · {{ latest|length }}</h2>
       <div class="space-y-1.5">
         {% for shot in latest %}
           <a href="/screenshot/{{ shot.id }}" class="block rounded bg-ink-800 border border-ink-700 p-3">
