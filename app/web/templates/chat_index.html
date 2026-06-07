@@ -380,8 +380,26 @@
         this._startThinkingClock();
         this.$nextTick(() => { this.scrollToBottom(); this.autosize(); });
 
+        // T22.3 — SSE streaming. Cold-start vision models on 4GB VRAM
+        // take 60-120 sec before the first token; devtunnel kills any
+        // request that has 60+ sec of silence. With SSE the server
+        // streams chunks as Ollama produces them, no timeout.
+        const assistantPlaceholder = {
+          id: Date.now() + 3,
+          session_id: this.sessionId,
+          role: 'assistant',
+          content: '',
+          model_used: null,
+          created_at: new Date().toISOString(),
+          elapsed_ms: null,
+          input_tokens: null,
+          output_tokens: null,
+        };
+        this.messages.push(assistantPlaceholder);
+        const assistantIdx = this.messages.length - 1;
+
         try {
-          const r = await fetch(`/api/chat/sessions/${this.sessionId}/send`, {
+          const r = await fetch(`/api/chat/sessions/${this.sessionId}/send-stream`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -389,23 +407,51 @@
               image_data_url: image || null,
             }),
           });
-          if (!r.ok) {
-            const detail = await r.json().catch(() => ({}));
-            this.messages.push({
-              id: Date.now() + 1,
-              session_id: this.sessionId,
-              role: 'system',
-              content: 'Ошибка: ' + (detail.detail || r.status),
-              model_used: null,
-              created_at: new Date().toISOString(),
-            });
-          } else {
-            const data = await r.json();
-            this.messages.push(data.assistant);
+          if (!r.ok || !r.body) {
+            throw new Error('HTTP ' + r.status);
+          }
+          const reader = r.body.getReader();
+          const decoder = new TextDecoder();
+          let buf = '';
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buf += decoder.decode(value, { stream: true });
+            // SSE frames separated by \n\n.
+            const frames = buf.split('\n\n');
+            buf = frames.pop() || '';
+            for (const frame of frames) {
+              const line = frame.split('\n').find(l => l.startsWith('data: '));
+              if (!line) continue;
+              try {
+                const evt = JSON.parse(line.slice(6));
+                if (evt.type === 'delta') {
+                  this.messages[assistantIdx].content += evt.text;
+                  this.$nextTick(() => this.scrollToBottom());
+                } else if (evt.type === 'done') {
+                  this.messages[assistantIdx].elapsed_ms = evt.elapsed_ms;
+                  this.messages[assistantIdx].input_tokens = evt.input_tokens;
+                  this.messages[assistantIdx].output_tokens = evt.output_tokens;
+                  this.messages[assistantIdx].model_used = evt.model_used;
+                  if (evt.assistant_id) this.messages[assistantIdx].id = evt.assistant_id;
+                } else if (evt.type === 'error') {
+                  this.messages.splice(assistantIdx, 1);
+                  this.messages.push({
+                    id: Date.now() + 4,
+                    session_id: this.sessionId,
+                    role: 'system',
+                    content: 'Ошибка LLM: ' + evt.detail,
+                    model_used: null,
+                    created_at: new Date().toISOString(),
+                  });
+                }
+              } catch (parseErr) { /* skip malformed frame */ }
+            }
           }
         } catch (e) {
+          this.messages.splice(assistantIdx, 1);
           this.messages.push({
-            id: Date.now() + 2,
+            id: Date.now() + 5,
             session_id: this.sessionId,
             role: 'system',
             content: 'Сеть отвалилась: ' + e,

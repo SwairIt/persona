@@ -16,7 +16,7 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 
 from app.auth import current_user_required
 from app.auth.sessions import SessionRecord
@@ -280,6 +280,151 @@ async def api_send_message(
             "input_tokens": in_tokens,
             "output_tokens": out_tokens,
         }
+    )
+
+
+@router.post("/api/chat/sessions/{session_id}/send-stream", response_model=None)
+async def api_send_stream(
+    request: Request,
+    session_id: int,
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+    body: Annotated[dict[str, Any], Body(default_factory=dict)],
+) -> StreamingResponse:
+    """T22.3 (2026-06-08) — SSE-streaming version of /send.
+
+    Why: devtunnel proxy times out single requests after 60s. Cold-start
+    of a vision model can take 90+ sec on weak GPUs, so the user saw
+    Error 504. With SSE the connection stays alive as tokens dribble
+    in, no timeout, and the UI shows the response incrementally.
+
+    Frame format (SSE):
+        data: {"type": "delta", "text": "..."}
+        data: {"type": "done", "elapsed_ms": 12345, "input_tokens": 30,
+               "output_tokens": 200, "model_used": "ollama",
+               "assistant_id": 42}
+        data: {"type": "error", "detail": "..."}
+    """
+    import asyncio  # noqa: PLC0415
+    import json
+    import time
+
+    thread = await get_session(session["user_id"], session_id)
+    if thread is None:
+        raise HTTPException(status_code=404, detail="chat session not found")
+
+    question = (
+        str(body.get("question") or "").strip() if isinstance(body, dict) else ""
+    )
+    image_data_url = (
+        str(body.get("image_data_url") or "") or None
+        if isinstance(body, dict)
+        else None
+    )
+    if not question and not image_data_url:
+        raise HTTPException(status_code=400, detail="question or image required")
+    if not question:
+        question = "Опиши прикреплённую картинку."
+
+    # Persist user turn first.
+    await append_message(session_id, "user", question)
+    await touch_session(session["user_id"], session_id)
+
+    # Build history & system prompt.
+    history = await build_history_for_llm(session_id, max_turns=50)
+    if history and history[-1]["role"] == "user":
+        history = history[:-1]
+    transcript = "\n".join(
+        f"[{turn['role']}] {turn['content']}" for turn in history
+    )
+    system_with_history = (
+        f"{_SYSTEM_PROMPT_RU}\n\nПредыдущие сообщения (для контекста):\n{transcript}"
+        if transcript else _SYSTEM_PROMPT_RU
+    )
+
+    async def event_stream() -> Any:
+        nonlocal question
+
+        try:
+            client = make_client(kind="chat_stream")
+        except LLMNotConfigured as exc:
+            yield f"data: {json.dumps({'type': 'error', 'detail': str(exc)})}\n\n"
+            await append_message(
+                session_id,
+                "system",
+                "LLM не настроен. Открой /settings/llm и выбери провайдера.",
+            )
+            return
+
+        t_start = time.perf_counter()
+        chunks: list[str] = []
+        completion_req = CompletionRequest(
+            system=system_with_history,
+            user=question,
+            temperature=0.7,
+            max_tokens=1024,
+            image_data_url=image_data_url,
+        )
+
+        # First yield primes the SSE connection so the browser/proxy sees
+        # bytes flowing within the first second — no 504, even if the
+        # model takes 90 sec to produce its first token.
+        yield "data: {\"type\":\"meta\",\"started\":true}\n\n"
+
+        try:
+            async for delta in client.stream(completion_req):
+                if not delta:
+                    continue
+                chunks.append(delta)
+                yield f"data: {json.dumps({'type': 'delta', 'text': delta})}\n\n"
+        except asyncio.CancelledError:
+            log.info("chat.stream.cancelled", session_id=session_id)
+            raise
+        except Exception as exc:
+            log.warning("chat.stream.failed", error=str(exc))
+            err = f"Ошибка LLM: {exc}"
+            yield f"data: {json.dumps({'type': 'error', 'detail': str(exc)})}\n\n"
+            await append_message(session_id, "system", err)
+            return
+
+        full = "".join(chunks).strip() or "(пустой ответ от модели)"
+        elapsed_ms = int((time.perf_counter() - t_start) * 1000)
+        provider_used = getattr(client, "provider", None) or getattr(
+            getattr(client, "_inner", None), "provider", None
+        )
+        inner = getattr(client, "_inner", client)
+        in_tokens = getattr(inner, "last_input_tokens", None)
+        out_tokens = getattr(inner, "last_output_tokens", None)
+
+        assistant_msg = await append_message(
+            session_id, "assistant", full,
+            model_used=provider_used,
+            elapsed_ms=elapsed_ms,
+            input_tokens=in_tokens,
+            output_tokens=out_tokens,
+        )
+
+        try:
+            await maybe_summarise(session_id)
+        except Exception as exc:
+            log.warning("chat.summary.dispatch_failed", error=str(exc))
+
+        done = {
+            "type": "done",
+            "elapsed_ms": elapsed_ms,
+            "input_tokens": in_tokens,
+            "output_tokens": out_tokens,
+            "model_used": provider_used,
+            "assistant_id": assistant_msg["id"],
+        }
+        yield f"data: {json.dumps(done)}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",  # tells nginx/proxy not to buffer
+        },
     )
 
 
