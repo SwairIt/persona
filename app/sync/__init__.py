@@ -19,9 +19,9 @@ flowing.
 
 from app.sync.events import (
     append_event,
-    apply_pending,
     list_events_since,
 )
+from app.sync.reconcile import apply_pending
 from app.sync.state import (
     bump_pulled_watermark,
     bump_pushed_clock,

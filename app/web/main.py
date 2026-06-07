@@ -19,6 +19,7 @@ from app.settings import get_settings
 from app.storage.db import init_database
 from app.web.middleware.api_auth import ApiAuthMiddleware
 from app.web.routes.setup_gate import SetupGateMiddleware
+from app.web.middleware.auth_gate import AuthGateMiddleware
 from app.web.routes import (
     about as about_routes,
     analysis as analysis_routes,
@@ -390,6 +391,7 @@ from app.web.routes import (
     auth as auth_routes,
     devices as devices_routes,
     sync_api as sync_api_routes,
+    notes_sync as notes_sync_routes,
 )
 from app.workers import (
     get_controller,
@@ -425,6 +427,11 @@ def create_app() -> FastAPI:
 
     middleware = [
         Middleware(SetupGateMiddleware),
+        # T5 (2026-06-07) — auth gate sits BEFORE the API auth middleware
+        # so /landing + /auth/* are reachable without any cookie, and
+        # browser requests for protected pages bounce to /landing as a
+        # 303 instead of a JSON 401.
+        Middleware(AuthGateMiddleware),
         Middleware(ApiAuthMiddleware),
         Middleware(GZipMiddleware, minimum_size=512),
         Middleware(
@@ -794,6 +801,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_routes.router)
     app.include_router(devices_routes.router)
     app.include_router(sync_api_routes.router)
+    app.include_router(notes_sync_routes.router)
     app.include_router(sticky_search_routes.router)
     app.include_router(audit_replay_routes.router)
     app.include_router(tag_gallery_routes.router)
@@ -1062,6 +1070,13 @@ async def _run_ocr_code_detector_worker(controller: object) -> None:
     await run_ocr_code_detector_worker()
 
 
+async def _run_sync_apply_worker(controller: object) -> None:
+    """Adapter for the T5 sync-event apply worker."""
+    from app.workers.sync_apply_worker import run_sync_apply_worker  # noqa: PLC0415
+
+    await run_sync_apply_worker()
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialise DB, start workers, and tear them down on shutdown."""
@@ -1205,6 +1220,12 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         asyncio.create_task(
             _run_ocr_code_detector_worker(controller),
             name="ocr-code-detector-worker",
+        ),
+        # T5 (2026-06-07) — drains sync_event pending queue and
+        # materialises note/kv events into the canonical tables.
+        asyncio.create_task(
+            _run_sync_apply_worker(controller),
+            name="sync-apply-worker",
         ),
     ]
 
