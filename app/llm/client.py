@@ -463,13 +463,25 @@ async def _stream_openai_compatible(
         "content-type": "application/json",
         "accept": "text/event-stream",
     }
+    # T22.4 — vision passthrough + WebP-normalisation for Ollama. Inner
+    # client's URL tells us which path we're on; if it's localhost or a
+    # Tailscale 100.x address we treat as Ollama and normalise.
+    user_content: object = request.user
+    if request.image_data_url:
+        img_url = request.image_data_url
+        if "11434" in base_url:  # Ollama endpoint signature
+            img_url = _normalise_image_for_ollama(img_url)
+        user_content = [
+            {"type": "text", "text": request.user or "describe this image"},
+            {"type": "image_url", "image_url": {"url": img_url}},
+        ]
     payload = {
         "model": model,
         "max_tokens": request.max_tokens,
         "temperature": request.temperature,
         "messages": [
             {"role": "system", "content": request.system},
-            {"role": "user", "content": request.user},
+            {"role": "user", "content": user_content},
         ],
         "stream": True,
         # OpenAI gates per-stream usage on this flag; Groq tolerates it.
@@ -844,19 +856,18 @@ class OllamaClient:
             "Authorization": f"Bearer {self._fake_key}",
             "Content-Type": "application/json",
         }
-        # T22.2 — when there's an image attached, build the user message
-        # as a content-list with both text and image_url, per the
-        # OpenAI-compat vision spec. Ollama (≥0.4) accepts this for
-        # vision models like llava, moondream, qwen-vl. Text-only Ollama
-        # models will return an error from the server — that's the right
-        # signal to surface to the user.
+        # T22.4 (2026-06-08) — Ollama vision endpoint only accepts PNG/JPEG.
+        # WebP (which is what Safari + many screenshots produce) gets a
+        # generic 400 'Failed to load image or audio file'. Normalise
+        # the data URL to PNG via Pillow before sending.
         user_content: object = request.user
         if request.image_data_url:
+            normalised = _normalise_image_for_ollama(request.image_data_url)
             user_content = [
                 {"type": "text", "text": request.user or "describe this image"},
                 {
                     "type": "image_url",
-                    "image_url": {"url": request.image_data_url},
+                    "image_url": {"url": normalised},
                 },
             ]
         payload = {
@@ -1090,6 +1101,47 @@ async def _parse_gemini_sse(
             text = part.get("text") if isinstance(part, dict) else None
             if isinstance(text, str) and text:
                 yield text
+
+
+def _normalise_image_for_ollama(data_url: str) -> str:
+    """T22.4 — convert any image data URL to PNG.
+
+    Ollama vision endpoint rejects WebP (and probably other esoteric
+    formats) with a generic ``400 Failed to load image or audio file``.
+    Pillow decodes the bytes and re-encodes as PNG which Ollama
+    universally handles. We bypass the conversion if the URL already
+    declares PNG or JPEG so the (slow) Pillow path runs only when
+    actually needed.
+    """
+    if not data_url.startswith("data:"):
+        return data_url
+    try:
+        header, b64 = data_url.split(",", 1)
+    except ValueError:
+        return data_url
+    declared_mime = header.split(";")[0].removeprefix("data:")
+    if declared_mime in ("image/png", "image/jpeg", "image/jpg"):
+        return data_url
+    try:
+        import base64  # noqa: PLC0415 - lazy: many callsites don't touch images
+        import io
+        from PIL import Image
+
+        raw = base64.b64decode(b64)
+        img = Image.open(io.BytesIO(raw))
+        if img.mode == "RGBA":
+            background = Image.new("RGB", img.size, (255, 255, 255))
+            background.paste(img, mask=img.split()[3])
+            img = background
+        elif img.mode != "RGB":
+            img = img.convert("RGB")
+        out = io.BytesIO()
+        img.save(out, format="PNG", optimize=False)
+        return "data:image/png;base64," + base64.b64encode(out.getvalue()).decode()
+    except Exception:
+        # If conversion fails, fall back to original — Ollama will then
+        # surface its own error which is at least diagnosable.
+        return data_url
 
 
 def _coerce_token_count(value: object) -> int | None:
