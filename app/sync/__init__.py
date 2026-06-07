@@ -25,6 +25,8 @@ from app.sync.reconcile import apply_pending
 from app.sync.state import (
     bump_pulled_watermark,
     bump_pushed_clock,
+    bump_pushed_clock_for_kind,
+    get_pushed_clock_for_kind,
     get_state,
 )
 
@@ -33,6 +35,8 @@ __all__ = [
     "apply_pending",
     "bump_pulled_watermark",
     "bump_pushed_clock",
+    "bump_pushed_clock_for_kind",
+    "get_pushed_clock_for_kind",
     "get_state",
     "list_events_since",
 ]

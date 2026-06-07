@@ -30,7 +30,8 @@ from app.storage.db import get_connection
 from app.sync import (
     append_event,
     bump_pulled_watermark,
-    bump_pushed_clock,
+    bump_pushed_clock_for_kind,
+    get_pushed_clock_for_kind,
     get_state,
     list_events_since,
 )
@@ -93,25 +94,34 @@ async def sync_push(
 
     appended: list[int] = []
     skipped = 0
-    state = await get_state(device["id"])
-    high_clock = state["last_pushed_clock"]
+    # Per-kind clock cache so we read the watermark from DB at most once
+    # per distinct kind in this batch, not once per event.
+    per_kind_high: dict[str, int] = {}
     for entry in events_in:
         if not isinstance(entry, dict):
             skipped += 1
             continue
+        kind = str(entry.get("kind", "")).strip()
         try:
             clock = int(entry.get("logical_clock", 0))
         except (TypeError, ValueError):
             skipped += 1
             continue
-        # Dedup retried events using the per-device pushed-clock watermark.
-        if clock and clock <= state["last_pushed_clock"]:
-            skipped += 1
-            continue
+        # Per-kind dedup. The kind-specific high-water mark lets a kv
+        # push with clock=5 succeed even though a note push reached
+        # clock=100 earlier — they're independent Lamport timelines.
+        if clock and kind:
+            if kind not in per_kind_high:
+                per_kind_high[kind] = await get_pushed_clock_for_kind(
+                    device["id"], kind
+                )
+            if clock <= per_kind_high[kind]:
+                skipped += 1
+                continue
         try:
             new_id = await append_event(
                 user_id=device["user_id"],
-                kind=str(entry.get("kind", "")),
+                kind=kind,
                 op=str(entry.get("op", "")),
                 payload=(
                     entry.get("payload")
@@ -131,10 +141,12 @@ async def sync_push(
             skipped += 1
             continue
         appended.append(new_id)
-        if clock > high_clock:
-            high_clock = clock
-    if high_clock > state["last_pushed_clock"]:
-        await bump_pushed_clock(device["id"], high_clock)
+        if kind and clock > per_kind_high.get(kind, 0):
+            per_kind_high[kind] = clock
+    # Persist updated high-water marks per kind.
+    for kind, clock in per_kind_high.items():
+        if clock > 0:
+            await bump_pushed_clock_for_kind(device["id"], kind, clock)
     return JSONResponse(
         {"appended": appended, "appended_count": len(appended), "skipped": skipped}
     )
@@ -164,6 +176,24 @@ async def sync_dashboard(
         )
         total_row = await cursor.fetchone()
         total = int(total_row["n"]) if total_row else 0
+
+        # Per-kind breakdown — useful as a smoke check that note / kv /
+        # tag handlers are all firing.
+        cursor = await conn.execute(
+            "SELECT kind, COUNT(*) AS n, "
+            "       SUM(CASE WHEN applied_at IS NULL THEN 1 ELSE 0 END) AS pending "
+            "FROM sync_event WHERE user_id = ? "
+            "GROUP BY kind ORDER BY n DESC",
+            (session["user_id"],),
+        )
+        by_kind = [
+            {
+                "kind": str(r["kind"]),
+                "total": int(r["n"]),
+                "pending": int(r["pending"]),
+            }
+            for r in await cursor.fetchall()
+        ]
 
         cursor = await conn.execute(
             "SELECT id, kind, op, entity_id, logical_clock, server_recv_at, "
@@ -218,5 +248,6 @@ async def sync_dashboard(
             "total_events": total,
             "recent": recent,
             "watermarks": watermarks,
+            "by_kind": by_kind,
         },
     )

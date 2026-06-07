@@ -15,13 +15,15 @@ The HTML toolbar button at the top of the screen calls these via fetch.
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from app.auth import current_user_optional
 from app.logging_setup import get_logger
 from app.storage.db import get_connection
 from app.storage.repository import get_kv, set_kv
+from app.sync.kv_hook import maybe_emit_kv
 
 router = APIRouter(tags=["mic-toggle"])
 log = get_logger("persona.mic_toggle")
@@ -46,10 +48,26 @@ async def mic_status() -> JSONResponse:
 
 
 @router.post("/api/audio/mic")
-async def mic_toggle(payload: _TogglePayload) -> JSONResponse:
-    """Flip the live mic pause flag. Takes effect within ~5 s."""
+async def mic_toggle(payload: _TogglePayload, request: Request) -> JSONResponse:
+    """Flip the live mic pause flag.
+
+    Takes effect within ~5 s. When the user is signed in, also fans the
+    change out via a kv sync event so any other device of theirs picks
+    it up on the next pull.
+    """
     new_value = "1" if payload.paused else "0"
     async with get_connection() as conn:
         await set_kv(conn, _KV_PAUSED, new_value)
     log.info("mic_toggle.set", paused=payload.paused)
+
+    # Best-effort multi-device fan-out. Failure here never breaks the
+    # local toggle — see ``maybe_emit_kv`` for how it swallows errors.
+    session = await current_user_optional(request)
+    if session is not None:
+        await maybe_emit_kv(
+            key=_KV_PAUSED,
+            value=new_value,
+            user_id=session["user_id"],
+        )
+
     return JSONResponse({"ok": True, "paused": payload.paused})

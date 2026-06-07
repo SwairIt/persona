@@ -147,9 +147,70 @@ async def _apply_kv_event(event: dict[str, Any]) -> bool:
     return True
 
 
+async def _apply_tag_event(event: dict[str, Any]) -> bool:
+    """Materialise a ``tag`` dictionary event into the ``tags`` table.
+
+    Identity is ``uuid``. A rename event therefore finds the row by uuid
+    and updates the ``name`` column — losing ``color`` is not acceptable.
+    Cross-device tag attachments to specific screenshots will land in a
+    later tick once ``screenshots.uuid`` exists; this handler only
+    syncs the tag *dictionary* (name + color).
+    """
+    payload = _decode_payload(event["payload_json"])
+    uuid = str(payload.get("uuid") or "").strip()
+    if not uuid:
+        log.warning("sync.apply.tag.no_uuid", event_id=event["id"])
+        return False
+    op = event["op"]
+    async with get_connection() as conn:
+        if op == "delete":
+            await conn.execute("DELETE FROM tags WHERE uuid = ?", (uuid,))
+            await conn.commit()
+            return True
+
+        name = str(payload.get("name") or "").strip()
+        if not name:
+            log.warning("sync.apply.tag.no_name", event_id=event["id"])
+            return False
+        color = payload.get("color")
+        cursor = await conn.execute(
+            "SELECT id FROM tags WHERE uuid = ? LIMIT 1", (uuid,)
+        )
+        existing = await cursor.fetchone()
+        if existing is None:
+            # Insert can still collide on the legacy UNIQUE(name) index
+            # if a local-only tag with the same name exists. In that case
+            # adopt the local row by stamping the incoming uuid onto it.
+            cursor = await conn.execute(
+                "SELECT id FROM tags WHERE name = ? LIMIT 1", (name,)
+            )
+            name_clash = await cursor.fetchone()
+            if name_clash is not None:
+                await conn.execute(
+                    "UPDATE tags SET uuid = ?, color = COALESCE(?, color) "
+                    "WHERE id = ?",
+                    (uuid, color, int(name_clash["id"])),
+                )
+            else:
+                await conn.execute(
+                    "INSERT INTO tags (uuid, name, color, created_at) "
+                    "VALUES (?, ?, ?, datetime('now'))",
+                    (uuid, name, color),
+                )
+        else:
+            await conn.execute(
+                "UPDATE tags SET name = ?, color = COALESCE(?, color) "
+                "WHERE uuid = ?",
+                (name, color, uuid),
+            )
+        await conn.commit()
+    return True
+
+
 _HANDLERS = {
     "note": _apply_note_event,
     "kv": _apply_kv_event,
+    "tag": _apply_tag_event,
 }
 
 

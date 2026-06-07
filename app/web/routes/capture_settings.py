@@ -84,6 +84,7 @@ async def capture_settings_page(request: Request) -> HTMLResponse:
 
 @router.post("/settings/capture")
 async def capture_settings_save(
+    request: Request,
     screens_enabled: Annotated[str, Form()] = "",
     interval_seconds: Annotated[float, Form()] = 6.0,
     mic_master_paused: Annotated[str, Form()] = "",
@@ -124,6 +125,21 @@ async def capture_settings_save(
         # ``app.settings.effective`` the ``_live`` alias can go away.
         await set_kv(conn, "capture_interval_seconds", interval_str)
         await set_kv(conn, "capture_interval_seconds_live", interval_str)
+
+    # T5 (2026-06-07) — fan the user-facing flags out to other devices.
+    # Best-effort: failure to emit must not break the local save. Only
+    # the whitelisted SYNCABLE_KV_KEYS get events, so the schedule fields
+    # above stay local-only — they pin to a device's wall clock.
+    from app.auth import current_user_optional  # noqa: PLC0415
+    from app.sync.kv_hook import maybe_emit_kv  # noqa: PLC0415
+    session = await current_user_optional(request)
+    if session is not None:
+        for key, value in (
+            ("capture_screens_disabled", screens_disabled),
+            ("audio_capture_paused_live", mic_paused),
+            ("capture_interval_seconds_live", interval_str),
+        ):
+            await maybe_emit_kv(key=key, value=value, user_id=session["user_id"])
 
     log.info(
         "capture_settings.saved",
