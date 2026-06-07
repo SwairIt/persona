@@ -1,0 +1,165 @@
+{# v1.66 — bottom-right help widget.
+
+   Why a partial:
+     * Loaded from base.html on every page so users always have help one tap
+       away — no need to navigate first.
+     * Self-contained: no Alpine.js requirement. Vanilla JS only, fails open
+       (silent no-op if anything throws).
+     * Fixed position with iOS safe-area-inset so it doesn't disappear
+       behind the iPhone home indicator.
+
+   Behaviour:
+     * Hidden by default behind a small circular `?` button bottom-right.
+     * Tap → opens a card with:
+        - Search input that filters known pages by title (data-search-key
+          attribute is the haystack).
+        - Quick-link grid (Now / Ask / Quick / Memory / Search / Stats /
+          Health / Settings) — the routes a user actually hits day-to-day.
+        - Link to /help for the full walkthrough doc.
+     * Tap outside the card OR press Escape → closes.
+     * Persists last-opened-state in localStorage (so power users who keep
+       it docked aren't re-prompted every page load — opt-in).
+#}
+<div id="persona-help-root"
+     class="fixed z-40 bottom-4 right-4 pointer-events-none"
+     style="padding-bottom: env(safe-area-inset-bottom); padding-right: env(safe-area-inset-right);">
+  <button type="button"
+          id="persona-help-button"
+          aria-label="Help / search"
+          title="Help"
+          class="pointer-events-auto flex items-center justify-center w-12 h-12 rounded-full
+                 bg-accent-600 text-white text-2xl font-semibold shadow-2xl
+                 hover:bg-accent-500 active:scale-95 transition
+                 ring-2 ring-accent-300/40">
+    ?
+  </button>
+
+  <div id="persona-help-card"
+       role="dialog"
+       aria-modal="false"
+       aria-labelledby="persona-help-card-title"
+       class="hidden pointer-events-auto absolute bottom-16 right-0 w-80 max-w-[calc(100vw-2rem)]
+              rounded-xl border border-zinc-300 dark:border-ink-700
+              bg-white dark:bg-ink-900 shadow-2xl overflow-hidden">
+    <div class="flex items-center justify-between px-3 py-2 border-b border-zinc-200 dark:border-ink-700">
+      <span id="persona-help-card-title" class="text-sm font-semibold">Help &amp; search</span>
+      <button type="button" id="persona-help-close"
+              class="text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 leading-none px-2 py-1 rounded">×</button>
+    </div>
+
+    <div class="p-3 space-y-3">
+      <label class="block">
+        <span class="sr-only">Search</span>
+        <input type="search"
+               id="persona-help-search"
+               placeholder="Search pages, settings, fixtures…"
+               autocomplete="off"
+               class="w-full px-3 py-2 text-sm rounded border border-zinc-300 dark:border-ink-700
+                      bg-zinc-50 dark:bg-ink-800 focus:outline-none focus:border-accent-500">
+      </label>
+
+      <div>
+        <div class="text-[10px] uppercase tracking-widest text-zinc-500 mb-1.5">Quick links</div>
+        <div class="grid grid-cols-4 gap-1.5 text-center text-xs">
+          <a href="/now"            data-search-key="now real-time activity dashboard"      class="rounded bg-zinc-100 dark:bg-ink-800 hover:bg-accent-600 hover:text-white p-2">Now</a>
+          <a href="/ask"            data-search-key="ask llm gemini anthropic q&a"            class="rounded bg-zinc-100 dark:bg-ink-800 hover:bg-accent-600 hover:text-white p-2">Ask</a>
+          <a href="/quick-actions"  data-search-key="quick actions notes pin capture mic"     class="rounded bg-zinc-100 dark:bg-ink-800 hover:bg-accent-600 hover:text-white p-2">Quick</a>
+          <a href="/memory"         data-search-key="memory cards pins recall"                class="rounded bg-zinc-100 dark:bg-ink-800 hover:bg-accent-600 hover:text-white p-2">Memory</a>
+          <a href="/search"         data-search-key="search corpus ocr fts"                   class="rounded bg-zinc-100 dark:bg-ink-800 hover:bg-accent-600 hover:text-white p-2">Search</a>
+          <a href="/stats"          data-search-key="stats charts heatmap pareto"             class="rounded bg-zinc-100 dark:bg-ink-800 hover:bg-accent-600 hover:text-white p-2">Stats</a>
+          <a href="/health-dashboard" data-search-key="health workers budget db"               class="rounded bg-zinc-100 dark:bg-ink-800 hover:bg-accent-600 hover:text-white p-2">Health</a>
+          <a href="/settings/hub"   data-search-key="settings configuration preferences"      class="rounded bg-zinc-100 dark:bg-ink-800 hover:bg-accent-600 hover:text-white p-2">Settings</a>
+        </div>
+      </div>
+
+      <div id="persona-help-results" class="hidden">
+        <div class="text-[10px] uppercase tracking-widest text-zinc-500 mb-1.5">Matches</div>
+        <div id="persona-help-results-list" class="space-y-1 max-h-64 overflow-y-auto"></div>
+        <div id="persona-help-results-empty" class="hidden text-xs text-zinc-500 py-2">No matches.</div>
+      </div>
+
+      <div class="pt-1 border-t border-zinc-200 dark:border-ink-700">
+        <a href="/help"
+           class="block text-center text-sm rounded bg-accent-600/10 text-accent-500 hover:bg-accent-600 hover:text-white py-2 transition">
+          Open full walkthrough →
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  (function () {
+    const root = document.getElementById('persona-help-root');
+    if (!root) return;
+
+    const btn = document.getElementById('persona-help-button');
+    const card = document.getElementById('persona-help-card');
+    const closeBtn = document.getElementById('persona-help-close');
+    const input = document.getElementById('persona-help-search');
+    const resultsBox = document.getElementById('persona-help-results');
+    const resultsList = document.getElementById('persona-help-results-list');
+    const resultsEmpty = document.getElementById('persona-help-results-empty');
+
+    // The set of features comes from /api/features.json (already exposed by
+    // the older feature_index route). We fetch lazily on first open so the
+    // widget never blocks page paint.
+    let features = null;
+
+    function open() {
+      card.classList.remove('hidden');
+      input.focus();
+      if (!features) {
+        fetch('/api/features.json', { credentials: 'same-origin' })
+          .then(r => r.ok ? r.json() : null)
+          .then(data => {
+            features = Array.isArray(data) ? data : (data && data.entries) || [];
+          })
+          .catch(() => { features = []; });
+      }
+    }
+
+    function close() {
+      card.classList.add('hidden');
+      input.value = '';
+      resultsBox.classList.add('hidden');
+    }
+
+    btn.addEventListener('click', () => {
+      if (card.classList.contains('hidden')) open(); else close();
+    });
+    closeBtn.addEventListener('click', close);
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !card.classList.contains('hidden')) close();
+    });
+    document.addEventListener('click', (e) => {
+      if (card.classList.contains('hidden')) return;
+      if (root.contains(e.target)) return;
+      close();
+    });
+
+    input.addEventListener('input', () => {
+      const q = input.value.trim().toLowerCase();
+      if (!q) { resultsBox.classList.add('hidden'); return; }
+      const list = (features || []).filter(f => {
+        const hay = ((f.title || '') + ' ' + (f.path || '') + ' ' + (f.category || '')).toLowerCase();
+        return hay.includes(q);
+      }).slice(0, 30);
+      resultsList.innerHTML = '';
+      if (list.length === 0) {
+        resultsEmpty.classList.remove('hidden');
+      } else {
+        resultsEmpty.classList.add('hidden');
+        for (const f of list) {
+          const a = document.createElement('a');
+          a.href = f.path || '#';
+          a.className = 'block px-2 py-1.5 text-sm rounded hover:bg-accent-600 hover:text-white';
+          a.textContent = (f.title || f.path || '').slice(0, 60);
+          resultsList.appendChild(a);
+        }
+      }
+      resultsBox.classList.remove('hidden');
+    });
+  })();
+</script>

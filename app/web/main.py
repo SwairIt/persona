@@ -385,6 +385,7 @@ from app.web.routes import (
     code_shots as code_shots_routes,
     workspaces as workspaces_routes,
     metrics_extended as metrics_extended_routes,
+    help_walkthrough as help_walkthrough_routes,
 )
 from app.workers import (
     get_controller,
@@ -784,6 +785,7 @@ def create_app() -> FastAPI:
     app.include_router(code_shots_routes.router)
     app.include_router(workspaces_routes.router)
     app.include_router(metrics_extended_routes.router)
+    app.include_router(help_walkthrough_routes.router)
     app.include_router(sticky_search_routes.router)
     app.include_router(audit_replay_routes.router)
     app.include_router(tag_gallery_routes.router)

@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto px-4 sm:px-6 py-6 leading-relaxed">
+
+  <header class="mb-8">
+    <h1 class="text-3xl font-bold tracking-tight">Persona — что где и куда тыкать</h1>
+    <p class="text-zinc-500 text-sm mt-2">
+      v{{ app_version }} · сейчас в базе {{ stats.total_shots }} скринов
+      ({{ stats.last_24h }} за последние сутки), {{ stats.total_notes }} заметок.
+    </p>
+  </header>
+
+  <section class="mb-8 rounded-lg border border-amber-500/40 bg-amber-500/10 p-4">
+    <h2 class="font-semibold text-amber-400 mb-2">⚠️ Главное</h2>
+    <ul class="text-sm space-y-1.5 text-zinc-300 list-disc list-inside">
+      <li>Persona сейчас local-first: всё хранится <code>~/.persona/persona.db</code> на твоём Mac.</li>
+      <li>Web-морда тут (на Windows-сервере) <strong>смотрит на этот же файл через devtunnel</strong>. Если выключишь Mac — данных не будет.</li>
+      <li>Multi-device аккаунты ещё не сделаны (в плане).</li>
+      <li>AI ключ (Gemini/Claude/OpenAI) надо вставить через <a href="/setup" class="text-accent-400 underline">/setup</a> — он хранится в твоей локальной DB, никуда не отправляется.</li>
+    </ul>
+  </section>
+
+  <section class="mb-8">
+    <h2 class="text-xl font-bold mb-3">Куда смотреть каждый день</h2>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <a href="/now" class="rounded-lg border border-zinc-300 dark:border-ink-700 p-4 hover:border-accent-500 transition">
+        <div class="font-semibold mb-1">● Now</div>
+        <p class="text-xs text-zinc-500">Что сейчас на экране, что было за день — обновляется каждые 10 сек.</p>
+      </a>
+      <a href="/ask" class="rounded-lg border border-zinc-300 dark:border-ink-700 p-4 hover:border-accent-500 transition">
+        <div class="font-semibold mb-1">? Ask</div>
+        <p class="text-xs text-zinc-500">Спросить у LLM что было вчера/неделю назад. Требует API ключ.</p>
+      </a>
+      <a href="/timeline" class="rounded-lg border border-zinc-300 dark:border-ink-700 p-4 hover:border-accent-500 transition">
+        <div class="font-semibold mb-1">📜 Timeline</div>
+        <p class="text-xs text-zinc-500">Лента всех скринов хронологически — лазить по прошлому.</p>
+      </a>
+      <a href="/quick-actions" class="rounded-lg border border-zinc-300 dark:border-ink-700 p-4 hover:border-accent-500 transition">
+        <div class="font-semibold mb-1">+ Quick actions</div>
+        <p class="text-xs text-zinc-500">Один тап — заметка, pin, выключить мик/капчур, активировать профиль.</p>
+      </a>
+    </div>
+  </section>
+
+  <section class="mb-8">
+    <h2 class="text-xl font-bold mb-3">Как проверить что всё работает</h2>
+    <ol class="space-y-3 text-sm">
+      <li class="rounded-lg bg-zinc-100 dark:bg-ink-900 p-3">
+        <span class="font-mono text-accent-500 mr-2">1.</span>
+        Открой <a href="/now" class="text-accent-400 underline">/now</a>. Если capture-loop живой, в "Active app" будет имя текущего приложения и last-shot-ago маленькое число секунд.
+      </li>
+      <li class="rounded-lg bg-zinc-100 dark:bg-ink-900 p-3">
+        <span class="font-mono text-accent-500 mr-2">2.</span>
+        Открой <a href="/health-dashboard" class="text-accent-400 underline">/health-dashboard</a>. Worker grid — все строчки должны быть зелёные (или amber если worker давно не тикал). Если все красные — capture не работает.
+      </li>
+      <li class="rounded-lg bg-zinc-100 dark:bg-ink-900 p-3">
+        <span class="font-mono text-accent-500 mr-2">3.</span>
+        Открой <a href="/stats" class="text-accent-400 underline">/stats</a>. График captures должен быть непустой. Если 0 — capture-loop не записывает (проверь <a href="/settings/capture" class="text-accent-400 underline">/settings/capture</a>).
+      </li>
+      <li class="rounded-lg bg-zinc-100 dark:bg-ink-900 p-3">
+        <span class="font-mono text-accent-500 mr-2">4.</span>
+        Проверь LLM: открой <a href="/ask" class="text-accent-400 underline">/ask</a> → "что я делал час назад?" → если ключ вставлен и есть данные — будет ответ. Если "LLM not configured" — иди в <a href="/setup" class="text-accent-400 underline">/setup</a>.
+      </li>
+    </ol>
+  </section>
+
+  <section class="mb-8">
+    <h2 class="text-xl font-bold mb-3">Настройки которые реально полезные</h2>
+    <div class="space-y-2 text-sm">
+      <div class="rounded bg-zinc-100 dark:bg-ink-900 p-3">
+        <a href="/settings/capture" class="font-semibold text-accent-400">/settings/capture</a>
+        — частота захвата (default 6 сек), включить/выключить захват, blocklist приложений.
+      </div>
+      <div class="rounded bg-zinc-100 dark:bg-ink-900 p-3">
+        <a href="/settings/capture-quality" class="font-semibold text-accent-400">/settings/capture-quality</a>
+        — слайдер JPEG quality 10-95. Снижай до 20-30 если экономишь место.
+      </div>
+      <div class="rounded bg-zinc-100 dark:bg-ink-900 p-3">
+        <a href="/settings/llm" class="font-semibold text-accent-400">/settings/llm</a>
+        — провайдер (Anthropic/OpenAI/Groq/Gemini), API ключ, default model.
+      </div>
+      <div class="rounded bg-zinc-100 dark:bg-ink-900 p-3">
+        <a href="/settings/redaction" class="font-semibold text-accent-400">/settings/redaction</a>
+        — regex-правила что вырезать из OCR (пароли, токены, банковские номера).
+      </div>
+      <div class="rounded bg-zinc-100 dark:bg-ink-900 p-3">
+        <a href="/settings/hub" class="font-semibold text-accent-400">/settings/hub</a>
+        — все остальные настройки (есть много, но трогать не обязательно).
+      </div>
+    </div>
+  </section>
+
+  <section class="mb-8">
+    <h2 class="text-xl font-bold mb-3">Что НЕ трогать</h2>
+    <ul class="text-sm space-y-1.5 list-disc list-inside text-zinc-400">
+      <li><a href="/admin/dup-finder" class="underline">/admin/dup-finder</a> — soft-deletes shots по hamming. Сначала Preview, потом Apply.</li>
+      <li><a href="/admin/stale-notes" class="underline">/admin/stale-notes</a> — авто-удаление пустых заметок. Off-by-default.</li>
+      <li><a href="/admin/audit-log-rotation" class="underline">/admin/audit-log-rotation</a> — архивирует и удаляет старые audit-log rows. Тоже сначала смотри что архивируется.</li>
+      <li><a href="/admin/demo-seeder" class="underline">/admin/demo-seeder</a> — заполняет DB фейковыми данными. <strong>Не запускай на проде</strong>, есть safety-check (refuse если &gt;50 real rows).</li>
+    </ul>
+  </section>
+
+  <section class="mb-8">
+    <h2 class="text-xl font-bold mb-3">iPhone PWA</h2>
+    <ol class="space-y-2 text-sm">
+      <li><span class="font-mono text-accent-500 mr-2">1.</span>Открой devtunnel URL в Safari на iPhone.</li>
+      <li><span class="font-mono text-accent-500 mr-2">2.</span>Нажми <strong>Share</strong> (квадратик со стрелкой) → <strong>"На экран Домой"</strong>.</li>
+      <li><span class="font-mono text-accent-500 mr-2">3.</span>Иконка появится на homescreen — фиолетовая точка.</li>
+      <li><span class="font-mono text-accent-500 mr-2">4.</span>Long-press на иконку → быстрые ссылки: Now / Ask / Quick actions.</li>
+      <li><span class="font-mono text-accent-500 mr-2">5.</span>Тап на иконку → полноэкранный режим без Safari toolbar.</li>
+    </ol>
+  </section>
+
+  <section class="mb-8 rounded-lg border border-zinc-300 dark:border-ink-700 p-4">
+    <h2 class="text-xl font-bold mb-2">В планах (не сделано)</h2>
+    <ul class="text-sm space-y-1 text-zinc-400 list-disc list-inside">
+      <li>Аккаунты с email + паролем</li>
+      <li>Multi-device sync (local-first CRDT)</li>
+      <li>Голосовой ввод в /ask (Web Speech API)</li>
+      <li>Дашборд "что на других моих устройствах сейчас"</li>
+      <li>Перенос данных между девайсами</li>
+    </ul>
+    <p class="text-xs text-zinc-500 mt-3">См. <code>HELP.md</code> в репо и git log за полной дорожной картой.</p>
+  </section>
+
+</div>
+{% endblock %}

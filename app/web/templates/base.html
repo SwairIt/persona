@@ -223,9 +223,15 @@
                 class="p-2 sm:p-2.5 rounded bg-ink-800 hover:bg-ink-700 text-zinc-300 hidden sm:inline-block">
           <span x-text="theme === 'dark' ? '☀' : '☾'"></span>
         </button>
+        {# v1.66 FIX — Jinja ``tojson`` produced ``"Старт"`` with double quotes
+           which then sat inside ``x-text="..."``. Browser closed the HTML
+           attribute on the first inner ``"``, Alpine got a syntax-broken
+           expression and the WHOLE ``x-data="headerNav()"`` component refused
+           to initialise on iPhone — that's why all header buttons looked
+           dead. Use ``&quot;`` so the inner quotes survive HTML parsing. #}
         <button @click="toggle()"
                 class="px-3 py-2 rounded bg-ink-800 hover:bg-ink-700 text-zinc-300 hidden md:inline-block whitespace-nowrap"
-                x-text="paused ? {{ t('btn_start') | tojson }} : {{ t('btn_pause') | tojson }}"></button>
+                x-text="paused ? &quot;{{ t('btn_start') }}&quot; : &quot;{{ t('btn_pause') }}&quot;"></button>
 
         {# Hamburger — visible only below md. #}
         <button @click="drawerOpen = true"
@@ -478,5 +484,13 @@
       }
     }
   </script>
+
+  {# v1.66 — bottom-right help button. Self-contained widget: no Alpine
+     dependency, vanilla JS, fixed positioning with safe-area inset so it
+     never hides behind the iPhone home indicator. The list of features is
+     fetched from /api/features.json (already exists from v1.x) and the
+     search filters client-side. Opens a panel with: search field, top
+     pages quick-links, a link to /help with the full walkthrough. #}
+  {% include "_help_widget.html" ignore missing %}
 </body>
 </html>
