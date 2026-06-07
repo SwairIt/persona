@@ -487,9 +487,18 @@ async def _stream_openai_compatible(
         # OpenAI gates per-stream usage on this flag; Groq tolerates it.
         "stream_options": {"include_usage": True},
     }
+    # T22.6 (2026-06-08) — fat timeouts for cold-start Ollama on weak
+    # hardware. 1050 Ti needs 90-180 sec to load qwen2.5vl:3b into VRAM
+    # before producing the first token. Default 60s ate the request
+    # before the model even started talking.
+    is_ollama_endpoint = "11434" in base_url
+    connect_timeout = 10.0
+    read_timeout = 600.0 if is_ollama_endpoint else 120.0
     try:
         async with (
-            httpx.AsyncClient(timeout=60.0) as client,
+            httpx.AsyncClient(
+                timeout=httpx.Timeout(read_timeout, connect=connect_timeout),
+            ) as client,
             client.stream("POST", base_url, json=payload, headers=headers) as response,
         ):
             response.raise_for_status()
