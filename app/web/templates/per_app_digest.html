@@ -28,7 +28,7 @@
   </div>
 {% else %}
   <div
-    x-data="perAppDigest({{ {'day': day, 'apps': apps} | tojson }})"
+    x-data="perAppDigest({{ {'day': day, 'apps': apps} | tojson | forceescape }})"
     x-init="init()"
     class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden">
     <table class="w-full text-sm">

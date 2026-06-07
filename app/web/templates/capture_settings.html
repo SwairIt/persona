@@ -9,6 +9,10 @@
     </p>
   </div>
 
+  {# Bug fix (2026-06-07) — raw `"` inside x-data="..." terminates the
+     attribute prematurely and Alpine never initialises (toggles dead).
+     Escape via |forceescape so the JSON quotes become &quot;. See
+     ``feedback_alpine_xdata_quotes`` in memory. #}
   <form method="post" action="/settings/capture" class="space-y-8" x-data="captureSettingsForm({{ {
         'shots_per_minute': shots_per_minute,
         'interval_seconds': interval_seconds,
@@ -17,7 +21,7 @@
         'schedule_enabled': schedule_enabled,
         'schedule_start_hour': schedule_start_hour,
         'schedule_end_hour': schedule_end_hour,
-      } | tojson }})">
+      } | tojson | forceescape }})">
 
     <section class="rounded-xl border border-ink-700 bg-ink-800 p-6">
       <div class="flex items-start justify-between gap-4 mb-4">
