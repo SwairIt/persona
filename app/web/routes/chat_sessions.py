@@ -370,21 +370,62 @@ async def api_send_stream(
         # model takes 90 sec to produce its first token.
         yield "data: {\"type\":\"meta\",\"started\":true}\n\n"
 
+        # T22.5 (2026-06-08) — devtunnel proxies BUFFER SSE responses
+        # unless data flows constantly. Cold-start vision models take
+        # 90+ sec to produce the first token; during that window
+        # devtunnel sees no data and dies. Use asyncio.Queue + a
+        # background producer so we can emit keepalive pings every 1
+        # sec while waiting for the stream to start.
+        queue: asyncio.Queue[tuple[str, str]] = asyncio.Queue(maxsize=512)
+
+        async def producer() -> None:
+            try:
+                async for delta in client.stream(completion_req):
+                    if not delta:
+                        continue
+                    await queue.put(("delta", delta))
+            except Exception as exc:
+                await queue.put(("error", str(exc)))
+            finally:
+                await queue.put(("eof", ""))
+
+        prod_task = asyncio.create_task(producer())
         try:
-            async for delta in client.stream(completion_req):
-                if not delta:
+            while True:
+                try:
+                    kind, payload = await asyncio.wait_for(queue.get(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    # Idle tick — devtunnel sees bytes, stays open.
+                    yield ": keepalive\n\n"
                     continue
-                chunks.append(delta)
-                yield f"data: {json.dumps({'type': 'delta', 'text': delta})}\n\n"
+                if kind == "eof":
+                    break
+                if kind == "delta":
+                    chunks.append(payload)
+                    yield f"data: {json.dumps({'type': 'delta', 'text': payload})}\n\n"
+                elif kind == "error":
+                    log.warning("chat.stream.failed", error=payload)
+                    err = f"Ошибка LLM: {payload}"
+                    yield f"data: {json.dumps({'type': 'error', 'detail': payload})}\n\n"
+                    await append_message(session_id, "system", err)
+                    return
         except asyncio.CancelledError:
             log.info("chat.stream.cancelled", session_id=session_id)
+            prod_task.cancel()
             raise
         except Exception as exc:
             log.warning("chat.stream.failed", error=str(exc))
             err = f"Ошибка LLM: {exc}"
             yield f"data: {json.dumps({'type': 'error', 'detail': str(exc)})}\n\n"
             await append_message(session_id, "system", err)
+            prod_task.cancel()
             return
+        finally:
+            # Producer naturally ends on EOF but if we exit early (CancelledError
+            # or send error) we need to cancel it explicitly to avoid the task
+            # leak warning during uvicorn shutdown.
+            if not prod_task.done():
+                prod_task.cancel()
 
         full = "".join(chunks).strip() or "(пустой ответ от модели)"
         elapsed_ms = int((time.perf_counter() - t_start) * 1000)
