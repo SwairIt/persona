@@ -393,6 +393,7 @@ from app.web.routes import (
     sync_api as sync_api_routes,
     notes_sync as notes_sync_routes,
     chat_sessions as chat_sessions_routes,
+    storage_admin as storage_admin_routes,
 )
 from app.workers import (
     get_controller,
@@ -804,6 +805,7 @@ def create_app() -> FastAPI:
     app.include_router(sync_api_routes.router)
     app.include_router(notes_sync_routes.router)
     app.include_router(chat_sessions_routes.router)
+    app.include_router(storage_admin_routes.router)
     app.include_router(sticky_search_routes.router)
     app.include_router(audit_replay_routes.router)
     app.include_router(tag_gallery_routes.router)
@@ -1079,6 +1081,14 @@ async def _run_sync_apply_worker(controller: object) -> None:
     await run_sync_apply_worker()
 
 
+async def _run_storage_cleanup_worker(controller: object) -> None:
+    """T15 (2026-06-07) — nightly screenshot cleanup honouring the
+    user's retention policy at /storage."""
+    from app.workers.storage_cleanup_worker import run as run_storage_cleanup  # noqa: PLC0415
+
+    await run_storage_cleanup()
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialise DB, start workers, and tear them down on shutdown."""
@@ -1228,6 +1238,12 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         asyncio.create_task(
             _run_sync_apply_worker(controller),
             name="sync-apply-worker",
+        ),
+        # T15 (2026-06-07) — nightly cleanup of old screenshots per
+        # ``kv.shots_retention_days``.
+        asyncio.create_task(
+            _run_storage_cleanup_worker(controller),
+            name="storage-cleanup-worker",
         ),
     ]
 

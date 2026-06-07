@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto px-3 sm:px-6 py-6">
+  <header class="mb-6">
+    <h1 class="text-2xl font-bold tracking-tight">Хранилище</h1>
+    <p class="text-sm text-zinc-500 mt-1">
+      Сколько места занимают скриншоты на сервере и сколько хранить их по времени.
+    </p>
+  </header>
+
+  {# --- USAGE SUMMARY --- #}
+  <section class="mb-8 grid grid-cols-1 sm:grid-cols-3 gap-3">
+    <div class="rounded-lg border border-zinc-300 dark:border-ink-700 bg-white dark:bg-ink-900 p-4">
+      <div class="text-xs uppercase tracking-widest text-zinc-500">Скриншотов</div>
+      <div class="text-2xl font-bold font-mono mt-1">{{ '{:,}'.format(usage.total_shots) }}</div>
+    </div>
+    <div class="rounded-lg border border-zinc-300 dark:border-ink-700 bg-white dark:bg-ink-900 p-4">
+      <div class="text-xs uppercase tracking-widest text-zinc-500">Места занято</div>
+      <div class="text-2xl font-bold font-mono mt-1">
+        {{ '%.1f' | format(usage.total_bytes / 1024 / 1024) }} <span class="text-sm text-zinc-500">МБ</span>
+      </div>
+    </div>
+    <div class="rounded-lg border border-zinc-300 dark:border-ink-700 bg-white dark:bg-ink-900 p-4">
+      <div class="text-xs uppercase tracking-widest text-zinc-500">Диапазон</div>
+      <div class="text-xs font-mono mt-2">
+        {% if usage.oldest_captured_at %}
+          {{ usage.oldest_captured_at[:10] }} →<br>{{ usage.newest_captured_at[:10] }}
+        {% else %}
+          —
+        {% endif %}
+      </div>
+    </div>
+  </section>
+
+  {# --- RETENTION POLICY FORM --- #}
+  <section class="mb-8 rounded-lg border border-zinc-300 dark:border-ink-700 bg-white dark:bg-ink-900 p-4">
+    <h2 class="text-sm font-semibold mb-3">Политика хранения</h2>
+    <form method="post" action="/storage/settings" class="space-y-4">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs text-zinc-400 mb-1">Хранить скриншоты не дольше (дней)</label>
+          <input type="number" name="retention_days" min="0" max="36500"
+                 value="{{ settings.retention_days or '' }}"
+                 placeholder="без срока"
+                 class="w-full px-3 py-2 rounded border border-zinc-300 dark:border-ink-700 bg-zinc-50 dark:bg-ink-800">
+          <p class="text-[10px] text-zinc-500 mt-1">Пусто или 0 — хранить вечно. Иначе скриншоты старше N дней удалятся при следующей чистке.</p>
+        </div>
+        <div>
+          <label class="block text-xs text-zinc-400 mb-1">Общий лимит места на сервере (МБ)</label>
+          <input type="number" name="quota_mb" min="0" max="10000000" step="100"
+                 value="{{ settings.quota_mb or '' }}"
+                 placeholder="без лимита"
+                 class="w-full px-3 py-2 rounded border border-zinc-300 dark:border-ink-700 bg-zinc-50 dark:bg-ink-800">
+          <p class="text-[10px] text-zinc-500 mt-1">Пусто — без лимита. Это пометка для тебя; жёсткой остановки пока нет, но воркер видит и логирует.</p>
+        </div>
+      </div>
+      <button type="submit"
+              class="px-4 py-2 rounded bg-accent-600 hover:bg-accent-500 text-white text-sm font-semibold">
+        Сохранить политику
+      </button>
+    </form>
+  </section>
+
+  {# --- MANUAL CLEANUP --- #}
+  <section class="mb-8 rounded-lg border border-rose-500/40 bg-rose-500/5 p-4">
+    <h2 class="text-sm font-semibold mb-2 text-rose-300">Ручная чистка</h2>
+    <p class="text-xs text-zinc-400 mb-3">
+      Запусти чистку прямо сейчас. Удалит скриншоты старше указанного количества дней. Удаляются файлы + строки в БД, восстановить нельзя.
+    </p>
+    <form method="post" action="/storage/cleanup" class="flex flex-col sm:flex-row gap-2"
+          onsubmit="return confirm('Удалить старые скриншоты? Восстановить не получится.')">
+      <input type="number" name="older_than_days" min="1" max="36500"
+             value="{{ settings.retention_days or 30 }}"
+             class="flex-1 px-3 py-2 rounded border border-zinc-300 dark:border-ink-700 bg-zinc-50 dark:bg-ink-800 text-sm">
+      <button type="submit"
+              class="px-4 py-2 rounded bg-rose-600 hover:bg-rose-500 text-white text-sm font-semibold">
+        Удалить старше N дней
+      </button>
+    </form>
+  </section>
+
+  {# --- USAGE BY DAY (last 14) --- #}
+  <section class="mb-8 rounded-lg border border-zinc-300 dark:border-ink-700 bg-white dark:bg-ink-900 p-4">
+    <h2 class="text-sm font-semibold mb-3">Активность за 14 дней</h2>
+    {% if usage.by_day_recent %}
+      {% set max_n = usage.by_day_recent | map(attribute='shots') | max %}
+      <div class="space-y-1.5">
+        {% for d in usage.by_day_recent %}
+          <div class="flex items-center gap-3 text-xs font-mono">
+            <span class="w-24 text-zinc-500">{{ d.date }}</span>
+            <div class="flex-1 bg-zinc-100 dark:bg-ink-800 rounded h-4 overflow-hidden">
+              <div class="h-full bg-accent-500" style="width: {{ (d.shots / max_n * 100) | round(1) }}%"></div>
+            </div>
+            <span class="w-12 text-right">{{ d.shots }}</span>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="text-zinc-500 text-sm">За последние 14 дней скриншотов нет.</p>
+    {% endif %}
+  </section>
+
+  {# --- CLEANUP HISTORY --- #}
+  <section class="rounded-lg border border-zinc-300 dark:border-ink-700 bg-white dark:bg-ink-900 p-4">
+    <h2 class="text-sm font-semibold mb-3">История чисток</h2>
+    {% if runs %}
+      <table class="w-full text-xs">
+        <thead class="text-zinc-500 uppercase tracking-widest">
+          <tr class="border-b border-zinc-200 dark:border-ink-800">
+            <th class="text-left py-1.5">Когда</th>
+            <th class="text-left py-1.5">Источник</th>
+            <th class="text-right py-1.5">Удалено</th>
+            <th class="text-right py-1.5">Освобождено</th>
+            <th class="text-right py-1.5">Лимит был</th>
+          </tr>
+        </thead>
+        <tbody class="font-mono">
+          {% for r in runs %}
+            <tr class="border-b border-zinc-200 dark:border-ink-800
+                       {% if r.error %}text-rose-300{% endif %}">
+              <td class="py-1.5">{{ r.started_at[:16] }}</td>
+              <td class="py-1.5 text-zinc-500">{{ r.trigger_source }}</td>
+              <td class="py-1.5 text-right">{{ r.shots_deleted }}</td>
+              <td class="py-1.5 text-right">{{ '%.1f' | format(r.bytes_freed / 1024 / 1024) }} МБ</td>
+              <td class="py-1.5 text-right text-zinc-500">
+                {% if r.retention_days %}{{ r.retention_days }}д{% else %}—{% endif %}
+              </td>
+            </tr>
+            {% if r.error %}
+              <tr class="text-rose-300 text-[10px]">
+                <td colspan="5" class="py-1 pl-3">ошибка: {{ r.error }}</td>
+              </tr>
+            {% endif %}
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="text-zinc-500 text-sm">Чисток ещё не было.</p>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}
