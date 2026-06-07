@@ -114,6 +114,23 @@ async def welcome(request: Request) -> HTMLResponse:
 
     server_url = f"{request.url.scheme}://{request.url.netloc}"
 
+    # T18 (2026-06-07) — sniff User-Agent so we can show the right
+    # instructions per-device. iPhone gets the Shortcuts path; Mac gets
+    # the one-line installer; Windows/Linux gets the generic info.
+    ua = (request.headers.get("user-agent") or "").lower()
+    if "iphone" in ua or "ipad" in ua or "ipod" in ua:
+        device_kind = "iphone"
+    elif "macintosh" in ua or "mac os x" in ua and "iphone" not in ua:
+        device_kind = "mac"
+    elif "windows" in ua:
+        device_kind = "windows"
+    elif "android" in ua:
+        device_kind = "android"
+    elif "linux" in ua:
+        device_kind = "linux"
+    else:
+        device_kind = "other"
+
     return templates.TemplateResponse(
         request,
         "welcome.html",
@@ -129,5 +146,6 @@ async def welcome(request: Request) -> HTMLResponse:
             "screens_disabled": screens_disabled,
             "mic_paused": mic_paused,
             "server_url": server_url,
+            "device_kind": device_kind,
         },
     )

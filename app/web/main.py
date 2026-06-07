@@ -395,6 +395,7 @@ from app.web.routes import (
     chat_sessions as chat_sessions_routes,
     storage_admin as storage_admin_routes,
     ios_ingest as ios_ingest_routes,
+    install as install_routes,
 )
 from app.workers import (
     get_controller,
@@ -808,6 +809,7 @@ def create_app() -> FastAPI:
     app.include_router(chat_sessions_routes.router)
     app.include_router(storage_admin_routes.router)
     app.include_router(ios_ingest_routes.router)
+    app.include_router(install_routes.router)
     app.include_router(sticky_search_routes.router)
     app.include_router(audit_replay_routes.router)
     app.include_router(tag_gallery_routes.router)

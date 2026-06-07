@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto px-4 sm:px-6 py-8">
+  <div class="text-xs text-zinc-500 mb-2">
+    <a href="/welcome" class="hover:text-accent-400">← к приветствию</a>
+  </div>
+  <h1 class="text-2xl sm:text-3xl font-bold tracking-tight mb-2">
+    🍎 Установка на Mac за один шаг
+  </h1>
+  <p class="text-zinc-400 text-sm mb-6">
+    Откроет на твоём Mac: <code>git clone</code> + venv + установка зависимостей + автозапуск через <code>launchd</code>. Через 30 секунд скрины начнут появляться в ленте.
+  </p>
+
+  {% if ready_command %}
+    {# --- Step 2: show the one-liner --- #}
+    <div class="rounded-xl border border-emerald-500/40 bg-emerald-500/5 p-5 mb-6">
+      <h2 class="font-semibold text-emerald-300 mb-2">✅ Команда готова</h2>
+      <p class="text-sm text-zinc-300 mb-3">
+        На Mac запусти <strong>приложение «Терминал»</strong> (Spotlight → "Terminal") и вставь эту команду:
+      </p>
+      <pre class="bg-ink-950 border border-ink-700 rounded p-3 text-xs font-mono select-all overflow-x-auto">{{ ready_command }}</pre>
+      <button onclick="navigator.clipboard.writeText({{ ready_command | tojson | forceescape }}); this.textContent='Скопировано ✓'"
+              class="mt-3 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-sm rounded">
+        Скопировать
+      </button>
+      <p class="text-[10px] text-zinc-500 mt-3">
+        ⚠️ Ссылка одноразовая и работает 10 минут. Если что-то пошло не так, нажми кнопку ниже чтобы сгенерировать новую.
+      </p>
+    </div>
+
+    <div class="rounded-xl border border-zinc-700 bg-ink-900 p-4 mb-6">
+      <h3 class="text-sm font-semibold mb-3">Дальше</h3>
+      <ol class="text-sm space-y-1.5 text-zinc-300 list-decimal list-inside">
+        <li>Открой <strong>Системные настройки → Защита и безопасность → Запись экрана</strong>.</li>
+        <li>Разреши <code>Terminal</code> (или <code>Python</code>, что попросит).</li>
+        <li>Проверь логи: <code>tail -f ~/Library/Logs/persona-agent.out.log</code>.</li>
+        <li>Через 30 секунд открой <a href="/timeline" class="text-accent-400 underline">/timeline</a> — должны появиться скрины.</li>
+      </ol>
+    </div>
+
+    <form method="post" action="/welcome/install/mac/mint" class="text-center">
+      <button type="submit" class="text-sm text-zinc-400 hover:text-accent-400 underline">
+        Сгенерировать новую команду
+      </button>
+    </form>
+  {% else %}
+    {# --- Step 1: mint --- #}
+    <div class="rounded-xl border border-zinc-700 bg-ink-900 p-5 mb-6">
+      <h2 class="font-semibold mb-2">Что произойдёт</h2>
+      <ol class="text-sm space-y-1.5 text-zinc-300 list-decimal list-inside">
+        <li>Сервер создаст для тебя <strong>агент-токен</strong> (можно отозвать в <a href="/admin/agents" class="text-accent-400 underline">/admin/agents</a>).</li>
+        <li>Я подготовлю одну команду <code>curl ... | bash</code>.</li>
+        <li>Ты копируешь её, открываешь Терминал на Mac, вставляешь.</li>
+        <li>Скрипт делает <code>git clone</code>, ставит зависимости, прописывает автозапуск.</li>
+      </ol>
+    </div>
+
+    <form method="post" action="/welcome/install/mac/mint" class="text-center">
+      <button type="submit"
+              class="px-6 py-3 bg-accent-600 hover:bg-accent-500 text-white font-semibold rounded-lg shadow-lg">
+        Сгенерировать команду →
+      </button>
+    </form>
+
+    <details class="mt-6 text-xs text-zinc-500">
+      <summary class="cursor-pointer text-zinc-300 font-semibold">Что если я не доверяю <code>curl ... | bash</code></summary>
+      <p class="mt-2">
+        Понимаю. Скрипт можно посмотреть глазами: после генерации команды просто открой URL <code>{{ server_url }}/api/install/mac.sh?t=...</code> в браузере — увидишь весь Bash. Или сохрани его: <code>curl -fsSL ... -o installer.sh && cat installer.sh</code>, изучи, потом <code>bash installer.sh</code>.
+      </p>
+      <p class="mt-2">
+        Альтернатива — клонировать вручную:
+        <code>git clone https://github.com/SwairIt/persona.git ~/persona</code>, потом <code>~/persona/mac-agent</code>, создать venv, поставить requirements.txt, скопировать токен из <a href="/admin/agents" class="text-accent-400 underline">/admin/agents</a> в <code>config.json</code>.
+      </p>
+    </details>
+  {% endif %}
+</div>
+{% endblock %}

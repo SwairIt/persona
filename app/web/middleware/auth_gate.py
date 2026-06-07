@@ -58,6 +58,9 @@ _PUBLIC_PREFIXES: tuple[str, ...] = (
     # T16 (2026-06-07) — iOS Shortcut hits these with X-Device-Token,
     # not a cookie session. The route itself enforces auth.
     "/api/ingest/",
+    # T18 — installer.sh fetch happens from user's Mac terminal where
+    # there's no session cookie. Single-use ``t`` query token is the auth.
+    "/api/install/",
     "/favicon.ico",
 )
 
