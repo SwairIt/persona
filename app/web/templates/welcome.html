@@ -1,90 +1,164 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="max-w-3xl mx-auto py-8">
-  <div class="text-center mb-12">
-    <span class="text-6xl">●</span>
-    <h1 class="text-4xl font-bold tracking-tight mt-4">{{ t('title_welcome') }}</h1>
-    <p class="text-zinc-400 mt-3 max-w-xl mx-auto">
-      {{ t('subtitle_welcome') }}
+<div class="max-w-3xl mx-auto px-4 sm:px-6 py-8">
+  <header class="text-center mb-10">
+    <span class="text-6xl block mb-3">●</span>
+    <h1 class="text-3xl sm:text-4xl font-bold tracking-tight">Привет, {{ user_email or 'друг' }}</h1>
+    <p class="text-zinc-400 mt-2 text-sm sm:text-base">
+      Persona — твоя локальная память. Сейчас расскажу что делать дальше.
     </p>
-  </div>
+  </header>
 
-  <ol class="space-y-6">
-    <li class="rounded-lg border border-ink-700 bg-ink-800 p-5 flex gap-4">
-      <span class="text-accent-400 font-mono text-2xl flex-shrink-0">1.</span>
-      <div>
-        <h3 class="font-semibold">{{ t('step_press_start') }}</h3>
-        <p class="text-zinc-400 text-sm mt-1">
-          {{ t('wizard_start_hint').replace('{n}', settings.capture_interval_seconds | string) }}
-        </p>
+  {# --- PIPELINE STEPS --- #}
+  <ol class="space-y-4 mb-10">
+
+    {# Step 1: Mac agent (capture loop status) #}
+    <li class="rounded-xl border {% if has_screenshots %}border-emerald-500/40 bg-emerald-500/5{% else %}border-amber-500/40 bg-amber-500/5{% endif %} p-5">
+      <div class="flex items-start gap-3">
+        <span class="text-2xl">{% if has_screenshots %}✅{% else %}1️⃣{% endif %}</span>
+        <div class="flex-1 min-w-0">
+          <h2 class="font-semibold text-lg">Поставь захват экрана на Mac</h2>
+          {% if has_screenshots %}
+            <p class="text-sm text-emerald-300 mt-1">
+              Готово: уже <strong>{{ shots_count }}</strong> скриншотов{% if last_shot_at %}, последний в {{ last_shot_at[:16] }}{% endif %}.
+            </p>
+          {% else %}
+            <p class="text-sm text-zinc-300 mt-1">
+              Persona на сервере умеет принимать скриншоты, но сами они делаются <strong>агентом на Mac</strong>. Без него лента будет пустая.
+            </p>
+            <details class="mt-3 text-xs text-zinc-400">
+              <summary class="cursor-pointer text-zinc-200 font-semibold">Как поставить агент на Mac (3 шага)</summary>
+              <ol class="mt-2 space-y-2 list-decimal list-inside">
+                <li>В терминале на Mac:
+                  <pre class="bg-ink-950 border border-ink-700 rounded p-2 mt-1 text-xs font-mono select-all overflow-x-auto">git clone https://github.com/SwairIt/persona ~/persona
+cd ~/persona/mac-agent
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt</pre>
+                </li>
+                <li>Создай <code>config.json</code> рядом с <code>persona_agent.py</code>:
+                  <pre class="bg-ink-950 border border-ink-700 rounded p-2 mt-1 text-xs font-mono select-all overflow-x-auto">{
+  "server": {
+    "url": "{{ server_url }}",
+    "token": "&lt;твой_admin_token&gt;"
+  }
+}</pre>
+                </li>
+                <li>Запусти: <code>python persona_agent.py</code></li>
+              </ol>
+              <p class="mt-2 text-amber-300">
+                ⚠️ admin token — это значение переменной <code>PERSONA_ADMIN_TOKEN</code> из <code>.env</code> на сервере. Это НЕ device_token из /devices.
+              </p>
+            </details>
+          {% endif %}
+        </div>
       </div>
     </li>
 
-    <li class="rounded-lg border border-ink-700 bg-ink-800 p-5 flex gap-4">
-      <span class="text-accent-400 font-mono text-2xl flex-shrink-0">2.</span>
-      <div>
-        <h3 class="font-semibold">{{ t('step_optional_ocr') }}</h3>
-        <p class="text-zinc-400 text-sm mt-1 mb-2">
-          {{ t('wizard_ocr_hint') }}
-        </p>
-        {% if tesseract.available %}
-          <span class="inline-flex items-center gap-1.5 text-emerald-400 text-sm">
-            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-            Tesseract detected — OCR ready ({{ tesseract.version }})
-          </span>
-        {% else %}
-          <details class="text-sm text-zinc-400">
-            <summary class="cursor-pointer text-accent-400">How to install Tesseract on Windows</summary>
-            <ol class="list-decimal list-inside space-y-1 mt-2 ml-3">
-              <li>Download from <a class="underline" href="https://github.com/UB-Mannheim/tesseract/wiki">UB-Mannheim build</a></li>
-              <li>Run installer with default options (path is <code>C:\Program Files\Tesseract-OCR</code>)</li>
-              <li>Open <code>.env</code> in Persona's folder and add:<br>
-                <code>PERSONA_TESSERACT_PATH=C:\Program Files\Tesseract-OCR\tesseract.exe</code><br>
-                <code>PERSONA_OCR_ENABLED=true</code>
-              </li>
-              <li>Restart Persona</li>
-            </ol>
-          </details>
-        {% endif %}
+    {# Step 2: LLM key — addressing user's "where do I put Gemini key?" #}
+    <li class="rounded-xl border {% if has_llm %}border-emerald-500/40 bg-emerald-500/5{% else %}border-purple-500/40 bg-purple-500/5{% endif %} p-5">
+      <div class="flex items-start gap-3">
+        <span class="text-2xl">{% if has_llm %}✅{% else %}2️⃣{% endif %}</span>
+        <div class="flex-1 min-w-0">
+          <h2 class="font-semibold text-lg">Подключи AI для вопросов и чата</h2>
+          {% if has_llm %}
+            <p class="text-sm text-emerald-300 mt-1">
+              Готово: провайдер <code>{{ llm_provider }}</code>. Можешь сразу в <a href="/chat" class="underline">/chat</a> или <a href="/ask" class="underline">/ask</a>.
+            </p>
+          {% else %}
+            <p class="text-sm text-zinc-300 mt-1">
+              Без AI работают только базовый поиск и таймлайн. Чтобы задавать вопросы голосом или текстом — выбери одного из 14 провайдеров.
+            </p>
+
+            <div class="mt-4 space-y-3">
+              <a href="/settings/llm" class="block rounded-lg border border-purple-500 bg-purple-500/10 p-3 hover:bg-purple-500/20 transition">
+                <div class="font-semibold text-purple-300">🚀 Самый простой путь — YandexGPT</div>
+                <div class="text-xs text-zinc-400 mt-1">
+                  cloud.yandex.com → войти Яндекс-аккаунтом → создать API key → скопировать.<br>
+                  Потом <strong>сюда</strong>: <a href="/settings/llm" class="underline">/settings/llm</a> → выбрать "YandexGPT" → вставить ключ → Save.<br>
+                  Работает в РФ без VPN, free tier.
+                </div>
+              </a>
+
+              <a href="/help" class="block rounded-lg border border-emerald-500/40 bg-emerald-500/5 p-3 hover:bg-emerald-500/15 transition">
+                <div class="font-semibold text-emerald-300">🏠 Бесплатно навсегда — Ollama на твоём ПК</div>
+                <div class="text-xs text-zinc-400 mt-1">
+                  Скачай <code>ollama.com</code> → <code>ollama pull qwen2.5:3b</code> → /settings/llm → "Локально через Ollama" → Save.<br>
+                  Никаких ключей и регистраций.
+                </div>
+              </a>
+
+              <details class="text-xs text-zinc-500 ml-1">
+                <summary class="cursor-pointer text-zinc-300 font-semibold">📍 Где взять Gemini-ключ конкретно</summary>
+                <ol class="mt-2 space-y-1.5 list-decimal list-inside text-zinc-400">
+                  <li>Включи VPN (Gemini API заблокирован в РФ).</li>
+                  <li>Открой <a href="https://aistudio.google.com/apikey" class="text-accent-400 underline" target="_blank" rel="noopener">aistudio.google.com/apikey</a></li>
+                  <li>Войди Google-аккаунтом → <strong>Create API key</strong> → скопируй (начинается с <code>AIza...</code>).</li>
+                  <li><strong>Сюда вставь:</strong> <a href="/settings/llm" class="text-accent-400 underline">/settings/llm</a> → выбрать "Google Gemini" → вставить ключ в поле под ним → <strong>Save</strong>.</li>
+                </ol>
+                <p class="mt-2 text-amber-300/80">
+                  Если в РФ без VPN — лучше выбери YandexGPT/GigaChat/DeepSeek, они работают напрямую.
+                </p>
+              </details>
+            </div>
+          {% endif %}
+        </div>
       </div>
     </li>
 
-    <li class="rounded-lg border border-ink-700 bg-ink-800 p-5 flex gap-4">
-      <span class="text-accent-400 font-mono text-2xl flex-shrink-0">3.</span>
-      <div>
-        <h3 class="font-semibold">{{ t('step_optional_llm') }}</h3>
-        <p class="text-zinc-400 text-sm mt-1 mb-2">
-          {{ t('wizard_llm_hint') }}
-        </p>
-        <pre class="bg-ink-900 p-3 rounded text-xs font-mono text-zinc-300">PERSONA_BYO_API_PROVIDER=anthropic
-PERSONA_BYO_API_KEY=sk-ant-…</pre>
-        <p class="text-zinc-500 text-xs mt-2">
-          {{ t('wizard_llm_note') }}
-        </p>
+    {# Step 3: Capture toggle #}
+    <li class="rounded-xl border {% if not screens_disabled %}border-emerald-500/40 bg-emerald-500/5{% else %}border-zinc-500/40 bg-zinc-500/5{% endif %} p-5">
+      <div class="flex items-start gap-3">
+        <span class="text-2xl">{% if not screens_disabled %}✅{% else %}3️⃣{% endif %}</span>
+        <div class="flex-1 min-w-0">
+          <h2 class="font-semibold text-lg">Проверь что захват включён</h2>
+          {% if not screens_disabled %}
+            <p class="text-sm text-emerald-300 mt-1">
+              Захват скриншотов включён. Микрофон: <strong>{% if mic_paused %}на паузе{% else %}пишет речь{% endif %}</strong>.
+            </p>
+          {% else %}
+            <p class="text-sm text-zinc-300 mt-1">
+              Захват сейчас выключен в настройках. Открой <a href="/settings/capture" class="text-accent-400 underline">/settings/capture</a> → включи тогл "Скриншоты".
+            </p>
+          {% endif %}
+        </div>
       </div>
     </li>
 
-    <li class="rounded-lg border border-ink-700 bg-ink-800 p-5 flex gap-4">
-      <span class="text-accent-400 font-mono text-2xl flex-shrink-0">4.</span>
-      <div>
-        <h3 class="font-semibold">{{ t('step_day_to_day') }}</h3>
-        <ul class="text-zinc-400 text-sm mt-1 space-y-1 list-disc list-inside">
-          <li><a class="text-accent-400" href="/">{{ t('nav_timeline') }}</a> — browse your day, hour by hour</li>
-          <li><a class="text-accent-400" href="/search">{{ t('nav_search') }}</a> — find anything you saw</li>
-          <li><a class="text-accent-400" href="/summary/">AI Summary</a> — daily recap from your captures</li>
-          <li><a class="text-accent-400" href="/stats">{{ t('nav_stats') }}</a> — top apps, dedup ratio, activity heatmap</li>
-          <li><a class="text-accent-400" href="/whitelist">Whitelist</a> — exclude apps from capture (games, password managers)</li>
-        </ul>
-        <p class="text-zinc-500 text-xs mt-3">{{ t('wizard_keyboard_hint') }}</p>
+    {# Step 4: Where to go next #}
+    <li class="rounded-xl border border-sky-500/40 bg-sky-500/5 p-5">
+      <div class="flex items-start gap-3">
+        <span class="text-2xl">4️⃣</span>
+        <div class="flex-1 min-w-0">
+          <h2 class="font-semibold text-lg">Куда идти дальше</h2>
+          <div class="grid grid-cols-2 gap-2 text-sm mt-3">
+            <a href="/timeline" class="rounded bg-ink-800 hover:bg-accent-600 hover:text-white p-3 text-center transition">
+              📜 Лента<br><span class="text-xs text-zinc-500">все скрины</span>
+            </a>
+            <a href="/now" class="rounded bg-ink-800 hover:bg-accent-600 hover:text-white p-3 text-center transition">
+              ⚡ Сейчас<br><span class="text-xs text-zinc-500">что прямо сейчас</span>
+            </a>
+            <a href="/ask" class="rounded bg-ink-800 hover:bg-accent-600 hover:text-white p-3 text-center transition">
+              ❓ Спросить<br><span class="text-xs text-zinc-500">один вопрос</span>
+            </a>
+            <a href="/chat" class="rounded bg-ink-800 hover:bg-accent-600 hover:text-white p-3 text-center transition">
+              💬 Чат<br><span class="text-xs text-zinc-500">длинный разговор</span>
+            </a>
+          </div>
+        </div>
       </div>
     </li>
   </ol>
 
-  <div class="text-center mt-12">
-    <a href="/" class="inline-block px-6 py-3 bg-accent-600 hover:bg-accent-500 rounded-lg font-medium">
-      {{ t('btn_open_my_timeline') }} →
-    </a>
+  {# --- Quick links footer --- #}
+  <div class="rounded-xl border border-zinc-700 bg-ink-900 p-4 text-sm text-zinc-400">
+    <div class="font-semibold text-zinc-300 mb-2">Если что-то непонятно</div>
+    <div class="flex flex-wrap gap-3">
+      <a href="/help" class="text-accent-400 hover:underline">/help — полная справка</a>
+      <a href="/settings/hub" class="text-accent-400 hover:underline">/settings/hub — все настройки</a>
+      <a href="/devices" class="text-accent-400 hover:underline">/devices — устройства</a>
+      <a href="/storage" class="text-accent-400 hover:underline">/storage — диск</a>
+    </div>
   </div>
 </div>
 {% endblock %}
