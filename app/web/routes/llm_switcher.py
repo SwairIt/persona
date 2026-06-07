@@ -61,9 +61,16 @@ log = get_logger("persona.llm.switcher")
 #: Tuples of ``(slug, label, placeholder)`` so the template iterates one
 #: list rather than hard-coding three near-identical input blocks.
 PROVIDERS: Final[tuple[tuple[str, str, str], ...]] = (
-    ("anthropic", "Anthropic (Claude)", "sk-ant-..."),
-    ("openai", "OpenAI (GPT-4o family)", "sk-..."),
-    ("groq", "Groq (Llama 3 family)", "gsk_..."),
+    # T9 (2026-06-07) — RU providers сверху, чтобы новые юзеры из России
+    # видели первыми работающие у них варианты, а не GPT/Claude которые
+    # требуют VPN + иностранную карту.
+    ("yandex", "YandexGPT (через Yandex Cloud, работает в РФ)", "AQVN... или t1..."),
+    ("gigachat", "GigaChat (Сбер, работает в РФ, 1М токенов/мес бесплатно)", "Authorization key из dashboard"),
+    ("deepseek", "DeepSeek (работает в РФ, $0.14 за 1М токенов)", "sk-..."),
+    ("anthropic", "Anthropic (Claude) — требует VPN из РФ", "sk-ant-..."),
+    ("openai", "OpenAI (GPT-4o family) — требует VPN из РФ", "sk-..."),
+    ("groq", "Groq (Llama 3 family) — работает в РФ", "gsk_..."),
+    ("gemini", "Google Gemini — требует VPN из РФ", "AIza..."),
 )
 
 #: ``none`` disables AI features without deleting any stored key.

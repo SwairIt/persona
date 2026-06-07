@@ -15,7 +15,19 @@ from app.settings import get_settings
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-Provider = Literal["anthropic", "openai", "groq", "gemini"]
+Provider = Literal[
+    "anthropic",
+    "openai",
+    "groq",
+    "gemini",
+    # T9 (2026-06-07) — Russia-accessible providers. Yandex + Sber
+    # don't require VPN or foreign cards, and both have a free tier
+    # large enough for normal daily use. DeepSeek is also accessible
+    # from Russia and is the best $/quality ratio on the market.
+    "yandex",
+    "gigachat",
+    "deepseek",
+]
 
 log = get_logger("persona.llm.switcher")
 usage_log = get_logger("persona.llm_usage")
@@ -482,6 +494,277 @@ async def _stream_openai_compatible(
             yield text
 
 
+class YandexGPTClient:
+    """YandexGPT provider — works in Russia without VPN.
+
+    YandexGPT API takes a Yandex IAM token or an API key issued for a
+    folder (``Ya.Cloud`` console). We accept either format in the same
+    ``api_key`` field — if it starts with ``t1.`` it's an IAM token, else
+    treat it as a service-account API key.
+
+    Defaults to ``yandexgpt-lite`` — Yandex's smaller/cheaper variant
+    which is plenty for day-summary Q&A. The pro variant is
+    ``yandexgpt`` (no ``-lite``).
+
+    Auth header:
+        IAM token  → ``Authorization: Bearer t1...``
+        API key    → ``Authorization: Api-Key AQVN...``
+
+    Yandex's chat endpoint is at::
+
+        https://llm.api.cloud.yandex.net/foundationModels/v1/completion
+
+    Request shape uses Yandex's own JSON (NOT OpenAI-compatible). See
+    https://yandex.cloud/docs/foundation-models/quickstart/yandexgpt
+    """
+
+    provider: Provider = "yandex"
+
+    def __init__(
+        self,
+        api_key: str,
+        model: str = "yandexgpt-lite/latest",
+        folder_id: str | None = None,
+    ) -> None:
+        self._api_key = api_key
+        self._model = model
+        # The model URI Yandex wants encodes folder_id when an API key
+        # is used. We default to the well-known placeholder so the user
+        # gets a clear error if they forget to set folder_id.
+        self._folder_id = folder_id or "b1g-placeholder"
+        self._base_url = (
+            "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
+        )
+        self.last_input_tokens: int | None = None
+        self.last_output_tokens: int | None = None
+
+    def _auth_header(self) -> str:
+        return (
+            f"Bearer {self._api_key}"
+            if self._api_key.startswith("t1.")
+            else f"Api-Key {self._api_key}"
+        )
+
+    def _model_uri(self) -> str:
+        # Format: gpt://<folder_id>/<model_name>/latest
+        # Accept user-supplied "yandexgpt-lite/latest" or full
+        # "gpt://folder/model" URIs.
+        if self._model.startswith("gpt://"):
+            return self._model
+        return f"gpt://{self._folder_id}/{self._model}"
+
+    async def complete(self, request: CompletionRequest) -> str:
+        self.last_input_tokens = None
+        self.last_output_tokens = None
+        headers = {
+            "Authorization": self._auth_header(),
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "modelUri": self._model_uri(),
+            "completionOptions": {
+                "stream": False,
+                "temperature": request.temperature,
+                "maxTokens": str(request.max_tokens),
+            },
+            "messages": [
+                {"role": "system", "text": request.system},
+                {"role": "user", "text": request.user},
+            ],
+        }
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(self._base_url, json=payload, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+        result = data.get("result") or {}
+        usage = result.get("usage") or {}
+        self.last_input_tokens = _coerce_token_count(usage.get("inputTextTokens"))
+        self.last_output_tokens = _coerce_token_count(usage.get("completionTokens"))
+        alternatives = result.get("alternatives") or []
+        if not alternatives:
+            return ""
+        message = (alternatives[0] or {}).get("message") or {}
+        return str(message.get("text", "")).strip()
+
+    async def stream(self, request: CompletionRequest) -> AsyncIterator[str]:
+        """Fallback to non-stream + yield as one chunk.
+
+        YandexGPT does support streaming but emits a Yandex-specific
+        frame format — implementing the parser is more work than it's
+        worth for the volume Persona users hit. The wrapper falls back
+        to ``complete()`` so the /ask streaming UI still renders.
+        """
+        text = await self.complete(request)
+        if text:
+            yield text
+
+
+class GigaChatClient:
+    """GigaChat provider (Sber) — works in Russia, free tier of 1M tokens/mo.
+
+    GigaChat uses OAuth-2 ``client_credentials`` flow: the user gets a
+    ``Client Secret`` from developers.sber.ru, and the client trades it
+    for a short-lived access token on each request. We cache the token
+    for 25 minutes (server says 30, leave 5 min safety margin) so we
+    don't hammer the token endpoint.
+
+    Defaults to ``GigaChat`` (the base/free model). Users can upgrade to
+    ``GigaChat-Pro`` or ``GigaChat-Max`` in settings.
+
+    The wire format is OpenAI-compatible chat.completions, so we can
+    reuse :func:`_stream_openai_compatible` for streaming.
+    """
+
+    provider: Provider = "gigachat"
+
+    _TOKEN_URL = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
+    _BASE_URL = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
+
+    def __init__(self, api_key: str, model: str = "GigaChat") -> None:
+        # ``api_key`` here is GigaChat's ``Authorization`` key (base64
+        # of client_id:client_secret per Sber docs). The user copies it
+        # directly from their dashboard — no manual encoding needed.
+        self._auth_key = api_key
+        self._model = model
+        self._cached_token: str | None = None
+        self._token_expires_at: float = 0.0
+        self.last_input_tokens: int | None = None
+        self.last_output_tokens: int | None = None
+
+    async def _get_token(self) -> str:
+        import time  # noqa: PLC0415 — keep stdlib import local to avoid module bloat
+        import uuid as _uuid  # noqa: PLC0415
+
+        if self._cached_token and time.time() < self._token_expires_at - 60.0:
+            return self._cached_token
+        headers = {
+            "Authorization": f"Basic {self._auth_key}",
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "application/json",
+            "RqUID": str(_uuid.uuid4()),
+        }
+        async with httpx.AsyncClient(
+            timeout=20.0,
+            verify=False,  # noqa: S501 — Sber uses a CA chain not in default bundles
+        ) as client:
+            response = await client.post(
+                self._TOKEN_URL,
+                headers=headers,
+                data={"scope": "GIGACHAT_API_PERS"},
+            )
+            response.raise_for_status()
+            data = response.json()
+        token = str(data.get("access_token") or "")
+        expires_at = int(data.get("expires_at") or 0)
+        if not token:
+            raise LLMNotConfigured("GigaChat token issuance failed")
+        self._cached_token = token
+        # ``expires_at`` is unix-ms per Sber convention; convert to seconds.
+        self._token_expires_at = expires_at / 1000.0 if expires_at else (
+            time.time() + 25 * 60.0
+        )
+        return token
+
+    async def complete(self, request: CompletionRequest) -> str:
+        self.last_input_tokens = None
+        self.last_output_tokens = None
+        token = await self._get_token()
+        payload = {
+            "model": self._model,
+            "max_tokens": request.max_tokens,
+            "temperature": request.temperature,
+            "messages": [
+                {"role": "system", "content": request.system},
+                {"role": "user", "content": request.user},
+            ],
+        }
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        }
+        async with httpx.AsyncClient(timeout=60.0, verify=False) as client:  # noqa: S501
+            response = await client.post(self._BASE_URL, json=payload, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+        usage = data.get("usage") or {}
+        self.last_input_tokens = _coerce_token_count(usage.get("prompt_tokens"))
+        self.last_output_tokens = _coerce_token_count(usage.get("completion_tokens"))
+        choices = data.get("choices") or []
+        if not choices:
+            return ""
+        return str((choices[0] or {}).get("message", {}).get("content", "")).strip()
+
+    async def stream(self, request: CompletionRequest) -> AsyncIterator[str]:
+        token = await self._get_token()
+        async for chunk in _stream_openai_compatible(
+            base_url=self._BASE_URL,
+            api_key=token,
+            model=self._model,
+            request=request,
+            inner=self,
+        ):
+            yield chunk
+
+
+class DeepSeekClient:
+    """DeepSeek provider — works in Russia, OpenAI-compatible API.
+
+    The cheapest serious-quality option on the market — $0.14 / 1M input
+    tokens for the base ``deepseek-chat``, $0.55 / 1M for ``deepseek-reasoner``.
+    No geo-restrictions, accepts cards from any country.
+
+    The wire format is byte-for-byte OpenAI-compatible so we just point
+    the same client at a different URL.
+    """
+
+    provider: Provider = "deepseek"
+
+    def __init__(self, api_key: str, model: str = "deepseek-chat") -> None:
+        self._api_key = api_key
+        self._model = model
+        self._base_url = "https://api.deepseek.com/v1/chat/completions"
+        self.last_input_tokens: int | None = None
+        self.last_output_tokens: int | None = None
+
+    async def complete(self, request: CompletionRequest) -> str:
+        self.last_input_tokens = None
+        self.last_output_tokens = None
+        headers = {
+            "Authorization": f"Bearer {self._api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": self._model,
+            "max_tokens": request.max_tokens,
+            "temperature": request.temperature,
+            "messages": [
+                {"role": "system", "content": request.system},
+                {"role": "user", "content": request.user},
+            ],
+        }
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(self._base_url, json=payload, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+        usage = data.get("usage") or {}
+        self.last_input_tokens = _coerce_token_count(usage.get("prompt_tokens"))
+        self.last_output_tokens = _coerce_token_count(usage.get("completion_tokens"))
+        choices = data.get("choices") or []
+        if not choices:
+            return ""
+        return str((choices[0] or {}).get("message", {}).get("content", "")).strip()
+
+    async def stream(self, request: CompletionRequest) -> AsyncIterator[str]:
+        async for chunk in _stream_openai_compatible(
+            base_url=self._base_url,
+            api_key=self._api_key,
+            model=self._model,
+            request=request,
+            inner=self,
+        ):
+            yield chunk
+
+
 async def _parse_gemini_sse(
     response: httpx.Response, client: GeminiClient
 ) -> AsyncIterator[str]:
@@ -662,6 +945,35 @@ def _resolve_provider_and_key_sync() -> tuple[str | None, str | None]:
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
         future = pool.submit(asyncio.run, _resolve_provider_and_key())
         return future.result()
+
+
+def _read_kv_sync(key: str) -> str | None:
+    """One-shot kv read for provider-specific extras (Yandex folder_id, etc).
+
+    Synchronous to match :func:`_resolve_provider_and_key_sync` so the
+    same call site convention applies. Returns ``None`` on any failure
+    instead of raising — these extras are advisory.
+    """
+    async def _go() -> str | None:
+        try:
+            from app.storage.db import get_connection  # noqa: PLC0415
+            from app.storage.repository import get_kv  # noqa: PLC0415
+            async with get_connection() as conn:
+                value = await get_kv(conn, key)
+        except Exception:
+            return None
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(_go())
+    import concurrent.futures  # noqa: PLC0415
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(asyncio.run, _go()).result()
 
 
 class _UsageRecordingClient:
@@ -858,6 +1170,16 @@ def make_client(
         inner = GroqClient(use_key)
     elif use_provider == "gemini":
         inner = GeminiClient(use_key)
+    elif use_provider == "yandex":
+        # YandexGPT needs an optional folder_id. We pull it from kv —
+        # the /settings/llm page surfaces a separate text field for it
+        # next to the api key when ``yandex`` is selected.
+        folder_id = _read_kv_sync("yandex_folder_id") or None
+        inner = YandexGPTClient(use_key, folder_id=folder_id)
+    elif use_provider == "gigachat":
+        inner = GigaChatClient(use_key)
+    elif use_provider == "deepseek":
+        inner = DeepSeekClient(use_key)
     else:
         msg = f"Unsupported LLM provider: {use_provider}"
         raise LLMNotConfigured(msg)
