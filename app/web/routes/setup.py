@@ -65,10 +65,11 @@ _VALID_THEMES: Final[frozenset[str]] = frozenset({"dark", "light", "auto"})
 _DEFAULT_THEME: Final[str] = "dark"
 
 _VALID_PROVIDERS: Final[frozenset[str]] = frozenset(
-    # T9/T10 (2026-06-07) — RU providers for Russia-accessible setups
-    # without VPN + Ollama for fully-local free-forever model.
+    # T9/T10/T12 (2026-06-07) — full provider list.
     {"anthropic", "openai", "groq", "gemini",
-     "yandex", "gigachat", "deepseek", "ollama"}
+     "yandex", "gigachat", "deepseek", "ollama",
+     "openrouter", "mistral", "together", "xai",
+     "proxyapi", "aitunnel"}
 )
 
 # Match the validators on ``Settings`` so the wizard never persists a

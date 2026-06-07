@@ -32,6 +32,15 @@ Provider = Literal[
     # no rate limit, no data leaves the device. The right answer when
     # the user explicitly wants "AI that's mine and free".
     "ollama",
+    # T12 (2026-06-07) — six more providers covering the modern field.
+    # All are OpenAI-compatible at the wire level so each is a thin
+    # subclass of the same Bearer-token + JSON chat-completions client.
+    "openrouter",   # international aggregator, 400+ models behind one key
+    "mistral",      # EU, free tier, strong open-weight models
+    "together",     # huge open-weight catalogue, $25 free credit
+    "xai",          # Grok (Elon's), works fine for non-rude prompts
+    "proxyapi",     # Russian gateway to OpenAI/Anthropic/Gemini/Claude in RUB
+    "aitunnel",     # Russian aggregator alternative to proxyapi
 ]
 
 log = get_logger("persona.llm.switcher")
@@ -865,6 +874,162 @@ class OllamaClient:
             yield chunk
 
 
+class _OpenAICompatibleClient:
+    """Shared implementation for the dozen "OpenAI-compatible Bearer-token
+    chat-completions" providers.
+
+    The wire format is identical across OpenRouter, Mistral, Together,
+    xAI, ProxyAPI, AITunnel, DeepSeek and several others — they all
+    expose ``POST /v1/chat/completions`` with the standard
+    ``{model, messages, temperature, max_tokens}`` body and SSE
+    streaming. Subclassing this base keeps each per-vendor file to a
+    one-line ``_base_url`` + ``_default_model`` override.
+
+    Each subclass MUST set:
+        provider     — the literal slug from :data:`Provider`
+        _BASE_URL    — full ``/v1/chat/completions`` URL
+        _DEFAULT_MODEL — slug accepted by that vendor (e.g. ``gpt-4o-mini``)
+
+    Optional override:
+        _OPTIONAL_HEADERS — dict added to every request (OpenRouter wants
+                            ``HTTP-Referer`` + ``X-Title`` for analytics).
+    """
+
+    provider: Provider  # set by subclass
+    _BASE_URL: str = ""
+    _DEFAULT_MODEL: str = ""
+    _OPTIONAL_HEADERS: dict[str, str] = {}
+
+    def __init__(self, api_key: str, model: str | None = None) -> None:
+        self._api_key = api_key
+        self._model = (model or "").strip() or self._DEFAULT_MODEL
+        self.last_input_tokens: int | None = None
+        self.last_output_tokens: int | None = None
+
+    async def complete(self, request: CompletionRequest) -> str:
+        self.last_input_tokens = None
+        self.last_output_tokens = None
+        headers = {
+            "Authorization": f"Bearer {self._api_key}",
+            "Content-Type": "application/json",
+        }
+        headers.update(self._OPTIONAL_HEADERS)
+        payload = {
+            "model": self._model,
+            "max_tokens": request.max_tokens,
+            "temperature": request.temperature,
+            "messages": [
+                {"role": "system", "content": request.system},
+                {"role": "user", "content": request.user},
+            ],
+        }
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(self._BASE_URL, json=payload, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+        usage = data.get("usage") or {}
+        self.last_input_tokens = _coerce_token_count(usage.get("prompt_tokens"))
+        self.last_output_tokens = _coerce_token_count(usage.get("completion_tokens"))
+        choices = data.get("choices") or []
+        if not choices:
+            return ""
+        return str((choices[0] or {}).get("message", {}).get("content", "")).strip()
+
+    async def stream(self, request: CompletionRequest) -> AsyncIterator[str]:
+        async for chunk in _stream_openai_compatible(
+            base_url=self._BASE_URL,
+            api_key=self._api_key,
+            model=self._model,
+            request=request,
+            inner=self,
+        ):
+            yield chunk
+
+
+class OpenRouterClient(_OpenAICompatibleClient):
+    """OpenRouter aggregator — 400+ models behind a single API key.
+
+    https://openrouter.ai/keys → create key → paste. The user picks
+    which underlying model in ``kv_settings.openrouter_model`` (or just
+    leave the default ``meta-llama/llama-3.1-8b-instruct:free`` which
+    is on the free tier).
+
+    OpenRouter wants two extra headers for usage analytics in their
+    dashboard:
+        HTTP-Referer — surface the calling app's URL
+        X-Title       — surface the calling app's name
+    """
+
+    provider: Provider = "openrouter"
+    _BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
+    _DEFAULT_MODEL = "meta-llama/llama-3.1-8b-instruct:free"
+    _OPTIONAL_HEADERS = {
+        "HTTP-Referer": "https://github.com/SwairIt/persona",
+        "X-Title": "Persona",
+    }
+
+
+class MistralClient(_OpenAICompatibleClient):
+    """Mistral AI — EU-based, free tier, Apache-2 open-weight models.
+
+    https://console.mistral.ai/api-keys
+    Default: ``mistral-small-latest`` (free tier).
+    """
+
+    provider: Provider = "mistral"
+    _BASE_URL = "https://api.mistral.ai/v1/chat/completions"
+    _DEFAULT_MODEL = "mistral-small-latest"
+
+
+class TogetherClient(_OpenAICompatibleClient):
+    """Together AI — wide open-weight catalogue, $25 free credit on signup.
+
+    https://api.together.xyz/settings/api-keys
+    Default: ``meta-llama/Llama-3.1-8B-Instruct-Turbo`` (small + fast).
+    """
+
+    provider: Provider = "together"
+    _BASE_URL = "https://api.together.xyz/v1/chat/completions"
+    _DEFAULT_MODEL = "meta-llama/Llama-3.1-8B-Instruct-Turbo"
+
+
+class XAIClient(_OpenAICompatibleClient):
+    """xAI Grok — OpenAI-compatible. https://x.ai/api.
+
+    Defaults to ``grok-4`` (newest as of mid-2026; older slugs auto-
+    redirect to current per xAI release notes).
+    """
+
+    provider: Provider = "xai"
+    _BASE_URL = "https://api.x.ai/v1/chat/completions"
+    _DEFAULT_MODEL = "grok-4"
+
+
+class ProxyAPIClient(_OpenAICompatibleClient):
+    """ProxyAPI.ru — Russian gateway to OpenAI/Anthropic/Gemini.
+
+    https://proxyapi.ru → register → pay in RUB → API key. Works from
+    Russia without VPN. Models accessible by their canonical names
+    (``gpt-4o``, ``claude-3-5-sonnet-20241022``, etc.).
+    """
+
+    provider: Provider = "proxyapi"
+    _BASE_URL = "https://api.proxyapi.ru/openai/v1/chat/completions"
+    _DEFAULT_MODEL = "gpt-4o-mini"
+
+
+class AITunnelClient(_OpenAICompatibleClient):
+    """AITunnel.ru — alternative Russian aggregator. https://aitunnel.ru.
+
+    Same model as ProxyAPI: pay in rubles, access the big foreign
+    providers without VPN. Default model name is OpenAI-flavoured.
+    """
+
+    provider: Provider = "aitunnel"
+    _BASE_URL = "https://api.aitunnel.ru/v1/chat/completions"
+    _DEFAULT_MODEL = "gpt-4o-mini"
+
+
 async def _parse_gemini_sse(
     response: httpx.Response, client: GeminiClient
 ) -> AsyncIterator[str]:
@@ -1298,6 +1463,20 @@ def make_client(
         # An optional model override lives in kv ``ollama_model``.
         model_override = _read_kv_sync("ollama_model") or None
         inner = OllamaClient(use_key, model=model_override)
+    elif use_provider == "openrouter":
+        # OpenRouter — the user picks which underlying model in kv
+        # ``openrouter_model``. If unset, fall back to the free Llama 3.1.
+        inner = OpenRouterClient(use_key, model=_read_kv_sync("openrouter_model"))
+    elif use_provider == "mistral":
+        inner = MistralClient(use_key, model=_read_kv_sync("mistral_model"))
+    elif use_provider == "together":
+        inner = TogetherClient(use_key, model=_read_kv_sync("together_model"))
+    elif use_provider == "xai":
+        inner = XAIClient(use_key, model=_read_kv_sync("xai_model"))
+    elif use_provider == "proxyapi":
+        inner = ProxyAPIClient(use_key, model=_read_kv_sync("proxyapi_model"))
+    elif use_provider == "aitunnel":
+        inner = AITunnelClient(use_key, model=_read_kv_sync("aitunnel_model"))
     else:
         msg = f"Unsupported LLM provider: {use_provider}"
         raise LLMNotConfigured(msg)

@@ -61,21 +61,33 @@ log = get_logger("persona.llm.switcher")
 #: Tuples of ``(slug, label, placeholder)`` so the template iterates one
 #: list rather than hard-coding three near-identical input blocks.
 PROVIDERS: Final[tuple[tuple[str, str, str], ...]] = (
-    # T10 (2026-06-07) — Local Ollama НА ПЕРВОМ месте: модель крутится
-    # на машине юзера, бесплатно навсегда, ничего никуда не уходит. Это
-    # то что юзер просил когда сказал 'нужен ИИ на моём ПК, бесплатно'.
-    # Поле 'key' тут переиспользуется как endpoint URL; пустое = default
-    # http://localhost:11434 (стандартный Ollama port).
-    ("ollama", "Локально на твоём ПК через Ollama (бесплатно навсегда)", "http://localhost:11434 (или пусто для дефолта)"),
-    # T9 — RU providers следом
+    # === Бесплатно на твоём ПК ===
+    ("ollama", "🏠 Локально через Ollama (бесплатно навсегда, твой ПК)", "http://localhost:11434 (или пусто для дефолта)"),
+
+    # === Агрегаторы (один ключ → много моделей) ===
+    # T12 (2026-06-07) — агрегаторы это лучший компромисс между
+    # 'много моделей' и 'один логин': регистрируешься в одном месте,
+    # получаешь один ключ, дальше переключаешься между моделями
+    # выбором model name в kv-настройках.
+    ("openrouter", "🌐 OpenRouter — 400+ моделей за один ключ (международный)", "sk-or-..."),
+    ("proxyapi", "🇷🇺 ProxyAPI.ru — OpenAI/Claude/Gemini через РФ-шлюз в рублях", "sk-..."),
+    ("aitunnel", "🇷🇺 AITunnel.ru — альтернативный РФ-агрегатор", "ключ из панели"),
+
+    # === Российские прямые провайдеры ===
     ("yandex", "YandexGPT (через Yandex Cloud, работает в РФ)", "AQVN... или t1..."),
-    ("gigachat", "GigaChat (Сбер, работает в РФ, 1М токенов/мес бесплатно)", "Authorization key из dashboard"),
+    ("gigachat", "GigaChat (Сбер, 1М токенов/мес бесплатно)", "Authorization key из dashboard"),
+
+    # === Дешёвые иностранные ===
     ("deepseek", "DeepSeek (работает в РФ, $0.14 за 1М токенов)", "sk-..."),
-    # Иностранные внизу
-    ("anthropic", "Anthropic (Claude) — требует VPN из РФ", "sk-ant-..."),
-    ("openai", "OpenAI (GPT-4o family) — требует VPN из РФ", "sk-..."),
-    ("groq", "Groq (Llama 3 family) — работает в РФ", "gsk_..."),
-    ("gemini", "Google Gemini — требует VPN из РФ", "AIza..."),
+    ("groq", "Groq (Llama family, работает в РФ, бесплатный tier)", "gsk_..."),
+    ("mistral", "Mistral AI (EU, бесплатный tier)", "ключ с console.mistral.ai"),
+    ("together", "Together AI ($25 кредитов на регистрации, open-weight)", "ключ с together.xyz"),
+
+    # === Требуют VPN из РФ ===
+    ("anthropic", "Anthropic (Claude) — VPN из РФ", "sk-ant-..."),
+    ("openai", "OpenAI (GPT-4o family) — VPN из РФ", "sk-..."),
+    ("gemini", "Google Gemini — VPN из РФ", "AIza..."),
+    ("xai", "xAI Grok — VPN из РФ", "ключ с x.ai/api"),
 )
 
 #: ``none`` disables AI features without deleting any stored key.
