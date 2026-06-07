@@ -61,12 +61,17 @@ log = get_logger("persona.llm.switcher")
 #: Tuples of ``(slug, label, placeholder)`` so the template iterates one
 #: list rather than hard-coding three near-identical input blocks.
 PROVIDERS: Final[tuple[tuple[str, str, str], ...]] = (
-    # T9 (2026-06-07) — RU providers сверху, чтобы новые юзеры из России
-    # видели первыми работающие у них варианты, а не GPT/Claude которые
-    # требуют VPN + иностранную карту.
+    # T10 (2026-06-07) — Local Ollama НА ПЕРВОМ месте: модель крутится
+    # на машине юзера, бесплатно навсегда, ничего никуда не уходит. Это
+    # то что юзер просил когда сказал 'нужен ИИ на моём ПК, бесплатно'.
+    # Поле 'key' тут переиспользуется как endpoint URL; пустое = default
+    # http://localhost:11434 (стандартный Ollama port).
+    ("ollama", "Локально на твоём ПК через Ollama (бесплатно навсегда)", "http://localhost:11434 (или пусто для дефолта)"),
+    # T9 — RU providers следом
     ("yandex", "YandexGPT (через Yandex Cloud, работает в РФ)", "AQVN... или t1..."),
     ("gigachat", "GigaChat (Сбер, работает в РФ, 1М токенов/мес бесплатно)", "Authorization key из dashboard"),
     ("deepseek", "DeepSeek (работает в РФ, $0.14 за 1М токенов)", "sk-..."),
+    # Иностранные внизу
     ("anthropic", "Anthropic (Claude) — требует VPN из РФ", "sk-ant-..."),
     ("openai", "OpenAI (GPT-4o family) — требует VPN из РФ", "sk-..."),
     ("groq", "Groq (Llama 3 family) — работает в РФ", "gsk_..."),

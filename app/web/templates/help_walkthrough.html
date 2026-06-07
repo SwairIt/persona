@@ -17,8 +17,64 @@
       <li>Persona сейчас local-first: всё хранится <code>~/.persona/persona.db</code> на твоём Mac.</li>
       <li>Web-морда тут (на Windows-сервере) <strong>смотрит на этот же файл через devtunnel</strong>. Если выключишь Mac — данных не будет.</li>
       <li>Multi-device аккаунты ещё не сделаны (в плане).</li>
-      <li>AI ключ (Gemini/Claude/OpenAI) надо вставить через <a href="/setup" class="text-accent-400 underline">/setup</a> — он хранится в твоей локальной DB, никуда не отправляется.</li>
+      <li>AI можно подключить через <a href="/settings/llm" class="text-accent-400 underline">/settings/llm</a>: <strong>YandexGPT/GigaChat работают в России без VPN</strong>, или <strong>Ollama локально на твоём ПК бесплатно</strong> (см. ниже).</li>
     </ul>
+  </section>
+
+  {# T10 (2026-06-07) — гайд по локальной Ollama. Это ключевая фича для
+     юзера который не хочет зависеть от внешних API. #}
+  <section class="mb-8 rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-4">
+    <h2 class="font-semibold text-emerald-400 mb-2">🏠 Свой AI на твоём ПК (Ollama) — бесплатно</h2>
+    <p class="text-sm text-zinc-300 mb-3">
+      Это для тех, кто хочет полную независимость: AI крутится на твоём железе, ничего никуда не отправляется, бесплатно навсегда.
+    </p>
+    <ol class="text-sm space-y-2 text-zinc-300">
+      <li>
+        <span class="font-mono text-emerald-400 mr-2">1.</span>
+        Скачай Ollama с <a href="https://ollama.com/download" class="text-accent-400 underline">ollama.com/download</a> (Windows/Mac/Linux). Установи как обычное приложение.
+      </li>
+      <li>
+        <span class="font-mono text-emerald-400 mr-2">2.</span>
+        После установки открой терминал (cmd или PowerShell) и запусти:
+        <pre class="bg-ink-950 border border-ink-700 rounded p-2 mt-1 text-xs font-mono select-all">ollama pull qwen2.5:3b</pre>
+        Это скачает 2 GB модель Qwen 2.5 (3 миллиарда параметров, нормально говорит по-русски). Один раз, навсегда.
+      </li>
+      <li>
+        <span class="font-mono text-emerald-400 mr-2">3.</span>
+        Ollama сам стартует HTTP-сервер на <code>localhost:11434</code>. Проверь что работает: открой <a href="http://localhost:11434/" target="_blank" class="text-accent-400 underline">localhost:11434</a> — должно написать "Ollama is running".
+      </li>
+      <li>
+        <span class="font-mono text-emerald-400 mr-2">4.</span>
+        Зайди в <a href="/settings/llm" class="text-accent-400 underline">/settings/llm</a>, выбери <strong>"Локально на твоём ПК через Ollama"</strong>, в поле endpoint вставь <code>http://localhost:11434</code> (или оставь пусто — это дефолт). Сохрани.
+      </li>
+      <li>
+        <span class="font-mono text-emerald-400 mr-2">5.</span>
+        Открой <a href="/ask" class="text-accent-400 underline">/ask</a>, задай вопрос. Первый ответ будет 10-30 секунд (модель грузится в RAM), дальше быстрее.
+      </li>
+    </ol>
+
+    <details class="mt-4 text-xs text-zinc-400">
+      <summary class="cursor-pointer text-zinc-300 font-semibold">Какую модель выбрать под твоё железо</summary>
+      <table class="w-full text-xs mt-2">
+        <thead class="text-zinc-500">
+          <tr><th class="text-left">Модель</th><th class="text-right">Размер</th><th class="text-right">RAM</th><th class="text-right">Скорость на CPU</th></tr>
+        </thead>
+        <tbody class="font-mono">
+          <tr><td>qwen2.5:1.5b</td><td class="text-right">1 GB</td><td class="text-right">2 GB</td><td class="text-right">15-20 т/с</td></tr>
+          <tr><td>qwen2.5:3b</td><td class="text-right">2 GB</td><td class="text-right">4 GB</td><td class="text-right">10-15 т/с ⭐</td></tr>
+          <tr><td>llama3.2:3b</td><td class="text-right">2 GB</td><td class="text-right">4 GB</td><td class="text-right">10-15 т/с</td></tr>
+          <tr><td>phi3:mini</td><td class="text-right">2.5 GB</td><td class="text-right">5 GB</td><td class="text-right">8-12 т/с</td></tr>
+          <tr><td>qwen2.5:7b</td><td class="text-right">5 GB</td><td class="text-right">8 GB</td><td class="text-right">3-5 т/с</td></tr>
+        </tbody>
+      </table>
+      <p class="mt-2">
+        Чтобы переключиться на другую модель: <code>ollama pull &lt;имя&gt;</code>, потом в kv-настройках <code>ollama_model</code> укажи имя.
+      </p>
+    </details>
+
+    <p class="text-xs text-zinc-400 mt-3">
+      💡 Когда твой ПК выключен — Ollama не отвечает. Persona в это время не сможет ответить на вопросы (но захват скриншотов продолжается без AI).
+    </p>
   </section>
 
   <section class="mb-8">

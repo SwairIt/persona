@@ -27,6 +27,11 @@ Provider = Literal[
     "yandex",
     "gigachat",
     "deepseek",
+    # T10 (2026-06-07) — local-first Ollama. Talks to a model running on
+    # the same machine (or the user's LAN). Free forever, no API key,
+    # no rate limit, no data leaves the device. The right answer when
+    # the user explicitly wants "AI that's mine and free".
+    "ollama",
 ]
 
 log = get_logger("persona.llm.switcher")
@@ -765,6 +770,101 @@ class DeepSeekClient:
             yield chunk
 
 
+class OllamaClient:
+    """Local-first LLM via Ollama (https://ollama.com).
+
+    Ollama runs an open-weight model on the user's own machine and
+    exposes an HTTP API on ``localhost:11434``. There is no API key, no
+    rate limit, no usage tracking by any third party. The model file
+    lives on the user's disk.
+
+    Wire format: Ollama ships an OpenAI-compatible endpoint at
+    ``/v1/chat/completions`` so we reuse the same SSE parser as Groq /
+    DeepSeek. No vendor-specific wrangling needed.
+
+    Defaults:
+        endpoint: ``http://localhost:11434``
+        model:    ``qwen2.5:3b`` (3B params, Q4 quantized ~2 GB,
+                                  fits in 4 GB VRAM, decent Russian)
+
+    Other recommended models for low-end hardware:
+        ``qwen2.5:1.5b`` — 1 GB, CPU-only friendly
+        ``llama3.2:3b``  — similar size, English-leaning
+        ``phi3:mini``    — 3.8B, very strong for size, ~2.5 GB
+        ``saiga``        — Russian-tuned Llama, ~5 GB
+
+    The ``api_key`` field in our switcher is repurposed here as the
+    endpoint URL — the user pastes ``http://localhost:11434`` instead
+    of a secret. When the field is empty we fall back to the default.
+    """
+
+    provider: Provider = "ollama"
+
+    _DEFAULT_ENDPOINT = "http://localhost:11434"
+    _DEFAULT_MODEL = "qwen2.5:3b"
+
+    def __init__(
+        self,
+        api_key: str | None = None,
+        model: str | None = None,
+    ) -> None:
+        # ``api_key`` is overloaded to mean "endpoint" for this provider.
+        # An empty string means "use default localhost".
+        endpoint = (api_key or "").strip().rstrip("/") or self._DEFAULT_ENDPOINT
+        # OpenAI-compatible path lives under /v1; the legacy /api path
+        # is also available but uses a different JSON shape.
+        self._base_url = f"{endpoint}/v1/chat/completions"
+        self._endpoint = endpoint
+        self._model = (model or "").strip() or self._DEFAULT_MODEL
+        # No API key needed for local Ollama, but the OpenAI-compatible
+        # endpoint still demands a Bearer header. Send a placeholder so
+        # the request parses; Ollama ignores the value.
+        self._fake_key = "ollama"
+        self.last_input_tokens: int | None = None
+        self.last_output_tokens: int | None = None
+
+    async def complete(self, request: CompletionRequest) -> str:
+        self.last_input_tokens = None
+        self.last_output_tokens = None
+        headers = {
+            "Authorization": f"Bearer {self._fake_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": self._model,
+            "max_tokens": request.max_tokens,
+            "temperature": request.temperature,
+            "messages": [
+                {"role": "system", "content": request.system},
+                {"role": "user", "content": request.user},
+            ],
+        }
+        # Longer timeout — first call after Ollama startup loads the
+        # model into RAM (cold start of ~10-30 s for 3B). Subsequent
+        # calls are fast.
+        async with httpx.AsyncClient(timeout=180.0) as client:
+            response = await client.post(self._base_url, json=payload, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+        usage = data.get("usage") or {}
+        self.last_input_tokens = _coerce_token_count(usage.get("prompt_tokens"))
+        self.last_output_tokens = _coerce_token_count(usage.get("completion_tokens"))
+        choices = data.get("choices") or []
+        if not choices:
+            return ""
+        return str((choices[0] or {}).get("message", {}).get("content", "")).strip()
+
+    async def stream(self, request: CompletionRequest) -> AsyncIterator[str]:
+        async for chunk in _stream_openai_compatible(
+            base_url=self._base_url,
+            api_key=self._fake_key,
+            model=self._model,
+            request=request,
+            inner=self,
+        ):
+            yield chunk
+
+
 async def _parse_gemini_sse(
     response: httpx.Response, client: GeminiClient
 ) -> AsyncIterator[str]:
@@ -1153,11 +1253,23 @@ def make_client(
         )
         raise LLMNotConfigured(msg)
 
-    if not use_provider or not use_key:
+    # T10 — Ollama is the one exception: it needs no API key because the
+    # endpoint runs locally on the user's own machine. Empty key means
+    # "use default http://localhost:11434".
+    if not use_provider:
         msg = (
             "LLM not configured. Pick a provider + paste a key at "
             "/settings/llm, or set PERSONA_BYO_API_PROVIDER "
-            "(anthropic|openai|groq) + PERSONA_BYO_API_KEY in .env."
+            "(anthropic|openai|groq|gemini|yandex|gigachat|deepseek|ollama) "
+            "+ PERSONA_BYO_API_KEY in .env."
+        )
+        raise LLMNotConfigured(msg)
+    if not use_key and use_provider != "ollama":
+        msg = (
+            "LLM not configured. Pick a provider + paste a key at "
+            "/settings/llm, or set PERSONA_BYO_API_PROVIDER "
+            "(anthropic|openai|groq|gemini|yandex|gigachat|deepseek) "
+            "+ PERSONA_BYO_API_KEY in .env."
         )
         raise LLMNotConfigured(msg)
 
@@ -1180,6 +1292,12 @@ def make_client(
         inner = GigaChatClient(use_key)
     elif use_provider == "deepseek":
         inner = DeepSeekClient(use_key)
+    elif use_provider == "ollama":
+        # Ollama needs no API key — local server on user's machine.
+        # The ``use_key`` here is repurposed as the endpoint URL.
+        # An optional model override lives in kv ``ollama_model``.
+        model_override = _read_kv_sync("ollama_model") or None
+        inner = OllamaClient(use_key, model=model_override)
     else:
         msg = f"Unsupported LLM provider: {use_provider}"
         raise LLMNotConfigured(msg)

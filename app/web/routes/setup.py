@@ -65,9 +65,10 @@ _VALID_THEMES: Final[frozenset[str]] = frozenset({"dark", "light", "auto"})
 _DEFAULT_THEME: Final[str] = "dark"
 
 _VALID_PROVIDERS: Final[frozenset[str]] = frozenset(
-    # T9 (2026-06-07) — yandex/gigachat/deepseek for Russia-accessible
-    # setups where the foreign APIs require a VPN.
-    {"anthropic", "openai", "groq", "gemini", "yandex", "gigachat", "deepseek"}
+    # T9/T10 (2026-06-07) — RU providers for Russia-accessible setups
+    # without VPN + Ollama for fully-local free-forever model.
+    {"anthropic", "openai", "groq", "gemini",
+     "yandex", "gigachat", "deepseek", "ollama"}
 )
 
 # Match the validators on ``Settings`` so the wizard never persists a
