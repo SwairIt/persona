@@ -197,13 +197,16 @@
                     <div :class="prov.configured ? '' : 'opacity-40'" class="border-b border-ink-800 last:border-b-0">
                       <div class="px-3 py-1.5 text-[10px] uppercase tracking-widest text-zinc-500"
                            x-text="prov.slug"></div>
-                      <template x-for="m in prov.models" :key="m">
+                      <template x-for="m in prov.models" :key="(m.name || m)">
                         <button type="button"
-                                @click="pickModel(prov.slug, m)"
-                                :class="(prov.slug === current.provider && m === current.model) ? 'bg-accent-600/20 text-accent-300' : 'hover:bg-ink-800 text-zinc-300'"
-                                class="block w-full text-left px-3 py-1.5 text-xs font-mono">
-                          <span x-text="m"></span>
-                          <span x-show="prov.slug === current.provider && m === current.model" class="ml-2 text-emerald-400">●</span>
+                                @click="pickModel(prov.slug, (m.name || m))"
+                                :class="(prov.slug === current.provider && (m.name || m) === current.model) ? 'bg-accent-600/20 text-accent-300' : 'hover:bg-ink-800 text-zinc-300'"
+                                class="flex w-full items-center justify-between px-3 py-1.5 text-xs font-mono">
+                          <span class="truncate">
+                            <span x-text="(m.name || m)"></span>
+                            <span x-show="m.vision" class="ml-1.5 text-amber-400" title="видит картинки">👁</span>
+                          </span>
+                          <span x-show="prov.slug === current.provider && (m.name || m) === current.model" class="text-emerald-400">●</span>
                         </button>
                       </template>
                       <template x-if="!prov.models.length">

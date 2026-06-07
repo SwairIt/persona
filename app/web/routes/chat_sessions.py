@@ -374,6 +374,21 @@ async def api_send_stream(
             )
             return
 
+        # T22.10 (2026-06-08) — actually use the session-pinned model.
+        # Before this, the picker wrote {provider}_model to kv but other
+        # actions (saving /settings/llm, etc) could overwrite it. Force
+        # the inner client to use thread.model if set, regardless of
+        # current global kv state.
+        if thread.get("model"):
+            inner_obj = getattr(client, "_inner", client)
+            if hasattr(inner_obj, "_model"):
+                inner_obj._model = thread["model"]
+                log.info(
+                    "chat.stream.session_model_pin",
+                    session_id=session_id,
+                    pinned_model=thread["model"],
+                )
+
         t_start = time.perf_counter()
         chunks: list[str] = []
         completion_req = CompletionRequest(
@@ -404,7 +419,19 @@ async def api_send_stream(
                         continue
                     await queue.put(("delta", delta))
             except Exception as exc:
-                await queue.put(("error", str(exc)))
+                # T22.10 — surface friendlier message for the common
+                # 'model does not support multimodal' case.
+                msg = str(exc)
+                if image_data_url and (
+                    "multimodal" in msg.lower()
+                    or "does not support" in msg.lower()
+                ):
+                    msg = (
+                        "Эта модель не понимает картинки. Тапни имя "
+                        "модели внизу и выбери vision-модель — "
+                        "qwen2.5vl:7b, qwen2.5vl:3b или moondream."
+                    )
+                await queue.put(("error", msg))
             finally:
                 await queue.put(("eof", ""))
 

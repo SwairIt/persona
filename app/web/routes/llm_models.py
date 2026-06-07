@@ -59,8 +59,14 @@ _PROVIDER_DEFAULTS: dict[str, list[str]] = {
 }
 
 
-async def _list_ollama_models(endpoint: str) -> list[str]:
-    """Hit ``/api/tags`` on the Ollama endpoint and return installed model names."""
+async def _list_ollama_models(endpoint: str) -> list[dict[str, object]]:
+    """Hit ``/api/tags`` on the Ollama endpoint and return installed models with capabilities.
+
+    Returns list of ``{name, vision: bool}`` so the picker can show a 👁
+    badge next to vision-capable models. Detection: Ollama's tag detail
+    includes a ``capabilities`` array — vision/multimodal models include
+    ``vision`` there.
+    """
     url = endpoint.rstrip("/") + "/api/tags"
     try:
         async with httpx.AsyncClient(timeout=4.0) as client:
@@ -71,8 +77,28 @@ async def _list_ollama_models(endpoint: str) -> list[str]:
     except Exception as exc:
         log.debug("ollama.list.failed", endpoint=endpoint, error=str(exc))
         return []
-    models = data.get("models", [])
-    return [str(m.get("name", "")) for m in models if m.get("name")]
+    out: list[dict[str, object]] = []
+    for m in data.get("models", []):
+        name = str(m.get("name", "")).strip()
+        if not name:
+            continue
+        caps = m.get("capabilities") or []
+        if isinstance(caps, list):
+            caps_lower = [str(c).lower() for c in caps]
+        else:
+            caps_lower = []
+        # Also heuristic: model names with 'vl', 'vision', 'llava',
+        # 'moondream' = vision-capable. Ollama's capability list is
+        # the source of truth when present, fallback to name match.
+        is_vision = (
+            "vision" in caps_lower
+            or "vl" in name.lower()
+            or "vision" in name.lower()
+            or "llava" in name.lower()
+            or "moondream" in name.lower()
+        )
+        out.append({"name": name, "vision": is_vision})
+    return out
 
 
 @router.get("/api/llm/models", response_class=JSONResponse)
@@ -109,19 +135,32 @@ async def list_models(
     # Build response array.
     providers_out: list[dict[str, object]] = []
     for slug, label, _placeholder in PROVIDERS_TUPLE:
+        models_struct: list[dict[str, object]]
         if slug == "ollama":
-            # Live-fetch installed tags from user's Ollama.
             endpoint = ollama_endpoint or "http://localhost:11434"
-            models = await _list_ollama_models(endpoint)
-            configured = bool(models)
+            ollama_models = await _list_ollama_models(endpoint)
+            models_struct = ollama_models
+            configured = bool(ollama_models)
         else:
-            models = list(_PROVIDER_DEFAULTS.get(slug, []))
+            # T22.10 — for cloud providers, mark known vision models so
+            # picker shows badge consistently. Heuristic same as Ollama.
+            defaults = _PROVIDER_DEFAULTS.get(slug, [])
+            models_struct = [
+                {
+                    "name": m,
+                    "vision": any(kw in m.lower() for kw in (
+                        "vision", "vl", "4o", "claude", "gemini",
+                        "sonnet", "opus", "grok",
+                    )),
+                }
+                for m in defaults
+            ]
             configured = provider_keys.get(slug, False)
         providers_out.append({
             "slug": slug,
             "label": label,
             "configured": configured,
-            "models": models,
+            "models": models_struct,
             "current_model": current_models.get(slug),
         })
 
