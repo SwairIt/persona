@@ -392,6 +392,7 @@ from app.web.routes import (
     devices as devices_routes,
     sync_api as sync_api_routes,
     notes_sync as notes_sync_routes,
+    chat_sessions as chat_sessions_routes,
 )
 from app.workers import (
     get_controller,
@@ -802,6 +803,7 @@ def create_app() -> FastAPI:
     app.include_router(devices_routes.router)
     app.include_router(sync_api_routes.router)
     app.include_router(notes_sync_routes.router)
+    app.include_router(chat_sessions_routes.router)
     app.include_router(sticky_search_routes.router)
     app.include_router(audit_replay_routes.router)
     app.include_router(tag_gallery_routes.router)

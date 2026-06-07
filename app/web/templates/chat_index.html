@@ -1,0 +1,209 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div x-data="chatPage(
+    {{ active_session.id if active_session else 'null' }},
+    {{ messages | tojson | safe }}
+)" class="grid grid-cols-1 md:grid-cols-[280px,1fr] gap-0 -mx-3 sm:-mx-6 -my-6 min-h-[calc(100vh-7rem)]">
+
+  {# --- LEFT: sessions sidebar --- #}
+  <aside class="border-r border-ink-700 bg-ink-900/50 overflow-y-auto">
+    <div class="p-3 border-b border-ink-700 flex gap-2">
+      <button type="button"
+              @click="newChat()"
+              class="flex-1 px-3 py-2 rounded bg-accent-600 hover:bg-accent-500 text-white text-sm font-semibold">
+        + Новый чат
+      </button>
+    </div>
+    <nav class="text-sm">
+      {% if sessions %}
+        {% for s in sessions %}
+          <a href="/chat/{{ s.id }}"
+             class="block px-3 py-2.5 border-b border-ink-800
+                    {% if active_session and active_session.id == s.id %}bg-accent-600/10 border-l-2 border-l-accent-500{% else %}hover:bg-ink-800{% endif %}">
+            <div class="truncate text-zinc-100">{{ s.title }}</div>
+            <div class="text-[10px] text-zinc-500 font-mono mt-0.5">{{ s.updated_at[:16] }}</div>
+          </a>
+        {% endfor %}
+      {% else %}
+        <p class="px-3 py-4 text-xs text-zinc-500">Бесед пока нет. Жми «Новый чат».</p>
+      {% endif %}
+    </nav>
+  </aside>
+
+  {# --- RIGHT: message thread + composer --- #}
+  <main class="flex flex-col">
+    {% if active_session %}
+      <header class="px-4 py-3 border-b border-ink-700 flex items-center justify-between">
+        <div class="min-w-0">
+          <h1 class="text-base font-semibold truncate">{{ active_session.title }}</h1>
+          <div class="text-[10px] text-zinc-500 font-mono mt-0.5">
+            обновлено: {{ active_session.updated_at[:19] }}
+            {% if active_session.model %} · модель: {{ active_session.model }}{% endif %}
+          </div>
+        </div>
+        <div class="flex gap-2 shrink-0">
+          <button type="button" @click="renameSession()"
+                  class="text-xs text-zinc-400 hover:text-accent-400">Переименовать</button>
+          <button type="button" @click="deleteSession()"
+                  class="text-xs text-zinc-400 hover:text-rose-400">Удалить</button>
+        </div>
+      </header>
+
+      <div id="chat-scroll" class="flex-1 overflow-y-auto px-4 py-4 space-y-3"
+           x-ref="scroll">
+        <template x-for="msg in messages" :key="msg.id">
+          <div :class="msg.role === 'user' ? 'flex justify-end' : (msg.role === 'system' ? 'flex justify-center' : 'flex justify-start')">
+            <div :class="
+              msg.role === 'user'
+                ? 'max-w-[80%] rounded-lg bg-accent-600/20 border border-accent-500/30 px-3 py-2 text-sm text-zinc-100 whitespace-pre-wrap'
+                : (msg.role === 'system'
+                     ? 'max-w-[90%] rounded bg-amber-900/30 border border-amber-700 px-3 py-2 text-xs text-amber-200'
+                     : 'max-w-[80%] rounded-lg bg-ink-800 border border-ink-700 px-3 py-2 text-sm text-zinc-200 whitespace-pre-wrap')"
+                 x-text="msg.content"></div>
+          </div>
+        </template>
+        <div x-show="thinking" class="flex justify-start">
+          <div class="rounded-lg bg-ink-800 border border-ink-700 px-3 py-2 text-sm text-zinc-500 italic">
+            модель думает…
+          </div>
+        </div>
+      </div>
+
+      <footer class="p-3 border-t border-ink-700">
+        <form @submit.prevent="send()" class="flex gap-2">
+          <input type="text" x-model="question"
+                 placeholder="Напиши сообщение…"
+                 :disabled="thinking"
+                 class="flex-1 px-3 py-2.5 bg-ink-800 border border-ink-700 rounded-lg focus:outline-none focus:border-accent-500 text-sm disabled:opacity-50">
+          <button type="submit"
+                  :disabled="thinking || !question.trim()"
+                  class="px-4 py-2.5 bg-accent-600 hover:bg-accent-500 disabled:opacity-40 rounded-lg font-medium text-white">
+            <span x-show="!thinking">Отправить</span>
+            <span x-show="thinking">…</span>
+          </button>
+        </form>
+      </footer>
+    {% else %}
+      <div class="flex-1 flex flex-col items-center justify-center text-center px-6">
+        <span class="text-5xl mb-3">💬</span>
+        <h1 class="text-2xl font-bold mb-2">Чат с памятью</h1>
+        <p class="text-zinc-500 text-sm max-w-md">
+          Беседуй с твоим AI о чём угодно — модель помнит всю историю беседы и видит твои данные из Persona. Жми «Новый чат» слева чтобы начать.
+        </p>
+      </div>
+    {% endif %}
+  </main>
+</div>
+
+<script>
+  function chatPage(initialSessionId, initialMessages) {
+    return {
+      sessionId: initialSessionId,
+      messages: initialMessages || [],
+      question: '',
+      thinking: false,
+
+      init() {
+        this.$nextTick(() => this.scrollToBottom());
+      },
+
+      scrollToBottom() {
+        const el = document.getElementById('chat-scroll');
+        if (el) el.scrollTop = el.scrollHeight;
+      },
+
+      async newChat() {
+        try {
+          const r = await fetch('/api/chat/sessions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: '{}',
+          });
+          if (!r.ok) throw new Error('create failed');
+          const data = await r.json();
+          window.location.href = `/chat/${data.id}`;
+        } catch (e) {
+          alert('Не получилось создать чат: ' + e);
+        }
+      },
+
+      async send() {
+        const text = this.question.trim();
+        if (!text || this.thinking || !this.sessionId) return;
+        // Optimistic UI: append the user message immediately so it
+        // doesn't feel laggy. The server-side persists the same row.
+        const userMsg = {
+          id: Date.now(),
+          session_id: this.sessionId,
+          role: 'user',
+          content: text,
+          model_used: null,
+          created_at: new Date().toISOString(),
+        };
+        this.messages.push(userMsg);
+        this.question = '';
+        this.thinking = true;
+        this.$nextTick(() => this.scrollToBottom());
+
+        try {
+          const r = await fetch(`/api/chat/sessions/${this.sessionId}/send`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ question: text }),
+          });
+          if (!r.ok) {
+            const detail = await r.json().catch(() => ({}));
+            this.messages.push({
+              id: Date.now() + 1,
+              session_id: this.sessionId,
+              role: 'system',
+              content: 'Ошибка: ' + (detail.detail || r.status),
+              model_used: null,
+              created_at: new Date().toISOString(),
+            });
+          } else {
+            const data = await r.json();
+            this.messages.push(data.assistant);
+          }
+        } catch (e) {
+          this.messages.push({
+            id: Date.now() + 2,
+            session_id: this.sessionId,
+            role: 'system',
+            content: 'Сеть отвалилась: ' + e,
+            model_used: null,
+            created_at: new Date().toISOString(),
+          });
+        } finally {
+          this.thinking = false;
+          this.$nextTick(() => this.scrollToBottom());
+        }
+      },
+
+      async renameSession() {
+        const next = prompt('Новое название:', '');
+        if (!next || !next.trim()) return;
+        try {
+          const r = await fetch(`/api/chat/sessions/${this.sessionId}/rename`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title: next.trim() }),
+          });
+          if (r.ok) location.reload();
+        } catch (e) { alert(e); }
+      },
+
+      async deleteSession() {
+        if (!confirm('Удалить этот чат? Восстановить не получится.')) return;
+        try {
+          const r = await fetch(`/api/chat/sessions/${this.sessionId}`, {
+            method: 'DELETE',
+          });
+          if (r.ok) window.location.href = '/chat';
+        } catch (e) { alert(e); }
+      },
+    };
+  }
+</script>
+{% endblock %}
