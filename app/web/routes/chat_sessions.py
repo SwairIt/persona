@@ -186,20 +186,15 @@ async def api_send_message(
     else:
         system_with_history = _SYSTEM_PROMPT_RU
 
-    # T22 (2026-06-08) — if the session has a pinned provider/model, use
-    # those; otherwise fall back to the global default.
+    # T22 (2026-06-08) — session-pinned provider lives in kv (set by
+    # update_session_model: writes llm_provider + {provider}_model +
+    # byo_api_provider). make_client without args reads kv and resolves
+    # the correct per-provider api_key. We DO NOT pass provider=
+    # explicitly because that branch in make_client uses cfg.byo_api_key
+    # (env fallback) instead of the per-provider kv slot — bug found
+    # 2026-06-08: previous Yandex token leaked into OllamaClient URL.
     try:
-        if thread.get("provider"):
-            client = make_client(
-                provider=thread["provider"],
-                # api_key None → make_client reads from kv as normal
-                kind="chat",
-            )
-            # The session-pinned model override is wired via kv too —
-            # update_session_model writes both the chat_session row AND
-            # the kv ``{provider}_model`` row that client constructors read.
-        else:
-            client = make_client(kind="chat")
+        client = make_client(kind="chat")
     except LLMNotConfigured as exc:
         log.warning("chat.send.llm_not_configured", session_id=session_id)
         # Surface the error so the UI can render a friendly hint, and
