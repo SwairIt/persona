@@ -80,6 +80,11 @@ class CompletionRequest:
     user: str
     max_tokens: int = 800
     temperature: float = 0.4
+    # T22.2 (2026-06-08) — optional image attachment for vision-capable
+    # providers (Ollama llava/moondream/qwen-vl, Gemini, Claude, GPT-4o).
+    # Format: data URL ``data:image/png;base64,iVBORw0...``. Non-vision
+    # providers will silently ignore the image and answer the text only.
+    image_data_url: str | None = None
 
 
 class LLMClient(Protocol):
@@ -839,13 +844,28 @@ class OllamaClient:
             "Authorization": f"Bearer {self._fake_key}",
             "Content-Type": "application/json",
         }
+        # T22.2 — when there's an image attached, build the user message
+        # as a content-list with both text and image_url, per the
+        # OpenAI-compat vision spec. Ollama (≥0.4) accepts this for
+        # vision models like llava, moondream, qwen-vl. Text-only Ollama
+        # models will return an error from the server — that's the right
+        # signal to surface to the user.
+        user_content: object = request.user
+        if request.image_data_url:
+            user_content = [
+                {"type": "text", "text": request.user or "describe this image"},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": request.image_data_url},
+                },
+            ]
         payload = {
             "model": self._model,
             "max_tokens": request.max_tokens,
             "temperature": request.temperature,
             "messages": [
                 {"role": "system", "content": request.system},
-                {"role": "user", "content": request.user},
+                {"role": "user", "content": user_content},
             ],
         }
         # Longer timeout — first call after Ollama startup loads the
@@ -914,13 +934,23 @@ class _OpenAICompatibleClient:
             "Content-Type": "application/json",
         }
         headers.update(self._OPTIONAL_HEADERS)
+        # T22.2 — vision attachment passthrough for OpenAI-compat providers.
+        user_content: object = request.user
+        if request.image_data_url:
+            user_content = [
+                {"type": "text", "text": request.user or "describe this image"},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": request.image_data_url},
+                },
+            ]
         payload = {
             "model": self._model,
             "max_tokens": request.max_tokens,
             "temperature": request.temperature,
             "messages": [
                 {"role": "system", "content": request.system},
-                {"role": "user", "content": request.user},
+                {"role": "user", "content": user_content},
             ],
         }
         async with httpx.AsyncClient(timeout=60.0) as client:

@@ -157,8 +157,19 @@ async def api_send_message(
     question = (
         str(body.get("question") or "").strip() if isinstance(body, dict) else ""
     )
+    # T22.2 — pass-through image for vision providers (moondream, llava,
+    # qwen-vl, Gemini, Claude, GPT-4o, etc). Data URL format. Big payload
+    # (up to ~7 MB) — we don't store it in chat_message yet because that'd
+    # bloat the DB; the UI shows it client-side only for the live turn.
+    image_data_url = (
+        str(body.get("image_data_url") or "") or None
+        if isinstance(body, dict)
+        else None
+    )
+    if not question and not image_data_url:
+        raise HTTPException(status_code=400, detail="question or image required")
     if not question:
-        raise HTTPException(status_code=400, detail="question must not be empty")
+        question = "Опиши прикреплённую картинку."
 
     # Persist the user turn before we do anything else — that way a
     # subsequent crash (LLM 500 / network) doesn't lose the user's input.
@@ -216,6 +227,7 @@ async def api_send_message(
             user=question,
             temperature=0.7,
             max_tokens=1024,
+            image_data_url=image_data_url,
         )
         answer = await client.complete(completion_req)
     except Exception as exc:
