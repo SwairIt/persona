@@ -499,6 +499,38 @@ async def api_send_stream(
         except Exception as exc:
             log.warning("chat.summary.dispatch_failed", error=str(exc))
 
+        # T23 — record Q&A pair for future PersonaAI fine-tune.
+        try:
+            from app.training import record_qa_pair  # noqa: PLC0415
+            # Need the user_message_id we appended at the top of this
+            # route. Re-fetch the latest user message in this session as
+            # a tactical workaround — chat_message ids are monotonic so
+            # MAX(id) is reliable here.
+            from app.storage.db import get_connection  # noqa: PLC0415
+            async with get_connection() as conn:
+                cursor = await conn.execute(
+                    "SELECT id FROM chat_message "
+                    "WHERE session_id = ? AND role = 'user' "
+                    "ORDER BY id DESC LIMIT 1",
+                    (session_id,),
+                )
+                user_row = await cursor.fetchone()
+            user_msg_id = int(user_row["id"]) if user_row else 0
+            await record_qa_pair(
+                session_id=session_id,
+                user_message_id=user_msg_id,
+                asst_message_id=assistant_msg["id"],
+                user_text=question,
+                assistant_text=full,
+                system_prompt=base_prompt,
+                context_turns=history,
+                image_present=bool(image_data_url),
+                provider=provider_used,
+                model=getattr(inner, "_model", None),
+            )
+        except Exception as exc:
+            log.warning("chat.training.record_failed", error=str(exc))
+
         done = {
             "type": "done",
             "elapsed_ms": elapsed_ms,
