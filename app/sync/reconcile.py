@@ -207,10 +207,151 @@ async def _apply_tag_event(event: dict[str, Any]) -> bool:
     return True
 
 
+async def _apply_annotation_event(event: dict[str, Any]) -> bool:
+    """Materialise a ``annotation`` event into ``shot_annotation``.
+
+    Identity is the pair (shot_uuid, annotation seq). For now the seq is
+    implicit "latest wins" — we keep at most ONE annotation row per
+    shot_uuid which gets overwritten on update events. Multi-revision
+    history already lives in v1.45 ``shot_annotation_revision``; this
+    handler only syncs the current head SVG payload.
+    """
+    payload = _decode_payload(event["payload_json"])
+    shot_uuid = str(payload.get("shot_uuid") or "").strip()
+    if not shot_uuid:
+        log.warning("sync.apply.annotation.no_shot_uuid", event_id=event["id"])
+        return False
+    from app.shots import find_shot_id_by_uuid  # noqa: PLC0415 — break import cycle
+    shot_id = await find_shot_id_by_uuid(shot_uuid)
+    if shot_id is None:
+        # The corresponding shot hasn't arrived on this device yet.
+        # Returning False without raising skips applied_at stamp so the
+        # event sits in the queue and gets retried — when ingest later
+        # writes the screenshot with a matching uuid the next worker
+        # tick picks it up.
+        log.info(
+            "sync.apply.annotation.shot_not_local",
+            shot_uuid=shot_uuid,
+            event_id=event["id"],
+        )
+        raise RuntimeError("shot not present locally — retry later")
+
+    async with get_connection() as conn:
+        if event["op"] == "delete":
+            await conn.execute(
+                "DELETE FROM shot_annotation WHERE screenshot_id = ?",
+                (shot_id,),
+            )
+            await conn.commit()
+            return True
+
+        svg = str(payload.get("svg_payload") or "")
+        cursor = await conn.execute(
+            "SELECT id FROM shot_annotation WHERE screenshot_id = ? LIMIT 1",
+            (shot_id,),
+        )
+        existing = await cursor.fetchone()
+        if existing is None:
+            await conn.execute(
+                """
+                INSERT INTO shot_annotation (screenshot_id, svg_payload, shot_uuid,
+                                             created_at, updated_at)
+                VALUES (?, ?, ?, datetime('now'), datetime('now'))
+                """,
+                (shot_id, svg, shot_uuid),
+            )
+        else:
+            await conn.execute(
+                """
+                UPDATE shot_annotation
+                   SET svg_payload = ?, shot_uuid = ?,
+                       updated_at = datetime('now')
+                 WHERE screenshot_id = ?
+                """,
+                (svg, shot_uuid, shot_id),
+            )
+        await conn.commit()
+    return True
+
+
+async def _apply_shot_tag_event(event: dict[str, Any]) -> bool:
+    """Materialise a per-shot tag attachment.
+
+    Payload shape: ``{"shot_uuid": ..., "tag_uuid": ...}``. The handler
+    resolves both uuids locally; tags are matched by uuid first, then
+    falling back to name when only ``tag_name`` is in the payload (older
+    clients that don't yet send tag_uuid).
+    """
+    payload = _decode_payload(event["payload_json"])
+    shot_uuid = str(payload.get("shot_uuid") or "").strip()
+    tag_uuid = str(payload.get("tag_uuid") or "").strip()
+    tag_name = str(payload.get("tag_name") or "").strip()
+    if not shot_uuid or (not tag_uuid and not tag_name):
+        log.warning("sync.apply.shot_tag.bad_payload", event_id=event["id"])
+        return False
+    from app.shots import find_shot_id_by_uuid  # noqa: PLC0415
+
+    shot_id = await find_shot_id_by_uuid(shot_uuid)
+    if shot_id is None:
+        raise RuntimeError("shot not present locally — retry later")
+
+    async with get_connection() as conn:
+        tag_id: int | None = None
+        if tag_uuid:
+            cursor = await conn.execute(
+                "SELECT id FROM tags WHERE uuid = ? LIMIT 1", (tag_uuid,)
+            )
+            row = await cursor.fetchone()
+            if row is not None:
+                tag_id = int(row["id"])
+        if tag_id is None and tag_name:
+            cursor = await conn.execute(
+                "SELECT id FROM tags WHERE name = ? LIMIT 1", (tag_name,)
+            )
+            row = await cursor.fetchone()
+            if row is None:
+                # Create the tag on the fly so the attachment lands.
+                cursor = await conn.execute(
+                    "INSERT INTO tags (uuid, name, created_at) "
+                    "VALUES (?, ?, datetime('now'))",
+                    (tag_uuid or None, tag_name),
+                )
+                tag_id = cursor.lastrowid
+            else:
+                tag_id = int(row["id"])
+        if tag_id is None:
+            log.warning("sync.apply.shot_tag.unresolved", event_id=event["id"])
+            return False
+
+        if event["op"] == "delete":
+            await conn.execute(
+                "DELETE FROM screenshot_tags WHERE screenshot_id = ? AND tag_id = ?",
+                (shot_id, tag_id),
+            )
+            await conn.commit()
+            return True
+
+        # INSERT OR IGNORE — junction-table dedup. The pair is the natural
+        # key; the legacy schema doesn't carry a unique constraint but
+        # at the row level "attach this tag once" is what we want.
+        await conn.execute(
+            """
+            INSERT OR IGNORE INTO screenshot_tags
+                (screenshot_id, tag_id, shot_uuid, created_at)
+            VALUES (?, ?, ?, datetime('now'))
+            """,
+            (shot_id, tag_id, shot_uuid),
+        )
+        await conn.commit()
+    return True
+
+
 _HANDLERS = {
     "note": _apply_note_event,
     "kv": _apply_kv_event,
     "tag": _apply_tag_event,
+    "annotation": _apply_annotation_event,
+    "shot_tag": _apply_shot_tag_event,
 }
 
 

@@ -17,7 +17,7 @@ from app.storage.db import get_connection
 log = get_logger("persona.sync.events")
 
 _VALID_KINDS: frozenset[str] = frozenset(
-    {"note", "tag", "annotation", "kv", "pin"}
+    {"note", "tag", "annotation", "kv", "pin", "shot_tag"}
 )
 _VALID_OPS: frozenset[str] = frozenset({"insert", "update", "delete"})
 

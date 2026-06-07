@@ -27,7 +27,7 @@ imported by :mod:`app.web.main` from this code path.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -66,6 +66,7 @@ async def _require_screenshot(shot_id: int) -> None:
 
 @router.post("/api/screenshot/{shot_id}/annotation/autosave")
 async def annotation_autosave(
+    request: Request,
     shot_id: int,
     payload: _AutosavePayload,
 ) -> JSONResponse:
@@ -76,6 +77,10 @@ async def annotation_autosave(
     Returns the new ``revision_id`` and the live-row ``updated_at`` so
     the client can render a "saved at HH:MM:SS" indicator without a
     follow-up GET.
+
+    T6 (2026-06-07) — also emits an ``annotation`` sync event so the
+    SVG payload follows the user to their other devices. Emission is
+    best-effort: failure never blocks the local autosave.
     """
     await _require_screenshot(shot_id)
     try:
@@ -103,6 +108,32 @@ async def annotation_autosave(
             error=str(exc),
         )
         raise HTTPException(status_code=413, detail=str(exc)) from exc
+
+    # T6 sync fan-out.
+    from app.auth import current_user_optional  # noqa: PLC0415
+    from app.shots import ensure_uuid  # noqa: PLC0415
+    from app.sync import append_event  # noqa: PLC0415
+
+    session = await current_user_optional(request)
+    if session is not None:
+        try:
+            shot_uuid = await ensure_uuid(shot_id)
+            if shot_uuid is not None:
+                await append_event(
+                    user_id=session["user_id"],
+                    kind="annotation",
+                    op="update",
+                    payload={
+                        "shot_uuid": shot_uuid,
+                        "svg_payload": payload.svg_payload,
+                    },
+                )
+        except Exception as exc:
+            log.warning(
+                "shot_annotation_autosave.event_emit_failed",
+                shot_id=shot_id,
+                error=str(exc),
+            )
 
     return JSONResponse(
         {
