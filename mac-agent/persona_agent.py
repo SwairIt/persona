@@ -885,6 +885,51 @@ async def _process_speech_segment(
             encoder=encoder,
         )
 
+        # T8 (2026-06-07) — fan the transcript out to other devices as a
+        # sync note. The Mac uploaded the audio + transcript to the
+        # server's ingest API just above; that path stores it in the
+        # canonical audio_segment table. This additional emission turns
+        # the transcript into a syncable note so it shows up on the
+        # user's iPhone or Web UI immediately on the next sync pull,
+        # without waiting for the audio_segment to be re-processed
+        # cross-device. Best-effort — failure here never affects the
+        # ingest above.
+        if (
+            transcript
+            and len(transcript.strip()) >= 8
+            and state.config.server.device_token is not None
+        ):
+            try:
+                # Lazy import to avoid touching sync_client when no token.
+                from sync_client import SyncClient  # noqa: PLC0415
+                import time as _time  # noqa: PLC0415
+                import uuid as _uuid  # noqa: PLC0415
+
+                sync_cli = SyncClient(
+                    server_url=str(state.config.server.url),
+                    device_token=state.config.server.device_token.get_secret_value(),
+                )
+                await sync_cli.push_events(
+                    [
+                        {
+                            "kind": "note",
+                            "op": "insert",
+                            "payload": {
+                                "uuid": str(_uuid.uuid4()),
+                                "body": transcript.strip(),
+                                "title": (
+                                    f"voice @ {started_at.strftime('%H:%M %m-%d')}"
+                                ),
+                                "source": "agent-voice",
+                            },
+                            "logical_clock": int(_time.time() * 1000),
+                        }
+                    ]
+                )
+                logger.info("agent.audio.synced_as_note", chars=len(transcript))
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("agent.audio.sync_emit_failed", error=str(exc))
+
 
 # --------------------------------------------------------------------------- #
 # Signal handling

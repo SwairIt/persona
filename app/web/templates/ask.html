@@ -9,21 +9,35 @@
 </div>
 
 <div x-data="ask()" class="space-y-5">
-  <form @submit.prevent="run()" class="flex gap-3">
+  <form @submit.prevent="run()" class="flex gap-2 sm:gap-3 items-stretch">
     <input type="text" x-model="question"
            placeholder="When was the last time I worked on the auth migration?"
            autofocus
-           class="flex-1 px-4 py-2.5 bg-ink-800 border border-ink-700 rounded-lg focus:outline-none focus:border-accent-500 text-sm">
+           class="flex-1 min-w-0 px-4 py-2.5 bg-ink-800 border border-ink-700 rounded-lg focus:outline-none focus:border-accent-500 text-sm">
+    {# T8 (2026-06-07) — voice input via the browser-native Web Speech
+       Recognition API. Free, requires zero server changes, supports
+       Russian + English. Held to push-to-talk so accidental long-press
+       on mobile doesn't drain battery. The transcript replaces the
+       input field; the user then taps Ask or Stream. #}
+    <button type="button"
+            x-data="voiceInput()" x-init="boot()"
+            @click="toggle($event)"
+            :disabled="!supported"
+            :class="recording ? 'bg-rose-600 hover:bg-rose-500 animate-pulse' : (supported ? 'bg-ink-700 hover:bg-ink-600' : 'bg-ink-800 opacity-40 cursor-not-allowed')"
+            :title="supported ? (recording ? 'Stop' : 'Hold to dictate') : 'Voice input not supported in this browser'"
+            class="px-3 py-2.5 rounded-lg border border-ink-600 font-medium shrink-0">
+      <span x-text="recording ? '⏺' : '🎙'"></span>
+    </button>
     <button type="submit"
             :disabled="loading || !question.trim()"
-            class="px-5 py-2.5 bg-accent-600 hover:bg-accent-500 disabled:opacity-50 rounded-lg font-medium">
+            class="px-4 sm:px-5 py-2.5 bg-accent-600 hover:bg-accent-500 disabled:opacity-50 rounded-lg font-medium shrink-0">
       <span x-show="!loading">Ask</span>
       <span x-show="loading">Thinking…</span>
     </button>
     <button type="button"
             @click="runStream()"
             :disabled="streaming || !question.trim()"
-            class="px-5 py-2.5 bg-ink-700 hover:bg-ink-600 disabled:opacity-50 rounded-lg font-medium border border-ink-600">
+            class="hidden sm:inline-block px-5 py-2.5 bg-ink-700 hover:bg-ink-600 disabled:opacity-50 rounded-lg font-medium border border-ink-600 shrink-0">
       <span x-show="!streaming">Stream</span>
       <span x-show="streaming">Streaming…</span>
     </button>
@@ -67,6 +81,81 @@ PERSONA_EMBEDDINGS_ENABLED=true   # optional but recommended for better retrieva
 </div>
 
 <script>
+  // T8 (2026-06-07) — voiceInput() Alpine component.
+  //
+  // Wraps the browser-native Web Speech Recognition API. Free, no
+  // network round-trip to a Whisper backend, supports Russian and
+  // English. Held to push-to-talk (tap to start, tap again to stop)
+  // so the mic doesn't run open after the user walks away.
+  //
+  // The recognised transcript is written straight into the question
+  // input on the parent ``ask()`` component via DOM lookup — keeps the
+  // two components decoupled (no Alpine global state coupling).
+  //
+  // Browser support note: WebKit-prefixed Safari/Chrome on iOS work;
+  // Firefox does not ship the API. The `supported` flag toggles the
+  // button into a disabled "Voice input not supported" state when the
+  // API is missing instead of bricking the UI.
+  function voiceInput() {
+    return {
+      supported: false,
+      recording: false,
+      _rec: null,
+      boot() {
+        const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        this.supported = !!SR;
+        if (!this.supported) return;
+        const rec = new SR();
+        // Stay-on-while-speaking. continuous=false stops on pause.
+        rec.continuous = false;
+        rec.interimResults = true;
+        // Match the UI language — the ask form is bilingual.
+        rec.lang = (document.documentElement.lang || 'en') === 'ru' ? 'ru-RU' : 'en-US';
+        rec.onresult = (event) => {
+          let interim = '';
+          let final_ = '';
+          for (let i = event.resultIndex; i < event.results.length; i++) {
+            const r = event.results[i];
+            if (r.isFinal) final_ += r[0].transcript;
+            else interim += r[0].transcript;
+          }
+          const text = (final_ + interim).trim();
+          if (!text) return;
+          // Write back into the question input. The ask() component is
+          // bound to the same input via x-model so Alpine picks the
+          // change up reactively.
+          const input = document.querySelector('input[x-model="question"]');
+          if (input) {
+            input.value = text;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+        };
+        rec.onend = () => { this.recording = false; };
+        rec.onerror = (e) => {
+          console.warn('voiceInput error', e.error);
+          this.recording = false;
+        };
+        this._rec = rec;
+      },
+      toggle(ev) {
+        if (!this._rec) return;
+        if (this.recording) {
+          this._rec.stop();
+          this.recording = false;
+        } else {
+          try {
+            this._rec.start();
+            this.recording = true;
+          } catch (e) {
+            // start() throws if already running — silently re-sync state
+            this.recording = false;
+          }
+        }
+        if (ev) ev.preventDefault();
+      },
+    };
+  }
+
   function ask() {
     return {
       question: '',
