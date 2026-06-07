@@ -30,8 +30,8 @@
      style="padding-bottom: env(safe-area-inset-bottom); padding-right: env(safe-area-inset-right);">
   <button type="button"
           id="persona-help-button"
-          aria-label="Help / search"
-          title="Help"
+          aria-label="Справка и поиск"
+          title="Справка"
           class="pointer-events-auto flex items-center justify-center w-12 h-12 rounded-full
                  bg-accent-600 text-white text-2xl font-semibold shadow-2xl
                  hover:bg-accent-500 active:scale-95 transition
@@ -47,46 +47,46 @@
               rounded-xl border border-zinc-300 dark:border-ink-700
               bg-white dark:bg-ink-900 shadow-2xl overflow-hidden">
     <div class="flex items-center justify-between px-3 py-2 border-b border-zinc-200 dark:border-ink-700">
-      <span id="persona-help-card-title" class="text-sm font-semibold">Help &amp; search</span>
+      <span id="persona-help-card-title" class="text-sm font-semibold">Справка и поиск</span>
       <button type="button" id="persona-help-close"
               class="text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 leading-none px-2 py-1 rounded">×</button>
     </div>
 
     <div class="p-3 space-y-3">
       <label class="block">
-        <span class="sr-only">Search</span>
+        <span class="sr-only">Поиск</span>
         <input type="search"
                id="persona-help-search"
-               placeholder="Search pages, settings, fixtures…"
+               placeholder="Найти страницу или настройку…"
                autocomplete="off"
                class="w-full px-3 py-2 text-sm rounded border border-zinc-300 dark:border-ink-700
                       bg-zinc-50 dark:bg-ink-800 focus:outline-none focus:border-accent-500">
       </label>
 
       <div>
-        <div class="text-[10px] uppercase tracking-widest text-zinc-500 mb-1.5">Quick links</div>
+        <div class="text-[10px] uppercase tracking-widest text-zinc-500 mb-1.5">Быстрые ссылки</div>
         <div class="grid grid-cols-4 gap-1.5 text-center text-xs">
-          <a href="/now"            data-search-key="now real-time activity dashboard"      class="rounded bg-zinc-100 dark:bg-ink-800 hover:bg-accent-600 hover:text-white p-2">Now</a>
-          <a href="/ask"            data-search-key="ask llm gemini anthropic q&a"            class="rounded bg-zinc-100 dark:bg-ink-800 hover:bg-accent-600 hover:text-white p-2">Ask</a>
-          <a href="/quick-actions"  data-search-key="quick actions notes pin capture mic"     class="rounded bg-zinc-100 dark:bg-ink-800 hover:bg-accent-600 hover:text-white p-2">Quick</a>
-          <a href="/memory"         data-search-key="memory cards pins recall"                class="rounded bg-zinc-100 dark:bg-ink-800 hover:bg-accent-600 hover:text-white p-2">Memory</a>
-          <a href="/search"         data-search-key="search corpus ocr fts"                   class="rounded bg-zinc-100 dark:bg-ink-800 hover:bg-accent-600 hover:text-white p-2">Search</a>
-          <a href="/stats"          data-search-key="stats charts heatmap pareto"             class="rounded bg-zinc-100 dark:bg-ink-800 hover:bg-accent-600 hover:text-white p-2">Stats</a>
-          <a href="/health-dashboard" data-search-key="health workers budget db"               class="rounded bg-zinc-100 dark:bg-ink-800 hover:bg-accent-600 hover:text-white p-2">Health</a>
-          <a href="/settings/hub"   data-search-key="settings configuration preferences"      class="rounded bg-zinc-100 dark:bg-ink-800 hover:bg-accent-600 hover:text-white p-2">Settings</a>
+          <a href="/now"            data-search-key="now сейчас активность дашборд"           class="rounded bg-zinc-100 dark:bg-ink-800 hover:bg-accent-600 hover:text-white p-2">Сейчас</a>
+          <a href="/ask"            data-search-key="ask спросить llm gemini вопрос"           class="rounded bg-zinc-100 dark:bg-ink-800 hover:bg-accent-600 hover:text-white p-2">Спросить</a>
+          <a href="/quick-actions"  data-search-key="quick быстрые действия заметки пин"      class="rounded bg-zinc-100 dark:bg-ink-800 hover:bg-accent-600 hover:text-white p-2">Действия</a>
+          <a href="/memory"         data-search-key="memory память карточки пины"             class="rounded bg-zinc-100 dark:bg-ink-800 hover:bg-accent-600 hover:text-white p-2">Память</a>
+          <a href="/search"         data-search-key="search поиск корпус ocr"                  class="rounded bg-zinc-100 dark:bg-ink-800 hover:bg-accent-600 hover:text-white p-2">Поиск</a>
+          <a href="/stats"          data-search-key="stats статистика графики heatmap"         class="rounded bg-zinc-100 dark:bg-ink-800 hover:bg-accent-600 hover:text-white p-2">Статистика</a>
+          <a href="/health-dashboard" data-search-key="health здоровье workers бюджет"          class="rounded bg-zinc-100 dark:bg-ink-800 hover:bg-accent-600 hover:text-white p-2">Здоровье</a>
+          <a href="/settings/hub"   data-search-key="settings настройки конфигурация"          class="rounded bg-zinc-100 dark:bg-ink-800 hover:bg-accent-600 hover:text-white p-2">Настройки</a>
         </div>
       </div>
 
       <div id="persona-help-results" class="hidden">
-        <div class="text-[10px] uppercase tracking-widest text-zinc-500 mb-1.5">Matches</div>
+        <div class="text-[10px] uppercase tracking-widest text-zinc-500 mb-1.5">Найдено</div>
         <div id="persona-help-results-list" class="space-y-1 max-h-64 overflow-y-auto"></div>
-        <div id="persona-help-results-empty" class="hidden text-xs text-zinc-500 py-2">No matches.</div>
+        <div id="persona-help-results-empty" class="hidden text-xs text-zinc-500 py-2">Ничего не найдено.</div>
       </div>
 
       <div class="pt-1 border-t border-zinc-200 dark:border-ink-700">
         <a href="/help"
            class="block text-center text-sm rounded bg-accent-600/10 text-accent-500 hover:bg-accent-600 hover:text-white py-2 transition">
-          Open full walkthrough →
+          Открыть справку целиком →
         </a>
       </div>
     </div>

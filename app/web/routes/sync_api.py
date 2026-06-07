@@ -243,7 +243,7 @@ async def sync_dashboard(
         request,
         "sync_dashboard.html",
         {
-            "title": "Sync",
+            "title": "Синхронизация",
             "active_nav": "",
             "total_events": total,
             "recent": recent,

@@ -5,22 +5,18 @@
 
   <header class="mb-6 flex items-baseline justify-between">
     <div>
-      <h1 class="text-2xl font-bold tracking-tight">Sync</h1>
+      <h1 class="text-2xl font-bold tracking-tight">Синхронизация</h1>
       <p class="text-sm text-zinc-500 mt-1">
-        Append-only event log + per-device watermarks. The actual replication runs in the agents — this dashboard is read-only.
+        Append-only журнал событий + позиции каждого устройства. Сама репликация работает в агентах — это панель только на чтение.
       </p>
     </div>
     <span class="px-3 py-1 rounded-full bg-accent-600/20 text-accent-400 text-sm font-mono">
-      {{ total_events }} events
+      {{ total_events }} событий
     </span>
   </header>
 
-  {# T5 round 2 (2026-06-07) — per-kind throughput summary so it's
-     immediately obvious whether note/kv/tag handlers are actually
-     firing in production. ``pending`` should normally be 0 — when it's
-     not, the apply worker has fallen behind. #}
   <section class="mb-8">
-    <h2 class="text-sm font-semibold uppercase tracking-widest text-zinc-500 mb-3">By kind</h2>
+    <h2 class="text-sm font-semibold uppercase tracking-widest text-zinc-500 mb-3">По типу</h2>
     {% if by_kind %}
       <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
         {% for k in by_kind %}
@@ -28,29 +24,29 @@
             <div class="text-xs uppercase tracking-widest text-zinc-500">{{ k.kind }}</div>
             <div class="text-2xl font-bold font-mono mt-1">{{ k.total }}</div>
             {% if k.pending %}
-              <div class="text-xs text-amber-400 mt-0.5">{{ k.pending }} pending</div>
+              <div class="text-xs text-amber-400 mt-0.5">{{ k.pending }} в очереди</div>
             {% else %}
-              <div class="text-xs text-emerald-400 mt-0.5">all applied</div>
+              <div class="text-xs text-emerald-400 mt-0.5">все применены</div>
             {% endif %}
           </div>
         {% endfor %}
       </div>
     {% else %}
-      <p class="text-zinc-500 text-sm">No events of any kind yet.</p>
+      <p class="text-zinc-500 text-sm">Событий пока нет.</p>
     {% endif %}
   </section>
 
   <section class="mb-8">
-    <h2 class="text-sm font-semibold uppercase tracking-widest text-zinc-500 mb-3">Device watermarks</h2>
+    <h2 class="text-sm font-semibold uppercase tracking-widest text-zinc-500 mb-3">Позиции устройств</h2>
     {% if watermarks %}
       <div class="overflow-x-auto">
         <table class="w-full text-sm border-collapse">
           <thead class="text-xs uppercase tracking-widest text-zinc-500">
             <tr class="border-b border-zinc-300 dark:border-ink-700">
-              <th class="text-left py-2 px-2">Device</th>
-              <th class="text-right py-2 px-2">Last pulled</th>
-              <th class="text-right py-2 px-2">Last pushed clock</th>
-              <th class="text-right py-2 px-2">Behind</th>
+              <th class="text-left py-2 px-2">Устройство</th>
+              <th class="text-right py-2 px-2">Последнее прочитано</th>
+              <th class="text-right py-2 px-2">Последний clock отправки</th>
+              <th class="text-right py-2 px-2">Отстаёт</th>
             </tr>
           </thead>
           <tbody>
@@ -64,7 +60,7 @@
                 <td class="py-2 px-2 text-right font-mono">{{ w.last_pushed }}</td>
                 <td class="py-2 px-2 text-right">
                   {% if w.behind == 0 %}
-                    <span class="text-emerald-400 font-mono">caught up</span>
+                    <span class="text-emerald-400 font-mono">всё на месте</span>
                   {% else %}
                     <span class="text-amber-400 font-mono">{{ w.behind }}</span>
                   {% endif %}
@@ -75,25 +71,25 @@
         </table>
       </div>
     {% else %}
-      <p class="text-zinc-500 text-sm">No devices yet. <a href="/devices" class="text-accent-400 hover:underline">Register one</a>.</p>
+      <p class="text-zinc-500 text-sm">Устройств ещё нет. <a href="/devices" class="text-accent-400 hover:underline">Добавь устройство</a>.</p>
     {% endif %}
   </section>
 
   <section class="mb-8">
-    <h2 class="text-sm font-semibold uppercase tracking-widest text-zinc-500 mb-3">Recent events</h2>
+    <h2 class="text-sm font-semibold uppercase tracking-widest text-zinc-500 mb-3">Последние события</h2>
     {% if recent %}
       <div class="overflow-x-auto">
         <table class="w-full text-sm border-collapse font-mono">
           <thead class="text-xs uppercase tracking-widest text-zinc-500 font-sans">
             <tr class="border-b border-zinc-300 dark:border-ink-700">
               <th class="text-left py-2 px-2">id</th>
-              <th class="text-left py-2 px-2">kind</th>
-              <th class="text-left py-2 px-2">op</th>
-              <th class="text-left py-2 px-2">entity</th>
+              <th class="text-left py-2 px-2">тип</th>
+              <th class="text-left py-2 px-2">операция</th>
+              <th class="text-left py-2 px-2">сущность</th>
               <th class="text-left py-2 px-2">clock</th>
-              <th class="text-left py-2 px-2">device</th>
-              <th class="text-left py-2 px-2">received</th>
-              <th class="text-left py-2 px-2">applied</th>
+              <th class="text-left py-2 px-2">устройство</th>
+              <th class="text-left py-2 px-2">принято</th>
+              <th class="text-left py-2 px-2">применено</th>
             </tr>
           </thead>
           <tbody>
@@ -102,19 +98,19 @@
                 <td class="py-1.5 px-2">{{ e.id }}</td>
                 <td class="py-1.5 px-2">{{ e.kind }}</td>
                 <td class="py-1.5 px-2">
-                  {% if e.op == 'insert' %}<span class="text-emerald-400">{{ e.op }}</span>
-                  {% elif e.op == 'delete' %}<span class="text-rose-400">{{ e.op }}</span>
+                  {% if e.op == 'insert' %}<span class="text-emerald-400">создание</span>
+                  {% elif e.op == 'delete' %}<span class="text-rose-400">удаление</span>
                   {% else %}<span class="text-amber-400">{{ e.op }}</span>{% endif %}
                 </td>
                 <td class="py-1.5 px-2">{{ e.entity_id or '—' }}</td>
                 <td class="py-1.5 px-2">{{ e.logical_clock }}</td>
-                <td class="py-1.5 px-2">{{ e.device_id or 'server' }}</td>
+                <td class="py-1.5 px-2">{{ e.device_id or 'сервер' }}</td>
                 <td class="py-1.5 px-2 text-zinc-500">{{ e.server_recv_at[:19] }}</td>
                 <td class="py-1.5 px-2">
                   {% if e.applied_at %}
                     <span class="text-zinc-400">{{ e.applied_at[:19] }}</span>
                   {% else %}
-                    <span class="text-amber-400">pending</span>
+                    <span class="text-amber-400">в очереди</span>
                   {% endif %}
                 </td>
               </tr>
@@ -123,18 +119,18 @@
         </table>
       </div>
     {% else %}
-      <p class="text-zinc-500 text-sm">No events yet. They will appear when an agent pushes them via <code>/api/sync/push</code>.</p>
+      <p class="text-zinc-500 text-sm">Событий пока нет. Они появятся когда агент отправит их через <code>/api/sync/push</code>.</p>
     {% endif %}
   </section>
 
   <section class="rounded-lg border border-zinc-300 dark:border-ink-700 bg-white dark:bg-ink-900 p-4 text-sm">
-    <h2 class="font-semibold mb-2">Agent API</h2>
+    <h2 class="font-semibold mb-2">API для агента</h2>
     <ul class="space-y-1 text-zinc-400 font-mono text-xs">
       <li>GET  /api/sync/pull?since=N&amp;limit=500</li>
       <li>POST /api/sync/push  body: {"events": [{kind, op, payload, entity_id?, logical_clock}]}</li>
       <li>GET  /api/sync/state</li>
     </ul>
-    <p class="text-xs text-zinc-500 mt-2">All authenticate via <code>X-Device-Token</code> header.</p>
+    <p class="text-xs text-zinc-500 mt-2">Все авторизуются через заголовок <code>X-Device-Token</code>.</p>
   </section>
 
 </div>

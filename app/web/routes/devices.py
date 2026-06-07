@@ -65,7 +65,7 @@ async def devices_list(
         request,
         "devices.html",
         {
-            "title": "Your devices",
+            "title": "Твои устройства",
             "active_nav": "",
             "devices": devices,
             "fingerprints": fp_map,

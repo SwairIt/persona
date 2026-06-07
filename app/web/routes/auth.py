@@ -79,7 +79,7 @@ async def signup_page(
         request,
         "auth_signup.html",
         {
-            "title": "Create account",
+            "title": "Создать аккаунт",
             "active_nav": "",
             "error": None,
             "email": "",
@@ -99,7 +99,7 @@ async def login_page(
         request,
         "auth_login.html",
         {
-            "title": "Sign in",
+            "title": "Войти",
             "active_nav": "",
             "error": None,
             "email": "",
@@ -121,13 +121,21 @@ async def signup_submit(
     try:
         user = await create_user(email, password, display_name)
     except ValueError as exc:
+        raw = str(exc)
+        # Translate the few known error keys; anything else is shown
+        # verbatim (catches future validator additions without losing info).
+        ru = {
+            "email already registered": "Этот email уже зарегистрирован.",
+            "invalid email": "Неверный формат email.",
+            "password must be at least 8 characters": "Пароль должен быть минимум 8 символов.",
+        }.get(raw, raw)
         return templates.TemplateResponse(
             request,
             "auth_signup.html",
             {
-                "title": "Create account",
+                "title": "Создать аккаунт",
                 "active_nav": "",
-                "error": str(exc),
+                "error": ru,
                 "email": email,
             },
             status_code=400,
@@ -153,9 +161,9 @@ async def login_submit(
             request,
             "auth_login.html",
             {
-                "title": "Sign in",
+                "title": "Войти",
                 "active_nav": "",
-                "error": "Wrong email or password.",
+                "error": "Неверный email или пароль.",
                 "email": email,
             },
             status_code=401,

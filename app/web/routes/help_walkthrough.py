@@ -61,7 +61,7 @@ async def help_walkthrough(request: Request) -> HTMLResponse:
         request,
         "help_walkthrough.html",
         {
-            "title": "Walkthrough",
+            "title": "Справка",
             "active_nav": "",
             "stats": stats,
             "app_version": __version__,

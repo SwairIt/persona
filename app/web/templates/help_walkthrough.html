@@ -25,20 +25,20 @@
     <h2 class="text-xl font-bold mb-3">Куда смотреть каждый день</h2>
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
       <a href="/now" class="rounded-lg border border-zinc-300 dark:border-ink-700 p-4 hover:border-accent-500 transition">
-        <div class="font-semibold mb-1">● Now</div>
+        <div class="font-semibold mb-1">● Сейчас</div>
         <p class="text-xs text-zinc-500">Что сейчас на экране, что было за день — обновляется каждые 10 сек.</p>
       </a>
       <a href="/ask" class="rounded-lg border border-zinc-300 dark:border-ink-700 p-4 hover:border-accent-500 transition">
-        <div class="font-semibold mb-1">? Ask</div>
-        <p class="text-xs text-zinc-500">Спросить у LLM что было вчера/неделю назад. Требует API ключ.</p>
+        <div class="font-semibold mb-1">? Спросить</div>
+        <p class="text-xs text-zinc-500">Спросить у LLM что было вчера или неделю назад. Нужен API-ключ.</p>
       </a>
       <a href="/timeline" class="rounded-lg border border-zinc-300 dark:border-ink-700 p-4 hover:border-accent-500 transition">
-        <div class="font-semibold mb-1">📜 Timeline</div>
-        <p class="text-xs text-zinc-500">Лента всех скринов хронологически — лазить по прошлому.</p>
+        <div class="font-semibold mb-1">📜 Лента</div>
+        <p class="text-xs text-zinc-500">Все скрины по времени — лазить по прошлому.</p>
       </a>
       <a href="/quick-actions" class="rounded-lg border border-zinc-300 dark:border-ink-700 p-4 hover:border-accent-500 transition">
-        <div class="font-semibold mb-1">+ Quick actions</div>
-        <p class="text-xs text-zinc-500">Один тап — заметка, pin, выключить мик/капчур, активировать профиль.</p>
+        <div class="font-semibold mb-1">+ Быстрые действия</div>
+        <p class="text-xs text-zinc-500">Один тап — заметка, пин, выключить микрофон, переключить профиль.</p>
       </a>
     </div>
   </section>
@@ -102,26 +102,26 @@
   </section>
 
   <section class="mb-8">
-    <h2 class="text-xl font-bold mb-3">iPhone PWA</h2>
+    <h2 class="text-xl font-bold mb-3">iPhone (как иконка приложения)</h2>
     <ol class="space-y-2 text-sm">
-      <li><span class="font-mono text-accent-500 mr-2">1.</span>Открой devtunnel URL в Safari на iPhone.</li>
-      <li><span class="font-mono text-accent-500 mr-2">2.</span>Нажми <strong>Share</strong> (квадратик со стрелкой) → <strong>"На экран Домой"</strong>.</li>
-      <li><span class="font-mono text-accent-500 mr-2">3.</span>Иконка появится на homescreen — фиолетовая точка.</li>
-      <li><span class="font-mono text-accent-500 mr-2">4.</span>Long-press на иконку → быстрые ссылки: Now / Ask / Quick actions.</li>
-      <li><span class="font-mono text-accent-500 mr-2">5.</span>Тап на иконку → полноэкранный режим без Safari toolbar.</li>
+      <li><span class="font-mono text-accent-500 mr-2">1.</span>Открой ссылку сайта в Safari на iPhone.</li>
+      <li><span class="font-mono text-accent-500 mr-2">2.</span>Нажми <strong>«Поделиться»</strong> (квадратик со стрелкой) → <strong>«На экран Домой»</strong>.</li>
+      <li><span class="font-mono text-accent-500 mr-2">3.</span>На главном экране появится иконка — фиолетовая точка.</li>
+      <li><span class="font-mono text-accent-500 mr-2">4.</span>Долгое нажатие на иконку → быстрые ссылки: Сейчас / Спросить / Действия.</li>
+      <li><span class="font-mono text-accent-500 mr-2">5.</span>Обычный тап → откроется в полноэкранном режиме без шапки Safari.</li>
     </ol>
   </section>
 
   <section class="mb-8 rounded-lg border border-zinc-300 dark:border-ink-700 p-4">
-    <h2 class="text-xl font-bold mb-2">В планах (не сделано)</h2>
+    <h2 class="text-xl font-bold mb-2">Что уже готово</h2>
     <ul class="text-sm space-y-1 text-zinc-400 list-disc list-inside">
-      <li>Аккаунты с email + паролем</li>
-      <li>Multi-device sync (local-first CRDT)</li>
-      <li>Голосовой ввод в /ask (Web Speech API)</li>
-      <li>Дашборд "что на других моих устройствах сейчас"</li>
-      <li>Перенос данных между девайсами</li>
+      <li>Аккаунты по email + пароль</li>
+      <li>Мульти-устройство: добавить телефон + Mac в один аккаунт</li>
+      <li>Голосовой ввод и озвучивание ответа в /ask</li>
+      <li>Удалённое управление другими устройствами через /devices</li>
+      <li>Синхронизация заметок, тегов и аннотаций между устройствами</li>
     </ul>
-    <p class="text-xs text-zinc-500 mt-3">См. <code>HELP.md</code> в репо и git log за полной дорожной картой.</p>
+    <p class="text-xs text-zinc-500 mt-3">Подробнее — в коммитах репозитория.</p>
   </section>
 
 </div>
