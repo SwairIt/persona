@@ -407,14 +407,36 @@ async def llm_switcher_test(
             test_result=f"Not configured: {exc}",
         )
 
+    # T19 fix (2026-06-07) — bound the test call with asyncio timeout
+    # so a cold-start Ollama (60+ sec to load model into VRAM) doesn't
+    # freeze the entire uvicorn worker thread. 15s is plenty for a
+    # warm provider; cold Ollama users see 'timeout' and a hint to
+    # warm the model via /ask first.
+    import asyncio  # noqa: PLC0415
     try:
-        await client.complete(
-            CompletionRequest(
-                system="Reply with the single word: pong.",
-                user="ping",
-                max_tokens=4,
-                temperature=0.0,
-            )
+        await asyncio.wait_for(
+            client.complete(
+                CompletionRequest(
+                    system="Reply with the single word: pong.",
+                    user="ping",
+                    max_tokens=4,
+                    temperature=0.0,
+                )
+            ),
+            timeout=15.0,
+        )
+    except asyncio.TimeoutError:
+        log.info("llm.switcher.test.timeout", provider=current)
+        return _render(
+            request,
+            current_provider=current,
+            keys=keys,
+            test_result=(
+                "Timeout (15s). Если это Ollama — первый запрос грузит "
+                "модель в VRAM, это 30-60 сек. Зайди в /ask, задай любой "
+                "вопрос (можно ждать), потом нажми Тест ещё раз — будет "
+                "быстро."
+            ),
         )
     except Exception as exc:
         log.warning(
