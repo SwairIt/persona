@@ -122,6 +122,56 @@
     </p>
   </section>
 
+  {# T16 (2026-06-07) — iOS Shortcuts ingest для iPhone захвата. #}
+  <section class="mb-8 rounded-lg border border-rose-500/40 bg-rose-500/5 p-4">
+    <h2 class="font-semibold text-rose-300 mb-2">📱 Захват с iPhone (iOS Shortcuts)</h2>
+
+    <div class="text-xs text-zinc-300 mb-3 p-2 rounded bg-rose-500/10 border border-rose-500/30">
+      <strong>Реальность:</strong> Apple <strong>физически блокирует</strong> приложениям делать скриншоты в фоне. Continuous capture как на Mac на iOS невозможен — это политика iOS, не недоработка Persona. <a href="https://developer.apple.com/documentation/replaykit" class="underline" target="_blank">ReplayKit</a> требует ручного тапа на каждую сессию и останавливается при выходе из приложения.
+    </div>
+
+    <p class="text-sm text-zinc-300 mb-3">
+      Реалистичный способ — <strong>iOS Shortcuts</strong>: настраиваешь автоматизацию которая периодически делает скриншот и загружает в Persona. Не silent, но рабочий.
+    </p>
+
+    <h3 class="text-sm font-semibold text-zinc-200 mt-4 mb-2">Шаги настройки</h3>
+    <ol class="text-sm space-y-2 text-zinc-300">
+      <li><span class="font-mono text-rose-400 mr-2">1.</span>На сайте: <a href="/devices" class="text-accent-400 underline">/devices</a> → <strong>Добавить устройство</strong> → kind = iPhone. <strong>Скопируй device_token</strong> (показывается один раз!).</li>
+      <li><span class="font-mono text-rose-400 mr-2">2.</span>На iPhone: открой приложение <strong>Команды</strong> (Shortcuts) → <strong>+ Новая</strong>.</li>
+      <li><span class="font-mono text-rose-400 mr-2">3.</span>Добавь действия в таком порядке:
+        <ul class="ml-6 mt-1 space-y-1 text-xs list-disc">
+          <li><code>Сделать скриншот</code> (Take Screenshot)</li>
+          <li><code>Получить содержимое URL</code> (Get Contents of URL):
+            <ul class="ml-4 mt-1">
+              <li>URL: <code>https://<твой-домен>/api/ingest/photo</code></li>
+              <li>Метод: <strong>POST</strong></li>
+              <li>Заголовки: <code>X-Device-Token</code> = твой токен из шага 1</li>
+              <li>Тело: <strong>Форма</strong>, добавь поле <code>file</code> = последний скриншот, поле <code>caption</code> = текст или вход для подсказки</li>
+            </ul>
+          </li>
+          <li><code>Показать уведомление</code> с результатом (необязательно)</li>
+        </ul>
+      </li>
+      <li><span class="font-mono text-rose-400 mr-2">4.</span>Сохрани шорткат как «Загрузить в Persona».</li>
+      <li><span class="font-mono text-rose-400 mr-2">5.</span>Создай <strong>Личную автоматизацию</strong>: «Время суток» → каждый час → Запустить шорткат «Загрузить в Persona».
+        <div class="text-[10px] text-zinc-400 mt-1">
+          ⚠️ iOS 14+ требует подтверждения каждый запуск (через notification). Это апплевский security feature, никак не обходится без jailbreak.
+        </div>
+      </li>
+    </ol>
+
+    <details class="mt-4 text-xs text-zinc-400">
+      <summary class="cursor-pointer text-zinc-300 font-semibold">Alternative: photo library scan</summary>
+      <p class="mt-2">
+        Шорткат может вместо <code>Take Screenshot</code> читать последние N фото из <code>Photos</code> (любой скриншот который ты сделал руками через кнопки питания+громкости). Это даёт автоматизацию «загружай все мои скриншоты в Persona» — но требует разрешения на доступ к Фото.
+      </p>
+    </details>
+
+    <p class="text-xs text-zinc-400 mt-3">
+      💡 Альтернатива всему этому: используй iPhone <strong>как viewer</strong>. Открываешь сайт Persona в Safari, видишь всё что захватил Mac — без авто-захвата с iPhone. Это самый простой путь.
+    </p>
+  </section>
+
   {# T11 (2026-06-07) — чат с памятью. #}
   <section class="mb-8 rounded-lg border border-purple-500/40 bg-purple-500/5 p-4">
     <h2 class="font-semibold text-purple-400 mb-2">💬 Чат с памятью</h2>

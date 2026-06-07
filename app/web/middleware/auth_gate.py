@@ -55,6 +55,9 @@ _PUBLIC_PREFIXES: tuple[str, ...] = (
     "/api/health.json",
     "/api/sync/",
     "/api/devices/heartbeat",
+    # T16 (2026-06-07) — iOS Shortcut hits these with X-Device-Token,
+    # not a cookie session. The route itself enforces auth.
+    "/api/ingest/",
     "/favicon.ico",
 )
 

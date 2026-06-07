@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from app.auth import current_user_required
 from app.auth.sessions import SessionRecord
@@ -99,3 +99,107 @@ async def storage_usage_json(
             "by_day_recent": usage.by_day_recent,
         }
     )
+
+
+# --- T16 (2026-06-07): bulk export ZIP for moving data between devices ---
+
+
+@router.get("/storage/export.zip", response_model=None)
+async def export_bundle(
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+    from_date: str = "",
+    to_date: str = "",
+    max_shots: int = 1000,
+) -> Response:
+    """Pack a date range of screenshots into a ZIP for offline transfer.
+
+    Use case: user wants to move N days of data from one Persona
+    installation to another (e.g. fresh server, archived disk). The ZIP
+    contains:
+        manifest.json   — array of {id, captured_at, app_name, ocr_text}
+        shots/{id}.ext  — the original thumbnail bytes
+    """
+    import io  # noqa: PLC0415 - lazy imports keep cold-start cheap
+    import json
+    import os
+    import zipfile
+
+    from fastapi.responses import StreamingResponse
+
+    from app.storage.db import get_connection
+
+    max_shots = max(1, min(int(max_shots), 5000))
+
+    # Build the date predicate. Both empty → entire history.
+    clauses: list[str] = []
+    params: list[object] = []
+    if from_date.strip():
+        clauses.append("captured_at >= ?")
+        params.append(from_date.strip() + " 00:00:00")
+    if to_date.strip():
+        clauses.append("captured_at <= ?")
+        params.append(to_date.strip() + " 23:59:59")
+    where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+    params.append(max_shots)
+
+    async with get_connection() as conn:
+        cursor = await conn.execute(
+            "SELECT id, captured_at, app_name, window_title, ocr_text, "
+            "       thumbnail_path "
+            f"FROM screenshots{where} "
+            "ORDER BY captured_at ASC LIMIT ?",
+            tuple(params),
+        )
+        rows = await cursor.fetchall()
+
+    buf = io.BytesIO()
+    manifest: list[dict[str, object]] = []
+    with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for row in rows:
+            shot_id = int(row["id"])
+            path = str(row["thumbnail_path"] or "")
+            manifest_entry = {
+                "id": shot_id,
+                "captured_at": str(row["captured_at"]),
+                "app_name": (
+                    str(row["app_name"]) if row["app_name"] is not None else None
+                ),
+                "window_title": (
+                    str(row["window_title"])
+                    if row["window_title"] is not None
+                    else None
+                ),
+                "ocr_text": (
+                    str(row["ocr_text"]) if row["ocr_text"] is not None else None
+                ),
+            }
+            if path and os.path.exists(path):
+                ext = os.path.splitext(path)[1].lstrip(".") or "webp"
+                try:
+                    zf.write(path, arcname=f"shots/{shot_id}.{ext}")
+                    manifest_entry["file"] = f"shots/{shot_id}.{ext}"
+                except OSError as exc:
+                    manifest_entry["file_error"] = str(exc)
+            manifest.append(manifest_entry)
+        zf.writestr(
+            "manifest.json",
+            json.dumps(
+                {"shots": manifest, "exported_at": str(get_settings_ts())},
+                indent=2,
+                ensure_ascii=False,
+            ),
+        )
+    buf.seek(0)
+    filename = f"persona-export-{(from_date or 'all')}-{(to_date or 'all')}.zip"
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def get_settings_ts() -> str:
+    """Tiny helper for ISO-now without importing datetime at module top."""
+    from datetime import UTC, datetime  # noqa: PLC0415
+
+    return datetime.now(UTC).isoformat()
