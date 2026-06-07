@@ -389,6 +389,7 @@ from app.web.routes import (
     landing as landing_routes,
     auth as auth_routes,
     devices as devices_routes,
+    sync_api as sync_api_routes,
 )
 from app.workers import (
     get_controller,
@@ -792,6 +793,7 @@ def create_app() -> FastAPI:
     app.include_router(landing_routes.router)
     app.include_router(auth_routes.router)
     app.include_router(devices_routes.router)
+    app.include_router(sync_api_routes.router)
     app.include_router(sticky_search_routes.router)
     app.include_router(audit_replay_routes.router)
     app.include_router(tag_gallery_routes.router)
