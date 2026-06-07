@@ -126,5 +126,12 @@ async def get_connection(
         await conn.execute("PRAGMA journal_mode = WAL")
         await conn.execute("PRAGMA synchronous = NORMAL")
         await conn.execute("PRAGMA foreign_keys = ON")
+        # T19 fix (2026-06-07) — without busy_timeout the second writer
+        # gets ``SQLITE_BUSY`` immediately and dies. With 40 background
+        # workers all heartbeating every 3 sec, plus a slow Ollama call
+        # holding a write transaction, lock contention spikes — the user
+        # reports the site freezes. 5000ms gives writers time to queue
+        # politely instead of throwing.
+        await conn.execute("PRAGMA busy_timeout = 5000")
         conn.row_factory = aiosqlite.Row
         yield conn
