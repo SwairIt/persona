@@ -48,10 +48,19 @@ ENV_AGENT_TOKEN = "PERSONA_AGENT_TOKEN"
 
 
 class ServerSettings(BaseModel):
-    """Server endpoint + bearer token used for every upload."""
+    """Server endpoint + tokens.
+
+    ``token`` is the legacy bearer for every ingest upload (/api/agent/*).
+    ``device_token`` (T6, optional) authenticates the multi-device sync
+    endpoints (/api/sync/* + /api/devices/heartbeat) and is independent.
+    When ``device_token`` is absent or empty, the sync loop in
+    persona_agent stays disabled silently — single-device installs keep
+    working without setup changes.
+    """
 
     url: HttpUrl
     token: SecretStr
+    device_token: SecretStr | None = None
 
     @field_validator("url")
     @classmethod

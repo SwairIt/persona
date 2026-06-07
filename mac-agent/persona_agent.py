@@ -580,6 +580,68 @@ async def remote_pause_poller(state: RuntimeState) -> None:
     logger.info("agent.remote_pause.poller_stopped")
 
 
+async def sync_heartbeat_loop(state: RuntimeState) -> None:
+    """T7 (2026-06-07) — multi-device heartbeat + remote-control sync.
+
+    Every 30 seconds the loop:
+      1. POSTs ``/api/devices/heartbeat`` so the web /devices page can
+         show "last seen N seconds ago" for this Mac.
+      2. Reads the response's ``capture_paused`` flag (set on the web
+         dashboard) and reflects it onto ``state.paused`` so the local
+         capture loops honour the remote toggle. This is more general
+         than the v1.39 mic-only poller — it covers SCREEN capture too.
+      3. Reads ``capture_interval_seconds`` override (NULL = unchanged).
+         The current agent doesn't yet rewire the screen loop on the fly
+         to a new interval; that's a follow-up. For now we log the value
+         so it's at least observable.
+
+    Disabled (silent no-op) when ``device_token`` is missing from config
+    — keeps single-device installs working without setup changes.
+    """
+    if state.config.server.device_token is None:
+        logger.info("agent.sync_heartbeat.disabled_no_device_token")
+        return
+
+    # Lazy import: keep sync_client out of the import path when sync is off.
+    from sync_client import SyncClient  # noqa: PLC0415
+
+    client = SyncClient(
+        server_url=str(state.config.server.url),
+        device_token=state.config.server.device_token.get_secret_value(),
+    )
+    interval_s = 30.0
+    logger.info("agent.sync_heartbeat.start", interval_s=interval_s)
+
+    while not state.stop.is_set():
+        try:
+            resp = await client.heartbeat()
+        except Exception as exc:  # noqa: BLE001 — never break the agent
+            logger.debug("agent.sync_heartbeat.failed", error=str(exc))
+            resp = {}
+
+        if isinstance(resp, dict) and "device_id" in resp:
+            new_paused = bool(resp.get("capture_paused", False))
+            if new_paused != state.paused:
+                logger.info(
+                    "agent.sync_heartbeat.pause_changed",
+                    paused=new_paused,
+                )
+                state.paused = new_paused
+            interval_override = resp.get("capture_interval_seconds")
+            if interval_override is not None:
+                logger.debug(
+                    "agent.sync_heartbeat.interval_override",
+                    seconds=interval_override,
+                )
+
+        try:
+            await asyncio.wait_for(state.stop.wait(), timeout=interval_s)
+        except TimeoutError:
+            continue
+
+    logger.info("agent.sync_heartbeat.stopped")
+
+
 async def audio_loop(state: RuntimeState) -> None:
     """Capture mic audio, detect speech, encode + transcribe, upload.
 
@@ -897,6 +959,15 @@ async def _run_async(config: AgentConfig) -> int:
                     name="remote_pause_poller",
                 )
             )
+        # T7 (2026-06-07) — multi-device sync heartbeat. Self-disables
+        # when device_token is absent so single-device installs are
+        # unaffected.
+        tasks.append(
+            asyncio.create_task(
+                sync_heartbeat_loop(state),
+                name="sync_heartbeat_loop",
+            )
+        )
 
         if not tasks:
             logger.warning("agent.no_loops_enabled — exiting")

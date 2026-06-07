@@ -26,6 +26,7 @@ from typing import Any
 
 from app.logging_setup import get_logger
 from app.storage.db import get_connection
+from app.sync.tombstones import identity_for, is_tombstoned, stamp
 
 log = get_logger("persona.sync.reconcile")
 
@@ -46,6 +47,14 @@ async def _apply_note_event(event: dict[str, Any]) -> bool:
         log.warning("sync.apply.note.no_uuid", event_id=event["id"])
         return False
     op = event["op"]
+    clock = int(event.get("logical_clock") or 0)
+
+    # Anti-resurrection: any insert/update with clock <= tombstone clock
+    # for this uuid is silently skipped (event still consumed off the queue).
+    if op != "delete" and await is_tombstoned("note", uuid, clock):
+        log.info("sync.apply.note.tombstoned", uuid=uuid, event_id=event["id"])
+        return False
+
     async with get_connection() as conn:
         if op == "delete":
             await conn.execute(
@@ -54,6 +63,7 @@ async def _apply_note_event(event: dict[str, Any]) -> bool:
                 (uuid,),
             )
             await conn.commit()
+            await stamp("note", uuid, clock)
             return True
 
         title = payload.get("title")
@@ -99,6 +109,10 @@ async def _apply_kv_event(event: dict[str, Any]) -> bool:
         log.warning("sync.apply.kv.no_key", event_id=event["id"])
         return False
     incoming_clock = int(event.get("logical_clock") or 0)
+    op = event["op"]
+    if op != "delete" and await is_tombstoned("kv", key, incoming_clock):
+        log.info("sync.apply.kv.tombstoned", key=key, event_id=event["id"])
+        return False
     async with get_connection() as conn:
         cursor = await conn.execute(
             "SELECT last_applied_clock FROM kv_settings WHERE key = ?",
@@ -111,11 +125,12 @@ async def _apply_kv_event(event: dict[str, Any]) -> bool:
             # without overwriting the newer canonical value.
             return False
 
-        if event["op"] == "delete":
+        if op == "delete":
             await conn.execute(
                 "DELETE FROM kv_settings WHERE key = ?", (key,)
             )
             await conn.commit()
+            await stamp("kv", key, incoming_clock)
             return True
 
         value = payload.get("value")
@@ -162,10 +177,15 @@ async def _apply_tag_event(event: dict[str, Any]) -> bool:
         log.warning("sync.apply.tag.no_uuid", event_id=event["id"])
         return False
     op = event["op"]
+    clock = int(event.get("logical_clock") or 0)
+    if op != "delete" and await is_tombstoned("tag", uuid, clock):
+        log.info("sync.apply.tag.tombstoned", uuid=uuid, event_id=event["id"])
+        return False
     async with get_connection() as conn:
         if op == "delete":
             await conn.execute("DELETE FROM tags WHERE uuid = ?", (uuid,))
             await conn.commit()
+            await stamp("tag", uuid, clock)
             return True
 
         name = str(payload.get("name") or "").strip()
@@ -221,6 +241,12 @@ async def _apply_annotation_event(event: dict[str, Any]) -> bool:
     if not shot_uuid:
         log.warning("sync.apply.annotation.no_shot_uuid", event_id=event["id"])
         return False
+    op = event["op"]
+    clock = int(event.get("logical_clock") or 0)
+    if op != "delete" and await is_tombstoned("annotation", shot_uuid, clock):
+        log.info("sync.apply.annotation.tombstoned", shot_uuid=shot_uuid, event_id=event["id"])
+        return False
+
     from app.shots import find_shot_id_by_uuid  # noqa: PLC0415 — break import cycle
     shot_id = await find_shot_id_by_uuid(shot_uuid)
     if shot_id is None:
@@ -237,12 +263,13 @@ async def _apply_annotation_event(event: dict[str, Any]) -> bool:
         raise RuntimeError("shot not present locally — retry later")
 
     async with get_connection() as conn:
-        if event["op"] == "delete":
+        if op == "delete":
             await conn.execute(
                 "DELETE FROM shot_annotation WHERE screenshot_id = ?",
                 (shot_id,),
             )
             await conn.commit()
+            await stamp("annotation", shot_uuid, clock)
             return True
 
         svg = str(payload.get("svg_payload") or "")
@@ -289,6 +316,16 @@ async def _apply_shot_tag_event(event: dict[str, Any]) -> bool:
     if not shot_uuid or (not tag_uuid and not tag_name):
         log.warning("sync.apply.shot_tag.bad_payload", event_id=event["id"])
         return False
+    op = event["op"]
+    clock = int(event.get("logical_clock") or 0)
+    # shot_tag identity is composite; tombstone applies per-pair, so
+    # deleting one tag attachment never blocks other attachments to the
+    # same shot.
+    identity = f"{shot_uuid}:{tag_name}" if tag_name else f"{shot_uuid}:*"
+    if op != "delete" and await is_tombstoned("shot_tag", identity, clock):
+        log.info("sync.apply.shot_tag.tombstoned", identity=identity, event_id=event["id"])
+        return False
+
     from app.shots import find_shot_id_by_uuid  # noqa: PLC0415
 
     shot_id = await find_shot_id_by_uuid(shot_uuid)
@@ -323,12 +360,13 @@ async def _apply_shot_tag_event(event: dict[str, Any]) -> bool:
             log.warning("sync.apply.shot_tag.unresolved", event_id=event["id"])
             return False
 
-        if event["op"] == "delete":
+        if op == "delete":
             await conn.execute(
                 "DELETE FROM screenshot_tags WHERE screenshot_id = ? AND tag_id = ?",
                 (shot_id, tag_id),
             )
             await conn.commit()
+            await stamp("shot_tag", identity, clock)
             return True
 
         # INSERT OR IGNORE — junction-table dedup. The pair is the natural
