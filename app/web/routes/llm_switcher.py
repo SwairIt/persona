@@ -246,7 +246,7 @@ def _render(
         request,
         "llm_switcher.html",
         {
-            "title": "LLM provider",
+            "title": "AI провайдер",
             "active_nav": "settings",
             "providers": PROVIDERS,
             "current_provider": current_provider,
@@ -282,29 +282,33 @@ async def llm_switcher_page(request: Request) -> HTMLResponse:
 
 
 @router.post("/settings/llm", response_class=HTMLResponse)
-async def llm_switcher_save(
-    request: Request,
-    provider: str = Form(...),
-    master_password: str = Form(""),
-    anthropic_api_key: str = Form(""),
-    openai_api_key: str = Form(""),
-    groq_api_key: str = Form(""),
-) -> HTMLResponse:
+async def llm_switcher_save(request: Request) -> HTMLResponse:
     """Persist the chosen provider and any newly-typed keys.
 
-    Each provider's key field is independent: blank means "leave alone",
-    non-blank means "rotate". The master password is only required for
-    *vault* writes; without it (or without ``cryptography`` installed),
-    keys land in a plain kv row instead.
+    T19 (2026-06-07): rewritten to read form data dynamically instead of
+    hard-coding three providers. The previous version only accepted
+    ``anthropic_api_key``, ``openai_api_key``, ``groq_api_key`` as Form
+    parameters, so when T9/T10/T12 added 11 more providers (yandex,
+    gigachat, deepseek, ollama, openrouter, mistral, together, xai,
+    proxyapi, aitunnel, gemini) their key fields were silently dropped —
+    user pasted a key, hit Save, kv_settings was never updated, and the
+    page reloaded showing 'NOT SET' as if nothing happened.
+
+    The fix reads ``await request.form()`` once and iterates over every
+    slug in :data:`PROVIDERS`, so adding a new provider in the future
+    just means appending a tuple — no route change needed.
     """
-    chosen = provider.strip().lower()
-    if chosen not in _VALID_PROVIDERS:
+    form = await request.form()
+    provider = str(form.get("provider", "")).strip().lower()
+    master_password = str(form.get("master_password", ""))
+
+    if provider not in _VALID_PROVIDERS:
         current = await _current_provider()
         keys = await _key_status_per_provider(master_password=None)
-        log.warning("llm.switcher.bad_provider", provider=chosen)
+        log.warning("llm.switcher.bad_provider", provider=provider)
         await log_action(
             "llm.switcher.save",
-            target=chosen,
+            target=provider,
             detail="bad provider",
             success=False,
         )
@@ -312,52 +316,53 @@ async def llm_switcher_save(
             request,
             current_provider=current,
             keys=keys,
-            error=f"Unknown provider '{chosen}'.",
+            error=f"Неизвестный провайдер «{provider}».",
             status_code=400,
         )
 
-    await _persist_provider(chosen)
+    await _persist_provider(provider)
 
     written: dict[str, str] = {}
-    key_inputs = {
-        "anthropic": anthropic_api_key,
-        "openai": openai_api_key,
-        "groq": groq_api_key,
-    }
-    for slug, raw_value in key_inputs.items():
-        value = raw_value.strip()
-        if not value:
+    for slug, _label, _placeholder in PROVIDERS:
+        raw = str(form.get(f"{slug}_api_key", "") or "").strip()
+        if not raw:
             continue
-        source = await _persist_key(slug, value, master_password)
+        source = await _persist_key(slug, raw, master_password)
         written[slug] = source
 
     keys = await _key_status_per_provider(master_password=master_password or None)
 
     await log_action(
         "llm.switcher.save",
-        target=chosen,
+        target=provider,
         detail="written=" + ",".join(f"{p}:{src}" for p, src in written.items()),
         success=True,
     )
     log.info(
         "llm.switcher.saved",
-        provider=chosen,
+        provider=provider,
         keys_written={slug: src for slug, src in written.items()},
     )
 
-    if chosen == "none":
-        notice = "AI features disabled. Stored keys are untouched."
+    if provider == "none":
+        notice = "AI выключен. Ключи сохранены, но не используются."
+    elif provider == "ollama":
+        notice = "Сохранено: Ollama. Запросы идут на твой локальный сервер."
     elif written:
+        slug_written = ", ".join(written.keys())
         notice = (
-            f"Saved {chosen}. "
-            f"Key stored in {written.get(chosen, '(unchanged)')}."
+            f"Сохранено. Активный провайдер: {provider}. "
+            f"Ключи обновлены: {slug_written}."
         )
     else:
-        notice = f"Switched to {chosen}. Key on file is unchanged."
+        notice = (
+            f"Активный провайдер: {provider}. "
+            "Поля ключей пустые — старые ключи остались на месте."
+        )
 
     return _render(
         request,
-        current_provider=chosen,
+        current_provider=provider,
         keys=keys,
         notice=notice,
     )

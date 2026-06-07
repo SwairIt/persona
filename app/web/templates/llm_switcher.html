@@ -1,23 +1,32 @@
 {% extends "base.html" %}
 
 {% block content %}
+{# T19 (2026-06-07): полностью переписал страницу.
+   Раньше: radio-кнопки в шаблоне были захардкожены на 4 провайдера
+           (anthropic/openai/groq/none), а POST-роут принимал только
+           3 поля ключей (anthropic_api_key, openai_api_key, groq_api_key).
+           После T9/T10/T12 добавилось 11 новых провайдеров — поля
+           ключей рендерились в loop, но radio-кнопок не было и POST
+           их игнорировал. Юзер вставлял ключ, жал Save, ничего не
+           сохранялось.
+   Теперь: и radio и keys рендерятся из одного списка ``providers``,
+           POST-роут читает форму динамически. RU перевод. #}
+
 <div class="mb-6">
-  <h1 class="text-2xl font-bold tracking-tight">LLM provider</h1>
+  <h1 class="text-2xl font-bold tracking-tight">AI провайдер</h1>
   <p class="text-zinc-500 text-sm mt-1">
-    Pick which Bring-Your-Own-Key provider Persona should call for AI
-    features (daily TL;DR, /ask, auto-tagging). Each provider has its
-    own key slot, so rotating one credential never affects the others.
-    Choose <strong>none</strong> to disable AI features without wiping
-    any stored key.
+    Выбери на кого Persona шлёт запросы для AI-фич (ежедневный TL;DR,
+    /ask, /chat, авто-теги). У каждого провайдера свой слот для ключа —
+    можно держать несколько одновременно, переключаться без потери.
+    «<strong>Никто</strong>» отключает AI-фичи не удаляя ключи.
   </p>
 </div>
 
 <div class="rounded-lg border border-amber-700/40 bg-amber-900/20 text-amber-200 px-4 py-3 mb-6 text-xs">
-  Keys are stored in the v0.33 encrypted vault when
-  <code class="font-mono">cryptography</code> is installed and you
-  supply a master password &mdash; otherwise they fall back to a plain
-  <code class="font-mono">kv_settings</code> row. The master password
-  itself is <strong>never</strong> stored or logged.
+  Ключи шифруются мастер-паролем (v0.33 vault) если установлен
+  <code class="font-mono">cryptography</code> и ты ввёл пароль. Иначе
+  ложатся в обычную строку <code class="font-mono">kv_settings</code>.
+  Мастер-пароль <strong>никогда</strong> не сохраняется и не пишется в логи.
 </div>
 
 {% if error %}
@@ -34,7 +43,7 @@
 
 {% if test_result %}
   <div class="rounded-lg border border-accent-700/40 bg-accent-900/20 text-accent-200 px-4 py-3 mb-6 text-sm">
-    <span class="text-xs uppercase tracking-widest text-accent-300 mr-2">Test:</span>
+    <span class="text-xs uppercase tracking-widest text-accent-300 mr-2">Тест:</span>
     <span class="font-mono">{{ test_result }}</span>
   </div>
 {% endif %}
@@ -44,67 +53,48 @@
 
   <fieldset class="flex flex-col gap-2">
     <legend class="text-sm font-semibold tracking-wider uppercase text-zinc-400 mb-2">
-      Provider
+      Провайдер
     </legend>
 
-    <label class="flex items-start gap-3 p-3 rounded border border-ink-700 hover:border-accent-500 cursor-pointer transition">
-      <input type="radio" name="provider" value="anthropic"
-             class="mt-1"
-             {% if current_provider == 'anthropic' %}checked{% endif %}>
-      <div>
-        <div class="text-sm font-medium">Anthropic (Claude)</div>
-        <div class="text-xs text-zinc-500">claude-haiku-4-5 by default. Get a key at console.anthropic.com.</div>
-      </div>
-    </label>
-
-    <label class="flex items-start gap-3 p-3 rounded border border-ink-700 hover:border-accent-500 cursor-pointer transition">
-      <input type="radio" name="provider" value="openai"
-             class="mt-1"
-             {% if current_provider == 'openai' %}checked{% endif %}>
-      <div>
-        <div class="text-sm font-medium">OpenAI (GPT-4o family)</div>
-        <div class="text-xs text-zinc-500">gpt-4o-mini by default. Get a key at platform.openai.com.</div>
-      </div>
-    </label>
-
-    <label class="flex items-start gap-3 p-3 rounded border border-ink-700 hover:border-accent-500 cursor-pointer transition">
-      <input type="radio" name="provider" value="groq"
-             class="mt-1"
-             {% if current_provider == 'groq' %}checked{% endif %}>
-      <div>
-        <div class="text-sm font-medium">Groq (Llama 3 family)</div>
-        <div class="text-xs text-zinc-500">llama-3.3-70b-versatile by default. Get a key at console.groq.com.</div>
-      </div>
-    </label>
+    {% for slug, label, _placeholder in providers %}
+      <label class="flex items-start gap-3 p-3 rounded border border-ink-700 hover:border-accent-500 cursor-pointer transition">
+        <input type="radio" name="provider" value="{{ slug }}"
+               class="mt-1"
+               {% if current_provider == slug %}checked{% endif %}>
+        <div class="min-w-0">
+          <div class="text-sm font-medium break-words">{{ label }}</div>
+        </div>
+      </label>
+    {% endfor %}
 
     <label class="flex items-start gap-3 p-3 rounded border border-ink-700 hover:border-accent-500 cursor-pointer transition">
       <input type="radio" name="provider" value="none"
              class="mt-1"
              {% if current_provider == 'none' %}checked{% endif %}>
       <div>
-        <div class="text-sm font-medium">None (disable AI features)</div>
-        <div class="text-xs text-zinc-500">Stored keys are kept but unused. Daily TL;DR / /ask / auto-tag will return <code class="font-mono">missing_config</code>.</div>
+        <div class="text-sm font-medium">Никто (выключить AI)</div>
+        <div class="text-xs text-zinc-500">Ключи сохранятся, но не используются. /ask и /chat вернут ошибку «провайдер не настроен».</div>
       </div>
     </label>
   </fieldset>
 
   <fieldset class="flex flex-col gap-3 pt-2 border-t border-ink-700">
     <legend class="text-sm font-semibold tracking-wider uppercase text-zinc-400 mb-2 mt-2">
-      API keys (per provider)
+      API-ключи (по одному на провайдера)
     </legend>
 
     {% for slug, label, placeholder in providers %}
       {% set info = keys.get(slug, {}) %}
       <label class="flex flex-col gap-1">
-        <span class="text-xs uppercase tracking-widest text-zinc-500 flex items-center gap-2">
-          <span>{{ label }} key</span>
+        <span class="text-xs uppercase tracking-widest text-zinc-500 flex items-center gap-2 flex-wrap">
+          <span class="break-words">{{ label }}</span>
           {% if info.get('configured') == 'true' %}
             <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-900/40 border border-emerald-700/50 text-emerald-300">
-              configured ({{ info.get('source', '?') }})
+              сохранён ({{ info.get('source', '?') }})
             </span>
           {% else %}
             <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 border border-ink-700 text-zinc-500">
-              not set
+              не задан
             </span>
           {% endif %}
         </span>
@@ -117,19 +107,19 @@
     {% endfor %}
 
     <p class="text-xs text-zinc-500">
-      Leave a field blank to keep the existing key on file unchanged.
+      Пустое поле — старый ключ остаётся как был. Чтобы удалить ключ — открой <a href="/vault" class="underline hover:text-zinc-200">/vault</a>.
     </p>
   </fieldset>
 
   <fieldset class="flex flex-col gap-2 pt-2 border-t border-ink-700">
     <legend class="text-sm font-semibold tracking-wider uppercase text-zinc-400 mb-2 mt-2">
-      Master password (optional)
+      Мастер-пароль (необязательно)
     </legend>
     <label class="flex flex-col gap-1">
       <span class="text-xs text-zinc-500">
-        Provide your vault master password to encrypt new keys with the
-        v0.33 vault. Leave blank to fall back to plain
-        <code class="font-mono">kv_settings</code>.
+        Введи мастер-пароль чтобы зашифровать новые ключи через
+        v0.33 vault. Пусто — ключи лягут в обычный
+        <code class="font-mono">kv_settings</code> (тоже только локально).
       </span>
       <input type="password" name="master_password"
              autocomplete="new-password"
@@ -137,20 +127,49 @@
     </label>
   </fieldset>
 
-  <div class="flex items-center gap-3 pt-2 border-t border-ink-700">
+  <div class="flex items-center gap-3 pt-2 border-t border-ink-700 flex-wrap">
     <button type="submit"
             class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
-      Save
+      Сохранить
     </button>
     <button type="submit" formaction="/settings/llm/test"
             class="px-5 py-2 border border-ink-700 hover:border-accent-500 rounded text-sm font-medium transition">
-      Test current provider
+      Проверить текущий провайдер
     </button>
-    <a href="/vault" class="ml-auto text-xs text-zinc-500 hover:text-zinc-200">Manage vault &rarr;</a>
+    <a href="/vault" class="ml-auto text-xs text-zinc-500 hover:text-zinc-200">Управление vault →</a>
   </div>
 </form>
 
+<details class="text-xs text-zinc-400 mb-6">
+  <summary class="cursor-pointer text-zinc-200 font-semibold">📍 Где взять ключ для каждого провайдера</summary>
+  <table class="w-full mt-3 text-xs">
+    <thead class="text-zinc-500 uppercase tracking-widest">
+      <tr class="border-b border-ink-700">
+        <th class="text-left py-2">Провайдер</th>
+        <th class="text-left py-2">Где регистрироваться</th>
+        <th class="text-left py-2">Особенность</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr class="border-b border-ink-800"><td class="py-2 font-mono">ollama</td><td class="py-2"><a href="https://ollama.com/download" class="text-accent-400" target="_blank">ollama.com</a></td><td class="py-2 text-zinc-500">Локально, бесплатно. Поле = URL endpoint.</td></tr>
+      <tr class="border-b border-ink-800"><td class="py-2 font-mono">yandex</td><td class="py-2"><a href="https://console.cloud.yandex.ru" class="text-accent-400" target="_blank">cloud.yandex.ru</a></td><td class="py-2 text-zinc-500">Через Яндекс-аккаунт, без VPN, есть free tier.</td></tr>
+      <tr class="border-b border-ink-800"><td class="py-2 font-mono">gigachat</td><td class="py-2"><a href="https://developers.sber.ru" class="text-accent-400" target="_blank">developers.sber.ru</a></td><td class="py-2 text-zinc-500">Сбер. 1М токенов/мес бесплатно. Требует телефон.</td></tr>
+      <tr class="border-b border-ink-800"><td class="py-2 font-mono">deepseek</td><td class="py-2"><a href="https://platform.deepseek.com" class="text-accent-400" target="_blank">platform.deepseek.com</a></td><td class="py-2 text-zinc-500">Работает в РФ, $0.14 за 1М токенов.</td></tr>
+      <tr class="border-b border-ink-800"><td class="py-2 font-mono">openrouter</td><td class="py-2"><a href="https://openrouter.ai/keys" class="text-accent-400" target="_blank">openrouter.ai/keys</a></td><td class="py-2 text-zinc-500">Один ключ → 400+ моделей.</td></tr>
+      <tr class="border-b border-ink-800"><td class="py-2 font-mono">proxyapi</td><td class="py-2"><a href="https://proxyapi.ru" class="text-accent-400" target="_blank">proxyapi.ru</a></td><td class="py-2 text-zinc-500">Шлюз в OpenAI/Claude/Gemini через РФ в рублях.</td></tr>
+      <tr class="border-b border-ink-800"><td class="py-2 font-mono">aitunnel</td><td class="py-2"><a href="https://aitunnel.ru" class="text-accent-400" target="_blank">aitunnel.ru</a></td><td class="py-2 text-zinc-500">Альтернативный РФ-агрегатор.</td></tr>
+      <tr class="border-b border-ink-800"><td class="py-2 font-mono">groq</td><td class="py-2"><a href="https://console.groq.com/keys" class="text-accent-400" target="_blank">console.groq.com/keys</a></td><td class="py-2 text-zinc-500">Сверхбыстрая Llama, free tier, работает в РФ.</td></tr>
+      <tr class="border-b border-ink-800"><td class="py-2 font-mono">mistral</td><td class="py-2"><a href="https://console.mistral.ai/api-keys" class="text-accent-400" target="_blank">console.mistral.ai</a></td><td class="py-2 text-zinc-500">EU, free tier.</td></tr>
+      <tr class="border-b border-ink-800"><td class="py-2 font-mono">together</td><td class="py-2"><a href="https://api.together.xyz/settings/api-keys" class="text-accent-400" target="_blank">together.xyz</a></td><td class="py-2 text-zinc-500">$25 на регистрации, open-weight модели.</td></tr>
+      <tr class="border-b border-ink-800"><td class="py-2 font-mono">anthropic</td><td class="py-2"><a href="https://console.anthropic.com" class="text-accent-400" target="_blank">console.anthropic.com</a></td><td class="py-2 text-zinc-500">Claude. <strong>VPN из РФ.</strong></td></tr>
+      <tr class="border-b border-ink-800"><td class="py-2 font-mono">openai</td><td class="py-2"><a href="https://platform.openai.com/api-keys" class="text-accent-400" target="_blank">platform.openai.com</a></td><td class="py-2 text-zinc-500">GPT-4o. <strong>VPN из РФ.</strong></td></tr>
+      <tr class="border-b border-ink-800"><td class="py-2 font-mono">gemini</td><td class="py-2"><a href="https://aistudio.google.com/apikey" class="text-accent-400" target="_blank">aistudio.google.com</a></td><td class="py-2 text-zinc-500">Google AI Studio. <strong>VPN из РФ.</strong></td></tr>
+      <tr class="border-b border-ink-800"><td class="py-2 font-mono">xai</td><td class="py-2"><a href="https://x.ai/api" class="text-accent-400" target="_blank">x.ai/api</a></td><td class="py-2 text-zinc-500">Grok от Илона. <strong>VPN из РФ.</strong></td></tr>
+    </tbody>
+  </table>
+</details>
+
 <div class="text-xs text-zinc-500">
-  Looking for the legacy single-key wizard? See <a href="/setup" class="underline hover:text-zinc-200">/setup</a>.
+  Старый одно-ключевой мастер настройки: <a href="/setup" class="underline hover:text-zinc-200">/setup</a>.
 </div>
 {% endblock %}
