@@ -45,7 +45,7 @@
   <main class="flex flex-col">
     {% if active_session %}
       <header class="px-4 py-3 border-b border-ink-700 flex items-center justify-between gap-3">
-        <div class="min-w-0">
+        <div class="min-w-0 flex-1">
           <h1 class="text-base font-semibold truncate">{{ active_session.title }}</h1>
           <div class="text-[10px] text-zinc-500 font-mono mt-0.5 flex items-center gap-3 flex-wrap">
             <span>обновлено: {{ active_session.updated_at[:19] }}</span>
@@ -59,6 +59,42 @@
             {% endif %}
           </div>
         </div>
+
+        {# T22 (2026-06-08): per-session model picker — like Claude's "switch model" dropdown #}
+        <div class="relative shrink-0" @click.outside="modelPickerOpen = false">
+          <button type="button"
+                  @click="openModelPicker()"
+                  class="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-ink-800 hover:bg-ink-700 border border-ink-600 text-xs">
+            <span class="text-zinc-300 font-mono" x-text="currentModelLabel || 'модель'"></span>
+            <span class="text-zinc-500">▾</span>
+          </button>
+
+          <div x-show="modelPickerOpen" x-cloak
+               class="absolute right-0 mt-2 w-80 max-h-96 overflow-y-auto rounded-lg border border-ink-700 bg-ink-900 shadow-2xl z-40">
+            <template x-if="modelPickerLoading">
+              <div class="p-3 text-xs text-zinc-500">загружаю список моделей…</div>
+            </template>
+            <template x-for="prov in availableProviders" :key="prov.slug">
+              <div :class="prov.configured ? '' : 'opacity-40'" class="border-b border-ink-800 last:border-b-0">
+                <div class="px-3 py-1.5 text-[10px] uppercase tracking-widest text-zinc-500 font-mono"
+                     x-text="prov.label.split(' — ')[0].replace(/^[^\\w]*/, '').trim()"></div>
+                <template x-for="m in prov.models" :key="m">
+                  <button type="button"
+                          @click="pickModel(prov.slug, m)"
+                          :class="(prov.slug === current.provider && m === current.model) ? 'bg-accent-600/20 text-accent-300' : 'hover:bg-ink-800 text-zinc-300'"
+                          class="block w-full text-left px-3 py-1.5 text-xs font-mono">
+                    <span x-text="m"></span>
+                    <span x-show="prov.slug === current.provider && m === current.model" class="ml-2 text-emerald-400">●</span>
+                  </button>
+                </template>
+                <template x-if="!prov.models.length">
+                  <div class="px-3 py-1.5 text-[10px] text-zinc-600 italic" x-text="prov.configured ? 'нет моделей в каталоге' : 'не настроено в /settings/llm'"></div>
+                </template>
+              </div>
+            </template>
+          </div>
+        </div>
+
         <div class="flex gap-2 shrink-0">
           {% if active_session.summary %}
             <button type="button" @click="showSummary = !showSummary"
@@ -187,6 +223,52 @@
       thinking: false,
       thinkingSeconds: 0,
       _thinkingTimer: null,
+
+      // T22 — model picker state
+      modelPickerOpen: false,
+      modelPickerLoading: false,
+      availableProviders: [],
+      current: { provider: '{{ active_session.provider or "" }}', model: '{{ active_session.model or "" }}' },
+
+      get currentModelLabel() {
+        if (this.current.model) return this.current.model;
+        if (this.current.provider) return this.current.provider;
+        return '';
+      },
+
+      async openModelPicker() {
+        this.modelPickerOpen = !this.modelPickerOpen;
+        if (!this.modelPickerOpen) return;
+        if (this.availableProviders.length) return;  // cached
+        this.modelPickerLoading = true;
+        try {
+          const r = await fetch('/api/llm/models');
+          if (r.ok) {
+            const data = await r.json();
+            this.availableProviders = data.providers || [];
+            if (!this.current.provider) {
+              this.current = data.current || { provider: '', model: '' };
+            }
+          }
+        } catch (e) { /* keep dropdown open with empty list */ }
+        this.modelPickerLoading = false;
+      },
+
+      async pickModel(provider, model) {
+        this.modelPickerOpen = false;
+        try {
+          const r = await fetch(`/api/chat/sessions/${this.sessionId}/model`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ provider, model }),
+          });
+          if (r.ok) {
+            this.current = { provider, model };
+          } else {
+            alert('Не получилось переключить модель');
+          }
+        } catch (e) { alert(e); }
+      },
 
       get totalMessages() { return this.messages.length; },
       get contextTokens() {

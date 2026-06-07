@@ -31,6 +31,7 @@ from app.chat import (
     maybe_summarise,
     rename_session,
     touch_session,
+    update_session_model,
 )
 from app.llm.client import CompletionRequest, LLMNotConfigured, make_client
 from app.logging_setup import get_logger
@@ -185,8 +186,20 @@ async def api_send_message(
     else:
         system_with_history = _SYSTEM_PROMPT_RU
 
+    # T22 (2026-06-08) — if the session has a pinned provider/model, use
+    # those; otherwise fall back to the global default.
     try:
-        client = make_client(kind="chat")
+        if thread.get("provider"):
+            client = make_client(
+                provider=thread["provider"],
+                # api_key None → make_client reads from kv as normal
+                kind="chat",
+            )
+            # The session-pinned model override is wired via kv too —
+            # update_session_model writes both the chat_session row AND
+            # the kv ``{provider}_model`` row that client constructors read.
+        else:
+            client = make_client(kind="chat")
     except LLMNotConfigured as exc:
         log.warning("chat.send.llm_not_configured", session_id=session_id)
         # Surface the error so the UI can render a friendly hint, and
@@ -261,6 +274,45 @@ async def api_send_message(
             "output_tokens": out_tokens,
         }
     )
+
+
+@router.post("/api/chat/sessions/{session_id}/model", response_class=JSONResponse)
+async def api_set_model(
+    session_id: int,
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+    body: Annotated[dict[str, Any], Body(default_factory=dict)],
+) -> JSONResponse:
+    """Pin a provider+model to one chat session — that's the per-session
+    model picker shown in the chat header.
+
+    Body: ``{"provider": "ollama", "model": "gemma3:4b"}``
+
+    Also writes the corresponding ``{provider}_model`` kv row so the
+    client constructor for that provider picks up the override on the
+    very next call from this session.
+    """
+    provider = str(body.get("provider") or "").strip().lower()
+    model = str(body.get("model") or "").strip()
+    if not provider:
+        raise HTTPException(status_code=400, detail="provider required")
+    ok = await update_session_model(
+        session["user_id"], session_id, provider, model or None
+    )
+    if not ok:
+        raise HTTPException(status_code=404)
+    # Stash the model under the kv key that make_client reads on
+    # construction, so the next /send call picks it up.
+    if model:
+        from app.storage.db import get_connection  # noqa: PLC0415
+        from app.storage.repository import set_kv  # noqa: PLC0415
+        async with get_connection() as conn:
+            await set_kv(conn, f"{provider}_model", model)
+            # Also persist the active provider globally so /ask + others
+            # use it too. User expectation: "I switched in chat, now I
+            # want this everywhere."
+            await set_kv(conn, "llm_provider", provider)
+            await set_kv(conn, "byo_api_provider", provider)
+    return JSONResponse({"ok": True, "provider": provider, "model": model or None})
 
 
 @router.post("/api/chat/sessions/{session_id}/rename", response_class=JSONResponse)
