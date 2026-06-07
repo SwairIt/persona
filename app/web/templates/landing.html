@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>{{ title }}</title>
+  <link rel="manifest" href="/static/manifest.json">
+  <link rel="apple-touch-icon" href="/static/icon-180.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#6366f1">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/static/css/app.css">
+  <script>
+    tailwind.config = { darkMode: 'class', theme: { extend: { colors: {
+      ink: { 950: '#0a0a0c', 900: '#111114', 800: '#1a1a1f', 700: '#26262e' },
+      accent: { 400: '#a78bfa', 500: '#8b5cf6', 600: '#7c3aed' }
+    } } } }
+  </script>
+</head>
+<body class="bg-ink-950 text-zinc-100 min-h-screen flex flex-col font-sans antialiased">
+
+  <main class="flex-1 flex flex-col items-center justify-center px-6 py-12 text-center">
+    <span class="text-7xl leading-none mb-6 select-none">●</span>
+    <h1 class="text-4xl sm:text-5xl font-bold tracking-tight">Persona</h1>
+    <p class="mt-3 text-lg text-zinc-400 max-w-md">
+      Your local memory. Captured, searchable, yours.
+    </p>
+
+    <div class="mt-10 flex flex-col sm:flex-row gap-3 w-full max-w-sm">
+      <a href="/auth/login"
+         class="flex-1 px-6 py-3 rounded-lg border border-zinc-700 bg-ink-900 text-zinc-100
+                hover:border-accent-500 hover:bg-ink-800 transition text-base font-semibold">
+        Sign in
+      </a>
+      <a href="/auth/signup"
+         class="flex-1 px-6 py-3 rounded-lg bg-accent-600 text-white
+                hover:bg-accent-500 transition text-base font-semibold shadow-lg shadow-accent-500/20">
+        Create account
+      </a>
+    </div>
+  </main>
+
+  <footer class="px-6 py-6 text-center text-xs text-zinc-600 border-t border-ink-800">
+    <span class="font-mono">v{{ app_version }}</span>
+    <span class="mx-2">·</span>
+    <a href="/help" class="hover:text-accent-400">Walkthrough</a>
+    <span class="mx-2">·</span>
+    <a href="https://github.com/SwairIt/persona" class="hover:text-accent-400">Source</a>
+  </footer>
+
+</body>
+</html>
