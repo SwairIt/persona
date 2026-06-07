@@ -412,10 +412,14 @@ async def api_send_stream(
         try:
             while True:
                 try:
-                    kind, payload = await asyncio.wait_for(queue.get(), timeout=1.0)
+                    kind, payload = await asyncio.wait_for(queue.get(), timeout=0.5)
                 except asyncio.TimeoutError:
-                    # Idle tick — devtunnel sees bytes, stays open.
-                    yield ": keepalive\n\n"
+                    # T22.8 — devtunnel ignored ':comment\\n\\n' (SSE-spec
+                    # comments) so it still timeouted at 60s on cold-start.
+                    # Use a real `data:` event with type=keepalive — that's
+                    # actual bytes devtunnel logs as response progress.
+                    # Client-side JS ignores 'keepalive' events.
+                    yield "data: {\"type\":\"keepalive\"}\n\n"
                     continue
                 if kind == "eof":
                     break

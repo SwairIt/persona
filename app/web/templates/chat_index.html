@@ -83,27 +83,44 @@
       <div id="chat-scroll" class="flex-1 overflow-y-auto px-4 sm:px-8 py-6 space-y-6 max-w-3xl mx-auto w-full"
            x-ref="scroll">
         <template x-for="msg in messages" :key="msg.id">
-          <div :class="msg.role === 'system' ? 'flex justify-center' : (msg.role === 'user' ? 'flex justify-end' : 'block')">
-            {# T22.1 (2026-06-08): cleaner Claude-style bubbles.
-               User: subtle accent-tinted rounded box, no harsh border
-               Assistant: no bubble at all — text flows on page, just leading space
-               System: muted amber pill #}
-            <div :class="
+          <div :class="msg.role === 'system' ? 'flex justify-center' : (msg.role === 'user' ? 'flex flex-col items-end gap-2' : 'block')">
+            {# T22.8 (2026-06-08): Claude-style user message:
+               1. Image как отдельный chip ВЫШЕ текста (если есть)
+               2. Text в bubble подогнанной под content (не max-w-85%)
+               3. Длинный текст collapsible '...show more' #}
+            <template x-if="msg.role === 'user' && msg.image_data_url">
+              <button type="button" @click="lightboxImage = msg.image_data_url"
+                      class="block rounded-xl overflow-hidden border border-zinc-700 hover:border-zinc-500 transition group max-w-xs">
+                <img :src="msg.image_data_url"
+                     class="max-h-32 w-auto block group-hover:opacity-90 transition">
+              </button>
+            </template>
+            <div x-show="msg.role !== 'user' || (msg.content && msg.content.length > 0)"
+                 :class="
               msg.role === 'user'
-                ? 'max-w-[85%] rounded-2xl bg-zinc-700/40 px-4 py-2.5'
+                ? 'rounded-2xl bg-zinc-700/40 px-4 py-2.5 max-w-[85%] inline-block'
                 : (msg.role === 'system'
                      ? 'max-w-[90%] rounded-full bg-amber-900/20 border border-amber-700/40 px-3 py-1 text-xs text-amber-300/90'
                      : 'w-full')">
-              <div :class="msg.role === 'user' ? 'text-[15px] text-zinc-100 whitespace-pre-wrap' : ''">
+              <div :class="msg.role === 'user' ? 'text-[15px] text-zinc-100' : ''">
                 <template x-if="msg.role === 'assistant'">
                   <div class="text-[15px] text-zinc-100 leading-relaxed prose prose-invert prose-base max-w-none"
                        x-html="renderMd(msg.content)"></div>
                 </template>
-                <template x-if="msg.role !== 'assistant'">
-                  <span x-text="msg.content"></span>
+                <template x-if="msg.role === 'user'">
+                  {# Show-more collapse — текст >5 строк сворачивается. #}
+                  <div x-data="{ expanded: false, get isLong() { return (msg.content || '').length > 280 || (msg.content || '').split('\n').length > 5; } }">
+                    <div :class="!expanded && isLong ? 'line-clamp-5' : ''"
+                         class="whitespace-pre-wrap break-words"
+                         x-text="msg.content"></div>
+                    <button type="button" x-show="isLong" @click="expanded = !expanded"
+                            class="text-[11px] text-zinc-400 hover:text-accent-400 mt-1.5">
+                      <span x-text="expanded ? 'свернуть' : 'развернуть'"></span>
+                    </button>
+                  </div>
                 </template>
-                <template x-if="msg.image_data_url">
-                  <img :src="msg.image_data_url" class="mt-2 max-w-xs rounded-lg border border-ink-700">
+                <template x-if="msg.role === 'system'">
+                  <span x-text="msg.content"></span>
                 </template>
               </div>
               <template x-if="msg.role === 'assistant' && msg.elapsed_ms">
@@ -217,6 +234,21 @@
       </div>
     {% endif %}
   </main>
+
+  {# T22.8 — Click-to-zoom lightbox для прикреплённых картинок. Открывается
+     при клике на thumbnail в user-message. Закрывается на клик по фону
+     или ESC. #}
+  <div x-show="lightboxImage" x-cloak
+       @click="lightboxImage = null"
+       @keydown.escape.window="lightboxImage = null"
+       class="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur p-4 cursor-zoom-out">
+    <img :src="lightboxImage" @click.stop=""
+         class="max-w-full max-h-full rounded-lg shadow-2xl cursor-default">
+    <button type="button" @click="lightboxImage = null"
+            class="fixed top-4 right-4 text-white/70 hover:text-white text-2xl">
+      ✕
+    </button>
+  </div>
 </div>
 
 <script>
@@ -237,6 +269,9 @@
       modelPickerLoading: false,
       availableProviders: [],
       current: { provider: '{{ active_session.provider or "" }}', model: '{{ active_session.model or "" }}' },
+
+      // T22.8 — lightbox для increasing картинки в чате (Claude-style)
+      lightboxImage: null,
 
       get currentModelLabel() {
         if (this.current.model) return this.current.model;
@@ -368,7 +403,9 @@
           id: Date.now(),
           session_id: this.sessionId,
           role: 'user',
-          content: text || '(прикреплена картинка)',
+          // T22.8 — если только картинка без текста, оставляем content
+          // пустым; image chip рендерится отдельно над bubble.
+          content: text,
           model_used: null,
           created_at: new Date().toISOString(),
           image_data_url: image,
@@ -425,7 +462,11 @@
               if (!line) continue;
               try {
                 const evt = JSON.parse(line.slice(6));
-                if (evt.type === 'delta') {
+                if (evt.type === 'keepalive') {
+                  /* T22.8 — server sends every 0.5s when model is loading,
+                     just to keep devtunnel from killing the SSE stream.
+                     Nothing to render. */
+                } else if (evt.type === 'delta') {
                   this.messages[assistantIdx].content += evt.text;
                   this.$nextTick(() => this.scrollToBottom());
                 } else if (evt.type === 'done') {
