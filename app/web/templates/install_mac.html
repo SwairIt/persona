@@ -12,6 +12,21 @@
     Откроет на твоём Mac: <code>git clone</code> + venv + установка зависимостей + автозапуск через <code>launchd</code>. Через 30 секунд скрины начнут появляться в ленте.
   </p>
 
+  {% if is_local_only %}
+    <div class="mb-6 rounded-xl border border-rose-500/40 bg-rose-500/10 p-4">
+      <h2 class="font-semibold text-rose-300 mb-1">⚠️ Ты открыл это через <code>localhost</code></h2>
+      <p class="text-xs text-zinc-300">
+        Сейчас сервер URL — <code>{{ server_url }}</code>. С другого устройства (твоего Mac) этот URL <strong>не достучится</strong> до сервера.
+      </p>
+      <p class="text-xs text-zinc-300 mt-2">
+        Открой эту страницу через свой <strong>публичный URL</strong> — например, devtunnel ссылку, и тогда установщик сгенерирует команду которая реально работает.
+      </p>
+      <p class="text-xs text-zinc-500 mt-2">
+        Если у тебя нет публичного URL — поставь reverse proxy / devtunnel перед Persona, или используй <a href="/admin/agents" class="text-accent-400 underline">/admin/agents</a> для ручной настройки.
+      </p>
+    </div>
+  {% endif %}
+
   {% if ready_command %}
     {# --- Step 2: show the one-liner --- #}
     <div class="rounded-xl border border-emerald-500/40 bg-emerald-500/5 p-5 mb-6">

@@ -55,6 +55,30 @@ def _purge_expired() -> None:
         _PENDING.pop(k, None)
 
 
+def _detect_public_url(request: Request) -> tuple[str, bool]:
+    """Best-guess of the externally-reachable URL.
+
+    Returns ``(url, is_local_only)``. ``is_local_only`` is True when
+    we couldn't find anything better than ``localhost`` / ``127.0.0.1``
+    so the UI can warn that the install command won't reach the Mac.
+
+    Order:
+      1. X-Forwarded-Host header (set by devtunnels / reverse proxies)
+         + X-Forwarded-Proto for scheme
+      2. request.url (whatever the user opened in browser)
+      3. Mark as local-only if netloc starts with localhost/127.0.0.1
+    """
+    fwd_host = request.headers.get("x-forwarded-host", "").strip()
+    fwd_proto = request.headers.get("x-forwarded-proto", "").strip()
+    if fwd_host:
+        scheme = fwd_proto or request.url.scheme
+        return f"{scheme}://{fwd_host}", False
+    netloc = request.url.netloc
+    scheme = request.url.scheme
+    is_local = netloc.startswith("localhost") or netloc.startswith("127.0.0.1")
+    return f"{scheme}://{netloc}", is_local
+
+
 @router.get("/welcome/install/mac", response_class=HTMLResponse, response_model=None)
 async def install_mac_page(
     request: Request,
@@ -64,11 +88,14 @@ async def install_mac_page(
     """Show the one-liner. If ``install_id`` is set + still valid, render
     the curl command with that token. Otherwise show the 'Generate' button."""
     _purge_expired()
-    server_url = f"{request.url.scheme}://{request.url.netloc}"
+    server_url, is_local = _detect_public_url(request)
     ready_command = ""
     if install_id and install_id in _PENDING:
+        # zsh treats ``?`` as a glob char so the unquoted URL fails with
+        # 'no matches found'. Single-quote the URL so both bash and zsh
+        # see it as a literal.
         ready_command = (
-            f"curl -fsSL {server_url}/api/install/mac.sh?t={install_id} | bash"
+            f"curl -fsSL '{server_url}/api/install/mac.sh?t={install_id}' | bash"
         )
     return templates.TemplateResponse(
         request,
@@ -77,6 +104,7 @@ async def install_mac_page(
             "title": "Установка на Mac",
             "active_nav": "",
             "server_url": server_url,
+            "is_local_only": is_local,
             "install_id": install_id,
             "ready_command": ready_command,
         },
@@ -103,7 +131,11 @@ async def install_mac_mint(
         raise HTTPException(status_code=500, detail="failed to create agent") from exc
 
     install_id = secrets.token_urlsafe(24)
-    server_url = f"{request.url.scheme}://{request.url.netloc}"
+    # Use the public URL so the token-bearing curl URL inside the script
+    # itself also reaches the Mac. Falling back to the request URL would
+    # bake ``localhost`` into config.json — the Mac agent would then try
+    # to POST to its own loopback and silently 404.
+    server_url, _is_local = _detect_public_url(request)
     _PENDING[install_id] = (raw_token, server_url, time.time())
 
     log.info(
