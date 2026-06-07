@@ -14,11 +14,15 @@ log = get_logger("persona.chat")
 # rather than bloat the table.
 _MAX_CONTENT_BYTES = 32 * 1024
 
-# When ``build_history_for_llm`` is called without an explicit cap, this
-# many recent turns get prepended to the next user question. Long enough
-# to remember a multi-turn conversation, short enough that small models
-# (Qwen 3B with 32k context) don't drown.
-_DEFAULT_HISTORY_TURNS = 20
+# T20 (2026-06-07): bumped from 20 → 50 because the user said
+# "you promised to save EVERYTHING". The DB ALWAYS stored every message
+# (chat_message is append-only). The 20-cap was only on what gets
+# replayed to the model per turn. 50 turns ≈ ~10k tokens of history
+# which still fits comfortably in Qwen 3B's 32k window after the system
+# prompt and user input. For sessions older than 50 turns the route
+# layer can later inject a summary of the omitted prefix — for now we
+# just show recent context, which covers 99% of practical chats.
+_DEFAULT_HISTORY_TURNS = 50
 
 
 class ChatSession(TypedDict):

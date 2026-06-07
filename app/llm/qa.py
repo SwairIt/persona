@@ -56,14 +56,34 @@ async def ask(
         raise ValueError(msg)
 
     context = await _gather_context(question, top_k=top_k)
+    llm = client or make_client()
+
     if not context:
+        # T20 (2026-06-07): instead of hard-refusing when nothing matches,
+        # answer as a general assistant. Lots of valid questions don't
+        # need screenshot context ("привет", "сколько будет 2+2",
+        # "объясни принцип LoRA"). The user can always re-ask with more
+        # specific keywords if they wanted screen-based recall.
+        general_prompt = (
+            "Ты — Persona, локальный AI-помощник. У тебя есть доступ к "
+            "истории скриншотов пользователя, но для этого вопроса ничего "
+            "релевантного не нашлось. Ответь по существу как обычный "
+            "помощник.\n\n"
+            f"Вопрос: {question}"
+        )
+        completion = await llm.complete(
+            CompletionRequest(
+                system=_QA_SYSTEM,
+                user=general_prompt,
+                max_tokens=600,
+            ),
+        )
         return QAResult(
-            answer="No relevant captures found for your question.",
+            answer=completion,
             citations=[],
             used_screenshots=0,
         )
 
-    llm = client or make_client()
     prompt = _build_prompt(question, context)
     completion = await llm.complete(
         CompletionRequest(system=_QA_SYSTEM, user=prompt, max_tokens=600),

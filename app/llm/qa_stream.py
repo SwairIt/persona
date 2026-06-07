@@ -51,10 +51,37 @@ async def stream_answer(
 
     context = await _gather_context(question, top_k=top_k)
     if not context:
-        no_hits = "No relevant captures found for your question."
+        # T20 (2026-06-07): same fallback as non-streaming /ask —
+        # answer as a general assistant when no captures match.
         yield {"type": "meta", "used_screenshots": 0, "citations_seed": []}
-        yield {"type": "delta", "text": no_hits}
-        yield {"type": "done", "full_answer": no_hits, "citations": []}
+        llm = client or make_client(kind="qa_stream")
+        general_prompt = (
+            "Ты — Persona, локальный AI-помощник. У тебя есть доступ к "
+            "истории скриншотов пользователя, но для этого вопроса ничего "
+            "релевантного не нашлось. Ответь по существу как обычный "
+            "помощник.\n\n"
+            f"Вопрос: {question}"
+        )
+        chunks_g: list[str] = []
+        try:
+            async for delta in llm.stream(
+                CompletionRequest(
+                    system=_QA_SYSTEM,
+                    user=general_prompt,
+                    max_tokens=600,
+                ),
+            ):
+                if not delta:
+                    continue
+                chunks_g.append(delta)
+                yield {"type": "delta", "text": delta}
+        except Exception as exc:
+            log.warning("qa_stream.fallback_failed", error=str(exc))
+        yield {
+            "type": "done",
+            "full_answer": "".join(chunks_g),
+            "citations": [],
+        }
         return
 
     # Surface candidate ids up front so the UI can prime its "cited"
