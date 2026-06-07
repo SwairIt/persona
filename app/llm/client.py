@@ -501,6 +501,16 @@ async def _stream_openai_compatible(
             ) as client,
             client.stream("POST", base_url, json=payload, headers=headers) as response,
         ):
+            if response.status_code >= 400:
+                # T22.9 — read body so the actual upstream error makes it
+                # into the log instead of just 'Client error 400'.
+                body = await response.aread()
+                log.warning(
+                    "llm.stream.http_error",
+                    provider=inner.provider,
+                    status=response.status_code,
+                    body=body.decode("utf-8", errors="ignore")[:500],
+                )
             response.raise_for_status()
             async for line in response.aiter_lines():
                 if not line or not line.startswith("data:"):
@@ -1113,14 +1123,16 @@ async def _parse_gemini_sse(
 
 
 def _normalise_image_for_ollama(data_url: str) -> str:
-    """T22.4 — convert any image data URL to PNG.
+    """T22.4/22.9 — convert any image data URL to safe PNG, downscale if huge.
 
-    Ollama vision endpoint rejects WebP (and probably other esoteric
-    formats) with a generic ``400 Failed to load image or audio file``.
-    Pillow decodes the bytes and re-encodes as PNG which Ollama
-    universally handles. We bypass the conversion if the URL already
-    declares PNG or JPEG so the (slow) Pillow path runs only when
-    actually needed.
+    Three things go wrong with raw browser uploads:
+      * WebP / weird formats — Ollama vision rejects with 400.
+      * Resolution > ~1500px — qwen2.5vl & co rejects with 400 even on
+        PNG. Vision encoders have a hard pixel limit and don't auto-
+        resize; we cap the longest side at 1280px which fits everyone.
+      * RGBA / palette modes — same rejection family.
+
+    Pillow handles all three: decode → resize → RGB → re-encode PNG.
     """
     if not data_url.startswith("data:"):
         return data_url
@@ -1128,16 +1140,24 @@ def _normalise_image_for_ollama(data_url: str) -> str:
         header, b64 = data_url.split(",", 1)
     except ValueError:
         return data_url
-    declared_mime = header.split(";")[0].removeprefix("data:")
-    if declared_mime in ("image/png", "image/jpeg", "image/jpg"):
-        return data_url
+
     try:
-        import base64  # noqa: PLC0415 - lazy: many callsites don't touch images
+        import base64  # noqa: PLC0415
         import io
         from PIL import Image
 
         raw = base64.b64decode(b64)
         img = Image.open(io.BytesIO(raw))
+
+        # T22.9 — downscale huge screenshots. 1280px keeps text legible
+        # for vision models without busting their encoder limit.
+        max_side = 1280
+        if max(img.size) > max_side:
+            scale = max_side / max(img.size)
+            new_w = int(img.size[0] * scale)
+            new_h = int(img.size[1] * scale)
+            img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+
         if img.mode == "RGBA":
             background = Image.new("RGB", img.size, (255, 255, 255))
             background.paste(img, mask=img.split()[3])
