@@ -28,15 +28,22 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from app.auth import current_user_required
 from app.auth.sessions import SessionRecord
 from app.devices import (
+    ALL_SYNC_KINDS,
+    ROLE_DEFAULTS,
+    apply_role_defaults,
     delete_device,
     get_device,
+    get_policy,
     heartbeat,
     list_devices,
+    list_sync_filters,
     register_device,
     rename_device,
     rotate_token,
     set_capture_interval,
     set_capture_paused,
+    set_policy,
+    set_sync_filter,
 )
 from app.logging_setup import get_logger
 from app.web.templates_engine import templates
@@ -232,3 +239,105 @@ async def devices_json(
         for d in devices
     ]
     return JSONResponse({"devices": projected})
+
+
+# --- T13/T14: per-device storage policy + sync filter -------------------
+
+
+@router.get(
+    "/devices/{device_id}/storage",
+    response_class=HTMLResponse,
+    response_model=None,
+)
+async def device_storage_page(
+    request: Request,
+    device_id: int,
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+) -> HTMLResponse:
+    device = await get_device(session["user_id"], device_id)
+    if device is None:
+        raise HTTPException(status_code=404, detail="device not found")
+    policy = await get_policy(device_id)
+    filters = await list_sync_filters(device_id)
+    return templates.TemplateResponse(
+        request,
+        "device_storage.html",
+        {
+            "title": f"Хранилище — {device['name']}",
+            "active_nav": "",
+            "device": device,
+            "policy": policy,
+            "filters": filters,
+            "all_kinds": ALL_SYNC_KINDS,
+            "role_defaults": ROLE_DEFAULTS,
+        },
+    )
+
+
+@router.post("/devices/{device_id}/storage", response_model=None)
+async def save_device_storage(
+    device_id: int,
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+    role: Annotated[str, Form()] = "primary",
+    quota_mb: Annotated[str, Form()] = "",
+    retention_days: Annotated[str, Form()] = "",
+) -> RedirectResponse:
+    device = await get_device(session["user_id"], device_id)
+    if device is None:
+        raise HTTPException(status_code=404, detail="device not found")
+    # Empty string → None (means "no cap"). Non-numeric → 400.
+    quota_int: int | None = None
+    if quota_mb.strip():
+        try:
+            quota_int = int(quota_mb.strip())
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="quota_mb must be a number") from exc
+    retention_int: int | None = None
+    if retention_days.strip():
+        try:
+            retention_int = int(retention_days.strip())
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="retention_days must be a number") from exc
+    try:
+        await set_policy(
+            device_id,
+            role=role,
+            quota_mb=quota_int,
+            retention_days=retention_int,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return RedirectResponse(url=f"/devices/{device_id}/storage", status_code=303)
+
+
+@router.post("/devices/{device_id}/storage/preset", response_model=None)
+async def apply_storage_preset(
+    device_id: int,
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+    role: Annotated[str, Form()] = "primary",
+) -> RedirectResponse:
+    device = await get_device(session["user_id"], device_id)
+    if device is None:
+        raise HTTPException(status_code=404, detail="device not found")
+    try:
+        await apply_role_defaults(device_id, role)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return RedirectResponse(url=f"/devices/{device_id}/storage", status_code=303)
+
+
+@router.post("/devices/{device_id}/storage/filter", response_model=None)
+async def save_device_filter(
+    device_id: int,
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+    kind: Annotated[str, Form()] = "",
+    enabled: Annotated[str, Form()] = "0",
+) -> RedirectResponse:
+    device = await get_device(session["user_id"], device_id)
+    if device is None:
+        raise HTTPException(status_code=404, detail="device not found")
+    try:
+        await set_sync_filter(device_id, kind, enabled in ("1", "true", "on"))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return RedirectResponse(url=f"/devices/{device_id}/storage", status_code=303)

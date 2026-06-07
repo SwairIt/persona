@@ -63,14 +63,28 @@ async def sync_pull(
     since: int = Query(default=0, ge=0),
     limit: int = Query(default=500, ge=1, le=2000),
 ) -> JSONResponse:
-    """Return events the device hasn't seen yet."""
+    """Return events the device hasn't seen yet.
+
+    T14 (2026-06-07): events are filtered by the device's sync policy.
+    A device that opted out of e.g. ``shot_blob`` events will never
+    receive them in the pull stream, regardless of the ``since`` cursor.
+    We still advance the watermark to the largest ID we considered
+    (filtered-out included) so subsequent pulls don't re-scan them.
+    """
+    from app.devices import allowed_kinds_for_device  # noqa: PLC0415 - lazy import to avoid circular at module load
+
     device = await _auth_device(request)
     events = await list_events_since(device["user_id"], since_id=since, limit=limit)
-    # Bump the device's pull watermark to the largest id we just shipped
-    # so a follow-up pull with the same `since` is cheap.
-    if events:
-        await bump_pulled_watermark(device["id"], events[-1]["id"])
-    return JSONResponse({"events": events, "count": len(events)})
+
+    allowed = await allowed_kinds_for_device(device["id"])
+    # Drop kinds the user told this device to mute. If every kind is
+    # enabled (default), the comprehension is a no-op cost (one set
+    # membership check per event).
+    largest_id_considered = events[-1]["id"] if events else 0
+    filtered = [e for e in events if e["kind"] in allowed]
+    if largest_id_considered:
+        await bump_pulled_watermark(device["id"], largest_id_considered)
+    return JSONResponse({"events": filtered, "count": len(filtered)})
 
 
 @router.post("/api/sync/push", response_class=JSONResponse)

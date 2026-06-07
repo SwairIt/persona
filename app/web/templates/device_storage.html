@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto px-3 sm:px-6 py-6">
+  <header class="mb-6">
+    <div class="text-xs text-zinc-500 mb-1">
+      <a href="/devices" class="hover:text-accent-400">← к устройствам</a>
+    </div>
+    <h1 class="text-2xl font-bold tracking-tight">
+      Хранилище: {{ device.name }}
+    </h1>
+    <p class="text-sm text-zinc-500 mt-1">
+      Сколько места это устройство тратит локально и какие данные оно получает по синхронизации.
+      Файлы всегда остаются на сервере — устройство просто решает что держать у себя.
+    </p>
+  </header>
+
+  {# ----- Role + quota + retention form ----- #}
+  <section class="mb-8 rounded-lg border border-zinc-300 dark:border-ink-700 bg-white dark:bg-ink-900 p-4">
+    <h2 class="text-sm font-semibold mb-3">Роль устройства и квота</h2>
+    <form method="post" action="/devices/{{ device.id }}/storage" class="space-y-4">
+      <div>
+        <label class="block text-xs text-zinc-400 mb-1">Роль</label>
+        <select name="role"
+                class="w-full px-3 py-2 rounded border border-zinc-300 dark:border-ink-700 bg-zinc-50 dark:bg-ink-800">
+          <option value="primary"  {% if policy.role == 'primary'  %}selected{% endif %}>Основное (всё локально, без лимитов)</option>
+          <option value="archive"  {% if policy.role == 'archive'  %}selected{% endif %}>Архив (всё локально, долгосрочное хранение)</option>
+          <option value="viewer"   {% if policy.role == 'viewer'   %}selected{% endif %}>Зритель (телефон — мало места, последние дни)</option>
+          <option value="passive"  {% if policy.role == 'passive'  %}selected{% endif %}>Пассивное (минимум места, только бэкап)</option>
+        </select>
+        <p class="text-[10px] text-zinc-500 mt-1">
+          Выбор роли сам не применяет цифры — это пометка. Чтобы подставить дефолтные квоты для роли, нажми «Применить настройки роли» ниже.
+        </p>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs text-zinc-400 mb-1">Лимит локального места (МБ)</label>
+          <input type="number" name="quota_mb" min="0" max="10000000" step="50"
+                 value="{{ policy.quota_mb or '' }}"
+                 placeholder="без лимита"
+                 class="w-full px-3 py-2 rounded border border-zinc-300 dark:border-ink-700 bg-zinc-50 dark:bg-ink-800">
+          <p class="text-[10px] text-zinc-500 mt-1">Пусто или 0 — без лимита. Когда устройство превысит — старые файлы удалятся локально, на сервере останутся.</p>
+        </div>
+        <div>
+          <label class="block text-xs text-zinc-400 mb-1">Сколько дней хранить локально</label>
+          <input type="number" name="retention_days" min="0" max="36500"
+                 value="{{ policy.retention_days or '' }}"
+                 placeholder="навсегда"
+                 class="w-full px-3 py-2 rounded border border-zinc-300 dark:border-ink-700 bg-zinc-50 dark:bg-ink-800">
+          <p class="text-[10px] text-zinc-500 mt-1">Пусто или 0 — без срока. Иначе старее N дней — выкинется с устройства, останется на сервере.</p>
+        </div>
+      </div>
+
+      <div class="flex gap-2">
+        <button type="submit"
+                class="px-4 py-2 rounded bg-accent-600 hover:bg-accent-500 text-white text-sm font-semibold">
+          Сохранить
+        </button>
+      </div>
+    </form>
+
+    {# Apply role preset — separate form so the user can preview defaults before saving #}
+    <form method="post" action="/devices/{{ device.id }}/storage/preset" class="mt-3 pt-3 border-t border-zinc-200 dark:border-ink-800 flex items-center gap-2">
+      <span class="text-xs text-zinc-500">Готовые пресеты:</span>
+      {% for role_key, defaults in role_defaults.items() %}
+        <button type="submit" name="role" value="{{ role_key }}"
+                class="text-xs px-2 py-1 rounded border border-zinc-300 dark:border-ink-700 hover:bg-accent-600 hover:text-white hover:border-accent-500 transition">
+          {{ role_key }}
+          {% if defaults.quota_mb %}({{ defaults.quota_mb }} МБ{% if defaults.retention_days %}, {{ defaults.retention_days }}д{% endif %}){% else %}(без лимита){% endif %}
+        </button>
+      {% endfor %}
+    </form>
+  </section>
+
+  {# ----- Per-kind sync filter ----- #}
+  <section class="mb-8 rounded-lg border border-zinc-300 dark:border-ink-700 bg-white dark:bg-ink-900 p-4">
+    <h2 class="text-sm font-semibold mb-1">Какие данные получает устройство</h2>
+    <p class="text-xs text-zinc-500 mb-4">
+      Снимая галочку, ты говоришь «не присылайте на это устройство такие данные». Полезно, например, чтобы на iPhone не сыпались все скриншоты с Mac, а только заметки и теги.
+    </p>
+
+    <table class="w-full text-sm">
+      <thead class="text-xs text-zinc-500 uppercase tracking-widest">
+        <tr class="border-b border-zinc-200 dark:border-ink-800">
+          <th class="text-left py-2">Тип данных</th>
+          <th class="text-left py-2">Что это</th>
+          <th class="text-right py-2">Получать</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% set kind_labels = {
+          'note':       ('заметки', 'твои текстовые заметки + транскрипты голоса'),
+          'kv':         ('настройки', 'переключатели типа «микрофон выключен», «интервал захвата»'),
+          'tag':        ('теги', 'словарь твоих тегов'),
+          'annotation': ('аннотации', 'заметки прикреплённые к конкретному скриншоту'),
+          'shot_tag':   ('теги скриншотов', 'связи «этот скрин помечен тегом X»'),
+          'shot_blob':  ('файлы скриншотов', 'сами картинки (для будущего, пока через сервер)'),
+        } %}
+        {% for kind in all_kinds %}
+          {% set label = kind_labels.get(kind, (kind, '')) %}
+          <tr class="border-b border-zinc-200 dark:border-ink-800">
+            <td class="py-2 font-mono text-xs">{{ label.0 }}</td>
+            <td class="py-2 text-xs text-zinc-500">{{ label.1 }}</td>
+            <td class="py-2 text-right">
+              <form method="post" action="/devices/{{ device.id }}/storage/filter" class="inline-flex">
+                <input type="hidden" name="kind" value="{{ kind }}">
+                <input type="hidden" name="enabled" value="{{ '0' if filters[kind] else '1' }}">
+                <button type="submit"
+                        class="text-xs px-2 py-1 rounded font-mono
+                               {% if filters[kind] %}bg-emerald-500/20 text-emerald-300 hover:bg-rose-500/20 hover:text-rose-300{% else %}bg-zinc-500/20 text-zinc-400 hover:bg-emerald-500/20 hover:text-emerald-300{% endif %}">
+                  {% if filters[kind] %}получает{% else %}отключено{% endif %}
+                </button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  {# ----- Reference / explanation ----- #}
+  <section class="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 text-xs text-zinc-400">
+    <h3 class="font-semibold text-amber-400 mb-2">Как это работает</h3>
+    <ul class="space-y-1 list-disc list-inside">
+      <li><strong>Сервер всегда хранит всё.</strong> Лимит на устройстве не удаляет данные, только освобождает место локально.</li>
+      <li><strong>Удалил с устройства — на сервере осталось.</strong> Можно перекачать обратно когда понадобится.</li>
+      <li><strong>Снял галочку с типа — не присылается.</strong> Если потом включишь, придёт с того момента.</li>
+      <li><strong>Текущая роль:</strong> <code>{{ policy.role }}</code>{% if policy.updated_at %} · обновлено {{ policy.updated_at[:16] }}{% endif %}</li>
+    </ul>
+  </section>
+</div>
+{% endblock %}

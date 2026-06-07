@@ -100,6 +100,10 @@
             </form>
 
             <div class="flex gap-2 items-end">
+              <a href="/devices/{{ d.id }}/storage"
+                 class="flex-1 px-3 py-2 rounded bg-zinc-200 dark:bg-ink-800 text-zinc-700 dark:text-zinc-300 hover:bg-accent-600 hover:text-white transition text-sm text-center">
+                Хранилище
+              </a>
               <form method="post" action="/devices/{{ d.id }}/rotate-token" class="flex-1">
                 <button type="submit"
                         class="w-full px-3 py-2 rounded bg-zinc-200 dark:bg-ink-800 text-zinc-700 dark:text-zinc-300 hover:bg-accent-600 hover:text-white transition text-sm">

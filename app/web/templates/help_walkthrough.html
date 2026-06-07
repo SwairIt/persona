@@ -77,6 +77,62 @@
     </p>
   </section>
 
+  {# T13 (2026-06-07) — гайд по распределению данных между устройствами. #}
+  <section class="mb-8 rounded-lg border border-sky-500/40 bg-sky-500/5 p-4">
+    <h2 class="font-semibold text-sky-400 mb-2">📦 Распределение данных между устройствами</h2>
+    <p class="text-sm text-zinc-300 mb-3">
+      У каждого устройства есть своя роль и свой бюджет места. Сервер всегда хранит всё, а устройство решает что держать локально и что получать по синхронизации.
+    </p>
+
+    <h3 class="text-sm font-semibold text-zinc-200 mt-4 mb-2">Роли устройств</h3>
+    <table class="w-full text-xs">
+      <thead class="text-zinc-500">
+        <tr><th class="text-left py-1">Роль</th><th class="text-left py-1">Когда выбирать</th><th class="text-right py-1">Дефолт</th></tr>
+      </thead>
+      <tbody class="text-zinc-300">
+        <tr class="border-t border-zinc-700"><td class="py-1.5 font-mono">primary</td><td class="py-1.5">Основная машина (Mac), хранит всё</td><td class="py-1.5 text-right text-zinc-500">без лимита</td></tr>
+        <tr class="border-t border-zinc-700"><td class="py-1.5 font-mono">archive</td><td class="py-1.5">Долгосрочный бэкап</td><td class="py-1.5 text-right text-zinc-500">без лимита</td></tr>
+        <tr class="border-t border-zinc-700"><td class="py-1.5 font-mono">viewer</td><td class="py-1.5">Телефон/iPad — только смотреть</td><td class="py-1.5 text-right text-zinc-500">500 МБ · 7 дней</td></tr>
+        <tr class="border-t border-zinc-700"><td class="py-1.5 font-mono">passive</td><td class="py-1.5">Старая машина для подстраховки</td><td class="py-1.5 text-right text-zinc-500">200 МБ · 14 дней</td></tr>
+      </tbody>
+    </table>
+
+    <h3 class="text-sm font-semibold text-zinc-200 mt-4 mb-2">Как настроить</h3>
+    <ol class="text-sm space-y-2 text-zinc-300">
+      <li><span class="font-mono text-sky-400 mr-2">1.</span><a href="/devices" class="text-accent-400 underline">/devices</a> → выбери устройство → нажми <strong>Хранилище</strong>.</li>
+      <li><span class="font-mono text-sky-400 mr-2">2.</span>Выбери роль из списка (это просто пометка) и нажми <strong>Применить настройки роли</strong> для дефолтов — или впиши свои.</li>
+      <li><span class="font-mono text-sky-400 mr-2">3.</span><strong>Лимит места (МБ)</strong>: пусто = без лимита; иначе старые файлы удалятся локально при переполнении (на сервере остаются).</li>
+      <li><span class="font-mono text-sky-400 mr-2">4.</span><strong>Хранить N дней</strong>: пусто = навсегда; иначе старше N — выкинется с устройства.</li>
+      <li><span class="font-mono text-sky-400 mr-2">5.</span>Внизу список <strong>«Какие данные получает устройство»</strong> — снимай галочки с того что не нужно (например, на телефон не присылать файлы скриншотов).</li>
+    </ol>
+
+    <h3 class="text-sm font-semibold text-zinc-200 mt-4 mb-2">Типичные сценарии</h3>
+    <ul class="text-xs text-zinc-400 space-y-1.5 list-disc list-inside">
+      <li><strong>Mac (основной):</strong> primary, всё включено — это твоя главная машина.</li>
+      <li><strong>iPhone:</strong> viewer, 500 МБ, 7 дней, отключи <code>shot_blob</code> (картинки), но <code>note</code> и <code>tag</code> оставь.</li>
+      <li><strong>Старый PC дома:</strong> archive, без лимита — пусть лежит как страховка.</li>
+      <li><strong>iPad жены:</strong> passive, 200 МБ — синкается, но почти ничего не держит.</li>
+    </ul>
+
+    <p class="text-xs text-zinc-400 mt-3">
+      💡 <strong>Главное правило:</strong> сервер хранит всё. Лимит на устройстве — это про <em>локальный</em> кеш. Удалил с iPhone — на сервере осталось, через web всё видно.
+    </p>
+  </section>
+
+  {# T11 (2026-06-07) — чат с памятью. #}
+  <section class="mb-8 rounded-lg border border-purple-500/40 bg-purple-500/5 p-4">
+    <h2 class="font-semibold text-purple-400 mb-2">💬 Чат с памятью</h2>
+    <p class="text-sm text-zinc-300 mb-3">
+      <a href="/chat" class="text-accent-400 underline">/chat</a> — это разговор с моделью, который помнит контекст всей беседы. В отличие от <a href="/ask" class="text-accent-400 underline">/ask</a> (одиночные запросы), здесь модель видит последние 20 сообщений и отвечает с учётом контекста.
+    </p>
+    <ul class="text-xs text-zinc-400 space-y-1 list-disc list-inside">
+      <li>Можно вести несколько бесед параллельно: «работа», «идеи», «личное» — каждая отдельная нить.</li>
+      <li>История бесед в SQLite — год активного общения ≈ 50 МБ.</li>
+      <li>Модель можно переключить в любой момент (<a href="/settings/llm" class="text-accent-400 underline">/settings/llm</a>) — память остаётся, меняется только стиль ответов.</li>
+      <li>Голос-ввод (🎙) и голос-вывод (🔊) есть на странице <a href="/ask" class="text-accent-400 underline">/ask</a>.</li>
+    </ul>
+  </section>
+
   <section class="mb-8">
     <h2 class="text-xl font-bold mb-3">Куда смотреть каждый день</h2>
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
