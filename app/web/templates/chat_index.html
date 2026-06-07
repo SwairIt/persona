@@ -1,9 +1,19 @@
 {% extends "base.html" %}
 
 {% block content %}
+{# T21 (2026-06-07): chat UI redesign — markdown rendering of replies,
+   per-message timing badge, context usage indicator, image attachments
+   (uploaded base64-inline for vision-capable providers), unlimited
+   memory via background summariser. #}
+
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"
+        integrity="sha384-PvyVDmwAj+RoOxNkpe/hVdtwYTlaSCYYn7xVxbOiTqhxNb9JmGsmlAY/W+SyspKj"
+        crossorigin="anonymous"></script>
+
 <div x-data="chatPage(
     {{ active_session.id if active_session else 'null' }},
-    {{ messages | tojson | forceescape }}
+    {{ messages | tojson | forceescape }},
+    {{ (active_session.summary | tojson | forceescape) if active_session and active_session.summary else 'null' }}
 )" class="grid grid-cols-1 md:grid-cols-[280px,1fr] gap-0 -mx-3 sm:-mx-6 -my-6 min-h-[calc(100vh-7rem)]">
 
   {# --- LEFT: sessions sidebar --- #}
@@ -34,15 +44,28 @@
   {# --- RIGHT: message thread + composer --- #}
   <main class="flex flex-col">
     {% if active_session %}
-      <header class="px-4 py-3 border-b border-ink-700 flex items-center justify-between">
+      <header class="px-4 py-3 border-b border-ink-700 flex items-center justify-between gap-3">
         <div class="min-w-0">
           <h1 class="text-base font-semibold truncate">{{ active_session.title }}</h1>
-          <div class="text-[10px] text-zinc-500 font-mono mt-0.5">
-            обновлено: {{ active_session.updated_at[:19] }}
-            {% if active_session.model %} · модель: {{ active_session.model }}{% endif %}
+          <div class="text-[10px] text-zinc-500 font-mono mt-0.5 flex items-center gap-3 flex-wrap">
+            <span>обновлено: {{ active_session.updated_at[:19] }}</span>
+            <span x-show="totalMessages > 0">сообщений: <span x-text="totalMessages"></span></span>
+            <span x-show="contextTokens > 0">
+              контекст: <span x-text="contextTokens"></span> ток.
+              <span class="text-zinc-600">/ ~32K</span>
+            </span>
+            {% if active_session.summary %}
+              <span class="text-emerald-400">🧠 безлимитная память</span>
+            {% endif %}
           </div>
         </div>
         <div class="flex gap-2 shrink-0">
+          {% if active_session.summary %}
+            <button type="button" @click="showSummary = !showSummary"
+                    class="text-xs text-zinc-400 hover:text-accent-400">
+              Сводка
+            </button>
+          {% endif %}
           <button type="button" @click="renameSession()"
                   class="text-xs text-zinc-400 hover:text-accent-400">Переименовать</button>
           <button type="button" @click="deleteSession()"
@@ -50,36 +73,92 @@
         </div>
       </header>
 
+      {# Summary peek panel — collapsed by default #}
+      {% if active_session.summary %}
+        <div x-show="showSummary" x-cloak class="px-4 py-3 bg-emerald-500/5 border-b border-emerald-500/30 text-xs text-zinc-300">
+          <div class="font-semibold text-emerald-400 mb-1">🧠 Сводка ранних сообщений (модель помнит)</div>
+          <p class="whitespace-pre-wrap leading-relaxed">{{ active_session.summary }}</p>
+        </div>
+      {% endif %}
+
       <div id="chat-scroll" class="flex-1 overflow-y-auto px-4 py-4 space-y-3"
            x-ref="scroll">
         <template x-for="msg in messages" :key="msg.id">
           <div :class="msg.role === 'user' ? 'flex justify-end' : (msg.role === 'system' ? 'flex justify-center' : 'flex justify-start')">
             <div :class="
               msg.role === 'user'
-                ? 'max-w-[80%] rounded-lg bg-accent-600/20 border border-accent-500/30 px-3 py-2 text-sm text-zinc-100 whitespace-pre-wrap'
+                ? 'max-w-[85%] rounded-lg bg-accent-600/20 border border-accent-500/30 px-3 py-2'
                 : (msg.role === 'system'
                      ? 'max-w-[90%] rounded bg-amber-900/30 border border-amber-700 px-3 py-2 text-xs text-amber-200'
-                     : 'max-w-[80%] rounded-lg bg-ink-800 border border-ink-700 px-3 py-2 text-sm text-zinc-200 whitespace-pre-wrap')"
-                 x-text="msg.content"></div>
+                     : 'max-w-[85%] rounded-lg bg-ink-800 border border-ink-700 px-3 py-2')">
+              <div :class="msg.role === 'user' ? 'text-sm text-zinc-100 whitespace-pre-wrap' : ''">
+                <template x-if="msg.role === 'assistant'">
+                  <div class="text-sm text-zinc-200 prose prose-invert prose-sm max-w-none"
+                       x-html="renderMd(msg.content)"></div>
+                </template>
+                <template x-if="msg.role !== 'assistant'">
+                  <span x-text="msg.content"></span>
+                </template>
+                <template x-if="msg.image_data_url">
+                  <img :src="msg.image_data_url" class="mt-2 max-w-xs rounded border border-ink-600">
+                </template>
+              </div>
+              <template x-if="msg.role === 'assistant' && msg.elapsed_ms">
+                <div class="text-[10px] text-zinc-500 mt-1 flex items-center gap-2 font-mono">
+                  <span>⏱ <span x-text="formatTime(msg.elapsed_ms)"></span></span>
+                  <template x-if="msg.input_tokens || msg.output_tokens">
+                    <span>·
+                      <span x-text="(msg.input_tokens || 0) + ' → ' + (msg.output_tokens || 0) + ' ток.'"></span>
+                    </span>
+                  </template>
+                  <template x-if="msg.model_used">
+                    <span>· <span x-text="msg.model_used"></span></span>
+                  </template>
+                </div>
+              </template>
+            </div>
           </div>
         </template>
         <div x-show="thinking" class="flex justify-start">
-          <div class="rounded-lg bg-ink-800 border border-ink-700 px-3 py-2 text-sm text-zinc-500 italic">
-            модель думает…
+          <div class="rounded-lg bg-ink-800 border border-ink-700 px-3 py-2 text-sm text-zinc-500 italic flex items-center gap-2">
+            <span class="inline-block w-1.5 h-1.5 rounded-full bg-accent-400 animate-pulse"></span>
+            модель думает<span x-show="thinkingSeconds > 0" class="font-mono ml-1" x-text="'(' + thinkingSeconds + 'с)'"></span>…
           </div>
         </div>
       </div>
 
       <footer class="p-3 border-t border-ink-700">
-        <form @submit.prevent="send()" class="flex gap-2">
-          <input type="text" x-model="question"
-                 placeholder="Напиши сообщение…"
+        {# Image preview when attached #}
+        <template x-if="attachedImage">
+          <div class="mb-2 flex items-center gap-2 text-xs text-zinc-400">
+            <img :src="attachedImage" class="w-12 h-12 object-cover rounded border border-ink-600">
+            <span>картинка прикреплена</span>
+            <button type="button" @click="attachedImage = null"
+                    class="text-rose-400 hover:underline">убрать</button>
+          </div>
+        </template>
+
+        <form @submit.prevent="send()" class="flex items-end gap-2">
+          {# Image upload (works on Gemini/Claude/OpenAI/Ollama-vision) #}
+          <label class="px-3 py-2.5 rounded-lg bg-ink-800 hover:bg-ink-700 cursor-pointer text-zinc-300 shrink-0"
+                 title="Прикрепить картинку">
+            <input type="file" accept="image/*" class="hidden"
+                   @change="handleImage($event)">
+            📎
+          </label>
+
+          <textarea x-model="question" x-ref="composer"
+                 placeholder="Напиши сообщение… (Enter — отправить, Shift+Enter — новая строка)"
                  :disabled="thinking"
-                 class="flex-1 px-3 py-2.5 bg-ink-800 border border-ink-700 rounded-lg focus:outline-none focus:border-accent-500 text-sm disabled:opacity-50">
+                 @keydown.enter="!$event.shiftKey && ($event.preventDefault(), send())"
+                 @input="autosize()"
+                 rows="1"
+                 class="flex-1 px-3 py-2.5 bg-ink-800 border border-ink-700 rounded-lg focus:outline-none focus:border-accent-500 text-sm disabled:opacity-50 resize-none max-h-40"></textarea>
+
           <button type="submit"
-                  :disabled="thinking || !question.trim()"
-                  class="px-4 py-2.5 bg-accent-600 hover:bg-accent-500 disabled:opacity-40 rounded-lg font-medium text-white">
-            <span x-show="!thinking">Отправить</span>
+                  :disabled="thinking || (!question.trim() && !attachedImage)"
+                  class="px-4 py-2.5 bg-accent-600 hover:bg-accent-500 disabled:opacity-40 rounded-lg font-medium text-white shrink-0">
+            <span x-show="!thinking">→</span>
             <span x-show="thinking">…</span>
           </button>
         </form>
@@ -89,7 +168,7 @@
         <span class="text-5xl mb-3">💬</span>
         <h1 class="text-2xl font-bold mb-2">Чат с памятью</h1>
         <p class="text-zinc-500 text-sm max-w-md">
-          Беседуй с твоим AI о чём угодно — модель помнит всю историю беседы и видит твои данные из Persona. Жми «Новый чат» слева чтобы начать.
+          Беседуй с AI о чём угодно — модель помнит всю историю беседы благодаря автосводке. Жми «Новый чат» слева.
         </p>
       </div>
     {% endif %}
@@ -97,20 +176,67 @@
 </div>
 
 <script>
-  function chatPage(initialSessionId, initialMessages) {
+  function chatPage(initialSessionId, initialMessages, summary) {
     return {
       sessionId: initialSessionId,
-      messages: initialMessages || [],
+      messages: (initialMessages || []).map(m => ({ ...m, image_data_url: m.image_data_url || null })),
+      summary,
+      showSummary: false,
       question: '',
+      attachedImage: null,
       thinking: false,
+      thinkingSeconds: 0,
+      _thinkingTimer: null,
+
+      get totalMessages() { return this.messages.length; },
+      get contextTokens() {
+        // Crude estimate: 4 chars per token. Good enough for the UI bar.
+        const charsInMessages = this.messages
+          .slice(-50)
+          .reduce((acc, m) => acc + (m.content || '').length, 0);
+        const charsInSummary = (this.summary || '').length;
+        return Math.round((charsInMessages + charsInSummary) / 4);
+      },
 
       init() {
-        this.$nextTick(() => this.scrollToBottom());
+        marked.setOptions({ breaks: true, gfm: true });
+        this.$nextTick(() => { this.scrollToBottom(); this.autosize(); });
+      },
+
+      renderMd(text) {
+        try { return marked.parse(text || ''); }
+        catch (e) { return (text || '').replace(/[<>]/g, c => c === '<' ? '&lt;' : '&gt;'); }
+      },
+
+      formatTime(ms) {
+        if (ms < 1000) return ms + 'мс';
+        const s = (ms / 1000);
+        return s < 60 ? s.toFixed(1) + 'с' : Math.floor(s / 60) + 'м ' + Math.round(s % 60) + 'с';
       },
 
       scrollToBottom() {
         const el = document.getElementById('chat-scroll');
         if (el) el.scrollTop = el.scrollHeight;
+      },
+
+      autosize() {
+        const ta = this.$refs.composer;
+        if (!ta) return;
+        ta.style.height = 'auto';
+        ta.style.height = Math.min(ta.scrollHeight, 160) + 'px';
+      },
+
+      async handleImage(ev) {
+        const file = ev.target.files[0];
+        if (!file) return;
+        if (file.size > 5 * 1024 * 1024) {
+          alert('Картинка > 5 MB. Сожми сначала.');
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = (e) => { this.attachedImage = e.target.result; };
+        reader.readAsDataURL(file);
+        ev.target.value = '';
       },
 
       async newChat() {
@@ -128,29 +254,50 @@
         }
       },
 
+      _startThinkingClock() {
+        this.thinkingSeconds = 0;
+        clearInterval(this._thinkingTimer);
+        const t0 = Date.now();
+        this._thinkingTimer = setInterval(() => {
+          this.thinkingSeconds = Math.floor((Date.now() - t0) / 1000);
+        }, 250);
+      },
+      _stopThinkingClock() {
+        clearInterval(this._thinkingTimer);
+        this._thinkingTimer = null;
+        this.thinkingSeconds = 0;
+      },
+
       async send() {
         const text = this.question.trim();
-        if (!text || this.thinking || !this.sessionId) return;
-        // Optimistic UI: append the user message immediately so it
-        // doesn't feel laggy. The server-side persists the same row.
+        const image = this.attachedImage;
+        if (!text && !image) return;
+        if (this.thinking || !this.sessionId) return;
+
         const userMsg = {
           id: Date.now(),
           session_id: this.sessionId,
           role: 'user',
-          content: text,
+          content: text || '(прикреплена картинка)',
           model_used: null,
           created_at: new Date().toISOString(),
+          image_data_url: image,
         };
         this.messages.push(userMsg);
         this.question = '';
+        this.attachedImage = null;
         this.thinking = true;
-        this.$nextTick(() => this.scrollToBottom());
+        this._startThinkingClock();
+        this.$nextTick(() => { this.scrollToBottom(); this.autosize(); });
 
         try {
           const r = await fetch(`/api/chat/sessions/${this.sessionId}/send`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ question: text }),
+            body: JSON.stringify({
+              question: text || 'Опиши прикреплённую картинку',
+              image_data_url: image || null,
+            }),
           });
           if (!r.ok) {
             const detail = await r.json().catch(() => ({}));
@@ -177,6 +324,7 @@
           });
         } finally {
           this.thinking = false;
+          this._stopThinkingClock();
           this.$nextTick(() => this.scrollToBottom());
         }
       },
@@ -206,4 +354,25 @@
     };
   }
 </script>
+
+<style>
+  /* Tailwind prose-invert tweaks for chat bubbles */
+  .prose-sm pre {
+    background: #0f1115;
+    border: 1px solid #2a2f3a;
+    border-radius: 6px;
+    padding: 0.6rem 0.8rem;
+    overflow-x: auto;
+    font-size: 0.75rem;
+  }
+  .prose-sm code {
+    background: #1c2129;
+    padding: 0.1rem 0.3rem;
+    border-radius: 3px;
+    font-size: 0.85em;
+  }
+  .prose-sm pre code { background: transparent; padding: 0; }
+  .prose-sm p { margin: 0.4em 0; }
+  .prose-sm ul, .prose-sm ol { margin: 0.4em 0; padding-left: 1.4em; }
+</style>
 {% endblock %}

@@ -33,6 +33,8 @@ class ChatSession(TypedDict):
     model: str | None
     created_at: str
     updated_at: str
+    summary: str | None
+    summary_up_to_id: int
 
 
 class ChatMessage(TypedDict):
@@ -42,9 +44,17 @@ class ChatMessage(TypedDict):
     content: str
     model_used: str | None
     created_at: str
+    elapsed_ms: int | None
+    input_tokens: int | None
+    output_tokens: int | None
 
 
 def _row_to_session(row: Any) -> ChatSession:
+    # T21 — older sessions (pre-migration-161) won't have summary cols
+    # populated. ``row["x"] if "x" in row.keys() else None`` is the
+    # defensive read; aiosqlite.Row supports ``in`` but raises KeyError
+    # on missing cols, so we use ``.keys()`` membership.
+    keys = set(row.keys())
     return {
         "id": int(row["id"]),
         "user_id": int(row["user_id"]),
@@ -53,10 +63,21 @@ def _row_to_session(row: Any) -> ChatSession:
         "model": str(row["model"]) if row["model"] is not None else None,
         "created_at": str(row["created_at"]),
         "updated_at": str(row["updated_at"]),
+        "summary": (
+            str(row["summary"])
+            if "summary" in keys and row["summary"] is not None
+            else None
+        ),
+        "summary_up_to_id": (
+            int(row["summary_up_to_id"])
+            if "summary_up_to_id" in keys and row["summary_up_to_id"] is not None
+            else 0
+        ),
     }
 
 
 def _row_to_message(row: Any) -> ChatMessage:
+    keys = set(row.keys())
     return {
         "id": int(row["id"]),
         "session_id": int(row["session_id"]),
@@ -66,6 +87,21 @@ def _row_to_message(row: Any) -> ChatMessage:
             str(row["model_used"]) if row["model_used"] is not None else None
         ),
         "created_at": str(row["created_at"]),
+        "elapsed_ms": (
+            int(row["elapsed_ms"])
+            if "elapsed_ms" in keys and row["elapsed_ms"] is not None
+            else None
+        ),
+        "input_tokens": (
+            int(row["input_tokens"])
+            if "input_tokens" in keys and row["input_tokens"] is not None
+            else None
+        ),
+        "output_tokens": (
+            int(row["output_tokens"])
+            if "output_tokens" in keys and row["output_tokens"] is not None
+            else None
+        ),
     }
 
 
@@ -155,9 +191,18 @@ async def append_message(
     role: str,
     content: str,
     model_used: str | None = None,
+    *,
+    elapsed_ms: int | None = None,
+    input_tokens: int | None = None,
+    output_tokens: int | None = None,
 ) -> ChatMessage:
     """Log one turn. Updates ``chat_session.updated_at`` so the sidebar
-    keeps the thread on top."""
+    keeps the thread on top.
+
+    T21: optional ``elapsed_ms``/``input_tokens``/``output_tokens`` for
+    assistant messages — recorded so the UI can render 'ответ за 12.3s'
+    and a context-usage bar.
+    """
     if role not in ("user", "assistant", "system"):
         raise ValueError(f"unknown role: {role!r}")
     text = (content or "").strip()
@@ -168,9 +213,14 @@ async def append_message(
         text = encoded[:_MAX_CONTENT_BYTES].decode("utf-8", errors="ignore")
     async with get_connection() as conn:
         cursor = await conn.execute(
-            "INSERT INTO chat_message (session_id, role, content, model_used) "
-            "VALUES (?, ?, ?, ?)",
-            (session_id, role, text, model_used),
+            "INSERT INTO chat_message "
+            "  (session_id, role, content, model_used, "
+            "   elapsed_ms, input_tokens, output_tokens) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                session_id, role, text, model_used,
+                elapsed_ms, input_tokens, output_tokens,
+            ),
         )
         await conn.commit()
         new_id = cursor.lastrowid or 0
@@ -270,17 +320,33 @@ async def build_history_for_llm(
     """Return the last ``max_turns`` exchanges as OpenAI-compatible
     ``[{"role": ..., "content": ...}, ...]``.
 
-    The LLM provider sees this in addition to whatever fresh user
-    message + system prompt the caller assembles. Each provider class in
-    ``app/llm/client.py`` already accepts a single ``request.user`` and
-    ``request.system`` — for now we surface chat history by inlining it
-    INTO ``request.user`` (because changing the client protocol to take
-    arbitrary message lists would ripple through every call site). This
-    function builds the right shape so a future refactor can plug it in
-    directly without rebuilding the SQL.
+    T21: also returns the running summary as a synthetic ``system``
+    message prepended to the list. So the model sees:
+        [
+          {role: system, content: "Сводка прошлого: ..."},
+          {role: user, content: "..."},
+          {role: assistant, content: "..."},
+          ...recent turns...
+        ]
+    The route layer can choose to inline this into ``request.system`` or
+    pass it as a message list when the provider supports it.
+
+    Effectively: unlimited memory. The summary keeps the gist of
+    everything older than the recent N messages; the recent N stay
+    verbatim. New messages → summariser rolls them into the summary
+    on the next push past N.
     """
-    safe_n = max(1, min(200, int(max_turns)))
+    safe_n = max(1, min(500, int(max_turns)))
     async with get_connection() as conn:
+        cursor = await conn.execute(
+            "SELECT summary FROM chat_session WHERE id = ?", (session_id,)
+        )
+        sess_row = await cursor.fetchone()
+        summary = (
+            str(sess_row["summary"])
+            if sess_row is not None and sess_row["summary"] is not None
+            else None
+        )
         cursor = await conn.execute(
             "SELECT role, content FROM chat_message "
             "WHERE session_id = ? "
@@ -288,8 +354,138 @@ async def build_history_for_llm(
             (session_id, safe_n * 2),  # × 2 for user+assistant pairs
         )
         rows = await cursor.fetchall()
-    # Reverse so the returned list is oldest-first (LLM-friendly order).
-    return [
+
+    history: list[dict[str, str]] = []
+    if summary:
+        history.append({
+            "role": "system",
+            "content": f"Сводка более ранних сообщений в беседе:\n{summary}",
+        })
+    history.extend(
         {"role": str(r["role"]), "content": str(r["content"])}
         for r in reversed(rows)
-    ]
+    )
+    return history
+
+
+# --- T21 unlimited memory: auto-summariser -------------------------------
+
+# When a session grows past this, we roll the oldest into a summary and
+# keep this many recent messages verbatim.
+_SUMMARY_TRIGGER_MESSAGES = 60
+_SUMMARY_KEEP_RECENT = 40
+
+
+async def maybe_summarise(session_id: int) -> bool:
+    """If session has > _SUMMARY_TRIGGER_MESSAGES messages, take the
+    oldest (count - _SUMMARY_KEEP_RECENT) and ask the LLM to summarise
+    them, merging with any existing summary.
+
+    Returns True if a summary was written. Designed to be called after
+    each new assistant message — cheap when below threshold (one count
+    query), expensive only when actually summarising.
+    """
+    async with get_connection() as conn:
+        cursor = await conn.execute(
+            "SELECT COUNT(*) AS n FROM chat_message WHERE session_id = ?",
+            (session_id,),
+        )
+        row = await cursor.fetchone()
+        total = int(row["n"] or 0) if row is not None else 0
+        if total <= _SUMMARY_TRIGGER_MESSAGES:
+            return False
+
+        cursor = await conn.execute(
+            "SELECT summary, summary_up_to_id FROM chat_session WHERE id = ?",
+            (session_id,),
+        )
+        sess = await cursor.fetchone()
+        existing_summary = (
+            str(sess["summary"]) if sess and sess["summary"] is not None else ""
+        )
+        existing_up_to = int(sess["summary_up_to_id"] or 0) if sess else 0
+
+        # Pull messages newer than the existing summary watermark, up
+        # to the cutoff (the ones we want to FOLD into the summary).
+        cursor = await conn.execute(
+            "SELECT id, role, content FROM chat_message "
+            "WHERE session_id = ? AND id > ? "
+            "ORDER BY id ASC "
+            "LIMIT ?",
+            (session_id, existing_up_to, total - _SUMMARY_KEEP_RECENT),
+        )
+        to_summarise = await cursor.fetchall()
+
+    if not to_summarise:
+        return False
+
+    transcript = "\n".join(
+        f"[{r['role']}] {r['content']}" for r in to_summarise
+    )
+    last_id = int(to_summarise[-1]["id"])
+
+    # Build summarisation prompt. We do it INLINE — local Qwen handles
+    # this fast and the cost is one LLM call per ~20 new messages.
+    from app.llm.client import (  # noqa: PLC0415 — avoid module import cycle
+        CompletionRequest,
+        LLMNotConfigured,
+        make_client,
+    )
+
+    try:
+        client = make_client(kind="chat_summary")
+    except LLMNotConfigured:
+        log.info("chat.summary.skipped_no_llm", session_id=session_id)
+        return False
+
+    if existing_summary:
+        prompt = (
+            "Ниже есть текущая сводка беседы и новые сообщения после "
+            "неё. Обнови сводку так, чтобы она оставалась короткой "
+            "(до 1500 слов), но включала все ключевые факты из новых "
+            "сообщений.\n\n"
+            f"Текущая сводка:\n{existing_summary}\n\n"
+            f"Новые сообщения:\n{transcript}\n\n"
+            "Обновлённая сводка:"
+        )
+    else:
+        prompt = (
+            "Кратко суммаризируй эти сообщения беседы. Сохрани все "
+            "ключевые факты, имена, даты, темы. Будь сжат (до 1500 "
+            "слов).\n\n"
+            f"Сообщения:\n{transcript}\n\n"
+            "Сводка:"
+        )
+
+    try:
+        new_summary = await client.complete(
+            CompletionRequest(
+                system="Ты — суммаризатор переписки.",
+                user=prompt,
+                max_tokens=2000,
+                temperature=0.3,
+            ),
+        )
+    except Exception as exc:
+        log.warning("chat.summary.llm_failed", error=str(exc))
+        return False
+
+    if not new_summary or not new_summary.strip():
+        return False
+
+    async with get_connection() as conn:
+        await conn.execute(
+            "UPDATE chat_session SET "
+            "  summary = ?, summary_up_to_id = ? "
+            "WHERE id = ?",
+            (new_summary.strip(), last_id, session_id),
+        )
+        await conn.commit()
+
+    log.info(
+        "chat.summary.updated",
+        session_id=session_id,
+        messages_folded=len(to_summarise),
+        summary_chars=len(new_summary),
+    )
+    return True

@@ -28,6 +28,7 @@ from app.chat import (
     get_session,
     list_messages,
     list_sessions,
+    maybe_summarise,
     rename_session,
     touch_session,
 )
@@ -198,6 +199,9 @@ async def api_send_message(
         await append_message(session_id, "system", msg)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    import time  # noqa: PLC0415 — keep local, avoid module top noise
+
+    t_start = time.perf_counter()
     try:
         completion_req = CompletionRequest(
             system=system_with_history,
@@ -212,22 +216,49 @@ async def api_send_message(
         await append_message(session_id, "system", error_text)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
+    elapsed_ms = int((time.perf_counter() - t_start) * 1000)
+
     if not answer:
         answer = "(пустой ответ от модели)"
 
-    # Persist the assistant turn with its model snapshot.
     provider_used = getattr(client, "provider", None) or getattr(
         getattr(client, "_inner", None), "provider", None
     )
+    # T21: pull token counts off the inner client if the provider reported
+    # them (Anthropic, OpenAI, Groq, etc all do — Ollama via OpenAI-compat
+    # ALSO does). None when unavailable.
+    inner = getattr(client, "_inner", client)
+    in_tokens = getattr(inner, "last_input_tokens", None)
+    out_tokens = getattr(inner, "last_output_tokens", None)
+
     assistant_msg = await append_message(
-        session_id, "assistant", answer, model_used=provider_used
+        session_id,
+        "assistant",
+        answer,
+        model_used=provider_used,
+        elapsed_ms=elapsed_ms,
+        input_tokens=in_tokens,
+        output_tokens=out_tokens,
     )
+
+    # T21: kick the summariser after every assistant turn. Cheap when
+    # session is small, expensive (one LLM call) only when crossing the
+    # 60-message threshold. Done async-safe via direct await — the user
+    # waits a bit longer for that one message after which the summary
+    # is permanent and subsequent chats are fast again.
+    try:
+        await maybe_summarise(session_id)
+    except Exception as exc:
+        log.warning("chat.summary.dispatch_failed", error=str(exc))
 
     return JSONResponse(
         {
             "session_id": session_id,
             "assistant": assistant_msg,
             "model_used": provider_used,
+            "elapsed_ms": elapsed_ms,
+            "input_tokens": in_tokens,
+            "output_tokens": out_tokens,
         }
     )
 
