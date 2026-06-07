@@ -8,7 +8,7 @@
   </p>
 </div>
 
-<div x-data="ask()" class="space-y-5">
+<div x-data="ask()" x-init="_initTts()" class="space-y-5">
   <form @submit.prevent="run()" class="flex gap-2 sm:gap-3 items-stretch">
     <input type="text" x-model="question"
            placeholder="When was the last time I worked on the auth migration?"
@@ -42,6 +42,30 @@
       <span x-show="streaming">Streaming…</span>
     </button>
   </form>
+
+  {# T8.1 — voice-out toggle. Uses the browser-native SpeechSynthesis
+     API so the user pays nothing and signs nothing. Tap the speaker
+     to flip auto-speak (persists in localStorage). Tap the play icon
+     to re-narrate the current answer on demand. Hidden entirely when
+     the browser doesn't support the API (mostly old Firefox builds). #}
+  <div x-show="ttsAvailable" class="flex items-center gap-3 text-xs text-zinc-500 -mt-2">
+    <button type="button" @click="toggleAutoSpeak()"
+            :class="autoSpeak ? 'text-accent-400' : 'text-zinc-500 hover:text-zinc-300'"
+            class="flex items-center gap-1.5">
+      <span x-text="autoSpeak ? '🔊' : '🔈'"></span>
+      <span x-text="autoSpeak ? 'Auto-speak on' : 'Auto-speak off'"></span>
+    </button>
+    <button type="button" @click="speakAnswer()"
+            x-show="(answer || streamOut) && !speaking"
+            class="text-zinc-500 hover:text-accent-400">
+      ▶ Speak
+    </button>
+    <button type="button" @click="stopSpeaking()"
+            x-show="speaking"
+            class="text-rose-400">
+      ⏹ Stop
+    </button>
+  </div>
 
   <article x-show="streamOut || streaming" class="rounded-lg border border-ink-700 bg-ink-800 p-5">
     <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">Streaming answer</h2>
@@ -168,6 +192,50 @@ PERSONA_EMBEDDINGS_ENABLED=true   # optional but recommended for better retrieva
       streamOut: '',
       streamDone: false,
       _es: null,
+      // T8.1 (2026-06-07) — voice-out controls. ``ttsAvailable`` is
+      // computed once on init; the toggle lives in localStorage so it
+      // persists across reloads without a server round-trip. The
+      // ``_lastSpokenAnswer`` guard stops a single answer from being
+      // narrated twice if the user toggles auto-speak after an answer
+      // already arrived.
+      ttsAvailable: false,
+      autoSpeak: false,
+      speaking: false,
+      _lastSpokenAnswer: '',
+      _initTts() {
+        this.ttsAvailable = typeof window.speechSynthesis !== 'undefined'
+          && typeof window.SpeechSynthesisUtterance !== 'undefined';
+        try {
+          this.autoSpeak = window.localStorage.getItem('persona.ask.autoSpeak') === '1';
+        } catch (_e) { this.autoSpeak = false; }
+      },
+      toggleAutoSpeak() {
+        this.autoSpeak = !this.autoSpeak;
+        try {
+          window.localStorage.setItem('persona.ask.autoSpeak', this.autoSpeak ? '1' : '0');
+        } catch (_e) { /* private mode — silent no-op */ }
+        // Stop any in-flight speech when the user turns it off mid-answer.
+        if (!this.autoSpeak && this.speaking) this.stopSpeaking();
+      },
+      speakAnswer() {
+        if (!this.ttsAvailable) return;
+        const text = (this.answer || this.streamOut || '').trim();
+        if (!text || text === this._lastSpokenAnswer) return;
+        this._lastSpokenAnswer = text;
+        this.stopSpeaking();
+        const u = new SpeechSynthesisUtterance(text);
+        u.lang = (document.documentElement.lang || 'en') === 'ru' ? 'ru-RU' : 'en-US';
+        u.rate = 1.0;
+        u.pitch = 1.0;
+        u.onstart = () => { this.speaking = true; };
+        u.onend = () => { this.speaking = false; };
+        u.onerror = () => { this.speaking = false; };
+        window.speechSynthesis.speak(u);
+      },
+      stopSpeaking() {
+        try { window.speechSynthesis.cancel(); } catch (_e) { /* nop */ }
+        this.speaking = false;
+      },
       async run() {
         if (!this.question.trim()) return;
         this.loading = true;
@@ -187,6 +255,7 @@ PERSONA_EMBEDDINGS_ENABLED=true   # optional but recommended for better retrieva
             this.answer = data.answer;
             this.citations = data.citations || [];
             this.usedScreenshots = data.used_screenshots || 0;
+            if (this.autoSpeak && this.answer) this.speakAnswer();
           }
         } catch (e) {
           this.error = e.toString();
@@ -222,6 +291,11 @@ PERSONA_EMBEDDINGS_ENABLED=true   # optional but recommended for better retrieva
             this.streaming = false;
             es.close();
             this._es = null;
+            // Speak the final assembled answer once streaming completes.
+            // We intentionally do NOT speak per-delta — speech synthesis
+            // queueing chops words into hundreds of utterances and the
+            // rhythm sounds awful on iOS.
+            if (this.autoSpeak) this.speakAnswer();
           } else if (payload.type === 'error') {
             this.error = payload.reason === 'missing_config'
               ? 'LLM not configured — set a provider + key at /settings/llm.'
