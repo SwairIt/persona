@@ -11,9 +11,29 @@
   <p class="text-zinc-400 text-sm mb-2">
     Откроет на твоём Mac: <code>git clone</code> + venv + установка зависимостей + автозапуск через <code>launchd</code>. Через 30 секунд скрины начнут появляться в ленте.
   </p>
-  <p class="text-zinc-500 text-xs mb-6">
+  <p class="text-zinc-500 text-xs mb-4">
     🔄 Это же действие <strong>обновляет</strong> уже установленный агент: повторный запуск делает <code>git pull</code>, переписывает конфиг (с токеном устройства для синхронизации кода) и перезапускает агент. Запускай его всякий раз, когда видишь баннер «Доступно обновление».
   </p>
+
+  <details class="mb-6 rounded-lg border border-purple-500/30 bg-purple-500/5 p-3 text-xs">
+    <summary class="cursor-pointer text-purple-300 font-semibold">🎙 Запись речи (всё что говоришь за день) — opt-in</summary>
+    <div class="mt-2 space-y-2 text-zinc-300">
+      <p>
+        Голос пишется и расшифровывается <strong>локально</strong> на твоём Mac (Whisper) — приватно, но это <strong>~2 ГБ зависимостей</strong> (torch). Поэтому по умолчанию <strong>выключено</strong>: базовая установка быстрая, только скрин-захват.
+      </p>
+      <p>Чтобы включить — поставь переменную перед командой установки:</p>
+      <pre class="bg-ink-950 border border-ink-700 rounded p-2 select-all overflow-x-auto">export PERSONA_AGENT_VOICE=1
+# (опц. зеркало pypi для скорости)
+export PERSONA_PIP_INDEX=https://mirror.yandex.ru/mirrors/pypi/simple/
+&lt;вставь сюда команду curl … | bash сверху&gt;</pre>
+      <p>Ещё нужно:</p>
+      <ul class="list-disc list-inside text-zinc-400">
+        <li><code>brew install ffmpeg</code> (кодирование Opus)</li>
+        <li>Системные настройки → Конфиденциальность → <strong>Микрофон</strong> → разрешить Terminal/Python</li>
+      </ul>
+      <p class="text-zinc-500">macOS покажет оранжевую точку микрофона когда пишет — это нормально.</p>
+    </div>
+  </details>
 
   {% if is_local_only %}
     <div class="mb-6 rounded-xl border border-rose-500/40 bg-rose-500/10 p-4">
