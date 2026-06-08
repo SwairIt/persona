@@ -247,17 +247,27 @@ else
     cd "$REPO_DIR"
 fi
 
-# 2. venv
+# 2. venv + dependencies
 cd "$REPO_DIR/mac-agent"
 if [ ! -d ".venv" ]; then
     echo "→ Creating venv..."
     python3 -m venv .venv
 fi
-echo "→ Installing requirements..."
+echo "→ Installing dependencies (может занять пару минут)..."
 ./.venv/bin/pip install --quiet --upgrade pip
-if [ -f requirements.txt ]; then
-    ./.venv/bin/pip install --quiet -r requirements.txt
-fi
+# Core deps — required for the agent to even start, capture the screen and
+# heartbeat to the server. (The deps live in pyproject.toml; there is no
+# requirements.txt, so we install them explicitly here.) If these fail the
+# agent can't run at all, so abort.
+./.venv/bin/pip install --quiet \
+    "httpx>=0.28" "mss>=10.0" "pillow>=11.0" "imagehash>=4.3" "numpy>=1.26" \
+    "click>=8.1" "structlog>=24.4" "pydantic>=2.10" "pydantic-settings>=2.7"
+# Audio deps — heavy (openai-whisper pulls torch ~2GB; sounddevice needs
+# PortAudio). Best-effort: if they fail, screen capture + heartbeat still
+# work, only voice transcription is off.
+./.venv/bin/pip install --quiet \
+    "sounddevice>=0.5" "scipy>=1.13" "silero-vad>=5.1" "openai-whisper>=20240930" \
+    || echo "⚠ Аудио-зависимости не установились — скрин-захват и sync работают, голос выключен."
 
 # 3. Config — TOML at the canonical path the agent actually reads
 #    (~/.config/persona-agent.toml). device_token enables the T28
