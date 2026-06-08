@@ -225,9 +225,16 @@ PID 130112 — древний orphan python (С 04.06), оставляй жит�
    включай self-capture обратно пока блокирующие WinAPI вызовы не обёрнуты в
    `asyncio.to_thread` + timeout (иначе снова повесит loop на этой headless-коробке).
 2. **Watchdog** `ops/persona_watchdog.py` + Scheduled Task `PersonaWatchdog` (каждую
-   минуту, от текущего юзера): пробит `/landing`, если down/hung — убивает stale uvicorn
-   и поднимает свежий с ЯВНЫМ `PERSONA_DB_PATH`/`PERSONA_DATA_DIR` (никогда не пустая БД).
-   Лог: `~/.persona/watchdog.log`. Управление: `schtasks /Query|/Run|/Delete /TN PersonaWatchdog`.
+   минуту, от текущего юзера): пробит `/landing` (timeout 20с, 2 пробы за прогон), и
+   перезапускает uvicorn ТОЛЬКО после **3 подряд проваленных прогонов** (~3 мин реального
+   простоя). Counter в `~/.persona/watchdog_state`. ЯВНЫЙ `PERSONA_DB_PATH` → никогда не
+   пустая БД. Лог: `~/.persona/watchdog.log`. Управление: `schtasks /Query|/Run|/Change
+   /DISABLE|/Delete /TN PersonaWatchdog`.
+   **ВАЖНО про прошлый косяк:** первая версия watchdog (timeout 10с, 1 фейл → рестарт)
+   САМА устраивала флаппинг — убивала живой-но-медленный сервер, холодный старт 40
+   воркеров = thundering herd = снова медленно = снова kill. Симптом «сайт зависает очень
+   часто каждые 5 мин» был от ЭТОГО, а не от реального зависания. Реальное зависание было
+   одно — self-capture (фикс #1). Поэтому порог теперь 3 прогона, а не 1.
    Ограничение: задача от юзера = «только когда залогинен» (RDP-disconnect сессию держит,
    logoff — останавливает). Для переживания ребута нужна SYSTEM-задача (нужны админ-права,
    которых у текущей сессии нет).

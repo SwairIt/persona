@@ -42,7 +42,7 @@ def _log(msg: str) -> None:
 
 def _alive() -> bool:
     try:
-        with urllib.request.urlopen(URL, timeout=10) as resp:
+        with urllib.request.urlopen(URL, timeout=20) as resp:
             return resp.status == 200
     except Exception:
         return False
@@ -85,22 +85,50 @@ def _start() -> None:
     )
 
 
+STATE_FILE = os.path.join(PERSONA_DIR, "watchdog_state")
+# Only restart after the server has been unresponsive for this many
+# consecutive minute-runs. Prevents the flapping where a single slow
+# probe (load blip) killed a healthy server and triggered a cold-start
+# herd. A true hang stays down across runs and recovers after ~N min.
+_FAIL_THRESHOLD = 3
+_PROBE_TIMEOUT = 20  # generous — a slow page is NOT a dead server
+
+
+def _read_fails() -> int:
+    try:
+        return int(open(STATE_FILE, encoding="utf-8").read().strip() or "0")
+    except (OSError, ValueError):
+        return 0
+
+
+def _write_fails(n: int) -> None:
+    try:
+        with open(STATE_FILE, "w", encoding="utf-8") as fh:
+            fh.write(str(n))
+    except OSError:
+        pass
+
+
 def main() -> None:
-    if _alive():
+    # Two probes this run, 8s apart — ride out a brief blip without
+    # counting it as a failure.
+    if _alive() or (time.sleep(8) or _alive()):
+        _write_fails(0)
         return
-    # One retry 6s apart so a momentary blip doesn't trigger a restart.
-    time.sleep(6)
-    if _alive():
+    fails = _read_fails() + 1
+    _write_fails(fails)
+    if fails < _FAIL_THRESHOLD:
+        _log(f"server not responding ({fails}/{_FAIL_THRESHOLD}) — NOT restarting yet")
         return
-    _log("server DOWN/HUNG — restarting")
+    _log(f"server DOWN {fails} runs (~{fails} min) — restarting")
     _kill_existing()
     time.sleep(3)
     _start()
-    # give it time to bind, then confirm
     for _ in range(8):
         time.sleep(4)
         if _alive():
             _log("restart OK — server responding")
+            _write_fails(0)
             return
     _log("restart attempted but server still not responding after ~32s")
 
