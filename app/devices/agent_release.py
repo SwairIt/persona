@@ -128,9 +128,14 @@ async def mac_agent_update_prompt(user_id: int) -> dict[str, Any] | None:
             (user_id,),
         )
         devices = await cursor.fetchall()
-        # A device already on the latest version → nothing to nag about.
-        if any(parse_agent_version(d["user_agent"]) == latest for d in devices):
-            return None
+        # A device on the latest version OR NEWER → nothing to nag about.
+        # (Must be >=, not ==: a device on 1.15 when LATEST is 1.13 is
+        # current, not "missing". The == bug fired the setup banner on an
+        # already-updated agent.)
+        for d in devices:
+            parsed = parse_agent_version(d["user_agent"])
+            if parsed is not None and parsed >= latest:
+                return None
         # Precise: a device running an older build.
         for d in devices:
             if is_outdated_ua(d["user_agent"]):
@@ -141,10 +146,13 @@ async def mac_agent_update_prompt(user_id: int) -> dict[str, Any] | None:
                     "latest_version": LATEST_AGENT_VERSION,
                     "reason": "outdated",
                 }
-        # Bootstrap: a live Mac ingest agent exists but no versioned device.
+        # Bootstrap: a Mac ingest agent that ACTUALLY connected exists but
+        # no versioned device. ``last_seen_at IS NOT NULL`` excludes the
+        # never-connected rows that install-mint leaves behind, which
+        # otherwise falsely trigger the setup banner.
         cursor = await conn.execute(
             "SELECT 1 FROM remote_agent "
-            "WHERE revoked_at IS NULL "
+            "WHERE revoked_at IS NULL AND last_seen_at IS NOT NULL "
             "AND LOWER(COALESCE(platform, '')) LIKE 'mac%' LIMIT 1"
         )
         if await cursor.fetchone():
