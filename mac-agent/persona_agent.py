@@ -1008,14 +1008,17 @@ async def _process_speech_segment(
         logger.warning("agent.audio.transcribe_failed", error=str(exc))
         transcript = ""
 
+    # T29 — field/key names must match the server's /api/agent/audio-segment
+    # contract: file / captured_at / duration_seconds / codec. (Older agent
+    # builds sent audio / started_at / duration_s / encoder, which 422'd.)
     files = {
-        "audio": (f"segment-{int(started_at.timestamp())}.{ext}", encoded, mime),
+        "file": (f"segment-{int(started_at.timestamp())}.{ext}", encoded, mime),
     }
     data = {
-        "started_at": started_at.isoformat(),
-        "duration_s": f"{duration_s:.3f}",
+        "captured_at": started_at.isoformat(),
+        "duration_seconds": f"{duration_s:.3f}",
+        "codec": encoder,
         "sample_rate": str(sample_rate),
-        "encoder": encoder,
         "transcript": transcript,
         "hostname": state.config.agent.hostname,
         "agent_id": state.agent_id,
