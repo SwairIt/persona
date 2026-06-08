@@ -166,6 +166,25 @@
       </div>
 
       <footer class="px-4 sm:px-8 py-4 border-t border-ink-800 max-w-3xl mx-auto w-full">
+        {# T26 — Queue preview when user typed-ahead while AI was busy #}
+        <template x-if="queuedPrompts.length > 0">
+          <div class="mb-2 space-y-1">
+            <div class="text-[10px] uppercase tracking-widest text-zinc-500">
+              в очереди: <span x-text="queuedPrompts.length"></span>
+            </div>
+            <template x-for="(q, idx) in queuedPrompts" :key="idx">
+              <div class="flex items-center gap-2 text-xs text-zinc-400 bg-ink-800/50 rounded-lg px-3 py-1.5">
+                <template x-if="q.image">
+                  <img :src="q.image" class="w-6 h-6 object-cover rounded border border-ink-700">
+                </template>
+                <span class="flex-1 truncate" x-text="q.text"></span>
+                <button type="button" @click="removeFromQueue(idx)"
+                        class="text-rose-400 hover:underline text-[10px]">×</button>
+              </div>
+            </template>
+          </div>
+        </template>
+
         {# Image preview when attached #}
         <template x-if="attachedImage">
           <div class="mb-2 flex items-center gap-2 text-xs text-zinc-400">
@@ -180,13 +199,22 @@
            and attach button INSIDE it as floating controls. #}
         <form @submit.prevent="send()"
               class="rounded-2xl bg-ink-800/60 border border-ink-700 focus-within:border-ink-600 transition">
+          {# T26 — type while AI is thinking. Enter — send. Shift+Enter —
+             new line. Ctrl/Cmd+Enter — queue. #}
           <textarea x-model="question" x-ref="composer"
-                 placeholder="Напиши сообщение…"
-                 :disabled="thinking"
-                 @keydown.enter="!$event.shiftKey && ($event.preventDefault(), send())"
+                 :placeholder="thinking ? 'Напиши и Ctrl+Enter — в очередь…' : 'Напиши сообщение…'"
+                 @keydown.enter="(() => {
+                   if ($event.shiftKey) return;  // newline
+                   $event.preventDefault();
+                   if ($event.ctrlKey || $event.metaKey) {
+                     enqueue();
+                   } else {
+                     send();
+                   }
+                 })()"
                  @input="autosize()"
                  rows="1"
-                 class="w-full px-4 pt-3 pb-1 bg-transparent focus:outline-none text-[15px] disabled:opacity-50 resize-none max-h-40 placeholder-zinc-500"></textarea>
+                 class="w-full px-4 pt-3 pb-1 bg-transparent focus:outline-none text-[15px] resize-none max-h-40 placeholder-zinc-500"></textarea>
 
           <div class="flex items-center justify-between px-2 pb-2">
             <div class="flex items-center gap-1">
@@ -247,11 +275,17 @@
               </div>
             </div>
 
-            <button type="submit"
-                    :disabled="thinking || (!question.trim() && !attachedImage)"
-                    class="w-8 h-8 flex items-center justify-center rounded-lg bg-accent-600 hover:bg-accent-500 disabled:opacity-30 disabled:cursor-not-allowed text-white text-sm shrink-0">
+            {# T26 — Send button превращается в Stop когда thinking.
+               Tooltip объясняет все шорткаты. #}
+            <button type="button"
+                    @click="thinking ? stop() : send()"
+                    :title="thinking ? 'Stop генерацию (Esc)' : 'Отправить (Enter) · Очередь (Ctrl+Enter) · Перенос (Shift+Enter)'"
+                    :disabled="!thinking && !question.trim() && !attachedImage"
+                    :class="thinking ? 'bg-rose-600 hover:bg-rose-500 text-white' : 'bg-accent-600 hover:bg-accent-500 disabled:opacity-30 disabled:cursor-not-allowed text-white'"
+                    class="w-8 h-8 flex items-center justify-center rounded-lg text-sm shrink-0 transition-colors"
+                    @keydown.escape.window="if (thinking) stop()">
               <span x-show="!thinking">↑</span>
-              <span x-show="thinking">…</span>
+              <span x-show="thinking">■</span>
             </button>
           </div>
         </form>
@@ -334,6 +368,10 @@
       thinking: false,
       thinkingSeconds: 0,
       _thinkingTimer: null,
+      // T26 — track active stream so we can abort it on Stop click
+      _abortController: null,
+      // T26 — queue: messages typed while previous still streaming
+      queuedPrompts: [],
 
       // T22 — model picker state
       modelPickerOpen: false,
@@ -419,12 +457,15 @@
       },
 
       async rateMessage(msg, rating) {
-        if (!msg.id || msg.id < 1e9 && msg.id > 0) {
-          // valid DB id (not optimistic UI placeholder)
-        }
-        // Toggle: re-click same rating clears it
+        // T26 — Alpine reactivity нужно через splice вместо direct
+        // assignment чтобы кнопки сразу подсветились.
+        const idx = this.messages.findIndex(m => m.id === msg.id);
+        if (idx < 0) return;
         const newRating = msg.rating === rating ? 0 : rating;
-        msg.rating = newRating;
+        this.messages.splice(idx, 1, { ...msg, rating: newRating });
+        // Optimistic UI обновился. Теперь сервер — без блокировки.
+        // Если msg.id — оптимистичный placeholder (>1e10), сервер
+        // ничего не найдёт и вернёт rows_updated:0 — ничего страшного.
         try {
           await fetch(`/api/chat/messages/${msg.id}/rate`, {
             method: 'POST',
@@ -546,11 +587,47 @@
         this.thinkingSeconds = 0;
       },
 
+      async stop() {
+        if (this._abortController) {
+          this._abortController.abort();
+          this._abortController = null;
+        }
+        this.thinking = false;
+        this._stopThinkingClock();
+      },
+
+      enqueue() {
+        const text = this.question.trim();
+        if (!text) return;
+        this.queuedPrompts.push({ text, image: this.attachedImage });
+        this.question = '';
+        this.attachedImage = null;
+        this.autosize();
+      },
+
+      removeFromQueue(idx) {
+        this.queuedPrompts.splice(idx, 1);
+      },
+
+      async _processQueue() {
+        while (this.queuedPrompts.length > 0 && !this.thinking) {
+          const next = this.queuedPrompts.shift();
+          this.question = next.text;
+          this.attachedImage = next.image;
+          await this.send();
+        }
+      },
+
       async send() {
         const text = this.question.trim();
         const image = this.attachedImage;
         if (!text && !image) return;
-        if (this.thinking || !this.sessionId) return;
+        // T26 — if already thinking and user submits → queue it instead
+        if (this.thinking) {
+          this.enqueue();
+          return;
+        }
+        if (!this.sessionId) return;
 
         const userMsg = {
           id: Date.now(),
@@ -588,6 +665,8 @@
         this.messages.push(assistantPlaceholder);
         const assistantIdx = this.messages.length - 1;
 
+        this._abortController = new AbortController();
+        let firstDeltaReceived = false;
         try {
           const r = await fetch(`/api/chat/sessions/${this.sessionId}/send-stream`, {
             method: 'POST',
@@ -596,6 +675,7 @@
               question: text || 'Опиши прикреплённую картинку',
               image_data_url: image || null,
             }),
+            signal: this._abortController.signal,
           });
           if (!r.ok || !r.body) {
             throw new Error('HTTP ' + r.status);
@@ -620,6 +700,13 @@
                      just to keep devtunnel from killing the SSE stream.
                      Nothing to render. */
                 } else if (evt.type === 'delta') {
+                  // T26 — hide 'thinking' indicator once we see real
+                  // content. Otherwise it lingers until 'done' (which
+                  // arrives much later in tool-use loops).
+                  if (!firstDeltaReceived) {
+                    firstDeltaReceived = true;
+                    this.thinkingSeconds = 0;
+                  }
                   this.messages[assistantIdx].content += evt.text;
                   this.$nextTick(() => this.scrollToBottom());
                 } else if (evt.type === 'done') {
@@ -643,19 +730,29 @@
             }
           }
         } catch (e) {
-          this.messages.splice(assistantIdx, 1);
-          this.messages.push({
-            id: Date.now() + 5,
-            session_id: this.sessionId,
-            role: 'system',
-            content: 'Сеть отвалилась: ' + e,
-            model_used: null,
-            created_at: new Date().toISOString(),
-          });
+          if (e.name === 'AbortError') {
+            // Пользователь нажал Stop — оставляем текст что уже пришёл
+            // как есть, не сбрасываем как ошибку.
+          } else {
+            this.messages.splice(assistantIdx, 1);
+            this.messages.push({
+              id: Date.now() + 5,
+              session_id: this.sessionId,
+              role: 'system',
+              content: 'Сеть отвалилась: ' + e,
+              model_used: null,
+              created_at: new Date().toISOString(),
+            });
+          }
         } finally {
+          this._abortController = null;
           this.thinking = false;
           this._stopThinkingClock();
           this.$nextTick(() => this.scrollToBottom());
+          // T26 — auto-process queued prompts
+          if (this.queuedPrompts.length > 0) {
+            this._processQueue();
+          }
         }
       },
 
@@ -743,6 +840,57 @@
   .prose-base hr, .prose-sm hr { border: none; border-top: 1px solid #2a2f3a; margin: 1em 0; }
   .prose-base strong, .prose-sm strong { color: #fafafa; font-weight: 600; }
   .prose-base em, .prose-sm em { color: #d4d4d8; font-style: italic; }
+
+  /* T26 — Claude-style task list (GFM checkboxes). marked.js рендерит
+     "- [ ]" как <input type=checkbox> внутри li.task-list-item.
+     Делаем кружочки крупнее, цветные. */
+  .prose-base input[type="checkbox"], .prose-sm input[type="checkbox"] {
+    appearance: none;
+    width: 1.1em;
+    height: 1.1em;
+    border: 1.5px solid #52525b;
+    border-radius: 4px;
+    background: #18181b;
+    margin-right: 0.5em;
+    vertical-align: middle;
+    position: relative;
+    transform: translateY(-1px);
+  }
+  .prose-base input[type="checkbox"]:checked, .prose-sm input[type="checkbox"]:checked {
+    background: #10b981;
+    border-color: #10b981;
+  }
+  .prose-base input[type="checkbox"]:checked::after, .prose-sm input[type="checkbox"]:checked::after {
+    content: '✓';
+    position: absolute;
+    inset: 0;
+    color: white;
+    font-size: 0.9em;
+    text-align: center;
+    line-height: 1;
+  }
+  .prose-base ul:has(input[type="checkbox"]), .prose-sm ul:has(input[type="checkbox"]) {
+    list-style: none;
+    padding-left: 0.25em;
+  }
+  .prose-base li:has(input[type="checkbox"]:checked), .prose-sm li:has(input[type="checkbox"]:checked) {
+    color: #71717a;
+    text-decoration: line-through;
+    text-decoration-color: #52525b;
+  }
+
+  /* T26 — tool call code-block tinted differently from regular code */
+  .tool-call {
+    display: inline-block;
+    padding: 0.1em 0.6em;
+    margin: 0.3em 0;
+    background: linear-gradient(90deg, #6366f1 0%, #818cf8 100%);
+    color: white;
+    border-radius: 4px;
+    font-family: ui-monospace, monospace;
+    font-size: 0.85em;
+    font-weight: 600;
+  }
 
   /* T24 — reasoning/think block */
   .think-block {
