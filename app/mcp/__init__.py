@@ -22,6 +22,14 @@ will:
   6. Execute and feed results back
 """
 
+from app.mcp.builtin_tools import (
+    build_tools_prompt,
+    builtin_command_to_tool_name,
+    call_tool,
+    get_builtin_tool,
+    list_builtin_tools,
+    parse_tool_calls,
+)
 from app.mcp.servers import (
     delete_server,
     get_server,
@@ -31,10 +39,32 @@ from app.mcp.servers import (
     upsert_server,
 )
 
+
+async def enabled_builtin_tool_names() -> list[str]:
+    """Return names of currently-enabled built-in tools (only those whose
+    ``mcp_server.command`` starts with ``builtin:`` AND ``enabled=1``)."""
+    rows = await list_servers()
+    names: list[str] = []
+    for r in rows:
+        if not r.get("enabled"):
+            continue
+        tool_name = builtin_command_to_tool_name(str(r.get("command", "")))
+        if tool_name and get_builtin_tool(tool_name):
+            names.append(tool_name)
+    return names
+
+
 __all__ = [
+    "build_tools_prompt",
+    "builtin_command_to_tool_name",
+    "call_tool",
     "delete_server",
+    "enabled_builtin_tool_names",
+    "get_builtin_tool",
     "get_server",
+    "list_builtin_tools",
     "list_servers",
+    "parse_tool_calls",
     "set_command",
     "set_enabled",
     "upsert_server",

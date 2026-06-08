@@ -376,9 +376,7 @@ async def api_send_stream(
     transcript = "\n".join(
         f"[{turn['role']}] {turn['content']}" for turn in history
     )
-    # T24 — per-session custom prompt (column thread.custom_system_prompt).
-    # If user set their own "роль" for this session — use it verbatim,
-    # else default. Vision-aware variant still applies when image present.
+    # T24 — per-session custom prompt + T25 — tool-use prompt fragment.
     custom_prompt = (thread.get("custom_system_prompt") or "").strip() if isinstance(thread, dict) else ""
     if custom_prompt:
         base_prompt = custom_prompt + (
@@ -387,6 +385,18 @@ async def api_send_stream(
         )
     else:
         base_prompt = _SYSTEM_PROMPT_VISION if image_data_url else _SYSTEM_PROMPT_RU
+
+    # T25 — tools fragment: enumerate built-in tools the user enabled
+    # in /admin/mcp. LLM sees them in system prompt; uses <tool>...</tool>
+    # syntax to call. We parse, execute, feed back as another user msg.
+    from app.mcp import (  # noqa: PLC0415
+        build_tools_prompt,
+        enabled_builtin_tool_names,
+    )
+    enabled_tools = await enabled_builtin_tool_names()
+    tools_fragment = build_tools_prompt(enabled_tools)
+    base_prompt = base_prompt + tools_fragment
+
     system_with_history = (
         f"{base_prompt}\n\nПредыдущие сообщения (для контекста):\n{transcript}"
         if transcript else base_prompt
@@ -527,11 +537,65 @@ async def api_send_stream(
                 prod_task.cancel()
 
         full = "".join(chunks).strip() or "(пустой ответ от модели)"
-        elapsed_ms = int((time.perf_counter() - t_start) * 1000)
         provider_used = getattr(client, "provider", None) or getattr(
             getattr(client, "_inner", None), "provider", None
         )
         inner = getattr(client, "_inner", client)
+
+        # T25 — tool-use loop. If LLM emitted <tool>...</tool> calls,
+        # parse + execute (max 5 round-trips to avoid infinite loops),
+        # then continue the conversation with results in context.
+        from app.mcp import call_tool, parse_tool_calls  # noqa: PLC0415
+
+        for _round in range(5):
+            tool_calls = parse_tool_calls(full)
+            if not tool_calls:
+                break
+            # Execute each tool call serially, stream visible markers.
+            tool_results: list[str] = []
+            for tc in tool_calls:
+                yield (
+                    f"data: {json.dumps({'type': 'delta', 'text': chr(10) + chr(10) + '🔧 ' + tc['name'] + '...' + chr(10)})}\n\n"
+                )
+                result = await call_tool(tc["name"], tc["args"])
+                tool_results.append(
+                    f"<tool_result name=\"{tc['name']}\">\n{result}\n</tool_result>"
+                )
+                chunks.append(f"\n\n🔧 {tc['name']}({json.dumps(tc['args'], ensure_ascii=False)})\n")
+                chunks.append(f"\n```\n{result}\n```\n")
+                yield (
+                    f"data: {json.dumps({'type': 'delta', 'text': chr(10) + '```' + chr(10) + result + chr(10) + '```' + chr(10)})}\n\n"
+                )
+
+            # Continue conversation: ask model to respond after tool results
+            follow_up = (
+                "Результаты вызовов инструментов:\n" + "\n".join(tool_results)
+                + "\n\nПродолжи: дай финальный ответ пользователю на основе этих результатов."
+            )
+            try:
+                follow_req = CompletionRequest(
+                    system=base_prompt,
+                    user=follow_up,
+                    temperature=0.7,
+                    max_tokens=1024,
+                )
+                next_chunks: list[str] = []
+                async for delta in client.stream(follow_req):
+                    if not delta:
+                        continue
+                    next_chunks.append(delta)
+                    yield f"data: {json.dumps({'type': 'delta', 'text': delta})}\n\n"
+                next_full = "".join(next_chunks).strip()
+                if next_full:
+                    full = full + "\n\n" + next_full
+                    chunks.append("\n\n" + next_full)
+                else:
+                    break  # empty follow-up → done
+            except Exception as exc:
+                log.warning("chat.tool_followup.failed", error=str(exc))
+                break
+
+        elapsed_ms = int((time.perf_counter() - t_start) * 1000)
         in_tokens = getattr(inner, "last_input_tokens", None)
         out_tokens = getattr(inner, "last_output_tokens", None)
 
