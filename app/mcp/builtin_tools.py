@@ -1,11 +1,14 @@
 """T25 (2026-06-08) — Persona built-in tools (no Node.js / npm required).
 
-These plug into the same ``mcp_server`` registry as real MCP servers
-but execute as plain Python coroutines instead of subprocesses. Each
-tool has:
+T27 (2026-06-08) — tools now operate inside the per-user workspace
+(``data/workspaces/{user_id}/``) instead of the whole server disk.
+Relative paths like ``"app.py"`` resolve there; absolute paths outside
+the workspace are refused with ``[error] path escapes workspace``.
+
+Each tool has:
   * a stable ``name`` that the LLM sees in its system prompt
   * a JSON-schema-ish ``parameters`` blob (for the prompt)
-  * an async ``run(args: dict) -> str`` function
+  * an async ``run(args: dict, user_id: int) -> str`` function
 
 Safety: read-only tools are safest. Write/shell tools must be
 explicitly enabled in /admin/mcp by the user — the runtime checks
@@ -39,59 +42,84 @@ def _is_safe_write_path(path: str) -> bool:
     return not any(p.startswith(prefix) for prefix in _FORBIDDEN_WRITE_PREFIXES)
 
 
-async def read_file(args: dict[str, Any]) -> str:
+async def read_file(args: dict[str, Any], user_id: int = 0) -> str:
+    """T27 — resolves path inside the user's workspace."""
+    from app.workspace import WorkspaceEscape, resolve_user_path  # noqa: PLC0415
+
     path = str(args.get("path", "")).strip()
     if not path:
         return "[error] path required"
     try:
-        p = Path(path).expanduser().resolve()
+        p = resolve_user_path(user_id, path)
+    except WorkspaceEscape as exc:
+        return f"[error] {exc}"
+    try:
         if not p.exists():
-            return f"[error] не существует: {p}"
+            return f"[error] не существует: {p.name}"
         if p.is_dir():
-            return f"[error] это директория, не файл: {p}"
+            return f"[error] это директория, не файл: {p.name}"
         if p.stat().st_size > 500_000:
             return f"[error] файл больше 500 КБ ({p.stat().st_size} байт). Не открываю."
         content = p.read_text(encoding="utf-8", errors="replace")
-        return f"[ok] {p}\n```\n{content}\n```"
+        return f"[ok] {p.name}\n```\n{content}\n```"
     except Exception as exc:
         return f"[error] {type(exc).__name__}: {exc}"
 
 
-async def list_dir(args: dict[str, Any]) -> str:
-    path = str(args.get("path", ".")).strip() or "."
+async def list_dir(args: dict[str, Any], user_id: int = 0) -> str:
+    """T27 — defaults to the user's workspace root."""
+    from app.workspace import (  # noqa: PLC0415
+        WorkspaceEscape,
+        ensure_user_workspace,
+        resolve_user_path,
+    )
+
+    raw = str(args.get("path", "")).strip()
     try:
-        p = Path(path).expanduser().resolve()
+        if not raw or raw == ".":
+            p = ensure_user_workspace(user_id)
+        else:
+            p = resolve_user_path(user_id, raw)
+    except WorkspaceEscape as exc:
+        return f"[error] {exc}"
+    try:
         if not p.exists():
-            return f"[error] не существует: {p}"
+            return f"[error] не существует: {p.name}"
         if not p.is_dir():
-            return f"[error] это файл, не директория: {p}"
+            return f"[error] это файл, не директория: {p.name}"
         entries = sorted(p.iterdir(), key=lambda e: (e.is_file(), e.name.lower()))
-        lines = [f"[ok] {p}", ""]
+        rel_label = "workspace/" + (p.relative_to(ensure_user_workspace(user_id)).as_posix() if p != ensure_user_workspace(user_id) else "")
+        lines = [f"[ok] {rel_label}", ""]
         for e in entries[:200]:
             tag = "DIR " if e.is_dir() else "FILE"
             size = "" if e.is_dir() else f" {e.stat().st_size}b"
             lines.append(f"  {tag} {e.name}{size}")
         if len(entries) > 200:
             lines.append(f"  … +{len(entries) - 200} ещё")
+        if len(entries) == 0:
+            lines.append("  (пусто)")
         return "\n".join(lines)
     except Exception as exc:
         return f"[error] {type(exc).__name__}: {exc}"
 
 
-async def write_file(args: dict[str, Any]) -> str:
+async def write_file(args: dict[str, Any], user_id: int = 0) -> str:
+    """T27 — writes into the user's workspace only. Absolute paths
+    pointing outside are refused. Directories are created automatically."""
+    from app.workspace import WorkspaceEscape, resolve_user_path  # noqa: PLC0415
+
     path = str(args.get("path", "")).strip()
     content = str(args.get("content", ""))
     if not path:
         return "[error] path required"
-    if not _is_safe_write_path(path):
-        return f"[error] запрещённый путь (системная директория): {path}"
     try:
-        p = Path(path).expanduser().resolve()
-        if not _is_safe_write_path(str(p)):
-            return f"[error] запрещённый путь после resolve: {p}"
+        p = resolve_user_path(user_id, path)
+    except WorkspaceEscape as exc:
+        return f"[error] {exc}"
+    try:
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content, encoding="utf-8")
-        return f"[ok] записал {len(content)} символов в {p}"
+        return f"[ok] записал {len(content)} символов в {p.name} (скачать: /workspace/file/{p.name})"
     except Exception as exc:
         return f"[error] {type(exc).__name__}: {exc}"
 
@@ -211,13 +239,24 @@ def builtin_command_to_tool_name(command: str) -> str | None:
     return command.removeprefix("builtin:")
 
 
-async def call_tool(name: str, args: dict[str, Any]) -> str:
-    """Dispatch a tool by name. Returns stringified result for the LLM."""
+async def call_tool(name: str, args: dict[str, Any], user_id: int = 0) -> str:
+    """Dispatch a tool by name. Returns stringified result for the LLM.
+
+    T27 — accepts user_id so workspace-aware tools resolve into the
+    correct per-user directory. Tools that don't care (run_shell,
+    git_status) ignore the parameter.
+    """
     entry = _BUILTIN_TOOLS.get(name)
     if entry is None:
         return f"[error] unknown tool: {name}"
     try:
-        return await entry["fn"](args)
+        fn = entry["fn"]
+        # Inspect: workspace-aware tools accept user_id, legacy ones don't.
+        import inspect  # noqa: PLC0415
+        sig = inspect.signature(fn)
+        if "user_id" in sig.parameters:
+            return await fn(args, user_id=user_id)
+        return await fn(args)
     except Exception as exc:
         log.exception("builtin_tool.failed", tool=name, args=args)
         return f"[error] tool crashed: {type(exc).__name__}: {exc}"
@@ -235,9 +274,16 @@ def build_tools_prompt(enabled_tool_names: list[str]) -> str:
         return ""
     lines = [
         "",
-        "У тебя есть инструменты. Чтобы вызвать — выведи строку:",
+        "У тебя есть инструменты для работы с файлами. Все пути относительны "
+        "ЛИЧНОГО WORKSPACE пользователя (data/workspaces/{user_id}/). Не нужно "
+        "указывать абсолютные пути типа D:\\Projects — просто используй "
+        "относительные: 'app.py', 'src/main.py', 'notes/idea.md'.",
+        "",
+        "Чтобы вызвать инструмент — выведи строку:",
         "<tool>имя({\"параметр\": \"значение\"})</tool>",
-        "Я выполню и пришлю результат в следующем сообщении. Можно вызывать несколько инструментов подряд.",
+        "Я выполню и пришлю результат в следующем сообщении. Можно вызывать "
+        "несколько инструментов подряд.",
+        "",
         "Доступные инструменты:",
     ]
     for name in enabled_tool_names:

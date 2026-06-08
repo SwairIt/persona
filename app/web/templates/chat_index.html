@@ -87,7 +87,7 @@
 
       <div id="chat-scroll" class="flex-1 overflow-y-auto px-4 sm:px-8 py-6 space-y-6 max-w-3xl mx-auto w-full"
            x-ref="scroll">
-        <template x-for="msg in messages" :key="msg.id">
+        <template x-for="(msg, mIdx) in messages" :key="msg.id">
           <div :class="msg.role === 'system' ? 'flex justify-center' : (msg.role === 'user' ? 'flex flex-col items-end gap-2' : 'block')">
             {# T22.8 (2026-06-08): Claude-style user message:
                1. Image как отдельный chip ВЫШЕ текста (если есть)
@@ -131,13 +131,15 @@
               <template x-if="msg.role === 'assistant'">
                 <div class="mt-2 flex items-center gap-3 text-[11px] text-zinc-500 font-mono">
                   {# 👍/👎 + meta — единая полоса под assistant ответом #}
-                  <button type="button" @click="rateMessage(msg, 1)"
-                          :class="msg.rating === 1 ? 'text-emerald-400' : 'text-zinc-500 hover:text-emerald-400'"
+                  <button type="button" @click.stop="rateAt(mIdx, 1)"
+                          :class="messages[mIdx] && messages[mIdx].rating === 1 ? 'text-emerald-400' : 'text-zinc-500 hover:text-emerald-400'"
+                          class="cursor-pointer select-none"
                           title="хорошо — в датасет для PersonaAI">
                     👍
                   </button>
-                  <button type="button" @click="rateMessage(msg, -1)"
-                          :class="msg.rating === -1 ? 'text-rose-400' : 'text-zinc-500 hover:text-rose-400'"
+                  <button type="button" @click.stop="rateAt(mIdx, -1)"
+                          :class="messages[mIdx] && messages[mIdx].rating === -1 ? 'text-rose-400' : 'text-zinc-500 hover:text-rose-400'"
+                          class="cursor-pointer select-none"
                           title="плохо — фильтровать из датасета">
                     👎
                   </button>
@@ -461,23 +463,26 @@
         catch (e) { return (text || '').replace(/[<>]/g, c => c === '<' ? '&lt;' : '&gt;'); }
       },
 
-      async rateMessage(msg, rating) {
-        // T26 — Alpine reactivity нужно через splice вместо direct
-        // assignment чтобы кнопки сразу подсветились.
-        const idx = this.messages.findIndex(m => m.id === msg.id);
-        if (idx < 0) return;
-        const newRating = msg.rating === rating ? 0 : rating;
-        this.messages.splice(idx, 1, { ...msg, rating: newRating });
-        // Optimistic UI обновился. Теперь сервер — без блокировки.
-        // Если msg.id — оптимистичный placeholder (>1e10), сервер
-        // ничего не найдёт и вернёт rows_updated:0 — ничего страшного.
+      async rateAt(idx, rating) {
+        // T27 — берём актуальное сообщение по индексу из messages,
+        // а не через captured `msg` ref который мог устареть после
+        // splice/обновления. Делаем direct mutation через `=` —
+        // Alpine 3 ловит изменения proxy props.
+        const msg = this.messages[idx];
+        if (!msg) return;
+        const newRating = (msg.rating === rating) ? 0 : rating;
+        msg.rating = newRating;
+        // На всякий случай форсим Alpine re-evaluate через массив splice
+        // — старая привычка с Vue 2 reactivity quirks.
+        this.messages.splice(idx, 1, msg);
         try {
-          await fetch(`/api/chat/messages/${msg.id}/rate`, {
+          const r = await fetch(`/api/chat/messages/${msg.id}/rate`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ rating: newRating }),
           });
-        } catch (e) { /* silent */ }
+          if (!r.ok) console.warn('rate failed', r.status);
+        } catch (e) { console.warn('rate err', e); }
       },
 
       async setSystemPrompt() {

@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="max-w-3xl mx-auto px-4 sm:px-6 py-6">
+  <header class="mb-6">
+    <h1 class="text-2xl font-bold tracking-tight">📂 Твой Workspace</h1>
+    <p class="text-sm text-zinc-500 mt-1">
+      Здесь AI пишет файлы (через tool ``write_file``). Видно с любого устройства где ты залогинен — это твоя личная папка на сервере.
+    </p>
+    <p class="text-[10px] text-zinc-600 mt-1 font-mono break-all">{{ workspace_path }}</p>
+  </header>
+
+  {% if files %}
+    <section class="rounded-lg border border-zinc-300 dark:border-ink-700 bg-white dark:bg-ink-900">
+      <table class="w-full text-sm">
+        <thead class="text-xs uppercase tracking-widest text-zinc-500 border-b border-zinc-200 dark:border-ink-800">
+          <tr>
+            <th class="text-left py-2 px-3">Файл</th>
+            <th class="text-right py-2 px-3">Размер</th>
+            <th class="text-right py-2 px-3">Обновлён</th>
+            <th class="text-right py-2 px-3"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for f in files %}
+            <tr class="border-b border-zinc-200 dark:border-ink-800 hover:bg-zinc-50 dark:hover:bg-ink-800">
+              <td class="py-1.5 px-3 font-mono text-xs">
+                {% if f.is_dir %}📁{% else %}📄{% endif %}
+                {{ f.relative_path }}
+              </td>
+              <td class="py-1.5 px-3 text-right text-xs text-zinc-500 font-mono">{{ f.size_human }}</td>
+              <td class="py-1.5 px-3 text-right text-xs text-zinc-500 font-mono">{{ f.modified_at_human }}</td>
+              <td class="py-1.5 px-3 text-right">
+                {% if not f.is_dir %}
+                  <a href="/workspace/file/{{ f.relative_path }}"
+                     class="text-xs text-accent-400 hover:underline">скачать</a>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  {% else %}
+    <section class="rounded-lg border border-zinc-300 dark:border-ink-700 bg-white dark:bg-ink-900 p-6 text-center">
+      <p class="text-zinc-500 text-sm">Пока пусто.</p>
+      <p class="text-xs text-zinc-600 mt-2">
+        Попроси AI в <a href="/chat" class="text-accent-400 underline">/chat</a>: «создай файл hello.py со скриптом который выводит привет». Файл появится здесь.
+      </p>
+    </section>
+  {% endif %}
+
+  <section class="mt-6 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-4 text-xs text-zinc-300">
+    <h2 class="font-semibold text-emerald-300 mb-2">🛠 Как пользоваться</h2>
+    <ul class="space-y-1 list-disc list-inside">
+      <li>Иди в <a href="/chat" class="text-accent-400 underline">/chat</a>, выбери модель с tools (qwen2.5:7b/3b отлично).</li>
+      <li>Убедись что в <a href="/admin/mcp" class="text-accent-400 underline">/admin/mcp</a> включены builtin-read, builtin-list, builtin-write.</li>
+      <li>Скажи AI: «напиши код на python и сохрани в hello.py». AI вызовет write_file сам.</li>
+      <li>Скачать → кнопка справа в таблице.</li>
+      <li>Видно с любого устройства где ты залогинен — это серверная папка.</li>
+    </ul>
+  </section>
+</div>
+{% endblock %}
