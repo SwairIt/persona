@@ -69,12 +69,17 @@ def _start() -> None:
     env["PERSONA_DATA_DIR"] = PERSONA_DIR
     env["PERSONA_DB_PATH"] = os.path.join(PERSONA_DIR, "persona.db")
     env["PERSONA_THUMBNAILS_DIR"] = os.path.join(PERSONA_DIR, "thumbnails")
+    # T29 — lean mode (no background workers) + multiple web processes.
+    # This is the stable config: heavy worker churn off, requests
+    # parallelised so heavy page renders don't freeze the whole server.
+    env["PERSONA_LEAN_MODE"] = "1"
     out = open(OUT_LOG, "ab")  # noqa: SIM115 - handed to the detached child
     err = open(ERR_LOG, "ab")  # noqa: SIM115
     subprocess.Popen(
         [
             PYEXE, "-m", "uvicorn", "app.web.main:create_app",
             "--factory", "--host", "127.0.0.1", "--port", "8000",
+            "--workers", "3",
         ],
         cwd=REPO,
         env=env,

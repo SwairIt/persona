@@ -2,6 +2,19 @@
 
 from __future__ import annotations
 
+# T29 diagnostic — when PERSONA_FAULTHANDLER=1, dump ALL thread stacks every
+# 5s to ~/.persona/faulthandler.log. During a hang, consecutive dumps show
+# the event loop stuck in the same blocking call. Harmless when the env is
+# unset. Guarded import so it costs nothing in normal operation.
+import os as _os
+
+if _os.environ.get("PERSONA_FAULTHANDLER") == "1":  # pragma: no cover
+    import faulthandler as _faulthandler
+
+    _fh_path = _os.path.join(_os.path.expanduser("~"), ".persona", "faulthandler.log")
+    _fh_file = open(_fh_path, "w", buffering=1)  # noqa: SIM115
+    _faulthandler.dump_traceback_later(5, repeat=True, file=_fh_file)
+
 import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -1258,6 +1271,22 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
             name="storage-cleanup-worker",
         ),
     ]
+
+    # T29 — LEAN MODE. The ~40 background workers churn SQLite and run
+    # heavy/CPU ops; under load they bog the single event loop until the
+    # server stops responding ("сайт зависает"). With PERSONA_LEAN_MODE=1
+    # we serve pages + agent ingest only (those are request handlers, not
+    # workers) and skip the workers entirely. The tasks were created above
+    # but the loop hasn't run them yet (no await since creation), so
+    # cancelling here means their bodies never execute. Re-enable workers
+    # once each one's blocking ops are moved off the event loop.
+    if _os.environ.get("PERSONA_LEAN_MODE") == "1":
+        for _t in tasks:
+            _t.cancel()
+        tasks = []
+        from app.logging_setup import get_logger as _gl  # noqa: PLC0415
+
+        _gl("persona.web.main").warning("lifespan.lean_mode — background workers DISABLED")
 
     # v1.10: only pause on boot if opted-in via kv_setting capture_paused_on_boot=1
     try:

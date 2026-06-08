@@ -11,17 +11,17 @@
     </p>
   </div>
   <div class="flex items-center gap-2 text-sm">
-    <a href="/?date={{ prev_day.strftime('%Y-%m-%d') }}"
+    <a href="/timeline?date={{ prev_day.strftime('%Y-%m-%d') }}"
        class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700">← {{ t('btn_prev') }}</a>
-    <a href="/" class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700">{{ t('btn_today') }}</a>
-    <a href="/?date={{ next_day.strftime('%Y-%m-%d') }}"
+    <a href="/timeline" class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700">{{ t('btn_today') }}</a>
+    <a href="/timeline?date={{ next_day.strftime('%Y-%m-%d') }}"
        class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700">{{ t('btn_next_arrow') }} →</a>
     <a href="/api/export/day?date={{ target_day.strftime('%Y-%m-%d') }}"
        class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700 text-zinc-400" title="Download JSON snapshot">↓ JSON</a>
   </div>
 </div>
 
-<form method="get" action="/" class="mb-4 flex items-center gap-2 text-xs">
+<form method="get" action="/timeline" class="mb-4 flex items-center gap-2 text-xs">
   <input type="hidden" name="date" value="{{ target_day.strftime('%Y-%m-%d') }}">
   {% if app_filter %}<input type="hidden" name="app" value="{{ app_filter }}">{% endif %}
   <label for="timeline-sort" class="text-zinc-500 uppercase tracking-wider">{{ t('label_sort_by') }}</label>
@@ -41,13 +41,13 @@
 {% if apps_for_day %}
   <div class="mb-6 flex flex-wrap gap-2">
     {% if app_filter %}
-      <a href="/?date={{ target_day.strftime('%Y-%m-%d') }}"
+      <a href="/timeline?date={{ target_day.strftime('%Y-%m-%d') }}"
          class="px-3 py-1 rounded-full text-xs bg-accent-600/20 text-accent-300 border border-accent-600/40">
         × {{ t('btn_clear_filter') }}
       </a>
     {% endif %}
     {% for app_name, count in apps_for_day %}
-      <a href="/?date={{ target_day.strftime('%Y-%m-%d') }}&app={{ app_name }}"
+      <a href="/timeline?date={{ target_day.strftime('%Y-%m-%d') }}&app={{ app_name }}"
          class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs border transition
                 {% if app_filter == app_name %}bg-accent-600/30 border-accent-500 text-accent-200{% else %}bg-ink-800 border-ink-700 hover:border-zinc-500 text-zinc-400{% endif %}">
         <img src="/app-icon/{{ app_name | urlencode }}.png" alt="" loading="lazy"
