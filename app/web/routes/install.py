@@ -254,18 +254,28 @@ if [ ! -d ".venv" ]; then
     python3 -m venv .venv
 fi
 echo "→ Installing dependencies (может занять пару минут)..."
-./.venv/bin/pip install --quiet --upgrade pip
+# Generous network timeouts/retries — pypi.org can be slow or flaky on some
+# networks (the default 15s read-timeout was making installs fail with
+# ReadTimeoutError). Set PERSONA_PIP_INDEX to a faster mirror if needed,
+# e.g. PERSONA_PIP_INDEX=https://mirror.yandex.ru/mirrors/pypi/simple/
+PIP_OPTS="--quiet --timeout 120 --retries 5"
+if [ -n "${{PERSONA_PIP_INDEX:-}}" ]; then
+    PIP_OPTS="$PIP_OPTS --index-url $PERSONA_PIP_INDEX"
+    echo "  (использую зеркало: $PERSONA_PIP_INDEX)"
+fi
+# Upgrading pip is nice-to-have, not required — never abort on it.
+./.venv/bin/pip install $PIP_OPTS --upgrade pip || true
 # Core deps — required for the agent to even start, capture the screen and
 # heartbeat to the server. (The deps live in pyproject.toml; there is no
 # requirements.txt, so we install them explicitly here.) If these fail the
 # agent can't run at all, so abort.
-./.venv/bin/pip install --quiet \
+./.venv/bin/pip install $PIP_OPTS \
     "httpx>=0.28" "mss>=10.0" "pillow>=11.0" "imagehash>=4.3" "numpy>=1.26" \
     "click>=8.1" "structlog>=24.4" "pydantic>=2.10" "pydantic-settings>=2.7"
 # Audio deps — heavy (openai-whisper pulls torch ~2GB; sounddevice needs
 # PortAudio). Best-effort: if they fail, screen capture + heartbeat still
 # work, only voice transcription is off.
-./.venv/bin/pip install --quiet \
+./.venv/bin/pip install $PIP_OPTS \
     "sounddevice>=0.5" "scipy>=1.13" "silero-vad>=5.1" "openai-whisper>=20240930" \
     || echo "⚠ Аудио-зависимости не установились — скрин-захват и sync работают, голос выключен."
 
