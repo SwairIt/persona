@@ -179,6 +179,61 @@ async def allowed_kinds_for_device(device_id: int) -> frozenset[str]:
     return frozenset(k for k, v in flags.items() if v)
 
 
+async def set_code_write_target(user_id: int, device_id: int) -> bool:
+    """T28 — mark ONE device as the user's code write target. Unsets the
+    flag on all the user's other devices so only one is "true" at any
+    time. Returns False when device doesn't belong to user."""
+    async with get_connection() as conn:
+        # Verify ownership first
+        cursor = await conn.execute(
+            "SELECT id FROM device WHERE id = ? AND user_id = ?",
+            (device_id, user_id),
+        )
+        row = await cursor.fetchone()
+        if row is None:
+            return False
+        # Atomically: clear flag for all user's devices, set on chosen.
+        await conn.execute(
+            "UPDATE device SET is_code_write_target = 0 WHERE user_id = ?",
+            (user_id,),
+        )
+        await conn.execute(
+            "UPDATE device SET is_code_write_target = 1 WHERE id = ?",
+            (device_id,),
+        )
+        await conn.commit()
+    return True
+
+
+async def clear_code_write_target(user_id: int) -> None:
+    """T28 — unset the write-target flag on all user's devices.
+    Files still land in the server workspace, just no device pulls them."""
+    async with get_connection() as conn:
+        await conn.execute(
+            "UPDATE device SET is_code_write_target = 0 WHERE user_id = ?",
+            (user_id,),
+        )
+        await conn.commit()
+
+
+async def get_code_write_target(user_id: int) -> dict[str, Any] | None:
+    """Return the currently-chosen write-target device row, or None."""
+    async with get_connection() as conn:
+        cursor = await conn.execute(
+            "SELECT id, name, kind FROM device "
+            "WHERE user_id = ? AND is_code_write_target = 1 LIMIT 1",
+            (user_id,),
+        )
+        row = await cursor.fetchone()
+    if row is None:
+        return None
+    return {
+        "id": int(row["id"]),
+        "name": str(row["name"]),
+        "kind": str(row["kind"]),
+    }
+
+
 async def apply_role_defaults(device_id: int, role: str) -> StoragePolicy:
     """Convenience: pick the canonical quota / retention for a role.
 

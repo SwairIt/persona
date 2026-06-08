@@ -134,3 +134,16 @@ class SyncClient:
         resp = await self._request("GET", path)
         events = resp.get("events") if isinstance(resp, dict) else None
         return events if isinstance(events, list) else []
+
+    async def pull_workspace(self, since: int = 0, limit: int = 500) -> dict[str, Any]:
+        """T28 — pull workspace files the AI wrote, for the code-write-target
+        device. Returns the raw server response::
+
+            {device_id, cursor, files: [{relative_path, operation, content}], count}
+
+        On a 403 the device isn't the chosen target — the caller should
+        back off quietly (the user may pick this device later). The raw
+        ``{"error": ..., "status": 403}`` shape is passed straight through.
+        """
+        path = f"/api/workspace/sync?since={int(since)}&limit={int(limit)}"
+        return await self._request("GET", path)

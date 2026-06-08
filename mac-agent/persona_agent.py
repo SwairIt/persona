@@ -642,6 +642,140 @@ async def sync_heartbeat_loop(state: RuntimeState) -> None:
     logger.info("agent.sync_heartbeat.stopped")
 
 
+# --------------------------------------------------------------------------- #
+# Workspace sync loop (T28)
+# --------------------------------------------------------------------------- #
+
+
+def _workspace_read_cursor(path: Path) -> int:
+    """Read the persisted pull watermark. Missing / corrupt → 0."""
+    try:
+        return int(path.read_text(encoding="utf-8").strip() or "0")
+    except (OSError, ValueError):
+        return 0
+
+
+def _workspace_write_cursor(path: Path, cursor: int) -> None:
+    """Persist the pull watermark so a restart doesn't re-pull everything."""
+    try:
+        path.write_text(str(int(cursor)), encoding="utf-8")
+    except OSError as exc:
+        logger.debug("agent.workspace_sync.cursor_write_failed", error=str(exc))
+
+
+def _apply_workspace_file(base: Path, entry: dict[str, Any]) -> bool:
+    """Mirror one server file event into ``base``. Returns True if applied.
+
+    Defense-in-depth sandbox: the resolved target must stay inside
+    ``base`` even though the server already sandboxes paths — a malicious
+    or buggy ``../`` must never let the agent clobber files outside the
+    workspace mirror.
+    """
+    rel = str(entry.get("relative_path", "")).strip().lstrip("/\\")
+    op = str(entry.get("operation", "write"))
+    if not rel:
+        return False
+    target = (base / rel).resolve()
+    try:
+        target.relative_to(base.resolve())
+    except ValueError:
+        logger.warning("agent.workspace_sync.path_escape", rel=rel)
+        return False
+
+    if op == "delete":
+        try:
+            if target.is_file():
+                target.unlink()
+                return True
+        except OSError as exc:
+            logger.debug("agent.workspace_sync.delete_failed", rel=rel, error=str(exc))
+        return False
+
+    content = entry.get("content")
+    if content is None:
+        return False
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(str(content), encoding="utf-8")
+        return True
+    except OSError as exc:
+        logger.warning("agent.workspace_sync.write_failed", rel=rel, error=str(exc))
+        return False
+
+
+async def sync_workspace_loop(state: RuntimeState) -> None:
+    """T28 — mirror AI-written workspace files into ``~/persona-workspace/``.
+
+    The server marks ONE device per user as the "code write target"
+    (chosen at /devices). Only that device's token is accepted by
+    ``/api/workspace/sync``; every other device gets 403, which we treat
+    as "not me yet" and quietly back off — the user can flip the choice
+    at any time and this loop will start pulling within one interval.
+
+    The pull watermark is persisted to ``~/persona-workspace/.persona_sync_cursor``
+    so a restart resumes instead of re-pulling the whole history.
+
+    Self-disables (silent no-op) when ``device_token`` is missing — keeps
+    single-device installs working without setup changes.
+    """
+    if state.config.server.device_token is None:
+        logger.info("agent.workspace_sync.disabled_no_device_token")
+        return
+
+    # Lazy import: keep sync_client off the import path when sync is off.
+    from sync_client import SyncClient  # noqa: PLC0415
+
+    client = SyncClient(
+        server_url=str(state.config.server.url),
+        device_token=state.config.server.device_token.get_secret_value(),
+    )
+    base = Path.home() / "persona-workspace"
+    try:
+        base.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        logger.error("agent.workspace_sync.mkdir_failed", error=str(exc))
+        return
+    cursor_file = base / ".persona_sync_cursor"
+    cursor = _workspace_read_cursor(cursor_file)
+    interval_s = 20.0
+    logger.info(
+        "agent.workspace_sync.start",
+        dir=str(base),
+        cursor=cursor,
+        interval_s=interval_s,
+    )
+
+    while not state.stop.is_set():
+        try:
+            resp = await client.pull_workspace(since=cursor)
+        except Exception as exc:  # noqa: BLE001 — never break the agent
+            logger.debug("agent.workspace_sync.pull_failed", error=str(exc))
+            resp = {}
+
+        if isinstance(resp, dict) and resp.get("status") == 403:
+            logger.debug("agent.workspace_sync.not_target")
+        elif isinstance(resp, dict) and "files" in resp:
+            applied = 0
+            for entry in resp.get("files") or []:
+                if isinstance(entry, dict) and _apply_workspace_file(base, entry):
+                    applied += 1
+            new_cursor = resp.get("cursor")
+            if isinstance(new_cursor, int) and new_cursor >= cursor:
+                cursor = new_cursor
+                _workspace_write_cursor(cursor_file, cursor)
+            if applied:
+                logger.info(
+                    "agent.workspace_sync.applied", count=applied, cursor=cursor
+                )
+
+        try:
+            await asyncio.wait_for(state.stop.wait(), timeout=interval_s)
+        except TimeoutError:
+            continue
+
+    logger.info("agent.workspace_sync.stopped")
+
+
 async def audio_loop(state: RuntimeState) -> None:
     """Capture mic audio, detect speech, encode + transcribe, upload.
 
@@ -1011,6 +1145,15 @@ async def _run_async(config: AgentConfig) -> int:
             asyncio.create_task(
                 sync_heartbeat_loop(state),
                 name="sync_heartbeat_loop",
+            )
+        )
+        # T28 (2026-06-08) — pull AI-written workspace files down to
+        # ~/persona-workspace/ when this device is the chosen code target.
+        # Self-disables without a device_token, backs off on 403.
+        tasks.append(
+            asyncio.create_task(
+                sync_workspace_loop(state),
+                name="sync_workspace_loop",
             )
         )
 

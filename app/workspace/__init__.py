@@ -30,11 +30,19 @@ from app.workspace.dirs import (
     resolve_user_path,
     workspace_root,
 )
+from app.workspace.sync import (
+    build_sync_payload,
+    list_file_events_since,
+    record_file_event,
+)
 
 __all__ = [
     "WorkspaceEscape",
+    "build_sync_payload",
     "ensure_user_workspace",
+    "list_file_events_since",
     "list_user_files",
+    "record_file_event",
     "resolve_user_path",
     "workspace_root",
 ]

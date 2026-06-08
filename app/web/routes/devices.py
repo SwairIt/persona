@@ -31,6 +31,7 @@ from app.devices import (
     ALL_SYNC_KINDS,
     ROLE_DEFAULTS,
     apply_role_defaults,
+    clear_code_write_target,
     delete_device,
     get_device,
     get_policy,
@@ -42,6 +43,7 @@ from app.devices import (
     rotate_token,
     set_capture_interval,
     set_capture_paused,
+    set_code_write_target,
     set_policy,
     set_sync_filter,
 )
@@ -188,6 +190,30 @@ async def devices_delete(
     deleted = await delete_device(session["user_id"], device_id)
     if not deleted:
         raise HTTPException(status_code=404)
+    return RedirectResponse(url="/devices", status_code=303)
+
+
+@router.post("/devices/{device_id}/code-target", response_model=None)
+async def devices_set_code_target(
+    request: Request,
+    device_id: int,
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+    enabled: Annotated[str, Form()] = "1",
+) -> RedirectResponse:
+    """T28 — choose which device syncs files the AI writes via ``write_file``.
+
+    Exactly one device per user can be the code-write target. Setting one
+    atomically unsets the others (handled in ``set_code_write_target``).
+    Sending ``enabled=0`` clears the target entirely — files still land in
+    the server workspace, just no device pulls them.
+    """
+    wanted = enabled not in ("0", "false", "")
+    if wanted:
+        ok = await set_code_write_target(session["user_id"], device_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="device not found")
+    else:
+        await clear_code_write_target(session["user_id"])
     return RedirectResponse(url="/devices", status_code=303)
 
 

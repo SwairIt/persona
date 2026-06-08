@@ -123,26 +123,36 @@ iPhone — только web viewer через Safari (Apple запрещает b
 - `/workspace` — таблица файлов + download через `/workspace/file/{path}`
 - LLM prompt сообщает что paths относительные к workspace, не abs
 
-### T28: В РАБОТЕ (НЕ ЗАВЕРШЕНО)
-Юзер хочет: «выбрать в моём акке КУДА писать код — на Mac или на Windows. Каждый акк свой target».
+### T28: ЗАВЕРШЕНО (2026-06-08)
+Юзер хотел: «выбрать в моём акке КУДА писать код — на Mac или на Windows. Каждый акк свой target».
 
-Что **сделано**:
+Что **сделано** (всё проверено smoke-тестами на живом сервере):
 - Migration 165: `device.is_code_write_target` column + table `workspace_file_event`
-- Helper functions в `app/devices/storage_policy.py`:
-  - `set_code_write_target(user_id, device_id)` — atomic unset all + set one
-  - `clear_code_write_target(user_id)`
-  - `get_code_write_target(user_id)` — current chosen device
-- Exports в `app/devices/__init__.py`
+- Helper functions в `app/devices/storage_policy.py`: `set_code_write_target` (atomic
+  unset all + set one), `clear_code_write_target`, `get_code_write_target`
+- `is_code_write_target` добавлен в `DeviceRow` + `_row_to_device` projection
+  (`app/devices/core.py`) — guard на `row.keys()` для окна до миграции
+- `app/workspace/sync.py` (НОВЫЙ): `record_file_event`, `list_file_events_since`,
+  `build_sync_payload` (dedup до latest-op-per-path, content читается с диска при pull,
+  cursor = max event id)
+- `write_file()` в `app/mcp/builtin_tools.py` эмитит workspace_file_event после записи
+  (best-effort, content_bytes = utf-8 len)
+- `POST /devices/{id}/code-target` (devices.py) — `enabled=1` ставит target, `enabled=0`
+  чистит. UI: ☆/★ toggle + badge на каждой карточке (devices.html)
+- `GET /api/workspace/sync` (workspace_admin.py) — X-Device-Token auth, 403 если device
+  не target, 401 без/с битым токеном. Возвращает `{device_id, cursor, files, count}`,
+  files = `[{relative_path, operation, content}]`. Агент сам держит cursor (?since=N).
+- **ВАЖНО**: добавил `/api/workspace/sync` в allowlist `app/web/middleware/auth_gate.py`
+  (иначе middleware 401-ит до хендлера — как `/api/sync/`, `/api/ingest/`)
+- `/workspace` баннер "Файлы синхронизируются на: {device.name}" (workspace_admin.html)
+- Mac agent: `sync_workspace_loop` + `_apply_workspace_file` (sandbox внутри base) в
+  `mac-agent/persona_agent.py`, `pull_workspace()` в `sync_client.py`. Пишет в
+  `~/persona-workspace/`, cursor в `.persona_sync_cursor`, self-disable без device_token,
+  тихий backoff на 403.
 
-Что **ОСТАЛОСЬ доделать** (продолжай отсюда):
-1. **UI в `/devices`** — кнопка "★ Сохранять код сюда" на каждой карточке устройства. Selecting unsets others. POST `/devices/{id}/code-target`.
-2. **Route handler** `POST /devices/{id}/code-target` в `app/web/routes/devices.py` — вызывает `set_code_write_target`.
-3. **Emit workspace_file_event** в `app/mcp/builtin_tools.py:write_file()` — после успешной записи в workspace, INSERT в workspace_file_event(user_id, relative_path, op='write', content_bytes).
-4. **GET `/api/workspace/sync`** — endpoint для агента: принимает X-Device-Token, проверяет что device.is_code_write_target=1, возвращает события с момента last_synced (нужен device_workspace_pull_state column или kv). Files отдаются inline.
-5. **`/workspace` template** — показать "Файлы синхронизируются на: {device.name}" с подсказкой "обновись агентом на Mac".
-6. **Mac agent update** — добавить sync_workspace_loop в `mac-agent/persona_agent.py` который POSTит `/api/workspace/sync`, пишет файлы в `~/persona-workspace/`. Юзер должен будет переустановить через `/welcome/install/mac`.
-
-Скорее всего на пункте 6 юзер сам должен будет переустановить. Остальное — твоя зона.
+Что **ОСТАЛОСЬ** (зона юзера):
+- Переустановить Mac agent через `/welcome/install/mac` чтобы подхватить
+  `sync_workspace_loop`. Существующие инсталлы не ломаются (loop self-disable без токена).
 
 ## Архитектурные принципы (соблюдай)
 
@@ -215,7 +225,7 @@ d86dc75  feat(T26): Stop + Queue + Type-while-thinking + Task lists
 20bb292  feat(T23): сбор Q&A в датасет для PersonaAI fine-tune
 ```
 
-T28 будет следующим коммитом.
+T28 закоммичен (см. feat(T28) на top of master). Следующий тик — T29.
 
 ## Tone в чате с юзером
 

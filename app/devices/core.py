@@ -37,6 +37,7 @@ class DeviceRow(TypedDict):
     created_at: str
     last_seen_at: str | None
     user_agent: str | None
+    is_code_write_target: bool
 
 
 def _coerce_kind(kind: str | None) -> str:
@@ -67,6 +68,13 @@ def _row_to_device(row: object) -> DeviceRow:
         ),
         "user_agent": (
             str(row["user_agent"]) if row["user_agent"] is not None else None  # type: ignore[index]
+        ),
+        # T28 — added by migration 165. Guard the key access so a row read
+        # in the tiny window before the migration applies doesn't KeyError.
+        "is_code_write_target": (
+            bool(int(row["is_code_write_target"]))  # type: ignore[index]
+            if "is_code_write_target" in row.keys()  # noqa: SIM118 - aiosqlite.Row has no __contains__
+            else False
         ),
     }
 

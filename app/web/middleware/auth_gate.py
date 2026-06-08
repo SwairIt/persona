@@ -55,6 +55,10 @@ _PUBLIC_PREFIXES: tuple[str, ...] = (
     "/api/health.json",
     "/api/sync/",
     "/api/devices/heartbeat",
+    # T28 (2026-06-08) — the code-write-target device polls this with its
+    # X-Device-Token, no cookie session. The route enforces auth + checks
+    # the device is actually the chosen target.
+    "/api/workspace/sync",
     # T16 (2026-06-07) — iOS Shortcut hits these with X-Device-Token,
     # not a cookie session. The route itself enforces auth.
     "/api/ingest/",

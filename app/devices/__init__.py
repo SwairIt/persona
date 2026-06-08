@@ -30,8 +30,11 @@ from app.devices.storage_policy import (
     StoragePolicy,
     allowed_kinds_for_device,
     apply_role_defaults,
+    clear_code_write_target,
+    get_code_write_target,
     get_policy,
     list_sync_filters,
+    set_code_write_target,
     set_policy,
     set_sync_filter,
 )
@@ -59,4 +62,8 @@ __all__ = [
     "list_sync_filters",
     "set_policy",
     "set_sync_filter",
+    # T28 code write target
+    "clear_code_write_target",
+    "get_code_write_target",
+    "set_code_write_target",
 ]

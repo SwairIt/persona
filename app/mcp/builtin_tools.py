@@ -105,8 +105,17 @@ async def list_dir(args: dict[str, Any], user_id: int = 0) -> str:
 
 async def write_file(args: dict[str, Any], user_id: int = 0) -> str:
     """T27 — writes into the user's workspace only. Absolute paths
-    pointing outside are refused. Directories are created automatically."""
-    from app.workspace import WorkspaceEscape, resolve_user_path  # noqa: PLC0415
+    pointing outside are refused. Directories are created automatically.
+
+    T28 — after a successful write, append a ``workspace_file_event`` row
+    so the user's chosen code-write-target device can sync the file down.
+    """
+    from app.workspace import (  # noqa: PLC0415
+        WorkspaceEscape,
+        ensure_user_workspace,
+        record_file_event,
+        resolve_user_path,
+    )
 
     path = str(args.get("path", "")).strip()
     content = str(args.get("content", ""))
@@ -119,9 +128,20 @@ async def write_file(args: dict[str, Any], user_id: int = 0) -> str:
     try:
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content, encoding="utf-8")
-        return f"[ok] записал {len(content)} символов в {p.name} (скачать: /workspace/file/{p.name})"
     except Exception as exc:
         return f"[error] {type(exc).__name__}: {exc}"
+
+    # T28 — record for device sync. Best-effort: a logging failure must
+    # not turn a successful write into an error for the user.
+    try:
+        rel = p.relative_to(ensure_user_workspace(user_id)).as_posix()
+        await record_file_event(
+            user_id, rel, "write", len(content.encode("utf-8"))
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("write_file.event_record_failed", path=path, error=str(exc))
+
+    return f"[ok] записал {len(content)} символов в {p.name} (скачать: /workspace/file/{p.name})"
 
 
 async def run_shell(args: dict[str, Any]) -> str:
