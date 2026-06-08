@@ -303,6 +303,17 @@ def _parse_iso(value: str, *, field: str) -> datetime:
     return parsed.astimezone(UTC)
 
 
+def _decode_and_phash(raw: bytes) -> tuple[int, int, str]:
+    """Decode an image + compute its pHash. CPU-bound (PIL + scipy DCT) —
+    ALWAYS call via ``anyio.to_thread.run_sync`` so it never blocks the
+    asyncio event loop. Returns ``(width, height, phash_hex)``."""
+    with Image.open(io.BytesIO(raw)) as image:
+        image.load()
+        width, height = image.size
+        phash = compute_phash(image)
+    return width, height, phash
+
+
 def _detect_image_format(raw: bytes) -> str | None:
     """Return ``"png"`` / ``"jpeg"`` / ``"webp"`` if magic bytes match."""
     if raw.startswith(_PNG_MAGIC):
@@ -632,11 +643,14 @@ async def upload_screenshot(
         )
 
     # Decode once for pHash + a defensive dimension cross-check.
+    # T29 — run OFF the event loop. PIL decode + imagehash.phash (a scipy
+    # DCT) is CPU-bound and was freezing the whole server on every agent
+    # screenshot (~every 30s) once uploads started working. anyio.to_thread
+    # keeps the loop free so other requests don't pile up behind it.
     try:
-        with Image.open(io.BytesIO(raw)) as image:
-            image.load()
-            decoded_width, decoded_height = image.size
-            phash = compute_phash(image)
+        decoded_width, decoded_height, phash = await anyio.to_thread.run_sync(
+            _decode_and_phash, raw
+        )
     except (UnidentifiedImageError, OSError, ValueError) as exc:
         log.warning("agent_api.screenshot.decode_failed", error=str(exc))
         raise HTTPException(
