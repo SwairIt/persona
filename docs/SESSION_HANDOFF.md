@@ -26,6 +26,11 @@ Persona-server (Windows server, C:\www-Yaroslav\Persona)
   ├── FastAPI + uvicorn на 127.0.0.1:8000
   ├── devtunnel host -t kind-ocean-5s32cxv → https://jqktqlvt-8000.euw.devtunnels.ms
   │   (старый jswvbzgl-8000... умер, пересоздан новый T18-fix; токен принадлежит SwairIt GitHub auth)
+  ├── РЕЗЕРВНЫЙ публичный URL (T29): Tailscale Funnel →
+  │   https://bsql.tail318a09.ts.net  (проксирует на 127.0.0.1:8000, другой
+  │   провайдер чем devtunnel, переживает ребут). CLI: C:\www-Yaroslav\Instruments\tailscale.exe
+  │   Управление: `tailscale funnel status` / `tailscale funnel --bg 8000` / `tailscale funnel --https=443 off`
+  │   Funnel включён в админке Tailscale (nodeAttr funnel). Auth-gate защищает так же как devtunnel.
   ├── SQLite в ~/.persona/persona.db
   └── Workspace files в ~/.persona/data/workspaces/{user_id}/
 
