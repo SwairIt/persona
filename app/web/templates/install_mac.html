@@ -16,22 +16,17 @@
   </p>
 
   <details class="mb-6 rounded-lg border border-purple-500/30 bg-purple-500/5 p-3 text-xs">
-    <summary class="cursor-pointer text-purple-300 font-semibold">🎙 Запись речи (всё что говоришь за день) — opt-in</summary>
+    <summary class="cursor-pointer text-purple-300 font-semibold">🎙 Запись речи (всё что говоришь) — как включить</summary>
     <div class="mt-2 space-y-2 text-zinc-300">
       <p>
-        Голос пишется и расшифровывается <strong>локально</strong> на твоём Mac (Whisper) — приватно, но это <strong>~2 ГБ зависимостей</strong> (torch). Поэтому по умолчанию <strong>выключено</strong>: базовая установка быстрая, только скрин-захват.
+        Просто поставь галочку <strong>«Записывать речь»</strong> прямо у команды ниже — ничего отдельно вставлять не надо, команда сама обновится. Зависимости лёгкие (пара МБ, <strong>без 2 ГБ</strong>), расшифровка в текст делается на сервере.
       </p>
-      <p>Чтобы включить — поставь переменную перед командой установки:</p>
-      <pre class="bg-ink-950 border border-ink-700 rounded p-2 select-all overflow-x-auto">export PERSONA_AGENT_VOICE=1
-# (опц. зеркало pypi для скорости)
-export PERSONA_PIP_INDEX=https://mirror.yandex.ru/mirrors/pypi/simple/
-&lt;вставь сюда команду curl … | bash сверху&gt;</pre>
-      <p>Ещё нужно:</p>
+      <p>Ещё один раз на Mac:</p>
       <ul class="list-disc list-inside text-zinc-400">
-        <li><code>brew install ffmpeg</code> (кодирование Opus)</li>
+        <li><code>brew install ffmpeg</code> (кодирование звука)</li>
         <li>Системные настройки → Конфиденциальность → <strong>Микрофон</strong> → разрешить Terminal/Python</li>
       </ul>
-      <p class="text-zinc-500">macOS покажет оранжевую точку микрофона когда пишет — это нормально.</p>
+      <p class="text-zinc-500">macOS покажет оранжевую точку микрофона когда пишет — это норма. Если хочешь чтобы расшифровка шла локально на Mac (а не на сервере) — это уже ~2 ГБ, скажи мне.</p>
     </div>
   </details>
 
@@ -53,19 +48,53 @@ export PERSONA_PIP_INDEX=https://mirror.yandex.ru/mirrors/pypi/simple/
   {% if ready_command %}
     {# --- Step 2: show the one-liner --- #}
     <div class="rounded-xl border border-emerald-500/40 bg-emerald-500/5 p-5 mb-6">
-      <h2 class="font-semibold text-emerald-300 mb-2">✅ Команда готова</h2>
-      <p class="text-sm text-zinc-300 mb-3">
-        На Mac запусти <strong>приложение «Терминал»</strong> (Spotlight → "Terminal") и вставь эту команду:
-      </p>
-      <pre class="bg-ink-950 border border-ink-700 rounded p-3 text-xs font-mono select-all overflow-x-auto">{{ ready_command }}</pre>
-      <button onclick="navigator.clipboard.writeText({{ ready_command | tojson | forceescape }}); this.textContent='Скопировано ✓'"
-              class="mt-3 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-sm rounded">
-        Скопировать
-      </button>
+      <h2 class="font-semibold text-emerald-300 mb-3">✅ Команда готова</h2>
+      <ol class="text-sm text-zinc-300 mb-3 space-y-1 list-decimal list-inside">
+        <li>На Mac открой <strong>Терминал</strong>: нажми <kbd class="px-1 rounded bg-ink-800 border border-ink-700">⌘</kbd>+<kbd class="px-1 rounded bg-ink-800 border border-ink-700">Space</kbd>, набери <strong>Terminal</strong>, Enter.</li>
+        <li>Нажми <strong>«Скопировать»</strong> ниже.</li>
+        <li>В Терминале вставь (<kbd class="px-1 rounded bg-ink-800 border border-ink-700">⌘</kbd>+<kbd class="px-1 rounded bg-ink-800 border border-ink-700">V</kbd>) и нажми Enter.</li>
+      </ol>
+
+      <label class="flex items-center gap-2 text-sm text-zinc-200 mb-2 cursor-pointer select-none">
+        <input type="checkbox" id="voicechk" class="w-4 h-4 accent-purple-500">
+        🎙 Записывать речь с микрофона <span class="text-xs text-zinc-500">(+пара МБ, без 2 ГБ)</span>
+      </label>
+
+      <div id="cmdbox" data-cmd="{{ ready_command }}">
+        <pre id="cmdpre" class="bg-ink-950 border border-ink-700 rounded p-3 text-xs font-mono select-all overflow-x-auto whitespace-pre-wrap break-all">{{ ready_command }}</pre>
+        <button id="cmdcopy" type="button"
+                class="mt-3 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm rounded font-semibold">
+          📋 Скопировать
+        </button>
+      </div>
       <p class="text-[10px] text-zinc-500 mt-3">
-        ⚠️ Ссылка одноразовая и работает 10 минут. Если что-то пошло не так, нажми кнопку ниже чтобы сгенерировать новую.
+        ⚠️ Ссылка одноразовая и работает 10 минут. Если протухла — нажми «Сгенерировать новую команду» ниже.
       </p>
     </div>
+
+    <script>
+      // Voice checkbox rewrites the one command in place: append the env var
+      // to the `bash` end so it propagates into the piped installer.
+      (function () {
+        var box = document.getElementById('cmdbox');
+        if (!box) return;
+        var base = box.getAttribute('data-cmd');
+        var chk = document.getElementById('voicechk');
+        var pre = document.getElementById('cmdpre');
+        var btn = document.getElementById('cmdcopy');
+        function build() {
+          return chk.checked
+            ? base.replace(/\| bash\b/, '| PERSONA_AGENT_VOICE=1 bash')
+            : base;
+        }
+        function refresh() { pre.textContent = build(); btn.textContent = '📋 Скопировать'; }
+        chk.addEventListener('change', refresh);
+        btn.addEventListener('click', function () {
+          navigator.clipboard.writeText(build());
+          btn.textContent = 'Скопировано ✓';
+        });
+      })();
+    </script>
 
     <div class="rounded-xl border border-zinc-700 bg-ink-900 p-4 mb-6">
       <h3 class="text-sm font-semibold mb-3">Дальше — что делать после команды</h3>
