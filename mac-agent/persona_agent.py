@@ -55,7 +55,8 @@ logger = structlog.get_logger("persona_agent")
 # banner. Reported in the User-Agent of every request (ingest + sync). Keep
 # in sync with ``LATEST_AGENT_VERSION`` in app/devices/agent_release.py.
 # 1.13 = T28 workspace sync loop (sync_workspace_loop + device_token).
-AGENT_VERSION = "1.13"
+# 1.14 = T29 X-Agent-Token header (tunnel strips Authorization) + opt-in audio.
+AGENT_VERSION = "1.14"
 
 
 # --------------------------------------------------------------------------- #
@@ -203,9 +204,18 @@ def _server_endpoint(cfg: AgentConfig, path: str) -> str:
 
 
 def _auth_headers(cfg: AgentConfig) -> dict[str, str]:
-    """Bearer token + agent fingerprint headers used on every request."""
+    """Bearer token + agent fingerprint headers used on every request.
+
+    T29 — the token is sent BOTH as ``Authorization: Bearer`` and as a
+    custom ``X-Agent-Token`` header. Some tunnels/proxies (Microsoft Dev
+    Tunnels) strip the standard Authorization header, which 401'd every
+    screenshot/audio upload; the custom header survives the tunnel and the
+    server accepts either.
+    """
+    token = cfg.server.token.get_secret_value()
     return {
-        "Authorization": f"Bearer {cfg.server.token.get_secret_value()}",
+        "Authorization": f"Bearer {token}",
+        "X-Agent-Token": token,
         "User-Agent": f"persona-agent/{AGENT_VERSION} ({platform.system()} {platform.release()})",
     }
 

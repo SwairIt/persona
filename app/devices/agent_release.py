@@ -19,7 +19,11 @@ from typing import Any
 
 from app.storage.db import get_connection
 
-# 1.13 = T28 workspace sync (sync_workspace_loop + device_token in config).
+# Minimum agent version that works well — drives the "update available"
+# banner. The real screenshot-upload breakage was server-side (auth gate +
+# field name), fixed without an agent change, so 1.13 is fine and we DON'T
+# nag those users. 1.14 (X-Agent-Token + opt-in audio) is an optional
+# improvement new installs get; bump this only when an update is required.
 LATEST_AGENT_VERSION = "1.13"
 
 # Matches both ``persona-agent/1.13`` and ``persona-mac-agent/1.13``.

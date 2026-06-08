@@ -55,6 +55,12 @@ _PUBLIC_PREFIXES: tuple[str, ...] = (
     "/api/health.json",
     "/api/sync/",
     "/api/devices/heartbeat",
+    # T29 (2026-06-08) — remote capture agents (Mac) upload here with a
+    # Bearer / X-Agent-Token, never a cookie. These were silently 401'd by
+    # the gate ever since the first signup activated it, so NO agent
+    # screenshot/audio ever landed. The routes enforce their own bearer
+    # auth via app.remote_agents.verify_agent_token.
+    "/api/agent/",
     # T28 (2026-06-08) — the code-write-target device polls this with its
     # X-Device-Token, no cookie session. The route enforces auth + checks
     # the device is actually the chosen target.

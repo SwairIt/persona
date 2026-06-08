@@ -149,7 +149,10 @@ def _extract_bearer(authorization: str | None) -> str:
 
 
 async def _resolve_agent(
-    authorization: str | None, *, kind: str = "any"
+    authorization: str | None,
+    *,
+    kind: str = "any",
+    x_agent_token: str | None = None,
 ) -> VerifiedAgent:
     """Authenticate the caller and refresh the liveness columns.
 
@@ -157,8 +160,26 @@ async def _resolve_agent(
     timestamp matching the route gets touched. A failed verify always
     raises 401 with an opaque body; the structured log line carries
     the reason for the operator to triage offline.
+
+    T29 — the token may arrive either as ``Authorization: Bearer <tok>``
+    or as a custom ``X-Agent-Token`` header. The fallback exists because
+    some tunnels/proxies (notably Microsoft Dev Tunnels) strip the
+    standard ``Authorization`` header for their own access control — that
+    silently 401'd every screenshot/audio upload while the custom
+    ``X-Device-Token`` sync path kept working. Custom headers survive, so
+    the agent now sends both and we accept whichever arrives.
     """
-    raw = _extract_bearer(authorization)
+    raw = ""
+    if authorization and authorization.strip():
+        raw = _extract_bearer(authorization)
+    elif x_agent_token and x_agent_token.strip():
+        raw = x_agent_token.strip()
+    if not raw:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="missing bearer token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     agent = await verify_agent_token(raw)
     if agent is None:
         raise HTTPException(
@@ -304,6 +325,7 @@ def _detect_image_format(raw: bytes) -> str | None:
 @router.post("/heartbeat")
 async def heartbeat(
     authorization: Annotated[str | None, Header()] = None,
+    x_agent_token: Annotated[str | None, Header()] = None,
 ) -> JSONResponse:
     """Lightweight liveness probe — returns ``{ok, server_time, agent_id}``.
 
@@ -311,7 +333,7 @@ async def heartbeat(
     server is reachable and the token is still good. No body, no
     side-effects beyond bumping ``last_seen_at``.
     """
-    agent = await _resolve_agent(authorization, kind="any")
+    agent = await _resolve_agent(authorization, kind="any", x_agent_token=x_agent_token)
     server_time = datetime.now(tz=UTC).isoformat()
     log.info("agent_api.heartbeat", agent_id=agent["id"], name=agent["name"])
     return JSONResponse(
@@ -326,6 +348,7 @@ async def heartbeat(
 @router.get("/me")
 async def me(
     authorization: Annotated[str | None, Header()] = None,
+    x_agent_token: Annotated[str | None, Header()] = None,
 ) -> JSONResponse:
     """Return the calling agent's metadata (id, name, platform, liveness).
 
@@ -333,7 +356,7 @@ async def me(
     ``/api/agent/me`` once on first run to confirm the operator wired
     in the right token and the server agrees on which agent it is.
     """
-    agent = await _resolve_agent(authorization, kind="any")
+    agent = await _resolve_agent(authorization, kind="any", x_agent_token=x_agent_token)
     return JSONResponse(
         {
             "ok": True,
@@ -356,6 +379,7 @@ async def upload_audio_segment(
     bitrate: Annotated[int | None, Form()] = None,
     transcript: Annotated[str | None, Form()] = None,
     authorization: Annotated[str | None, Header()] = None,
+    x_agent_token: Annotated[str | None, Header()] = None,
 ) -> JSONResponse:
     """Accept one speech segment from a remote agent.
 
@@ -372,7 +396,7 @@ async def upload_audio_segment(
        / ``bitrate`` / ``path`` / ``size_bytes`` / ``transcript``).
     6. Return ``{ok, segment_id}``.
     """
-    agent = await _resolve_agent(authorization, kind="audio")
+    agent = await _resolve_agent(authorization, kind="audio", x_agent_token=x_agent_token)
 
     raw = await file.read()
     if len(raw) == 0:
@@ -490,12 +514,16 @@ async def upload_audio_segment(
 
 @router.post("/screenshot")
 async def upload_screenshot(
-    file: Annotated[UploadFile, File(...)],
     captured_at: Annotated[str, Form(...)],
     width: Annotated[int, Form(...)],
     height: Annotated[int, Form(...)],
+    # T29 — the Mac agent uploads the frame under the ``image`` field; the
+    # iOS path used ``file``. Accept either so neither side has to change.
+    file: Annotated[UploadFile | None, File()] = None,
+    image: Annotated[UploadFile | None, File()] = None,
     app_name: Annotated[str | None, Form()] = None,
     authorization: Annotated[str | None, Header()] = None,
+    x_agent_token: Annotated[str | None, Header()] = None,
 ) -> JSONResponse:
     """Accept one screenshot from a remote agent.
 
@@ -513,9 +541,16 @@ async def upload_screenshot(
     7. ``INSERT INTO screenshots`` with ``source = "remote_agent"``.
     8. Return ``{ok, shot_id}``.
     """
-    agent = await _resolve_agent(authorization, kind="screen")
+    agent = await _resolve_agent(authorization, kind="screen", x_agent_token=x_agent_token)
 
-    raw = await file.read()
+    upload = file or image
+    if upload is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="screenshot file required (multipart field 'file' or 'image')",
+        )
+
+    raw = await upload.read()
     if len(raw) == 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -527,7 +562,7 @@ async def upload_screenshot(
             detail="image upload too large (max 5MB)",
         )
 
-    declared_mime = (file.content_type or "").lower()
+    declared_mime = (upload.content_type or "").lower()
     if declared_mime and not declared_mime.startswith(_IMAGE_MIME_PREFIX):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -588,7 +623,7 @@ async def upload_screenshot(
     # format; we never trust the upload filename for the extension.
     ext_map = {"png": "png", "jpeg": "jpg", "webp": "webp"}
     fallback_ext = ext_map.get(detected, "png")
-    safe_name = _sanitise_filename(file.filename, fallback_ext)
+    safe_name = _sanitise_filename(upload.filename, fallback_ext)
     # Ensure the on-disk name carries the *detected* extension even if
     # the agent uploaded a mismatched filename.
     if not safe_name.lower().endswith(f".{fallback_ext}"):
@@ -657,6 +692,7 @@ async def upload_screenshot(
 @router.get("/stats")
 async def stats(
     authorization: Annotated[str | None, Header()] = None,
+    x_agent_token: Annotated[str | None, Header()] = None,
 ) -> JSONResponse:
     """Return today's upload totals for this agent.
 
@@ -665,7 +701,7 @@ async def stats(
     server-side logs. All counters are scoped to the calling agent and
     "today" is today in UTC.
     """
-    agent = await _resolve_agent(authorization, kind="any")
+    agent = await _resolve_agent(authorization, kind="any", x_agent_token=x_agent_token)
     today_utc = datetime.now(tz=UTC).strftime("%Y-%m-%d")
     async with get_connection() as conn:
         cursor = await conn.execute(

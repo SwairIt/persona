@@ -272,12 +272,21 @@ fi
 ./.venv/bin/pip install $PIP_OPTS \
     "httpx>=0.28" "mss>=10.0" "pillow>=11.0" "imagehash>=4.3" "numpy>=1.26" \
     "click>=8.1" "structlog>=24.4" "pydantic>=2.10" "pydantic-settings>=2.7"
-# Audio deps — heavy (openai-whisper pulls torch ~2GB; sounddevice needs
-# PortAudio). Best-effort: if they fail, screen capture + heartbeat still
-# work, only voice transcription is off.
-./.venv/bin/pip install $PIP_OPTS \
-    "sounddevice>=0.5" "scipy>=1.13" "silero-vad>=5.1" "openai-whisper>=20240930" \
-    || echo "⚠ Аудио-зависимости не установились — скрин-захват и sync работают, голос выключен."
+# Audio (voice transcription) is OPT-IN — its deps are heavy
+# (openai-whisper pulls torch ~2GB; sounddevice needs PortAudio) and on a
+# slow link the download dominates the install. Off by default: you get a
+# fast, clean install with screen capture + sync. Enable voice by running
+# the command with PERSONA_AGENT_VOICE=1 in front of it.
+AUDIO_ENABLED=false
+if [ "${{PERSONA_AGENT_VOICE:-0}}" = "1" ]; then
+    echo "→ Installing voice deps (большая загрузка, ~2GB — может занять время)..."
+    if ./.venv/bin/pip install $PIP_OPTS \
+            "sounddevice>=0.5" "scipy>=1.13" "silero-vad>=5.1" "openai-whisper>=20240930"; then
+        AUDIO_ENABLED=true
+    else
+        echo "⚠ Голос не установился — скрин-захват и sync работают."
+    fi
+fi
 
 # 3. Config — TOML at the canonical path the agent actually reads
 #    (~/.config/persona-agent.toml). device_token enables the T28
@@ -299,7 +308,7 @@ cat >> "$CONFIG_PATH" <<EOF
 
 [capture]
 screen = true
-audio = true
+audio = $AUDIO_ENABLED
 
 [logging]
 level = "INFO"
