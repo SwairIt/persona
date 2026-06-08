@@ -157,7 +157,12 @@
             </div>
           </div>
         </template>
-        <div x-show="thinking" class="flex justify-start">
+        {# T26 fix — "думает" badge показываем ТОЛЬКО когда стрим открыт
+           И последнее assistant сообщение ещё пустое. Как только
+           прилетел первый чанк — badge скрывается, контент сам говорит
+           что модель работает. #}
+        <div x-show="thinking && (messages.length === 0 || !messages[messages.length-1].content || messages[messages.length-1].role !== 'assistant' || messages[messages.length-1].content === '')"
+             class="flex justify-start">
           <div class="rounded-lg bg-ink-800 border border-ink-700 px-3 py-2 text-sm text-zinc-500 italic flex items-center gap-2">
             <span class="inline-block w-1.5 h-1.5 rounded-full bg-accent-400 animate-pulse"></span>
             модель думает<span x-show="thinkingSeconds > 0" class="font-mono ml-1" x-text="'(' + thinkingSeconds + 'с)'"></span>…
