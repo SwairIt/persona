@@ -56,7 +56,7 @@ logger = structlog.get_logger("persona_agent")
 # in sync with ``LATEST_AGENT_VERSION`` in app/devices/agent_release.py.
 # 1.13 = T28 workspace sync loop (sync_workspace_loop + device_token).
 # 1.14 = T29 X-Agent-Token header (tunnel strips Authorization) + opt-in audio.
-AGENT_VERSION = "1.14"
+AGENT_VERSION = "1.15"
 
 
 # --------------------------------------------------------------------------- #
@@ -443,6 +443,84 @@ class _VadDetector:
         )
 
 
+class _WebrtcVadDetector:
+    """T29 — lightweight VAD via ``webrtcvad`` (tiny C lib, NO torch).
+
+    Same ``find_speech(samples) -> [{'start','end'}]`` interface as
+    :class:`_VadDetector` so the audio loop is backend-agnostic. This is
+    the default detector: it lets "record everything I say" work with a
+    few MB of deps instead of the ~2 GB silero/torch stack. Transcription
+    is then optional (local Whisper) or done server-side.
+
+    webrtcvad needs mono int16 PCM at 8/16/32/48 kHz and 10/20/30 ms
+    frames. The agent captures float32 @ 16 kHz, which fits.
+    """
+
+    _FRAME_MS = 30
+
+    def __init__(self, *, sample_rate: int, threshold: float) -> None:
+        self.sample_rate = sample_rate
+        self.aggressiveness = self._aggr(threshold)
+        self._vad: Any = None
+
+    @staticmethod
+    def _aggr(threshold: float) -> int:
+        """Map silero-style 0..1 onto webrtc 0..3 (higher = stricter)."""
+        if threshold < 0.3:
+            return 0
+        if threshold < 0.5:
+            return 1
+        if threshold < 0.7:
+            return 2
+        return 3
+
+    def _ensure(self) -> None:
+        if self._vad is None:
+            import webrtcvad
+
+            self._vad = webrtcvad.Vad(self.aggressiveness)
+
+    def find_speech(self, samples: Any) -> list[dict[str, int]]:
+        """Return ``[{'start': sample_idx, 'end': sample_idx}, ...]``."""
+        self._ensure()
+        import numpy as np
+
+        spf = int(self.sample_rate * self._FRAME_MS / 1000)
+        if spf <= 0 or samples.size < spf:
+            return []
+        clipped = np.clip(samples, -1.0, 1.0)
+        int16 = (clipped * 32767.0).astype(np.int16)
+        total = int(len(int16) // spf)
+        out: list[dict[str, int]] = []
+        cur: int | None = None
+        for i in range(total):
+            start = i * spf
+            frame = int16[start : start + spf].tobytes()
+            speaking = self._vad.is_speech(frame, self.sample_rate)
+            if speaking and cur is None:
+                cur = start
+            elif not speaking and cur is not None:
+                out.append({"start": cur, "end": start})
+                cur = None
+        if cur is not None:
+            out.append({"start": cur, "end": total * spf})
+        return out
+
+
+def _make_vad_detector(*, sample_rate: int, threshold: float) -> Any:
+    """Pick the VAD backend: webrtcvad (light, no torch) if available,
+    else silero (heavy). Lets installs without the 2 GB stack still
+    capture speech."""
+    try:
+        import webrtcvad  # noqa: F401
+
+        logger.info("agent.audio.vad_backend", backend="webrtcvad")
+        return _WebrtcVadDetector(sample_rate=sample_rate, threshold=threshold)
+    except ImportError:
+        logger.info("agent.audio.vad_backend", backend="silero")
+        return _VadDetector(sample_rate=sample_rate, threshold=threshold)
+
+
 class _WhisperTranscriber:
     """Lazy Whisper loader. ``transcribe()`` is sync; call via to_thread."""
 
@@ -819,7 +897,7 @@ async def audio_loop(state: RuntimeState) -> None:
         encoder=cfg.audio_encoder,
     )
 
-    vad = _VadDetector(sample_rate=sample_rate, threshold=cfg.audio_vad_threshold)
+    vad = _make_vad_detector(sample_rate=sample_rate, threshold=cfg.audio_vad_threshold)
     whisper = _WhisperTranscriber(
         model_name=cfg.whisper_model,
         language=cfg.whisper_language,

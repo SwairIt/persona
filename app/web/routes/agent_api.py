@@ -37,6 +37,7 @@ from typing import Annotated, Final
 import anyio
 from fastapi import (
     APIRouter,
+    BackgroundTasks,
     File,
     Form,
     Header,
@@ -370,8 +371,38 @@ async def me(
     )
 
 
+async def _transcribe_uploaded_segment(segment_id: int, audio_path: Path) -> None:
+    """T29 — transcribe an agent-uploaded segment on the SERVER.
+
+    Lets the Mac agent run the lightweight (webrtcvad, no-torch) audio
+    path and upload audio WITHOUT a transcript; the server — which has
+    Whisper — fills in the text afterwards. No-op if no Whisper backend
+    is installed (transcript just stays empty). Best-effort: never raises.
+    """
+    from app.audio.transcribe import transcribe_segment  # noqa: PLC0415
+
+    try:
+        text = await transcribe_segment(audio_path)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("agent_api.audio.server_transcribe_failed", error=str(exc))
+        return
+    if text is None:
+        return
+    try:
+        async with get_connection() as conn:
+            await conn.execute(
+                "UPDATE audio_segment SET transcript = ? "
+                "WHERE id = ? AND (transcript IS NULL OR transcript = '')",
+                (text, segment_id),
+            )
+            await conn.commit()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("agent_api.audio.transcript_store_failed", error=str(exc))
+
+
 @router.post("/audio-segment")
 async def upload_audio_segment(
+    background_tasks: BackgroundTasks,
     file: Annotated[UploadFile, File(...)],
     captured_at: Annotated[str, Form(...)],
     duration_seconds: Annotated[float, Form(...)],
@@ -505,6 +536,14 @@ async def upload_audio_segment(
         duration_seconds=float(duration_seconds),
         has_transcript=cleaned_transcript is not None,
     )
+
+    # T29 — lite-mode agents upload audio without a transcript; transcribe
+    # on the server (after the response) so they don't need 2 GB of Whisper
+    # on the Mac. No-op when a transcript was already supplied.
+    if not (cleaned_transcript and cleaned_transcript.strip()):
+        background_tasks.add_task(
+            _transcribe_uploaded_segment, int(segment_id), target
+        )
 
     return JSONResponse(
         {"ok": True, "segment_id": int(segment_id)},

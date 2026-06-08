@@ -279,12 +279,23 @@ fi
 # the command with PERSONA_AGENT_VOICE=1 in front of it.
 AUDIO_ENABLED=false
 if [ "${{PERSONA_AGENT_VOICE:-0}}" = "1" ]; then
-    echo "→ Installing voice deps (большая загрузка, ~2GB — может занять время)..."
+    # LITE voice stack — webrtcvad (~tiny C lib), NO torch. Records speech;
+    # transcription happens on the SERVER. Few MB, not 2 GB.
+    echo "→ Installing voice deps (lite: webrtcvad, без torch)..."
     if ./.venv/bin/pip install $PIP_OPTS \
-            "sounddevice>=0.5" "scipy>=1.13" "silero-vad>=5.1" "openai-whisper>=20240930"; then
+            "sounddevice>=0.5" "webrtcvad>=2.0" "scipy>=1.13"; then
         AUDIO_ENABLED=true
     else
         echo "⚠ Голос не установился — скрин-захват и sync работают."
+    fi
+    # OPTIONAL on-device transcription (heavy ~2 GB torch). Off by default;
+    # the server transcribes uploaded audio instead. Only for users who
+    # want transcription to never leave the Mac.
+    if [ "$AUDIO_ENABLED" = "true" ] && [ "${{PERSONA_AGENT_WHISPER:-0}}" = "1" ]; then
+        echo "→ Installing local Whisper (~2GB torch — долго)..."
+        ./.venv/bin/pip install $PIP_OPTS \
+            "silero-vad>=5.1" "openai-whisper>=20240930" \
+            || echo "⚠ Локальный Whisper не встал — расшифровка будет на сервере."
     fi
 fi
 
