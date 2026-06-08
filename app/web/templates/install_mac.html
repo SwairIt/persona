@@ -48,13 +48,26 @@
     </div>
 
     <div class="rounded-xl border border-zinc-700 bg-ink-900 p-4 mb-6">
-      <h3 class="text-sm font-semibold mb-3">Дальше</h3>
+      <h3 class="text-sm font-semibold mb-3">Дальше — что делать после команды</h3>
+      <div class="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-2.5 text-xs text-emerald-200 mb-3">
+        ✅ Токен вставлять <strong>никуда не надо</strong> — он уже внутри этой команды. Она сама пишет конфиг <code>~/.config/persona-agent.toml</code> с токенами устройства. Токен, который показывался на <a href="/devices" class="underline">/devices</a> при добавлении Mac, можно игнорировать — установщик выдал свежий.
+      </div>
       <ol class="text-sm space-y-1.5 text-zinc-300 list-decimal list-inside">
-        <li>Открой <strong>Системные настройки → Защита и безопасность → Запись экрана</strong>.</li>
-        <li>Разреши <code>Terminal</code> (или <code>Python</code>, что попросит).</li>
-        <li>Проверь логи: <code>tail -f ~/Library/Logs/persona-agent.out.log</code>.</li>
-        <li>Через 30 секунд открой <a href="/timeline" class="text-accent-400 underline">/timeline</a> — должны появиться скрины.</li>
+        <li><strong>Разреши запись экрана:</strong> Системные настройки → Конфиденциальность и безопасность → <strong>Запись экрана</strong> → включи <code>Terminal</code> (или <code>Python</code>).</li>
+        <li><strong>Перезапусти агент</strong> после разрешения:<br>
+          <code class="text-[11px] select-all">launchctl kickstart -k gui/$(id -u)/com.swairit.persona-agent</code></li>
+        <li>Через ~30 сек проверь <a href="/devices" class="text-accent-400 underline">/devices</a> — Mac покажет «был только что», а жёлтый баннер обновления исчезнет.</li>
+        <li>Скрины появятся в <a href="/timeline" class="text-accent-400 underline">/timeline</a>.</li>
       </ol>
+      <details class="mt-3 text-xs text-zinc-500">
+        <summary class="cursor-pointer text-zinc-300 font-semibold">Ничего не появилось / Mac не подключается</summary>
+        <ul class="mt-2 space-y-1 list-disc list-inside">
+          <li>Логи: <code>tail -f ~/Library/Logs/persona-agent.err.log</code></li>
+          <li>Адрес сервера в команде должен быть <strong>не localhost</strong> — иначе Mac не достучится. Открывай эту страницу по публичному адресу (devtunnel).</li>
+          <li>Жив ли процесс: <code>launchctl list | grep persona</code></li>
+          <li>Перегенерируй команду кнопкой ниже и запусти ещё раз — это безопасно (обновление на месте).</li>
+        </ul>
+      </details>
     </div>
 
     <form method="post" action="/welcome/install/mac/mint" class="text-center">

@@ -26,6 +26,19 @@
             {% endif %}
           </h2>
 
+          {# T29 — switcher so iPhone/Mac/Windows инструкции доступны с любого
+             браузера (раньше показывалась только версия для текущего UA). #}
+          <div class="flex flex-wrap items-center gap-1.5 mt-2 text-xs">
+            <span class="text-zinc-500 mr-1">Инструкция для:</span>
+            {% for k, label in [('mac', '🍎 Mac'), ('iphone', '📱 iPhone'), ('windows', '🪟 Windows')] %}
+              <a href="/welcome?kind={{ k }}"
+                 class="px-2.5 py-1 rounded-full border transition
+                        {% if device_kind == k %}border-accent-500 bg-accent-600/20 text-accent-300{% else %}border-ink-700 text-zinc-400 hover:text-zinc-100 hover:border-zinc-500{% endif %}">
+                {{ label }}
+              </a>
+            {% endfor %}
+          </div>
+
           {% if has_screenshots %}
             <p class="text-sm text-emerald-300 mt-1">
               Готово: уже <strong>{{ shots_count }}</strong> скриншотов{% if last_shot_at %}, последний в {{ last_shot_at[:16] }}{% endif %}.
@@ -45,31 +58,30 @@
           {# === iPhone === #}
           {% elif device_kind == 'iphone' %}
             <div class="text-sm text-zinc-300 mt-1 space-y-3">
-              <div class="rounded-lg border border-rose-500/40 bg-rose-500/10 p-3 text-xs">
-                <strong class="text-rose-300">Важно:</strong> Apple <strong>физически запрещает</strong> приложениям делать скриншоты в фоне на iOS. Continuous capture как на Mac невозможен — это политика iOS, не баг Persona.
+              {# Recommended path FIRST — most users just want a viewer. #}
+              <div class="rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-3">
+                <div class="font-semibold text-emerald-300">Проще всего: iPhone как «смотрелка»</div>
+                <p class="text-xs mt-1">
+                  iPhone <strong>не захватывает</strong> экран — Apple запрещает фоновые скриншоты. Но твой Mac уже снимает всё, а с iPhone ты просто смотришь. <strong>Токен для этого не нужен.</strong>
+                </p>
+                <ol class="text-xs mt-2 space-y-1 list-decimal list-inside text-zinc-400">
+                  <li>Открой этот сайт в <strong>Safari</strong> на iPhone (по тому же адресу).</li>
+                  <li>Кнопка «Поделиться» (квадрат со стрелкой) → <strong>«На экран „Домой“»</strong>.</li>
+                  <li>Появится иконка Persona — открывается как приложение, залогинься своим email.</li>
+                </ol>
               </div>
 
-              <p>Реальный способ — <strong>iOS Shortcuts</strong> (Команды):</p>
-              <ol class="text-xs space-y-1.5 list-decimal list-inside text-zinc-400">
-                <li>Зарегистрируй iPhone в <a href="/devices" class="text-accent-400 underline">/devices</a> → скопируй <code>device_token</code>.</li>
-                <li>В приложении <strong>Команды</strong> создай новый шорткат с действиями:
-                  <ul class="ml-4 mt-1 list-disc">
-                    <li><code>Сделать скриншот</code></li>
-                    <li><code>Получить содержимое URL</code>: <code>{{ server_url }}/api/ingest/photo</code>, метод <strong>POST</strong>, заголовок <code>X-Device-Token</code> = твой токен, тело форма с полем <code>file</code> = последний скриншот.</li>
-                  </ul>
-                </li>
-                <li>Создай <strong>Личную автоматизацию</strong> «Время суток каждый час» → запускает шорткат. iOS будет показывать уведомление каждый раз (этого не обойти).</li>
-              </ol>
-
-              <p class="text-xs text-zinc-500">
-                Подробная инструкция со скриншотами — в <a href="/help" class="text-accent-400 underline">/help</a>, секция «Захват с iPhone».
-              </p>
-
-              <details class="text-xs text-zinc-500">
-                <summary class="cursor-pointer text-zinc-300 font-semibold">Альтернатива: iPhone как viewer</summary>
-                <p class="mt-1">
-                  Самый простой путь — не захватывать с iPhone вообще. Mac уже снимает всё, ты с iPhone просто <strong>смотришь</strong> через Safari. Это и быстрее и работает без танцев с шорткатами.
-                </p>
+              <details class="rounded-lg border border-ink-700 bg-ink-900 p-3 text-xs">
+                <summary class="cursor-pointer text-zinc-300 font-semibold">Продвинутое: чтобы iPhone сам слал скриншоты (iOS Shortcuts)</summary>
+                <div class="mt-2 space-y-2 text-zinc-400">
+                  <p>В фоне нельзя (политика iOS), но можно по расписанию через приложение <strong>«Команды»</strong>. <strong>Вот сюда</strong> и идёт iPhone-токен — больше никуда:</p>
+                  <ol class="space-y-1 list-decimal list-inside">
+                    <li>Возьми <code>device_token</code> iPhone в <a href="/devices" class="text-accent-400 underline">/devices</a> (показывается один раз при добавлении; потерял — «Сменить токен»).</li>
+                    <li>В «Команды» создай шорткат: <code>Сделать снимок экрана</code> → <code>Получить содержимое URL</code> = <code>{{ server_url }}/api/ingest/photo</code>, метод <strong>POST</strong>, заголовок <code>X-Device-Token</code> = токен, тело multipart, поле <code>file</code> = снимок.</li>
+                    <li>«Личная автоматизация» → «Время суток, каждый час» → запускает шорткат. iOS будет показывать баннер при каждом запуске (не обойти).</li>
+                  </ol>
+                  <p class="text-zinc-500">Полная инструкция — в <a href="/help" class="text-accent-400 underline">/help</a>.</p>
+                </div>
               </details>
             </div>
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from app import __version__
@@ -48,7 +48,7 @@ async def health() -> JSONResponse:
 
 
 @router.get("/welcome", response_class=HTMLResponse)
-async def welcome(request: Request) -> HTMLResponse:
+async def welcome(request: Request, kind: str = Query(default="")) -> HTMLResponse:
     """Onboarding pipeline page — shows which setup steps are done.
 
     T17 (2026-06-07): replaces the old static welcome.html with a
@@ -130,6 +130,12 @@ async def welcome(request: Request) -> HTMLResponse:
         device_kind = "linux"
     else:
         device_kind = "other"
+
+    # T29 — explicit ``?kind=`` overrides the UA sniff, so the user can read
+    # iPhone instructions from their Mac (and vice-versa) via the switcher.
+    kind_override = (kind or "").strip().lower()
+    if kind_override in ("iphone", "mac", "windows", "android", "linux", "other"):
+        device_kind = kind_override
 
     return templates.TemplateResponse(
         request,
