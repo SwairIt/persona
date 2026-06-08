@@ -1,26 +1,7 @@
 {% extends "base.html" %}
 
 {% block content %}
-{% if agent_update %}
-  {# T29 — agent update banner. Shows on the main page when a connected
-     Mac device is running an older agent build than the server expects. #}
-  <div class="mb-6 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 flex flex-col sm:flex-row sm:items-center gap-3">
-    <div class="text-2xl leading-none">⬆️</div>
-    <div class="flex-1">
-      <div class="font-semibold text-amber-200">Доступно обновление агента</div>
-      <p class="text-sm text-zinc-300 mt-0.5">
-        Устройство <span class="font-semibold">{{ agent_update.name }}</span>
-        работает на версии <span class="font-mono">v{{ agent_update.current_version }}</span>,
-        а актуальная — <span class="font-mono">v{{ agent_update.latest_version }}</span>.
-        Обнови, чтобы получить синхронизацию кода (workspace) и последние исправления.
-      </p>
-    </div>
-    <a href="/welcome/install/mac"
-       class="shrink-0 px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-ink-950 font-semibold text-sm text-center">
-      Обновить агент →
-    </a>
-  </div>
-{% endif %}
+{% include "_agent_update_banner.html" %}
 <div class="mb-6 flex items-center justify-between flex-wrap gap-3">
   <div>
     <h1 class="text-2xl font-bold tracking-tight">Сейчас</h1>

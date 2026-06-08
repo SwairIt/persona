@@ -1,0 +1,31 @@
+{# T29 — Mac-agent update / setup banner. Rendered on the main pages when
+   ``agent_update`` is set (see app/devices/agent_release.mac_agent_update_prompt).
+   reason="outdated" → device on an older build; reason="setup" → ingest agent
+   present but no versioned device yet (needs a reinstall for T28 sync). #}
+{% if agent_update %}
+  <div class="mb-6 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+    <div class="text-2xl leading-none">⬆️</div>
+    <div class="flex-1">
+      {% if agent_update.reason == 'setup' %}
+        <div class="font-semibold text-amber-200">Обнови Mac-агент</div>
+        <p class="text-sm text-zinc-300 mt-0.5">
+          Твой Mac подключён как агент, но в старом режиме — без синхронизации кода.
+          Переустанови одной командой, чтобы включить sync workspace на устройство
+          и автообновления. Актуальная версия — <span class="font-mono">v{{ agent_update.latest_version }}</span>.
+        </p>
+      {% else %}
+        <div class="font-semibold text-amber-200">Доступно обновление агента</div>
+        <p class="text-sm text-zinc-300 mt-0.5">
+          Устройство <span class="font-semibold">{{ agent_update.name }}</span>
+          работает на версии <span class="font-mono">v{{ agent_update.current_version }}</span>,
+          а актуальная — <span class="font-mono">v{{ agent_update.latest_version }}</span>.
+          Обнови, чтобы получить синхронизацию кода (workspace) и последние исправления.
+        </p>
+      {% endif %}
+    </div>
+    <a href="/welcome/install/mac"
+       class="shrink-0 px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-ink-950 font-semibold text-sm text-center">
+      {% if agent_update.reason == 'setup' %}Настроить агент →{% else %}Обновить агент →{% endif %}
+    </a>
+  </div>
+{% endif %}

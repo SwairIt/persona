@@ -21,7 +21,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 from app.auth import current_user_required
 from app.auth.sessions import SessionRecord
-from app.devices import outdated_agent
+from app.devices import mac_agent_update_prompt
 from app.logging_setup import get_logger
 from app.now_dashboard import build_now_state, to_jsonable
 from app.web.templates_engine import templates
@@ -42,10 +42,10 @@ async def now_page(
     so the page is meaningful even before the first poll lands.
     """
     state = await build_now_state()
-    # T29 — surface an "agent update available" banner on the main page
-    # when a connected Mac device is running an older agent build.
+    # T29 — surface a Mac-agent update/setup banner on the main page when a
+    # connected agent is on an older build, or is ingest-only (no T28 sync).
     try:
-        agent_update = await outdated_agent(session["user_id"])
+        agent_update = await mac_agent_update_prompt(session["user_id"])
     except Exception as exc:  # never let this break the dashboard
         log.warning("now.agent_update_check_failed", error=str(exc))
         agent_update = None

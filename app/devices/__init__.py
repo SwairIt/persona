@@ -14,6 +14,7 @@ verbatim so every existing call site keeps working.
 from app.devices.agent_release import (
     LATEST_AGENT_VERSION,
     is_outdated_ua,
+    mac_agent_update_prompt,
     outdated_agent,
     parse_agent_version,
 )
@@ -75,6 +76,7 @@ __all__ = [
     # T29 agent release / update detection
     "LATEST_AGENT_VERSION",
     "is_outdated_ua",
+    "mac_agent_update_prompt",
     "outdated_agent",
     "parse_agent_version",
 ]

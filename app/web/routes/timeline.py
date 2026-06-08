@@ -4,11 +4,14 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
+from app.auth import current_user_required
+from app.auth.sessions import SessionRecord
+from app.devices import mac_agent_update_prompt
 from app.logging_setup import get_logger
 from app.storage.db import get_connection
 from app.storage.models import Screenshot
@@ -42,6 +45,7 @@ async def timeline_alias() -> RedirectResponse:
 @router.get("/", response_class=HTMLResponse, response_model=None)
 async def home(
     request: Request,
+    session: Annotated[SessionRecord, Depends(current_user_required)],
     date: str | None = Query(default=None),
     app: str | None = Query(default=None),
     sort_by: str = Query(default=_DEFAULT_SORT),
@@ -95,12 +99,21 @@ async def home(
 
     grouped = _group_by_hour(shots)
 
+    # T29 — Mac-agent update/setup banner (same as /now) so it shows on the
+    # timeline home too, which is where the logo and many links land.
+    try:
+        agent_update = await mac_agent_update_prompt(session["user_id"])
+    except Exception as exc:  # never let this break the timeline
+        log.warning("timeline.agent_update_check_failed", error=str(exc))
+        agent_update = None
+
     return templates.TemplateResponse(
         request,
         "timeline.html",
         {
             "title": "Timeline",
             "active_nav": "timeline",
+            "agent_update": agent_update,
             "target_day": target_day,
             "prev_day": target_day - timedelta(days=1),
             "next_day": target_day + timedelta(days=1),
