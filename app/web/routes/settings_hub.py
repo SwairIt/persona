@@ -62,6 +62,32 @@ _CATEGORIES: Final[list[dict[str, object]]] = [
         ],
     },
     {
+        "title": "AI, чат и инструменты",
+        "icon": "🤖",
+        "description": "Чат с памятью, MCP-инструменты, workspace, датасет для своей модели.",
+        "pages": [
+            ("/chat", "Чат с памятью (беседы, модель-пикер, vision)"),
+            ("/ask", "Спросить — разовый вопрос по истории"),
+            ("/admin/mcp", "MCP-серверы и встроенные инструменты"),
+            ("/workspace", "Workspace — файлы, которые пишет AI"),
+            ("/admin/dataset", "Датасет Q&A для fine-tune PersonaAI"),
+            ("/settings/llm", "Провайдер + ключ LLM"),
+        ],
+    },
+    {
+        "title": "Устройства и синхронизация",
+        "icon": "📱",
+        "description": "Mac/iPhone агенты, выбор куда писать код, sync, хранилище.",
+        "pages": [
+            ("/devices", "Устройства (пауза, интервал, ★ код-таргет)"),
+            ("/welcome/install/mac", "Установить / обновить Mac-агент"),
+            ("/welcome", "Онбординг — подключить новое устройство"),
+            ("/sync", "Синхронизация — статус и watermark'и"),
+            ("/storage", "Хранилище — квоты, retention, очистка"),
+            ("/admin/agents", "Remote agents — токены ingest"),
+        ],
+    },
+    {
         "title": "Приложения и теги",
         "icon": "🏷",
         "description": "Алиасы, иконки, группы, retention per-app.",

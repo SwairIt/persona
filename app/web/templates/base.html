@@ -120,7 +120,16 @@
   </script>
 </head>
 <body data-compact="{{ _persona_compact }}" data-grayscale="{{ _persona_grayscale }}" data-reduce-motion="{{ _persona_reduce_motion }}" class="bg-zinc-50 text-zinc-900 dark:bg-ink-950 dark:text-zinc-100 min-h-screen font-sans antialiased transition-colors">
-  <header x-data="headerNav()" class="border-b border-ink-700 bg-ink-900/80 backdrop-blur sticky top-0 z-30">
+  {# v1.67 (T29) — headerNav scope wraps BOTH the header and the mobile
+     drawer. The drawer MUST live outside <header> because the header has
+     ``backdrop-blur`` (backdrop-filter), which establishes a containing
+     block for ``position: fixed`` descendants — so a ``fixed inset-0``
+     drawer nested inside it was sized to the header box (full width but
+     only ~60px tall), clipping the nav. Moving it out of the header (but
+     still inside this x-data wrapper) makes ``fixed`` resolve against the
+     viewport again, so the drawer fills the screen on phones. #}
+  <div x-data="headerNav()">
+  <header class="border-b border-ink-700 bg-ink-900/80 backdrop-blur sticky top-0 z-30">
     {# v1.17 — responsive shell:
        - <md: hamburger opens a full-screen drawer with all nav items
        - md..lg: core 5 nav + "More" dropdown
@@ -244,6 +253,7 @@
         </button>
       </div>
     </div>
+  </header>
 
     {# Mobile drawer — full-screen overlay with all nav + actions.
        v1.24.1: body-scroll lock when open via x-effect so iOS Safari
@@ -284,7 +294,7 @@
         </nav>
       </aside>
     </div>
-  </header>
+  </div>{# /headerNav wrapper #}
 
   <main class="max-w-7xl mx-auto px-6 py-8">
     {% block content %}{% endblock %}

@@ -34,6 +34,7 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 
 from app.auth import current_user_required
 from app.auth.sessions import SessionRecord
+from app.devices import list_devices, register_device, rotate_token
 from app.logging_setup import get_logger
 from app.remote_agents import create_agent
 from app.web.templates_engine import templates
@@ -43,16 +44,40 @@ log = get_logger("persona.install")
 
 # In-memory single-use install tokens. Wiped on restart — that's fine
 # because they live <10 minutes anyway. Maps install_id → (agent_token,
-# server_url, created_at_epoch).
-_PENDING: dict[str, tuple[str, str, float]] = {}
+# device_token, server_url, created_at_epoch).
+#   * agent_token  — bearer for /api/agent/* ingest (screenshots/audio)
+#   * device_token — X-Device-Token for /api/sync/* + /api/devices/heartbeat
+#                    + /api/workspace/sync (T28 code-write-target sync)
+_PENDING: dict[str, tuple[str, str, str, float]] = {}
 _TTL_SECONDS = 600  # 10 minutes — plenty of time to copy-paste
 
 
 def _purge_expired() -> None:
     now = time.time()
-    expired = [k for k, (_, _, t) in _PENDING.items() if now - t > _TTL_SECONDS]
+    expired = [k for k, (_, _, _, t) in _PENDING.items() if now - t > _TTL_SECONDS]
     for k in expired:
         _PENDING.pop(k, None)
+
+
+async def _ensure_mac_device(user_id: int) -> str:
+    """Return a fresh ``device_token`` for the user's Mac, provisioning the
+    sync identity the one-click install previously skipped.
+
+    Without this the installed agent only had the ingest ``token`` and the
+    T28 sync loops (heartbeat + workspace pull) self-disabled — the Mac
+    never showed on /devices and could not be a code-write-target. We
+    reuse the user's existing ``mac`` device row (rotating its token) so
+    the code-target selection survives a reinstall; otherwise we create
+    one.
+    """
+    devices = await list_devices(user_id)
+    mac = next((d for d in devices if d["kind"] == "mac"), None)
+    if mac is not None:
+        rotated = await rotate_token(user_id, mac["id"])
+        if rotated is not None:
+            return rotated["device_token"]
+    created = await register_device(user_id, name="Mac", kind="mac")
+    return created["device_token"]
 
 
 def _detect_public_url(request: Request) -> tuple[str, bool]:
@@ -130,18 +155,30 @@ async def install_mac_mint(
         log.exception("install.mac.mint_failed", error=str(exc))
         raise HTTPException(status_code=500, detail="failed to create agent") from exc
 
+    # T29 — also provision the sync identity (device_token) so the installed
+    # agent's heartbeat + workspace-sync loops actually run and the Mac
+    # becomes a real /devices entry that can be picked as code-write-target.
+    device_token = ""
+    if user_id:
+        try:
+            device_token = await _ensure_mac_device(int(user_id))
+        except Exception as exc:
+            # Non-fatal: ingest still works without it; sync just stays off.
+            log.warning("install.mac.device_provision_failed", error=str(exc))
+
     install_id = secrets.token_urlsafe(24)
     # Use the public URL so the token-bearing curl URL inside the script
     # itself also reaches the Mac. Falling back to the request URL would
     # bake ``localhost`` into config.json — the Mac agent would then try
     # to POST to its own loopback and silently 404.
     server_url, _is_local = _detect_public_url(request)
-    _PENDING[install_id] = (raw_token, server_url, time.time())
+    _PENDING[install_id] = (raw_token, device_token, server_url, time.time())
 
     log.info(
         "install.mac.minted",
         install_id_prefix=install_id[:6],
         user_id=user_id,
+        device_provisioned=bool(device_token),
     )
     return RedirectResponse(
         url=f"/welcome/install/mac?install_id={install_id}",
@@ -166,11 +203,12 @@ async def install_mac_script(t: str = Query(...)) -> PlainTextResponse:
             "# Install link expired. Refresh /welcome/install/mac to mint a new one.\n",
             status_code=410,
         )
-    agent_token, server_url, _ = record
+    agent_token, device_token, server_url, _ = record
 
     # Quote everything safely. Tokens are url-safe base64 so they're
     # already shell-safe, but treat as user input anyway.
     safe_token = agent_token.replace("'", "'\\''")
+    safe_device_token = device_token.replace("'", "'\\''")
     safe_url = server_url.replace("'", "'\\''")
 
     script = f"""#!/usr/bin/env bash
@@ -180,15 +218,19 @@ async def install_mac_script(t: str = Query(...)) -> PlainTextResponse:
 # This script:
 #   1. Clones the Persona repo to ~/persona  (or pulls if it exists)
 #   2. Creates a Python venv + installs requirements
-#   3. Writes mac-agent/config.json with your server URL and agent token
+#   3. Writes ~/.config/persona-agent.toml with server URL + tokens
 #   4. Registers a launchd plist so the agent starts at login
 #   5. Starts the agent immediately
+#
+# Re-running this command updates an existing install in place (git pull +
+# fresh config + agent restart) — it is both the installer and the updater.
 
 set -euo pipefail
 
 REPO_DIR="$HOME/persona"
 SERVER_URL='{safe_url}'
 AGENT_TOKEN='{safe_token}'
+DEVICE_TOKEN='{safe_device_token}'
 
 echo "→ Persona Mac installer"
 echo "  Server:  $SERVER_URL"
@@ -217,17 +259,32 @@ if [ -f requirements.txt ]; then
     ./.venv/bin/pip install --quiet -r requirements.txt
 fi
 
-# 3. Config
-echo "→ Writing config.json..."
-cat > config.json <<EOF
-{{
-  "server": {{
-    "url": "$SERVER_URL",
-    "token": "$AGENT_TOKEN"
-  }}
-}}
+# 3. Config — TOML at the canonical path the agent actually reads
+#    (~/.config/persona-agent.toml). device_token enables the T28
+#    workspace-sync + heartbeat loops; omitted if the server didn't mint one.
+echo "→ Writing config (~/.config/persona-agent.toml)..."
+mkdir -p "$HOME/.config"
+CONFIG_PATH="$HOME/.config/persona-agent.toml"
+cat > "$CONFIG_PATH" <<EOF
+[server]
+url = "$SERVER_URL"
+token = "$AGENT_TOKEN"
 EOF
-chmod 600 config.json
+if [ -n "$DEVICE_TOKEN" ]; then
+cat >> "$CONFIG_PATH" <<EOF
+device_token = "$DEVICE_TOKEN"
+EOF
+fi
+cat >> "$CONFIG_PATH" <<EOF
+
+[capture]
+screen = true
+audio = true
+
+[logging]
+level = "INFO"
+EOF
+chmod 600 "$CONFIG_PATH"
 
 # 4. launchd auto-start
 PLIST="$HOME/Library/LaunchAgents/com.swairit.persona-agent.plist"
@@ -244,6 +301,7 @@ cat > "$PLIST" <<EOF
     <array>
       <string>$REPO_DIR/mac-agent/.venv/bin/python</string>
       <string>$REPO_DIR/mac-agent/persona_agent.py</string>
+      <string>run</string>
     </array>
     <key>WorkingDirectory</key>
     <string>$REPO_DIR/mac-agent</string>

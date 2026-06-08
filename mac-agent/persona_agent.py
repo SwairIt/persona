@@ -50,6 +50,13 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger("persona_agent")
 
+# T29 (2026-06-08) — bump on every release that changes agent behaviour so
+# the server can detect outdated installs and surface an "update available"
+# banner. Reported in the User-Agent of every request (ingest + sync). Keep
+# in sync with ``LATEST_AGENT_VERSION`` in app/devices/agent_release.py.
+# 1.13 = T28 workspace sync loop (sync_workspace_loop + device_token).
+AGENT_VERSION = "1.13"
+
 
 # --------------------------------------------------------------------------- #
 # Logging
@@ -199,7 +206,7 @@ def _auth_headers(cfg: AgentConfig) -> dict[str, str]:
     """Bearer token + agent fingerprint headers used on every request."""
     return {
         "Authorization": f"Bearer {cfg.server.token.get_secret_value()}",
-        "User-Agent": f"persona-agent/1.12 ({platform.system()} {platform.release()})",
+        "User-Agent": f"persona-agent/{AGENT_VERSION} ({platform.system()} {platform.release()})",
     }
 
 

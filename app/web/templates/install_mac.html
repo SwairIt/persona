@@ -6,10 +6,13 @@
     <a href="/welcome" class="hover:text-accent-400">← к приветствию</a>
   </div>
   <h1 class="text-2xl sm:text-3xl font-bold tracking-tight mb-2">
-    🍎 Установка на Mac за один шаг
+    🍎 Установка / обновление Mac-агента за один шаг
   </h1>
-  <p class="text-zinc-400 text-sm mb-6">
+  <p class="text-zinc-400 text-sm mb-2">
     Откроет на твоём Mac: <code>git clone</code> + venv + установка зависимостей + автозапуск через <code>launchd</code>. Через 30 секунд скрины начнут появляться в ленте.
+  </p>
+  <p class="text-zinc-500 text-xs mb-6">
+    🔄 Это же действие <strong>обновляет</strong> уже установленный агент: повторный запуск делает <code>git pull</code>, переписывает конфиг (с токеном устройства для синхронизации кода) и перезапускает агент. Запускай его всякий раз, когда видишь баннер «Доступно обновление».
   </p>
 
   {% if is_local_only %}

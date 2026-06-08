@@ -52,6 +52,11 @@ log = logging.getLogger("persona.agent.sync")
 
 _TIMEOUT = 10.0  # seconds per HTTP call
 
+# T29 — report the agent version on every sync call (incl. heartbeat) so the
+# server stores it in ``device.user_agent`` and can flag outdated installs.
+# Keep in sync with ``AGENT_VERSION`` in persona_agent.py.
+_AGENT_VERSION = "1.13"
+
 
 @dataclass
 class SyncClient:
@@ -67,7 +72,7 @@ class SyncClient:
         return {
             "X-Device-Token": self.device_token,
             "Content-Type": "application/json",
-            "User-Agent": "persona-mac-agent",
+            "User-Agent": f"persona-mac-agent/{_AGENT_VERSION}",
         }
 
     async def _request(

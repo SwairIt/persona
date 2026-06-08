@@ -29,3 +29,6 @@ err.txt
 out.txt
 *.tmp.txt
 help.txt
+
+# Playwright MCP browser-tool output
+.playwright-mcp/

@@ -11,6 +11,12 @@ verbatim so every existing call site keeps working.
   * Storage quotas + sync filters → :mod:`app.devices.storage_policy`
 """
 
+from app.devices.agent_release import (
+    LATEST_AGENT_VERSION,
+    is_outdated_ua,
+    outdated_agent,
+    parse_agent_version,
+)
 from app.devices.core import (
     DeviceRow,
     delete_device,
@@ -66,4 +72,9 @@ __all__ = [
     "clear_code_write_target",
     "get_code_write_target",
     "set_code_write_target",
+    # T29 agent release / update detection
+    "LATEST_AGENT_VERSION",
+    "is_outdated_ua",
+    "outdated_agent",
+    "parse_agent_version",
 ]
