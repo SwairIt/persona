@@ -210,6 +210,28 @@ Start-Sleep -Seconds 14
 
 PID 130112 — древний orphan python (С 04.06), оставляй жить.
 
+### T29 — стабильность сервера (важно)
+
+Сайт «постоянно ложился». Причина: **сервер захватывал СВОЙ экран** (capture_loop
+каждые 6с) на headless Windows Server без консольной сессии → синхронные WinAPI
+вызовы (`seconds_since_last_input`, session-lock detect, `WTSGetActiveConsoleSessionId`)
+зависали и **блокировали event loop** → uvicorn жив, но не отвечает. Симптом в логе:
+`session.detect_failed reason=bind_failed` каждые 6с.
+
+Два фикса (оба применены):
+1. **Отключён self-capture сервера** через kv: `capture_screens_disabled=1` +
+   `audio_capture_paused_live=1` (в `kv_settings`). Захват с Mac-агента это НЕ трогает —
+   у него свой путь (`/api/agent/*`). Снять — через `/settings/capture` или kv. НЕ
+   включай self-capture обратно пока блокирующие WinAPI вызовы не обёрнуты в
+   `asyncio.to_thread` + timeout (иначе снова повесит loop на этой headless-коробке).
+2. **Watchdog** `ops/persona_watchdog.py` + Scheduled Task `PersonaWatchdog` (каждую
+   минуту, от текущего юзера): пробит `/landing`, если down/hung — убивает stale uvicorn
+   и поднимает свежий с ЯВНЫМ `PERSONA_DB_PATH`/`PERSONA_DATA_DIR` (никогда не пустая БД).
+   Лог: `~/.persona/watchdog.log`. Управление: `schtasks /Query|/Run|/Delete /TN PersonaWatchdog`.
+   Ограничение: задача от юзера = «только когда залогинен» (RDP-disconnect сессию держит,
+   logoff — останавливает). Для переживания ребута нужна SYSTEM-задача (нужны админ-права,
+   которых у текущей сессии нет).
+
 Smoke endpoints:
 ```powershell
 $sess = New-Object Microsoft.PowerShell.Commands.WebRequestSession
