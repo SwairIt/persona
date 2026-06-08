@@ -30,32 +30,88 @@ router = APIRouter(tags=["llm_models"])
 log = get_logger("persona.llm_models")
 
 
-# Default models per provider — shown when no kv override exists.
-_PROVIDER_DEFAULTS: dict[str, list[str]] = {
+# T24 — добавлены описания для каждой модели (показываются в picker'е).
+# Format: ``{provider: [(name, description), ...]}``
+_PROVIDER_DEFAULTS: dict[str, list[tuple[str, str]]] = {
     "anthropic": [
-        "claude-haiku-4-5",
-        "claude-sonnet-4-6",
-        "claude-opus-4-7",
+        ("claude-haiku-4-5", "быстрая, дешёвая, хороша для частых задач"),
+        ("claude-sonnet-4-6", "баланс скорость/качество, дефолт для большинства"),
+        ("claude-opus-4-7", "максимум интеллекта, медленнее и дороже"),
     ],
-    "openai": ["gpt-4o-mini", "gpt-4o", "o1-mini"],
-    "groq": ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"],
-    "gemini": ["gemini-2.0-flash", "gemini-1.5-pro"],
-    "yandex": ["yandexgpt-lite/latest", "yandexgpt/latest"],
-    "gigachat": ["GigaChat", "GigaChat-Pro", "GigaChat-Max"],
-    "deepseek": ["deepseek-chat", "deepseek-reasoner"],
+    "openai": [
+        ("gpt-4o-mini", "дешёвая, быстрая, видит картинки"),
+        ("gpt-4o", "флагман OpenAI, multimodal"),
+        ("o1-mini", "reasoning модель — медленно но качественно для логики"),
+    ],
+    "groq": [
+        ("llama-3.3-70b-versatile", "Llama 70B на ультра-быстром инференсе Groq"),
+        ("llama-3.1-8b-instant", "Llama 8B, мгновенный ответ"),
+    ],
+    "gemini": [
+        ("gemini-2.0-flash", "быстрая, бесплатная (1500 req/день), видит картинки"),
+        ("gemini-1.5-pro", "более качественная, 1M контекста"),
+    ],
+    "yandex": [
+        ("yandexgpt-lite/latest", "дешёвая лайт-версия от Яндекса"),
+        ("yandexgpt/latest", "полная версия, качественный русский"),
+    ],
+    "gigachat": [
+        ("GigaChat", "free tier 1М токенов/мес, базовая"),
+        ("GigaChat-Pro", "лучше качество, платно"),
+        ("GigaChat-Max", "флагман Сбера"),
+    ],
+    "deepseek": [
+        ("deepseek-chat", "дешёвый и хороший в общем, $0.14/1M"),
+        ("deepseek-reasoner", "reasoning модель — показывает мысли, медленнее"),
+    ],
     "openrouter": [
-        "meta-llama/llama-3.1-8b-instruct:free",
-        "anthropic/claude-3.5-sonnet",
-        "openai/gpt-4o",
+        ("meta-llama/llama-3.1-8b-instruct:free", "бесплатная Llama 8B на OpenRouter"),
+        ("anthropic/claude-3.5-sonnet", "Claude через OpenRouter"),
+        ("openai/gpt-4o", "GPT-4o через OpenRouter"),
     ],
-    "mistral": ["mistral-small-latest", "mistral-large-latest"],
+    "mistral": [
+        ("mistral-small-latest", "small — дёшево и быстро, EU"),
+        ("mistral-large-latest", "флагман Mistral"),
+    ],
     "together": [
-        "meta-llama/Llama-3.1-8B-Instruct-Turbo",
-        "meta-llama/Llama-3.1-70B-Instruct-Turbo",
+        ("meta-llama/Llama-3.1-8B-Instruct-Turbo", "Llama 8B на Together"),
+        ("meta-llama/Llama-3.1-70B-Instruct-Turbo", "Llama 70B — мощно"),
     ],
-    "xai": ["grok-4", "grok-3"],
-    "proxyapi": ["gpt-4o-mini", "gpt-4o", "claude-3-5-sonnet-20241022"],
-    "aitunnel": ["gpt-4o-mini", "gpt-4o"],
+    "xai": [
+        ("grok-4", "флагман Илона, multimodal"),
+        ("grok-3", "старая версия"),
+    ],
+    "proxyapi": [
+        ("gpt-4o-mini", "через РФ-шлюз ProxyAPI"),
+        ("gpt-4o", "GPT-4o через РФ-шлюз"),
+        ("claude-3-5-sonnet-20241022", "Claude 3.5 через ProxyAPI"),
+    ],
+    "aitunnel": [
+        ("gpt-4o-mini", "через РФ-шлюз AITunnel"),
+        ("gpt-4o", "GPT-4o через AITunnel"),
+    ],
+}
+
+# T24 — Ollama installed-model description map. Lookup by model name.
+_OLLAMA_DESCRIPTIONS: dict[str, str] = {
+    "qwen2.5:1.5b": "крошечная, быстрая, для простых задач",
+    "qwen2.5:3b": "малая, быстрая, базовая",
+    "qwen2.5:7b": "топ по тексту/коду для твоего железа, без vision",
+    "qwen2.5vl:3b": "vision + русский, средний баланс",
+    "qwen2.5vl:7b": "топ vision на 1050 Ti, медленно (~60с)",
+    "llama3.2:1b": "крошечная Llama, мгновенно",
+    "llama3.2:3b": "малая Llama",
+    "llama3.2:8b": "Llama 8B",
+    "moondream:latest": "крошечный vision (1B), быстрый, английский",
+    "moondream:1.8b": "vision 1.8B, быстро",
+    "llava:7b": "vision Llama-based",
+    "llava:13b": "vision 13B, мощно но тяжко",
+    "phi3:mini": "Microsoft Phi-3 mini (3.8B), сильный для размера",
+    "gemma3:4b": "Google Gemma 3, multimodal (в Ollama пока без vision)",
+    "deepseek-r1:1.5b": "тот reasoning модель малая",
+    "deepseek-r1:7b": "reasoning модель — показывает мысли",
+    "mistral:7b": "Mistral 7B, баланс",
+    "saiga:8b": "Llama дообученная на русском",
 }
 
 
@@ -139,21 +195,26 @@ async def list_models(
         if slug == "ollama":
             endpoint = ollama_endpoint or "http://localhost:11434"
             ollama_models = await _list_ollama_models(endpoint)
+            # T24 — attach descriptions to Ollama installed models
+            for m in ollama_models:
+                m["description"] = _OLLAMA_DESCRIPTIONS.get(
+                    str(m.get("name", "")), ""
+                )
             models_struct = ollama_models
             configured = bool(ollama_models)
         else:
-            # T22.10 — for cloud providers, mark known vision models so
-            # picker shows badge consistently. Heuristic same as Ollama.
+            # T24 — cloud provider defaults now ship with descriptions.
             defaults = _PROVIDER_DEFAULTS.get(slug, [])
             models_struct = [
                 {
-                    "name": m,
-                    "vision": any(kw in m.lower() for kw in (
+                    "name": name,
+                    "description": desc,
+                    "vision": any(kw in name.lower() for kw in (
                         "vision", "vl", "4o", "claude", "gemini",
-                        "sonnet", "opus", "grok",
+                        "sonnet", "opus", "grok", "haiku",
                     )),
                 }
-                for m in defaults
+                for name, desc in defaults
             ]
             configured = provider_keys.get(slug, False)
         providers_out.append({

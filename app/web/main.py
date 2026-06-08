@@ -398,6 +398,7 @@ from app.web.routes import (
     install as install_routes,
     llm_models as llm_models_routes,
     dataset_admin as dataset_admin_routes,
+    mcp_admin as mcp_admin_routes,
 )
 from app.workers import (
     get_controller,
@@ -814,6 +815,7 @@ def create_app() -> FastAPI:
     app.include_router(install_routes.router)
     app.include_router(llm_models_routes.router)
     app.include_router(dataset_admin_routes.router)
+    app.include_router(mcp_admin_routes.router)
     app.include_router(sticky_search_routes.router)
     app.include_router(audit_replay_routes.router)
     app.include_router(tag_gallery_routes.router)

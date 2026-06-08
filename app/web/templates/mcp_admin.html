@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="max-w-3xl mx-auto px-4 sm:px-6 py-6">
+  <header class="mb-6">
+    <h1 class="text-2xl font-bold tracking-tight">🔌 MCP серверы</h1>
+    <p class="text-sm text-zinc-500 mt-1">
+      Model Context Protocol — стандарт Anthropic для подключения к моделям инструментов (файлы, шелл, гит, поиск). Здесь — реестр серверов.
+    </p>
+  </header>
+
+  {# --- STATUS BANNER --- #}
+  <section class="mb-6 rounded-lg border border-amber-500/40 bg-amber-500/5 p-4 text-sm">
+    <h2 class="font-semibold text-amber-300 mb-2">⚠️ Готовность к запуску</h2>
+    <p class="text-zinc-300 mb-2">
+      Реестр серверов готов. Запуск MCP-runtime (subprocess + JSON-RPC мост) — следующий тик. Пока ты можешь:
+    </p>
+    <ul class="text-xs text-zinc-400 list-disc list-inside space-y-1">
+      <li>Включить тех серверов которые тебе нужны (filesystem на D:\, git, brave-search)</li>
+      <li>Поправить команду запуска под свои пути (например, поменять D:\Projects на свой)</li>
+      <li>Установить Node.js + npm на машине (для большинства MCP-серверов нужны)</li>
+    </ul>
+    <p class="text-xs text-zinc-400 mt-2">
+      Когда я доделаю runtime — твои настройки сразу подхватятся.
+    </p>
+  </section>
+
+  {# --- SERVERS TABLE --- #}
+  <section class="mb-6 space-y-3">
+    {% for s in servers %}
+      <div class="rounded-lg border {% if s.enabled %}border-emerald-500/40 bg-emerald-500/5{% else %}border-zinc-300 dark:border-ink-700 bg-white dark:bg-ink-900{% endif %} p-4">
+        <div class="flex items-start justify-between gap-3 mb-2">
+          <div class="min-w-0">
+            <h3 class="font-semibold text-sm">{{ s.name }}</h3>
+            <p class="text-xs text-zinc-500 mt-0.5">{{ s.description }}</p>
+          </div>
+          <form method="post" action="/admin/mcp/toggle" class="shrink-0">
+            <input type="hidden" name="server_id" value="{{ s.id }}">
+            <input type="hidden" name="enabled" value="{{ '0' if s.enabled else '1' }}">
+            <button type="submit"
+                    class="px-3 py-1 text-xs rounded font-mono
+                           {% if s.enabled %}bg-emerald-500/20 text-emerald-300{% else %}bg-zinc-500/20 text-zinc-400{% endif %}">
+              {% if s.enabled %}включён{% else %}выключен{% endif %}
+            </button>
+          </form>
+        </div>
+        <form method="post" action="/admin/mcp/edit" class="flex gap-2 mt-2">
+          <input type="hidden" name="server_id" value="{{ s.id }}">
+          <input type="text" name="command" value="{{ s.command }}"
+                 class="flex-1 px-2 py-1.5 rounded border border-zinc-300 dark:border-ink-700 bg-zinc-50 dark:bg-ink-800 text-xs font-mono">
+          <button type="submit"
+                  class="px-3 py-1.5 text-xs rounded bg-accent-600 hover:bg-accent-500 text-white">
+            ✓
+          </button>
+        </form>
+        <form method="post" action="/admin/mcp/delete" class="mt-2 text-right"
+              onsubmit="return confirm('Удалить {{ s.name }}?')">
+          <input type="hidden" name="server_id" value="{{ s.id }}">
+          <button type="submit" class="text-[10px] text-zinc-500 hover:text-rose-400">
+            удалить
+          </button>
+        </form>
+      </div>
+    {% endfor %}
+  </section>
+
+  {# --- ADD NEW --- #}
+  <section class="rounded-lg border border-purple-500/40 bg-purple-500/5 p-4">
+    <h2 class="text-sm font-semibold text-purple-300 mb-3">➕ Добавить свой MCP-сервер</h2>
+    <form method="post" action="/admin/mcp/add" class="space-y-2">
+      <input type="text" name="name" placeholder="Название (slug)" required
+             class="w-full px-3 py-2 rounded border border-zinc-300 dark:border-ink-700 bg-zinc-50 dark:bg-ink-800 text-sm">
+      <input type="text" name="description" placeholder="Описание что делает"
+             class="w-full px-3 py-2 rounded border border-zinc-300 dark:border-ink-700 bg-zinc-50 dark:bg-ink-800 text-sm">
+      <input type="text" name="command" placeholder="Команда запуска (npx -y @modelcontextprotocol/server-...)" required
+             class="w-full px-3 py-2 rounded border border-zinc-300 dark:border-ink-700 bg-zinc-50 dark:bg-ink-800 text-xs font-mono">
+      <button type="submit"
+              class="px-4 py-2 rounded bg-purple-600 hover:bg-purple-500 text-white text-sm">
+        Добавить
+      </button>
+    </form>
+  </section>
+
+  {# --- READ MORE --- #}
+  <section class="mt-6 text-xs text-zinc-500">
+    Каталог готовых MCP-серверов:
+    <a href="https://github.com/modelcontextprotocol/servers" class="text-accent-400 underline" target="_blank">
+      github.com/modelcontextprotocol/servers
+    </a>
+  </section>
+</div>
+{% endblock %}

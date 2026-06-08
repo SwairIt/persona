@@ -40,28 +40,51 @@ from app.web.templates_engine import templates
 router = APIRouter(tags=["chat"])
 log = get_logger("persona.chat.routes")
 
+
+async def _find_vision_model_for_provider(provider: str | None) -> str | None:
+    """T24 — return the first vision-capable installed model for the
+    given provider, or None if none available. Used by auto-switch when
+    user attaches an image but is currently on a text-only model."""
+    if not provider:
+        return None
+    if provider != "ollama":
+        # For cloud providers we don't auto-swap; their picker default
+        # is usually multimodal (gpt-4o, gemini, claude all see images).
+        return None
+    from app.storage.db import get_connection  # noqa: PLC0415
+    from app.storage.repository import get_kv  # noqa: PLC0415
+    import httpx  # noqa: PLC0415
+
+    async with get_connection() as conn:
+        endpoint = (await get_kv(conn, "byo_api_key_ollama") or "").strip()
+    endpoint = endpoint or "http://localhost:11434"
+    try:
+        async with httpx.AsyncClient(timeout=4.0) as cli:
+            resp = await cli.get(endpoint.rstrip("/") + "/api/tags")
+            if resp.status_code != 200:
+                return None
+            data = resp.json()
+    except Exception:
+        return None
+    for m in data.get("models", []):
+        name = str(m.get("name", ""))
+        if any(kw in name.lower() for kw in ("vl", "vision", "llava", "moondream")):
+            return name
+    return None
+
 _SYSTEM_PROMPT_RU = (
-    "Ты — Persona, личный AI-помощник пользователя. "
-    "Главное правило: будь точным. Если знаешь — отвечай уверенно и "
-    "конкретно. Если не уверен — честно скажи: «не знаю» или «не уверен», "
-    "но не выдумывай факты, имена, даты, цитаты. "
-    "Других ограничений у тебя нет: помогай со всем что попросят — "
-    "анализом, советами, кодом, идеями, описанием картинок, переводом, "
-    "обсуждением жизни. Используй контекст беседы. Отвечай по-русски "
-    "(если пользователь не пишет на другом языке) — естественно, без "
-    "лишних оговорок и дисклеймеров."
+    "Ты — личный AI этого пользователя. Будь полезным. Не ври. "
+    "Если не уверен — скажи «не уверен». Делай что просят: код, "
+    "идеи, описания картинок, разговоры, переводы — без отговорок "
+    "«я просто ассистент». Используй контекст беседы. Отвечай "
+    "по-русски (если не на другом языке). Без лишних дисклеймеров."
 )
 
-# T22.7 (2026-06-08) — когда есть картинка, явный prompt про vision
-# чтобы модель не отказывалась под предлогом 'я не выдумываю'.
 _SYSTEM_PROMPT_VISION = (
-    "Ты — Persona с компьютерным зрением. К сообщению пользователя "
-    "прикреплено изображение — рассмотри его и опиши что видишь. "
-    "Будь точным: если что-то нечитаемо или непонятно — скажи. "
-    "Не отказывайся от описания: это твоя основная функция. "
-    "Других ограничений у тебя нет. Отвечай по-русски (если "
-    "пользователь не пишет на другом языке) — естественно, без "
-    "лишних дисклеймеров."
+    "Ты — личный AI с компьютерным зрением. К сообщению прикреплено "
+    "изображение — рассмотри и опиши что видишь. Будь точным; если "
+    "что-то нечитаемо — скажи. Не отказывайся от описания. Делай что "
+    "просят. Не ври. Отвечай по-русски (если не на другом языке)."
 )
 
 
@@ -353,8 +376,17 @@ async def api_send_stream(
     transcript = "\n".join(
         f"[{turn['role']}] {turn['content']}" for turn in history
     )
-    # T22.7 — vision-friendly prompt when image attached.
-    base_prompt = _SYSTEM_PROMPT_VISION if image_data_url else _SYSTEM_PROMPT_RU
+    # T24 — per-session custom prompt (column thread.custom_system_prompt).
+    # If user set their own "роль" for this session — use it verbatim,
+    # else default. Vision-aware variant still applies when image present.
+    custom_prompt = (thread.get("custom_system_prompt") or "").strip() if isinstance(thread, dict) else ""
+    if custom_prompt:
+        base_prompt = custom_prompt + (
+            "\nНа этой странице к сообщению прикреплено изображение — "
+            "рассмотри его внимательно." if image_data_url else ""
+        )
+    else:
+        base_prompt = _SYSTEM_PROMPT_VISION if image_data_url else _SYSTEM_PROMPT_RU
     system_with_history = (
         f"{base_prompt}\n\nПредыдущие сообщения (для контекста):\n{transcript}"
         if transcript else base_prompt
@@ -374,19 +406,36 @@ async def api_send_stream(
             )
             return
 
-        # T22.10 (2026-06-08) — actually use the session-pinned model.
-        # Before this, the picker wrote {provider}_model to kv but other
-        # actions (saving /settings/llm, etc) could overwrite it. Force
-        # the inner client to use thread.model if set, regardless of
-        # current global kv state.
-        if thread.get("model"):
+        # T22.10 — actually use the session-pinned model.
+        chosen_model = thread.get("model")
+
+        # T24 — auto-switch to vision-capable model when image attached.
+        # Heuristic: if user attached image and current model name doesn't
+        # contain a vision marker (vl/vision/llava/moondream/vlava), look
+        # in the same provider's installed models for one that does and
+        # use it for THIS turn only. User's saved model preference stays
+        # untouched.
+        if image_data_url and chosen_model:
+            if not any(kw in chosen_model.lower() for kw in (
+                "vl", "vision", "llava", "moondream",
+            )):
+                vision_model = await _find_vision_model_for_provider(thread.get("provider"))
+                if vision_model:
+                    log.info(
+                        "chat.stream.auto_vision_swap",
+                        from_model=chosen_model,
+                        to_model=vision_model,
+                    )
+                    chosen_model = vision_model
+
+        if chosen_model:
             inner_obj = getattr(client, "_inner", client)
             if hasattr(inner_obj, "_model"):
-                inner_obj._model = thread["model"]
+                inner_obj._model = chosen_model
                 log.info(
                     "chat.stream.session_model_pin",
                     session_id=session_id,
-                    pinned_model=thread["model"],
+                    pinned_model=chosen_model,
                 )
 
         t_start = time.perf_counter()
@@ -588,6 +637,125 @@ async def api_set_model(
             await set_kv(conn, "llm_provider", provider)
             await set_kv(conn, "byo_api_provider", provider)
     return JSONResponse({"ok": True, "provider": provider, "model": model or None})
+
+
+@router.post("/api/chat/compare", response_class=JSONResponse)
+async def api_compare_models(
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+    body: Annotated[dict[str, Any], Body(default_factory=dict)],
+) -> JSONResponse:
+    """T24 — run the same question through N models in parallel.
+    Returns ``[{provider, model, answer, elapsed_ms, error?}, ...]``.
+
+    Body: ``{"question": str, "image_data_url": str|null,
+             "models": [{provider, model}, ...]}``
+    """
+    import asyncio  # noqa: PLC0415
+    import time  # noqa: PLC0415
+    from app.llm.client import (  # noqa: PLC0415
+        CompletionRequest,
+        LLMNotConfigured,
+        make_client,
+    )
+
+    question = str(body.get("question") or "").strip()
+    image_data_url = str(body.get("image_data_url") or "") or None
+    models = body.get("models") or []
+    if not question and not image_data_url:
+        raise HTTPException(status_code=400, detail="question or image required")
+    if not isinstance(models, list) or not models:
+        raise HTTPException(status_code=400, detail="models list required")
+    if len(models) > 4:
+        raise HTTPException(status_code=400, detail="max 4 models in compare")
+
+    base_prompt = _SYSTEM_PROMPT_VISION if image_data_url else _SYSTEM_PROMPT_RU
+
+    async def one(provider: str, model: str) -> dict[str, Any]:
+        try:
+            client = make_client(kind="chat_compare")
+        except LLMNotConfigured as exc:
+            return {"provider": provider, "model": model, "answer": "", "error": str(exc)}
+        inner_obj = getattr(client, "_inner", client)
+        if hasattr(inner_obj, "_model"):
+            inner_obj._model = model
+        req = CompletionRequest(
+            system=base_prompt,
+            user=question or "Опиши прикреплённую картинку.",
+            temperature=0.7,
+            max_tokens=512,
+            image_data_url=image_data_url,
+        )
+        t0 = time.perf_counter()
+        try:
+            ans = await client.complete(req)
+            return {
+                "provider": provider,
+                "model": model,
+                "answer": ans,
+                "elapsed_ms": int((time.perf_counter() - t0) * 1000),
+            }
+        except Exception as exc:
+            return {
+                "provider": provider,
+                "model": model,
+                "answer": "",
+                "elapsed_ms": int((time.perf_counter() - t0) * 1000),
+                "error": str(exc)[:300],
+            }
+
+    tasks = [
+        one(str(m.get("provider", "")), str(m.get("model", "")))
+        for m in models if isinstance(m, dict)
+    ]
+    results = await asyncio.gather(*tasks)
+    return JSONResponse({"results": results})
+
+
+@router.post("/api/chat/sessions/{session_id}/system-prompt", response_class=JSONResponse)
+async def api_set_system_prompt(
+    session_id: int,
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+    body: Annotated[dict[str, Any], Body(default_factory=dict)],
+) -> JSONResponse:
+    """T24 — set the per-session 'role' / custom system prompt. Empty
+    string clears it (back to default)."""
+    text = str(body.get("prompt") or "").strip()
+    thread = await get_session(session["user_id"], session_id)
+    if thread is None:
+        raise HTTPException(status_code=404)
+    from app.storage.db import get_connection  # noqa: PLC0415
+    async with get_connection() as conn:
+        await conn.execute(
+            "UPDATE chat_session SET custom_system_prompt = ?, "
+            "                        updated_at = datetime('now') "
+            "WHERE id = ? AND user_id = ?",
+            (text or None, session_id, session["user_id"]),
+        )
+        await conn.commit()
+    return JSONResponse({"ok": True, "prompt": text or None})
+
+
+@router.post("/api/chat/messages/{message_id}/rate", response_class=JSONResponse)
+async def api_rate_message(
+    message_id: int,
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+    body: Annotated[dict[str, Any], Body(default_factory=dict)],
+) -> JSONResponse:
+    """T24 — set 👍/👎 on an assistant message. Lookups the
+    training_dataset row that points at this message_id and stamps
+    rating there too, so the dataset reflects user judgment."""
+    rating = int(body.get("rating") or 0)
+    if rating not in (-1, 0, 1):
+        raise HTTPException(status_code=400, detail="rating must be -1, 0, or 1")
+    from app.storage.db import get_connection  # noqa: PLC0415
+    async with get_connection() as conn:
+        cursor = await conn.execute(
+            "UPDATE training_dataset SET rating = ? WHERE asst_message_id = ?",
+            (rating, message_id),
+        )
+        await conn.commit()
+        affected = cursor.rowcount
+    return JSONResponse({"ok": True, "rating": rating, "rows_updated": affected})
 
 
 @router.post("/api/chat/sessions/{session_id}/rename", response_class=JSONResponse)

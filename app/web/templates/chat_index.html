@@ -59,6 +59,11 @@
         </div>
 
         <div class="flex gap-3 shrink-0 text-xs">
+          <button type="button" @click="setSystemPrompt()"
+                  class="text-zinc-500 hover:text-purple-400"
+                  :title="customSystemPrompt || 'задать свою роль (system prompt)'">
+            🎭 роль{% if active_session.custom_system_prompt %}*{% endif %}
+          </button>
           {% if active_session.summary %}
             <button type="button" @click="showSummary = !showSummary"
                     class="text-zinc-500 hover:text-accent-400">
@@ -123,9 +128,22 @@
                   <span x-text="msg.content"></span>
                 </template>
               </div>
-              <template x-if="msg.role === 'assistant' && msg.elapsed_ms">
-                <div class="text-[11px] text-zinc-500 mt-2 flex items-center gap-2 font-mono">
-                  <span x-text="formatTime(msg.elapsed_ms)"></span>
+              <template x-if="msg.role === 'assistant'">
+                <div class="mt-2 flex items-center gap-3 text-[11px] text-zinc-500 font-mono">
+                  {# 👍/👎 + meta — единая полоса под assistant ответом #}
+                  <button type="button" @click="rateMessage(msg, 1)"
+                          :class="msg.rating === 1 ? 'text-emerald-400' : 'text-zinc-500 hover:text-emerald-400'"
+                          title="хорошо — в датасет для PersonaAI">
+                    👍
+                  </button>
+                  <button type="button" @click="rateMessage(msg, -1)"
+                          :class="msg.rating === -1 ? 'text-rose-400' : 'text-zinc-500 hover:text-rose-400'"
+                          title="плохо — фильтровать из датасета">
+                    👎
+                  </button>
+                  <template x-if="msg.elapsed_ms">
+                    <span x-text="formatTime(msg.elapsed_ms)"></span>
+                  </template>
                   <template x-if="msg.input_tokens || msg.output_tokens">
                     <span>·
                       <span x-text="(msg.input_tokens || 0) + ' → ' + (msg.output_tokens || 0) + ' ток.'"></span>
@@ -179,6 +197,12 @@
                 📎
               </label>
 
+              <button type="button" @click="compareModels()"
+                      class="px-2 py-1.5 rounded-lg hover:bg-ink-700 text-zinc-400 text-xs"
+                      title="спросить 3 модели одновременно — сравнить ответы">
+                ⚖
+              </button>
+
               {# T22.1 model picker — now lives in composer like Claude does #}
               <div class="relative" @click.outside="modelPickerOpen = false">
                 <button type="button"
@@ -200,13 +224,18 @@
                       <template x-for="m in prov.models" :key="(m.name || m)">
                         <button type="button"
                                 @click="pickModel(prov.slug, (m.name || m))"
+                                :title="m.description || ''"
                                 :class="(prov.slug === current.provider && (m.name || m) === current.model) ? 'bg-accent-600/20 text-accent-300' : 'hover:bg-ink-800 text-zinc-300'"
-                                class="flex w-full items-center justify-between px-3 py-1.5 text-xs font-mono">
-                          <span class="truncate">
-                            <span x-text="(m.name || m)"></span>
-                            <span x-show="m.vision" class="ml-1.5 text-amber-400" title="видит картинки">👁</span>
-                          </span>
-                          <span x-show="prov.slug === current.provider && (m.name || m) === current.model" class="text-emerald-400">●</span>
+                                class="block w-full text-left px-3 py-1.5 text-xs">
+                          <div class="flex items-center justify-between">
+                            <span class="truncate font-mono">
+                              <span x-text="(m.name || m)"></span>
+                              <span x-show="m.vision" class="ml-1.5 text-amber-400" title="видит картинки">👁</span>
+                            </span>
+                            <span x-show="prov.slug === current.provider && (m.name || m) === current.model" class="text-emerald-400">●</span>
+                          </div>
+                          <div x-show="m.description" class="text-[10px] text-zinc-500 mt-0.5 font-sans truncate"
+                               x-text="m.description"></div>
                         </button>
                       </template>
                       <template x-if="!prov.models.length">
@@ -237,6 +266,45 @@
       </div>
     {% endif %}
   </main>
+
+  {# T24 — Compare mode: показывает ответы 3 моделей рядом #}
+  <div x-show="compareOpen" x-cloak
+       @keydown.escape.window="compareOpen = false"
+       class="fixed inset-0 z-40 bg-black/80 backdrop-blur p-4 overflow-y-auto">
+    <div class="max-w-6xl mx-auto py-6">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-xl font-bold">⚖ Сравнение моделей</h2>
+        <button type="button" @click="compareOpen = false"
+                class="text-white/70 hover:text-white text-2xl">✕</button>
+      </div>
+      <template x-if="compareLoading">
+        <div class="text-center text-zinc-400 py-12">
+          <span class="inline-block w-2 h-2 rounded-full bg-accent-400 animate-pulse mr-2"></span>
+          опрашиваю модели…
+        </div>
+      </template>
+      <div x-show="!compareLoading" class="grid grid-cols-1 lg:grid-cols-3 gap-3">
+        <template x-for="r in compareResults" :key="r.provider + r.model">
+          <div class="rounded-lg border border-ink-700 bg-ink-900 p-4 flex flex-col">
+            <div class="flex items-center justify-between mb-2 pb-2 border-b border-ink-700">
+              <div class="text-xs font-mono">
+                <div class="font-semibold" x-text="r.model"></div>
+                <div class="text-[10px] text-zinc-500" x-text="r.provider + (r.elapsed_ms ? ' · ' + (r.elapsed_ms / 1000).toFixed(1) + 'с' : '')"></div>
+              </div>
+              <button type="button"
+                      @click="this.question = r.answer; compareOpen = false;"
+                      class="text-[10px] text-emerald-400 hover:text-emerald-300 ml-2"
+                      title="взять этот ответ как свой и продолжить">
+                выбрать ↑
+              </button>
+            </div>
+            <div class="flex-1 text-sm prose prose-invert prose-sm max-w-none"
+                 x-html="r.error ? ('<p class=\'text-rose-400\'>' + r.error + '</p>') : renderMd(r.answer)"></div>
+          </div>
+        </template>
+      </div>
+    </div>
+  </div>
 
   {# T22.8 — Click-to-zoom lightbox для прикреплённых картинок. Открывается
      при клике на thumbnail в user-message. Закрывается на клик по фону
@@ -275,6 +343,12 @@
 
       // T22.8 — lightbox для increasing картинки в чате (Claude-style)
       lightboxImage: null,
+
+      // T24
+      customSystemPrompt: '{{ (active_session.custom_system_prompt or "") | replace("'", "\\'") | safe if active_session else "" }}',
+      compareOpen: false,
+      compareLoading: false,
+      compareResults: [],
 
       get currentModelLabel() {
         if (this.current.model) return this.current.model;
@@ -332,8 +406,84 @@
       },
 
       renderMd(text) {
-        try { return marked.parse(text || ''); }
+        try {
+          // T24 — обработать <think>...</think> блоки (reasoning models).
+          // Заменяем на details/summary collapsible перед marked.
+          let preprocessed = (text || '').replace(
+            /<think>([\s\S]*?)<\/think>/g,
+            (_, inner) => `\n<details class="think-block"><summary>💭 Рассуждения</summary>\n\n${inner.trim()}\n\n</details>\n`
+          );
+          return marked.parse(preprocessed);
+        }
         catch (e) { return (text || '').replace(/[<>]/g, c => c === '<' ? '&lt;' : '&gt;'); }
+      },
+
+      async rateMessage(msg, rating) {
+        if (!msg.id || msg.id < 1e9 && msg.id > 0) {
+          // valid DB id (not optimistic UI placeholder)
+        }
+        // Toggle: re-click same rating clears it
+        const newRating = msg.rating === rating ? 0 : rating;
+        msg.rating = newRating;
+        try {
+          await fetch(`/api/chat/messages/${msg.id}/rate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ rating: newRating }),
+          });
+        } catch (e) { /* silent */ }
+      },
+
+      async setSystemPrompt() {
+        const next = prompt('Своя роль для этой беседы (пусто = сбросить):', this.customSystemPrompt || '');
+        if (next === null) return;
+        try {
+          await fetch(`/api/chat/sessions/${this.sessionId}/system-prompt`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt: next }),
+          });
+          this.customSystemPrompt = next.trim();
+        } catch (e) { alert(e); }
+      },
+
+      async compareModels() {
+        if (!this.question.trim() && !this.attachedImage) return;
+        const text = this.question.trim();
+        const image = this.attachedImage;
+
+        // Pick top 3 configured models for compare
+        if (!this.availableProviders.length) await this.openModelPicker();
+        const candidates = [];
+        for (const prov of this.availableProviders) {
+          if (!prov.configured || !prov.models.length) continue;
+          for (const m of prov.models) {
+            candidates.push({ provider: prov.slug, model: (m.name || m) });
+            if (candidates.length >= 3) break;
+          }
+          if (candidates.length >= 3) break;
+        }
+        if (!candidates.length) { alert('Нет настроенных провайдеров'); return; }
+
+        this.compareOpen = true;
+        this.compareLoading = true;
+        this.compareResults = [];
+        try {
+          const r = await fetch('/api/chat/compare', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              question: text || 'Опиши прикреплённую картинку',
+              image_data_url: image,
+              models: candidates,
+            }),
+          });
+          if (r.ok) {
+            const data = await r.json();
+            this.compareResults = data.results || [];
+          }
+        } catch (e) { alert(e); }
+        this.compareLoading = false;
       },
 
       formatTime(ms) {
@@ -536,23 +686,79 @@
 </script>
 
 <style>
-  /* Tailwind prose-invert tweaks for chat bubbles */
-  .prose-sm pre {
-    background: #0f1115;
-    border: 1px solid #2a2f3a;
-    border-radius: 6px;
-    padding: 0.6rem 0.8rem;
+  /* T24 — улучшенный prose стиль, ближе к Claude */
+  .prose-base, .prose-sm {
+    color: #e4e4e7;
+  }
+  .prose-base h1, .prose-sm h1 { font-size: 1.4em; font-weight: 700; margin: 0.8em 0 0.4em; color: #fff; }
+  .prose-base h2, .prose-sm h2 { font-size: 1.2em; font-weight: 700; margin: 0.7em 0 0.3em; color: #fff; border-bottom: 1px solid #2a2f3a; padding-bottom: 0.2em; }
+  .prose-base h3, .prose-sm h3 { font-size: 1.05em; font-weight: 600; margin: 0.6em 0 0.2em; color: #fff; }
+  .prose-base p, .prose-sm p { margin: 0.5em 0; line-height: 1.6; }
+  .prose-base ul, .prose-sm ul { margin: 0.5em 0; padding-left: 1.4em; list-style: disc; }
+  .prose-base ol, .prose-sm ol { margin: 0.5em 0; padding-left: 1.4em; list-style: decimal; }
+  .prose-base li, .prose-sm li { margin: 0.15em 0; }
+  .prose-base ul ul, .prose-sm ul ul { list-style: circle; }
+  .prose-base ul ul ul, .prose-sm ul ul ul { list-style: square; }
+
+  .prose-base pre, .prose-sm pre {
+    background: #0a0d12;
+    border: 1px solid #1f2430;
+    border-radius: 8px;
+    padding: 0.8rem 1rem;
     overflow-x: auto;
-    font-size: 0.75rem;
-  }
-  .prose-sm code {
-    background: #1c2129;
-    padding: 0.1rem 0.3rem;
-    border-radius: 3px;
     font-size: 0.85em;
+    line-height: 1.5;
+    margin: 0.8em 0;
   }
-  .prose-sm pre code { background: transparent; padding: 0; }
-  .prose-sm p { margin: 0.4em 0; }
-  .prose-sm ul, .prose-sm ol { margin: 0.4em 0; padding-left: 1.4em; }
+  .prose-base code, .prose-sm code {
+    background: #1c2129;
+    padding: 0.12rem 0.35rem;
+    border-radius: 4px;
+    font-size: 0.88em;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas, monospace;
+    color: #f8bbd0;
+  }
+  .prose-base pre code, .prose-sm pre code { background: transparent; padding: 0; color: inherit; }
+
+  .prose-base blockquote, .prose-sm blockquote {
+    border-left: 3px solid #6366f1;
+    padding: 0.3em 0.8em;
+    margin: 0.7em 0;
+    color: #a1a1aa;
+    background: #18181b;
+    border-radius: 0 6px 6px 0;
+  }
+
+  .prose-base table, .prose-sm table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 0.8em 0;
+    font-size: 0.9em;
+  }
+  .prose-base th, .prose-sm th { background: #1f2430; padding: 0.5em 0.7em; border: 1px solid #2a2f3a; text-align: left; font-weight: 600; }
+  .prose-base td, .prose-sm td { padding: 0.5em 0.7em; border: 1px solid #2a2f3a; }
+
+  .prose-base a, .prose-sm a { color: #818cf8; text-decoration: underline; }
+  .prose-base a:hover, .prose-sm a:hover { color: #a5b4fc; }
+  .prose-base hr, .prose-sm hr { border: none; border-top: 1px solid #2a2f3a; margin: 1em 0; }
+  .prose-base strong, .prose-sm strong { color: #fafafa; font-weight: 600; }
+  .prose-base em, .prose-sm em { color: #d4d4d8; font-style: italic; }
+
+  /* T24 — reasoning/think block */
+  .think-block {
+    margin: 0.6em 0;
+    padding: 0.5em 0.8em;
+    border: 1px dashed #3f3f46;
+    border-radius: 6px;
+    background: #18181b80;
+  }
+  .think-block > summary {
+    cursor: pointer;
+    color: #a1a1aa;
+    font-size: 0.85em;
+    user-select: none;
+  }
+  .think-block > summary:hover { color: #d4d4d8; }
+  .think-block[open] > summary { margin-bottom: 0.4em; border-bottom: 1px solid #2a2f3a; padding-bottom: 0.3em; }
 </style>
 {% endblock %}
