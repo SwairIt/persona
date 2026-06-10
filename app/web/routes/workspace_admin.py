@@ -9,7 +9,9 @@ from __future__ import annotations
 import datetime as _dt
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from typing import Any
+
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from app.auth import current_user_required
@@ -126,6 +128,64 @@ async def workspace_sync(
             "count": len(payload["files"]),
         }
     )
+
+
+@router.post("/api/workspace/push", response_class=JSONResponse)
+async def workspace_push(
+    request: Request,
+    body: Annotated[dict[str, Any], Body(default_factory=dict)],
+) -> JSONResponse:
+    """T29 — UPSTREAM sync: the code-target device uploads a file it changed
+    locally INTO the server workspace, so the AI can read/edit the user's
+    real code (not just files the AI itself wrote). Mirror of /sync (down).
+
+    Auth: X-Device-Token, must be the code-write-target. Body:
+    ``{relative_path, content}`` (UTF-8 text). Writes into the user's
+    server workspace and records a workspace_file_event so the change is
+    visible to the AI and re-syncs to other devices.
+    """
+    from app.workspace import (  # noqa: PLC0415
+        WorkspaceEscape,
+        ensure_user_workspace,
+        record_file_event,
+        resolve_user_path,
+    )
+
+    token = request.headers.get("x-device-token", "")
+    if not token:
+        raise HTTPException(status_code=401, detail="missing X-Device-Token header")
+    device = await lookup_by_token(token)
+    if device is None:
+        raise HTTPException(status_code=401, detail="unknown device token")
+    if not device["is_code_write_target"]:
+        raise HTTPException(
+            status_code=403,
+            detail="this device is not the code write target — pick it at /devices",
+        )
+
+    rel = str(body.get("relative_path", "")).strip()
+    content = body.get("content")
+    if not rel or content is None:
+        raise HTTPException(status_code=400, detail="relative_path and content required")
+    content = str(content)
+    if len(content.encode("utf-8")) > 2_000_000:
+        raise HTTPException(status_code=413, detail="file too large (max 2 MB)")
+
+    try:
+        p = resolve_user_path(device["user_id"], rel)
+    except WorkspaceEscape as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content, encoding="utf-8")
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"write failed: {exc}") from exc
+
+    rel_norm = p.relative_to(ensure_user_workspace(device["user_id"])).as_posix()
+    await record_file_event(
+        device["user_id"], rel_norm, "write", len(content.encode("utf-8"))
+    )
+    return JSONResponse({"ok": True, "relative_path": rel_norm})
 
 
 def _format_size(size: int) -> str:

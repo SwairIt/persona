@@ -56,7 +56,7 @@ logger = structlog.get_logger("persona_agent")
 # in sync with ``LATEST_AGENT_VERSION`` in app/devices/agent_release.py.
 # 1.13 = T28 workspace sync loop (sync_workspace_loop + device_token).
 # 1.14 = T29 X-Agent-Token header (tunnel strips Authorization) + opt-in audio.
-AGENT_VERSION = "1.15"
+AGENT_VERSION = "1.16"
 
 
 # --------------------------------------------------------------------------- #
@@ -758,13 +758,42 @@ def _workspace_write_cursor(path: Path, cursor: int) -> None:
         logger.debug("agent.workspace_sync.cursor_write_failed", error=str(exc))
 
 
-def _apply_workspace_file(base: Path, entry: dict[str, Any]) -> bool:
+_SYNC_SKIP_NAMES = {".persona_sync_cursor", ".persona_sync_shas.json"}
+_SYNC_MAX_BYTES = 2_000_000
+
+
+def _content_sha(text: str) -> str:
+    import hashlib  # noqa: PLC0415
+
+    return hashlib.sha256(text.encode("utf-8", "replace")).hexdigest()
+
+
+def _load_shas(path: Path) -> dict[str, str]:
+    import json  # noqa: PLC0415
+
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return {str(k): str(v) for k, v in data.items()} if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_shas(path: Path, shas: dict[str, str]) -> None:
+    import json  # noqa: PLC0415
+
+    try:
+        path.write_text(json.dumps(shas), encoding="utf-8")
+    except OSError as exc:
+        logger.debug("agent.workspace_sync.sha_save_failed", error=str(exc))
+
+
+def _apply_workspace_file(base: Path, entry: dict[str, Any], shas: dict[str, str]) -> bool:
     """Mirror one server file event into ``base``. Returns True if applied.
+    Records the written content's sha in ``shas`` so the upstream scan
+    won't re-upload what just came DOWN (breaks the ping-pong loop).
 
     Defense-in-depth sandbox: the resolved target must stay inside
-    ``base`` even though the server already sandboxes paths — a malicious
-    or buggy ``../`` must never let the agent clobber files outside the
-    workspace mirror.
+    ``base`` even though the server already sandboxes paths.
     """
     rel = str(entry.get("relative_path", "")).strip().lstrip("/\\")
     op = str(entry.get("operation", "write"))
@@ -781,7 +810,8 @@ def _apply_workspace_file(base: Path, entry: dict[str, Any]) -> bool:
         try:
             if target.is_file():
                 target.unlink()
-                return True
+            shas.pop(rel, None)
+            return True
         except OSError as exc:
             logger.debug("agent.workspace_sync.delete_failed", rel=rel, error=str(exc))
         return False
@@ -792,10 +822,41 @@ def _apply_workspace_file(base: Path, entry: dict[str, Any]) -> bool:
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(str(content), encoding="utf-8")
+        shas[rel] = _content_sha(str(content))
         return True
     except OSError as exc:
         logger.warning("agent.workspace_sync.write_failed", rel=rel, error=str(exc))
         return False
+
+
+async def _scan_and_push(base: Path, client: Any, shas: dict[str, str]) -> int:
+    """T29 — UPSTREAM: upload locally-changed text files to the server so
+    the AI can read/edit the user's real code. sha-guarded: a file whose
+    sha already matches ``shas`` (unchanged, or just arrived from the
+    server) is skipped — that's what stops the down/up ping-pong."""
+    pushed = 0
+    for f in base.rglob("*"):
+        if not f.is_file() or f.name in _SYNC_SKIP_NAMES:
+            continue
+        try:
+            if f.stat().st_size > _SYNC_MAX_BYTES:
+                continue
+            text = f.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue  # binary / unreadable → skip
+        rel = f.relative_to(base).as_posix()
+        sha = _content_sha(text)
+        if shas.get(rel) == sha:
+            continue  # unchanged or came from server
+        try:
+            resp = await client.push_workspace_file(rel, text)
+        except Exception as exc:  # noqa: BLE001 — never break the agent
+            logger.debug("agent.workspace_sync.push_failed", rel=rel, error=str(exc))
+            continue
+        if isinstance(resp, dict) and resp.get("ok"):
+            shas[rel] = sha
+            pushed += 1
+    return pushed
 
 
 async def sync_workspace_loop(state: RuntimeState) -> None:
@@ -831,7 +892,9 @@ async def sync_workspace_loop(state: RuntimeState) -> None:
         logger.error("agent.workspace_sync.mkdir_failed", error=str(exc))
         return
     cursor_file = base / ".persona_sync_cursor"
+    shas_file = base / ".persona_sync_shas.json"
     cursor = _workspace_read_cursor(cursor_file)
+    shas = _load_shas(shas_file)
     interval_s = 20.0
     logger.info(
         "agent.workspace_sync.start",
@@ -841,18 +904,21 @@ async def sync_workspace_loop(state: RuntimeState) -> None:
     )
 
     while not state.stop.is_set():
+        is_target = True
         try:
             resp = await client.pull_workspace(since=cursor)
         except Exception as exc:  # noqa: BLE001 — never break the agent
             logger.debug("agent.workspace_sync.pull_failed", error=str(exc))
             resp = {}
 
+        # --- DOWN: server → local mirror ---
         if isinstance(resp, dict) and resp.get("status") == 403:
+            is_target = False
             logger.debug("agent.workspace_sync.not_target")
         elif isinstance(resp, dict) and "files" in resp:
             applied = 0
             for entry in resp.get("files") or []:
-                if isinstance(entry, dict) and _apply_workspace_file(base, entry):
+                if isinstance(entry, dict) and _apply_workspace_file(base, entry, shas):
                     applied += 1
             new_cursor = resp.get("cursor")
             if isinstance(new_cursor, int) and new_cursor >= cursor:
@@ -862,6 +928,16 @@ async def sync_workspace_loop(state: RuntimeState) -> None:
                 logger.info(
                     "agent.workspace_sync.applied", count=applied, cursor=cursor
                 )
+
+        # --- UP: local edits → server (so the AI sees the user's code) ---
+        if is_target:
+            try:
+                pushed = await _scan_and_push(base, client, shas)
+                if pushed:
+                    logger.info("agent.workspace_sync.pushed", count=pushed)
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("agent.workspace_sync.scan_failed", error=str(exc))
+            _save_shas(shas_file, shas)
 
         try:
             await asyncio.wait_for(state.stop.wait(), timeout=interval_s)

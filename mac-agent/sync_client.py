@@ -55,7 +55,7 @@ _TIMEOUT = 10.0  # seconds per HTTP call
 # T29 — report the agent version on every sync call (incl. heartbeat) so the
 # server stores it in ``device.user_agent`` and can flag outdated installs.
 # Keep in sync with ``AGENT_VERSION`` in persona_agent.py.
-_AGENT_VERSION = "1.15"
+_AGENT_VERSION = "1.16"
 
 
 @dataclass
@@ -152,3 +152,16 @@ class SyncClient:
         """
         path = f"/api/workspace/sync?since={int(since)}&limit={int(limit)}"
         return await self._request("GET", path)
+
+    async def push_workspace_file(
+        self, relative_path: str, content: str
+    ) -> dict[str, Any]:
+        """T29 — UPSTREAM: upload a locally-changed workspace file to the
+        server so the AI can read/edit the user's real code. Mirror of
+        pull_workspace. Returns ``{ok, relative_path}`` or an error dict.
+        """
+        return await self._request(
+            "POST",
+            "/api/workspace/push",
+            body={"relative_path": relative_path, "content": content},
+        )

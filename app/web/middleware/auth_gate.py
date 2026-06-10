@@ -61,10 +61,10 @@ _PUBLIC_PREFIXES: tuple[str, ...] = (
     # screenshot/audio ever landed. The routes enforce their own bearer
     # auth via app.remote_agents.verify_agent_token.
     "/api/agent/",
-    # T28 (2026-06-08) — the code-write-target device polls this with its
-    # X-Device-Token, no cookie session. The route enforces auth + checks
-    # the device is actually the chosen target.
-    "/api/workspace/sync",
+    # T28/T29 — the code-write-target device polls (/sync, down) and pushes
+    # (/push, up) with its X-Device-Token, no cookie session. The routes
+    # enforce auth + check the device is the chosen target.
+    "/api/workspace/",
     # T16 (2026-06-07) — iOS Shortcut hits these with X-Device-Token,
     # not a cookie session. The route itself enforces auth.
     "/api/ingest/",

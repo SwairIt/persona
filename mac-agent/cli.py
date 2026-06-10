@@ -195,7 +195,7 @@ def status(config_path: Path | None, as_json: bool) -> None:
     url = str(config.server.url).rstrip("/") + "/api/agent/stats"
     headers = {
         "Authorization": f"Bearer {config.server.token.get_secret_value()}",
-        "User-Agent": "persona-agent/1.15 (cli status)",
+        "User-Agent": "persona-agent/1.16 (cli status)",
     }
     try:
         response = httpx.get(url, headers=headers, timeout=10.0)
