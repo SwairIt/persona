@@ -25,6 +25,9 @@ dependencies = [
     "aiosqlite>=0.20",
     "anyio>=4.7",
     "pytesseract>=0.3.13",
+    # T29 — headless web browsing for the chat `web_browse` tool. Needs a
+    # one-time `python -m playwright install chromium` after install.
+    "playwright>=1.40",
 ]
 
 [project.scripts]

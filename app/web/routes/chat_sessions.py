@@ -430,6 +430,15 @@ async def api_send_stream(
     tools_fragment = build_tools_prompt(enabled_tools)
     base_prompt = base_prompt + tools_fragment
 
+    # T29 — installed skills: instruction sets the user pulled from GitHub
+    # ("установи скилл <url>"). Inject enabled ones so the model follows them.
+    try:
+        from app.skills.store import enabled_skills_prompt  # noqa: PLC0415
+
+        base_prompt = base_prompt + await enabled_skills_prompt(session["user_id"])
+    except Exception as exc:  # noqa: BLE001
+        log.warning("chat.skills.inject_failed", error=str(exc))
+
     system_with_history = (
         f"{base_prompt}\n\nПредыдущие сообщения (для контекста):\n{transcript}"
         if transcript else base_prompt
