@@ -868,60 +868,89 @@ class OllamaClient:
         self.last_input_tokens: int | None = None
         self.last_output_tokens: int | None = None
 
+    # T29 — context window. Ollama's OpenAI-compat endpoint can't set
+    # num_ctx, so it defaulted to ~4096; once the system prompt + history
+    # filled ~4095 tokens the model had ZERO room left and returned
+    # 1-token replies ("Привет"→"Привет"). We now call the NATIVE
+    # /api/chat with an explicit num_ctx so there's always room to answer.
+    _NUM_CTX = 8192
+
+    def _native_messages(self, request: CompletionRequest) -> list[dict[str, object]]:
+        """Build /api/chat messages. Native endpoint takes images as raw
+        base64 in ``images: [...]`` (not the OpenAI image_url shape)."""
+        user_msg: dict[str, object] = {"role": "user", "content": request.user or ""}
+        if request.image_data_url:
+            # T22.4 — normalise WebP → PNG (Ollama vision rejects WebP), then
+            # strip the ``data:...;base64,`` prefix to the bare base64.
+            normalised = _normalise_image_for_ollama(request.image_data_url)
+            user_msg["content"] = request.user or "describe this image"
+            user_msg["images"] = [normalised.split(",", 1)[-1]]
+        return [
+            {"role": "system", "content": request.system},
+            user_msg,
+        ]
+
+    def _native_options(self, request: CompletionRequest) -> dict[str, object]:
+        # num_predict = output cap. -1 would be unlimited; we keep the
+        # caller's max_tokens but with num_ctx large enough that it isn't
+        # starved by the prompt. Together this removes the "1 token" cap.
+        return {
+            "num_ctx": self._NUM_CTX,
+            "num_predict": request.max_tokens,
+            "temperature": request.temperature,
+        }
+
     async def complete(self, request: CompletionRequest) -> str:
         self.last_input_tokens = None
         self.last_output_tokens = None
-        headers = {
-            "Authorization": f"Bearer {self._fake_key}",
-            "Content-Type": "application/json",
-        }
-        # T22.4 (2026-06-08) — Ollama vision endpoint only accepts PNG/JPEG.
-        # WebP (which is what Safari + many screenshots produce) gets a
-        # generic 400 'Failed to load image or audio file'. Normalise
-        # the data URL to PNG via Pillow before sending.
-        user_content: object = request.user
-        if request.image_data_url:
-            normalised = _normalise_image_for_ollama(request.image_data_url)
-            user_content = [
-                {"type": "text", "text": request.user or "describe this image"},
-                {
-                    "type": "image_url",
-                    "image_url": {"url": normalised},
-                },
-            ]
         payload = {
             "model": self._model,
-            "max_tokens": request.max_tokens,
-            "temperature": request.temperature,
-            "messages": [
-                {"role": "system", "content": request.system},
-                {"role": "user", "content": user_content},
-            ],
+            "messages": self._native_messages(request),
+            "stream": False,
+            "options": self._native_options(request),
         }
-        # Longer timeout — first call after Ollama startup loads the
-        # model into RAM (cold start of ~10-30 s for 3B). Subsequent
-        # calls are fast.
-        async with httpx.AsyncClient(timeout=180.0) as client:
-            response = await client.post(self._base_url, json=payload, headers=headers)
+        url = f"{self._endpoint}/api/chat"
+        async with httpx.AsyncClient(timeout=600.0) as client:
+            response = await client.post(url, json=payload)
             response.raise_for_status()
             data = response.json()
-        usage = data.get("usage") or {}
-        self.last_input_tokens = _coerce_token_count(usage.get("prompt_tokens"))
-        self.last_output_tokens = _coerce_token_count(usage.get("completion_tokens"))
-        choices = data.get("choices") or []
-        if not choices:
-            return ""
-        return str((choices[0] or {}).get("message", {}).get("content", "")).strip()
+        self.last_input_tokens = _coerce_token_count(data.get("prompt_eval_count"))
+        self.last_output_tokens = _coerce_token_count(data.get("eval_count"))
+        return str((data.get("message") or {}).get("content", "")).strip()
 
     async def stream(self, request: CompletionRequest) -> AsyncIterator[str]:
-        async for chunk in _stream_openai_compatible(
-            base_url=self._base_url,
-            api_key=self._fake_key,
-            model=self._model,
-            request=request,
-            inner=self,
-        ):
-            yield chunk
+        self.last_input_tokens = None
+        self.last_output_tokens = None
+        payload = {
+            "model": self._model,
+            "messages": self._native_messages(request),
+            "stream": True,
+            "options": self._native_options(request),
+        }
+        url = f"{self._endpoint}/api/chat"
+        # read=600s — vision/cold-start models on 4GB VRAM take 60-120s for
+        # the first token; the SSE keepalive upstream keeps the tunnel open.
+        timeout = httpx.Timeout(600.0, connect=30.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            async with client.stream("POST", url, json=payload) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if not line.strip():
+                        continue
+                    try:
+                        obj = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    chunk = (obj.get("message") or {}).get("content", "")
+                    if chunk:
+                        yield chunk
+                    if obj.get("done"):
+                        self.last_input_tokens = _coerce_token_count(
+                            obj.get("prompt_eval_count")
+                        )
+                        self.last_output_tokens = _coerce_token_count(
+                            obj.get("eval_count")
+                        )
 
 
 class _OpenAICompatibleClient:
