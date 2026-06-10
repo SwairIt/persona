@@ -89,9 +89,11 @@ _SYSTEM_PROMPT_RU = (
     "ответов на сложные вопросы.\n"
     "- Если не уверен — честно скажи «не уверен» или «не знаю». Не "
     "выдумывай факты.\n"
-    "- ОДИН ЯЗЫК на ответ. Если пользователь пишет по-русски — "
-    "отвечай только по-русски, без иероглифов и английских вставок. "
-    "Если по-английски — только английский.\n"
+    "- ЯЗЫК: отвечай ТОЛЬКО на русском или английском — на том, на "
+    "котором написал пользователь. КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНЫ китайские "
+    "иероглифы и любые CJK-символы — ни одного знака, никогда, даже в "
+    "примерах или комментариях кода. Один язык на весь ответ, без "
+    "смешивания.\n"
     "- Длина ответа = масштабу вопроса. На «привет» — пара фраз. На "
     "сложный код — столько сколько нужно.\n\n"
     # Plan only when truly needed
@@ -638,12 +640,8 @@ async def api_send_stream(
             output_tokens=out_tokens,
         )
 
-        try:
-            await maybe_summarise(session_id)
-        except Exception as exc:
-            log.warning("chat.summary.dispatch_failed", error=str(exc))
-
-        # T23 — record Q&A pair for future PersonaAI fine-tune.
+        # T23 — record Q&A pair for future PersonaAI fine-tune. Kept INLINE
+        # (it's fast DB writes) so the row exists before the user can rate.
         try:
             from app.training import record_qa_pair  # noqa: PLC0415
             # Need the user_message_id we appended at the top of this
@@ -675,6 +673,10 @@ async def api_send_stream(
         except Exception as exc:
             log.warning("chat.training.record_failed", error=str(exc))
 
+        # T29 — send 'done' NOW so the composer unlocks the instant the
+        # answer is complete. The auto-summary is a SLOW separate LLM call;
+        # running it inline held the SSE stream open and froze the input for
+        # seconds ("много времени впустую"). Fire it in the background.
         done = {
             "type": "done",
             "elapsed_ms": elapsed_ms,
@@ -684,6 +686,15 @@ async def api_send_stream(
             "assistant_id": assistant_msg["id"],
         }
         yield f"data: {json.dumps(done)}\n\n"
+
+        async def _bg_summarise(sid: int) -> None:
+            try:
+                await maybe_summarise(sid)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("chat.summary.dispatch_failed", error=str(exc))
+
+        import asyncio as _asyncio  # noqa: PLC0415
+        _asyncio.create_task(_bg_summarise(session_id))
 
     return StreamingResponse(
         event_stream(),

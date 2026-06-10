@@ -88,7 +88,7 @@
       <div id="chat-scroll" class="flex-1 overflow-y-auto px-4 sm:px-8 py-6 space-y-6 max-w-3xl mx-auto w-full"
            x-ref="scroll">
         <template x-for="(msg, mIdx) in messages" :key="msg.id">
-          <div :class="msg.role === 'system' ? 'flex justify-center' : (msg.role === 'user' ? 'flex flex-col items-end gap-2' : 'block')">
+          <div :class="msg.role === 'system' ? 'flex justify-center' : (msg.role === 'user' ? 'flex flex-col gap-2' : 'block')">
             {# T22.8 (2026-06-08): Claude-style user message:
                1. Image как отдельный chip ВЫШЕ текста (если есть)
                2. Text в bubble подогнанной под content (не max-w-85%)
@@ -103,7 +103,7 @@
             <div x-show="msg.role !== 'user' || (msg.content && msg.content.length > 0)"
                  :class="
               msg.role === 'user'
-                ? 'rounded-2xl bg-zinc-700/40 px-4 py-2.5 max-w-[85%] inline-block'
+                ? 'rounded-xl bg-zinc-800/60 border border-ink-700 px-4 py-3 w-full'
                 : (msg.role === 'system'
                      ? 'max-w-[90%] rounded-full bg-amber-900/20 border border-amber-700/40 px-3 py-1 text-xs text-amber-300/90'
                      : 'w-full')">
@@ -132,14 +132,18 @@
                 <div class="mt-2 flex items-center gap-3 text-[11px] text-zinc-500 font-mono">
                   {# 👍/👎 + meta — единая полоса под assistant ответом #}
                   <button type="button" @click.stop="rateAt(mIdx, 1)"
-                          :class="messages[mIdx] && messages[mIdx].rating === 1 ? 'text-emerald-400' : 'text-zinc-500 hover:text-emerald-400'"
-                          class="cursor-pointer select-none"
+                          :class="messages[mIdx] && messages[mIdx].rating === 1
+                            ? 'bg-emerald-500/20 ring-1 ring-emerald-500/60 scale-110'
+                            : 'opacity-60 hover:opacity-100 hover:bg-ink-800'"
+                          class="cursor-pointer select-none inline-flex items-center justify-center w-8 h-8 rounded-lg text-base transition-all"
                           title="хорошо — в датасет для PersonaAI">
                     👍
                   </button>
                   <button type="button" @click.stop="rateAt(mIdx, -1)"
-                          :class="messages[mIdx] && messages[mIdx].rating === -1 ? 'text-rose-400' : 'text-zinc-500 hover:text-rose-400'"
-                          class="cursor-pointer select-none"
+                          :class="messages[mIdx] && messages[mIdx].rating === -1
+                            ? 'bg-rose-500/20 ring-1 ring-rose-500/60 scale-110'
+                            : 'opacity-60 hover:opacity-100 hover:bg-ink-800'"
+                          class="cursor-pointer select-none inline-flex items-center justify-center w-8 h-8 rounded-lg text-base transition-all"
                           title="плохо — фильтровать из датасета">
                     👎
                   </button>
