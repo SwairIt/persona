@@ -34,6 +34,7 @@ from app.chat import (
     list_sessions,
     maybe_summarise,
     rename_session,
+    search_messages,
     start_streaming_message,
     touch_session,
     update_session_model,
@@ -259,6 +260,17 @@ async def api_list_messages(
         raise HTTPException(status_code=404, detail="chat session not found")
     rows = await list_messages(session_id, limit=500)
     return JSONResponse({"session": thread, "messages": rows})
+
+
+@router.get("/api/chat/search", response_class=JSONResponse)
+async def api_chat_search(
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+    q: str = "",
+) -> JSONResponse:
+    """T29 — search across all of the user's chat messages for the in-UI
+    search box. Returns recent-first matches with session title + excerpt."""
+    results = await search_messages(session["user_id"], q, limit=40)
+    return JSONResponse({"results": results})
 
 
 @router.get("/api/chat/sessions/{session_id}/live", response_class=JSONResponse)

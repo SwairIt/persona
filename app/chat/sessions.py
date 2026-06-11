@@ -306,6 +306,53 @@ async def finalize_streaming_message(
         await conn.commit()
 
 
+def _snippet(content: str, query: str, width: int = 140) -> str:
+    """A short excerpt centred on the first case-insensitive match."""
+    text = " ".join((content or "").split())
+    pos = text.lower().find(query.lower())
+    if pos < 0:
+        return text[:width]
+    start = max(0, pos - width // 3)
+    end = min(len(text), start + width)
+    out = text[start:end]
+    return ("…" if start > 0 else "") + out + ("…" if end < len(text) else "")
+
+
+async def search_messages(
+    user_id: int, query: str, limit: int = 40
+) -> list[dict[str, object]]:
+    """T29 — full-text-ish search across the user's chat messages. Returns
+    recent-first matches with the session title + an excerpt, for the
+    in-UI chat search box."""
+    q = (query or "").strip()
+    if len(q) < 2:
+        return []
+    # Escape LIKE wildcards so a literal % or _ in the query is matched.
+    like = "%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+    async with get_connection() as conn:
+        cur = await conn.execute(
+            "SELECT m.id AS message_id, m.session_id, m.role, m.content, "
+            "       m.created_at, s.title AS session_title "
+            "FROM chat_message m "
+            "JOIN chat_session s ON s.id = m.session_id "
+            "WHERE s.user_id = ? AND m.content LIKE ? ESCAPE '\\' "
+            "ORDER BY m.id DESC LIMIT ?",
+            (user_id, like, max(1, min(100, int(limit)))),
+        )
+        rows = await cur.fetchall()
+    return [
+        {
+            "message_id": int(r["message_id"]),
+            "session_id": int(r["session_id"]),
+            "role": str(r["role"]),
+            "session_title": str(r["session_title"]),
+            "created_at": str(r["created_at"]),
+            "snippet": _snippet(str(r["content"]), q),
+        }
+        for r in rows
+    ]
+
+
 async def get_streaming_message(session_id: int) -> ChatMessage | None:
     """T29 — the most recent still-streaming assistant message, or None."""
     async with get_connection() as conn:

@@ -35,7 +35,47 @@
         + Новый чат
       </button>
     </div>
-    <nav class="text-sm">
+
+    {# T29 — search across all beseds #}
+    <div class="p-2 border-b border-ink-700">
+      <div class="relative">
+        <input type="search" x-model="searchQuery"
+               @input.debounce.300ms="doSearch()"
+               placeholder="Поиск по всем чатам…"
+               class="w-full bg-ink-800 border border-ink-700 focus:border-accent-500
+                      rounded-lg pl-3 pr-7 py-1.5 text-sm text-zinc-100 placeholder-zinc-500
+                      focus:outline-none">
+        <button type="button" x-show="searchQuery"
+                @click="searchQuery=''; searchResults=[]"
+                class="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300">×</button>
+      </div>
+    </div>
+
+    {# Search results — shown only while a query is active #}
+    <div x-show="searchQuery.trim().length >= 2" class="text-sm">
+      <div class="px-3 py-1.5 text-[10px] uppercase tracking-widest text-zinc-500">
+        <span x-show="!searching"><span x-text="searchResults.length"></span> найдено</span>
+        <span x-show="searching">ищу…</span>
+      </div>
+      <template x-for="r in searchResults" :key="r.message_id">
+        <a :href="`/chat/${r.session_id}`"
+           class="block px-3 py-2 border-b border-ink-800 hover:bg-ink-800">
+          <div class="flex items-center gap-1.5">
+            <span class="text-[10px] px-1 rounded"
+                  :class="r.role === 'user' ? 'bg-zinc-700 text-zinc-300' : 'bg-accent-600/30 text-accent-200'"
+                  x-text="r.role === 'user' ? 'ты' : 'AI'"></span>
+            <span class="truncate text-zinc-300 text-xs" x-text="r.session_title"></span>
+          </div>
+          <div class="text-[11px] text-zinc-400 mt-0.5 line-clamp-2" x-text="r.snippet"></div>
+        </a>
+      </template>
+      <template x-if="!searching && searchResults.length === 0">
+        <p class="px-3 py-4 text-xs text-zinc-500">Ничего не найдено.</p>
+      </template>
+    </div>
+
+    {# Session list — hidden while searching #}
+    <nav class="text-sm" x-show="searchQuery.trim().length < 2">
       {% if sessions %}
         {% for s in sessions %}
           <a href="/chat/{{ s.id }}"
@@ -385,6 +425,10 @@
       summary,
       showSummary: false,
       question: '',
+      // T29 — search across all chats
+      searchQuery: '',
+      searchResults: [],
+      searching: false,
       attachedImage: null,
       thinking: false,
       thinkingSeconds: 0,
@@ -642,6 +686,20 @@
         reader.onload = (e) => { this.attachedImage = e.target.result; };
         reader.readAsDataURL(file);
         ev.target.value = '';
+      },
+
+      async doSearch() {
+        const q = this.searchQuery.trim();
+        if (q.length < 2) { this.searchResults = []; return; }
+        this.searching = true;
+        try {
+          const r = await fetch(`/api/chat/search?q=${encodeURIComponent(q)}`);
+          if (r.ok) {
+            const d = await r.json();
+            this.searchResults = d.results || [];
+          }
+        } catch (e) { /* keep last results */ }
+        this.searching = false;
       },
 
       async newChat() {
