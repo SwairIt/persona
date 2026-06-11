@@ -6,9 +6,19 @@
    (uploaded base64-inline for vision-capable providers), unlimited
    memory via background summariser. #}
 
-<script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"
-        integrity="sha384-PvyVDmwAj+RoOxNkpe/hVdtwYTlaSCYYn7xVxbOiTqhxNb9JmGsmlAY/W+SyspKj"
-        crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
+<script>
+  // T29 — fallback if the CDN is blocked/SRI-mismatched: a wrong integrity
+  // hash silently blocks the script and breaks ALL markdown rendering
+  // (code fences show literally). Load an alt source if `marked` is missing.
+  window.addEventListener('DOMContentLoaded', function () {
+    if (typeof marked === 'undefined') {
+      var s = document.createElement('script');
+      s.src = 'https://unpkg.com/marked@12.0.0/marked.min.js';
+      document.head.appendChild(s);
+    }
+  });
+</script>
 
 <div x-data="chatPage(
     {{ active_session.id if active_session else 'null' }},
