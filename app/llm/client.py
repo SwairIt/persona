@@ -870,10 +870,13 @@ class OllamaClient:
 
     # T29 — context window. Ollama's OpenAI-compat endpoint can't set
     # num_ctx, so it defaulted to ~4096; once the system prompt + history
-    # filled ~4095 tokens the model had ZERO room left and returned
-    # 1-token replies ("Привет"→"Привет"). We now call the NATIVE
-    # /api/chat with an explicit num_ctx so there's always room to answer.
-    _NUM_CTX = 8192
+    # filled it the model had ZERO room left and returned 1-token replies.
+    # We call the NATIVE /api/chat with an explicit num_ctx. Bumped to 16384
+    # because long chats + system prompt + tools + skills grew past 8192 and
+    # starved the answer again. A model ALWAYS has a finite window (can't be
+    # truly infinite) — but a request never asks for more than num_ctx tokens
+    # of output, and we reserve room so input can't eat the whole window.
+    _NUM_CTX = 16384
 
     def _native_messages(self, request: CompletionRequest) -> list[dict[str, object]]:
         """Build /api/chat messages. Native endpoint takes images as raw
