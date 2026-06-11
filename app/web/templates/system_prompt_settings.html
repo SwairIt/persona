@@ -4,9 +4,9 @@
 {# T29 — chat system-prompt picker + editor. Pick a preset, edit the full
    text, save, or reset to default. Global default for all models. #}
 <div x-data="promptSettings(
-       {{ presets | tojson }},
-       {{ active_text | tojson }},
-       {{ is_custom | tojson }}
+       {{ presets | tojson | forceescape }},
+       {{ active_text | tojson | forceescape }},
+       {{ is_custom | tojson | forceescape }}
      )"
      class="max-w-3xl mx-auto px-4 py-6 space-y-5">
 
