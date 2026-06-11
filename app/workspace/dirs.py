@@ -58,6 +58,15 @@ def resolve_user_path(user_id: int, raw: str) -> Path:
     else:
         # Strip any leading slashes / backslashes that LLM might add.
         cleaned = raw.lstrip("/\\")
+        # T29 — the model keeps prepending 'workspace/' even though paths are
+        # already relative to the workspace ROOT (it created a junk nested
+        # workspace/ folder). Strip a leading 'workspace/' so the intended
+        # path resolves correctly instead of nesting.
+        norm = cleaned.replace("\\", "/")
+        if norm.lower() == "workspace":
+            cleaned = ""
+        elif norm.lower().startswith("workspace/"):
+            cleaned = cleaned[len("workspace/"):]
         candidate = (root / cleaned).resolve()
 
     # Hard check: result must be inside the workspace root.
