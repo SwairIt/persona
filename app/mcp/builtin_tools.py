@@ -88,12 +88,22 @@ async def list_dir(args: dict[str, Any], user_id: int = 0) -> str:
         if not p.is_dir():
             return f"[error] это файл, не директория: {p.name}"
         entries = sorted(p.iterdir(), key=lambda e: (e.is_file(), e.name.lower()))
-        rel_label = "workspace/" + (p.relative_to(ensure_user_workspace(user_id)).as_posix() if p != ensure_user_workspace(user_id) else "")
-        lines = [f"[ok] {rel_label}", ""]
+        ws = ensure_user_workspace(user_id)
+        rel = p.relative_to(ws).as_posix() if p != ws else ""
+        prefix = (rel + "/") if rel else ""
+        # Show each entry's FULL path relative to the workspace root so the
+        # model can copy it verbatim into read_file/list_dir. Do NOT prepend
+        # 'workspace/' — that's not part of the path.
+        header = (
+            f"[ok] содержимое: {rel or '(корень workspace)'}. "
+            "Пути ниже передавай в инструменты РОВНО как написано, "
+            "без префикса 'workspace/'."
+        )
+        lines = [header, ""]
         for e in entries[:200]:
             tag = "DIR " if e.is_dir() else "FILE"
             size = "" if e.is_dir() else f" {e.stat().st_size}b"
-            lines.append(f"  {tag} {e.name}{size}")
+            lines.append(f"  {tag} {prefix}{e.name}{size}")
         if len(entries) > 200:
             lines.append(f"  … +{len(entries) - 200} ещё")
         if len(entries) == 0:
@@ -487,6 +497,16 @@ def build_tools_prompt(enabled_tool_names: list[str]) -> str:
         "    <tool>install_skill({\"url\": \"<ссылка>\"})</tool>",
         "  «покажи мои файлы» →",
         "    <tool>list_dir({\"path\": \".\"})</tool>",
+        "",
+        "ВАЖНО про пути и файлы:",
+        "- Пути относительны корня workspace. Передавай их РОВНО как показал "
+        "list_dir — БЕЗ префикса 'workspace/'. Если в корне лежит 'browse', "
+        "путь к нему — 'browse', а НЕ 'workspace/browse'.",
+        "- Если инструмент вернул ошибку на каком-то пути — НЕ повторяй тот "
+        "же вызов с тем же путём, исправь путь.",
+        "- Когда просят создать проект, сайт или файл — РЕАЛЬНО создавай "
+        "файлы через write_file (index.html, style.css, app.js и т.д.), а "
+        "не просто показывай код в чате. Иначе ничего не сохранится.",
         "",
         "Доступные инструменты:",
     ]
