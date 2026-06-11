@@ -26,13 +26,17 @@ from app.chat import (
     build_history_for_llm,
     create_session,
     delete_session,
+    finalize_streaming_message,
     get_session,
+    get_streaming_message,
     list_messages,
     list_sessions,
     maybe_summarise,
     rename_session,
+    start_streaming_message,
     touch_session,
     update_session_model,
+    update_streaming_message,
 )
 from app.llm.client import CompletionRequest, LLMNotConfigured, make_client
 from app.logging_setup import get_logger
@@ -254,6 +258,27 @@ async def api_list_messages(
         raise HTTPException(status_code=404, detail="chat session not found")
     rows = await list_messages(session_id, limit=500)
     return JSONResponse({"session": thread, "messages": rows})
+
+
+@router.get("/api/chat/sessions/{session_id}/live", response_class=JSONResponse)
+async def api_chat_live(
+    session_id: int,
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+) -> JSONResponse:
+    """T29 — poll target for a reopened tab. Returns the in-progress
+    assistant message (content grows as the model writes) so the tab shows
+    generation in real time. ``{streaming, id, content}``. Multi-worker
+    safe: reads the shared DB row, not per-process memory.
+    """
+    thread = await get_session(session["user_id"], session_id)
+    if thread is None:
+        raise HTTPException(status_code=404, detail="chat session not found")
+    msg = await get_streaming_message(session_id)
+    if msg is None:
+        return JSONResponse({"streaming": False})
+    return JSONResponse(
+        {"streaming": True, "id": msg["id"], "content": msg["content"]}
+    )
 
 
 @router.post("/api/chat/sessions/{session_id}/send", response_class=JSONResponse)
@@ -541,6 +566,11 @@ async def api_send_stream(
 
         t_start = time.perf_counter()
         chunks: list[str] = []
+        # T29 — incremental persistence: the assistant row is created on the
+        # first delta and its content is flushed to the DB ~every second, so
+        # a reopened tab can poll /live and watch the answer grow in real time.
+        streaming_msg_id: int | None = None
+        last_save = 0.0
         completion_req = CompletionRequest(
             system=system_with_history,
             user=question,
@@ -602,6 +632,20 @@ async def api_send_stream(
                     break
                 if kind == "delta":
                     chunks.append(payload)
+                    # Create the row on first content; flush ~every 1s after.
+                    if streaming_msg_id is None:
+                        streaming_msg_id = await start_streaming_message(
+                            session_id, "assistant", model_used=None
+                        )
+                    now = time.perf_counter()
+                    if now - last_save >= 1.0:
+                        last_save = now
+                        try:
+                            await update_streaming_message(
+                                streaming_msg_id, "".join(chunks)
+                            )
+                        except Exception as exc:  # noqa: BLE001
+                            log.debug("chat.stream.persist_failed", error=str(exc))
                     yield f"data: {json.dumps({'type': 'delta', 'text': payload})}\n\n"
                 elif kind == "error":
                     log.warning("chat.stream.failed", error=payload)
@@ -699,13 +743,20 @@ async def api_send_stream(
         in_tokens = getattr(inner, "last_input_tokens", None)
         out_tokens = getattr(inner, "last_output_tokens", None)
 
-        assistant_msg = await append_message(
-            session_id, "assistant", full,
+        # T29 — finalize the streaming row (create one if no delta ever
+        # arrived: tool-only or empty response).
+        if streaming_msg_id is None:
+            streaming_msg_id = await start_streaming_message(
+                session_id, "assistant", model_used=provider_used
+            )
+        await finalize_streaming_message(
+            streaming_msg_id, full,
             model_used=provider_used,
             elapsed_ms=elapsed_ms,
             input_tokens=in_tokens,
             output_tokens=out_tokens,
         )
+        assistant_msg_id = streaming_msg_id
 
         # T23 — record Q&A pair for future PersonaAI fine-tune. Kept INLINE
         # (it's fast DB writes) so the row exists before the user can rate.
@@ -728,7 +779,7 @@ async def api_send_stream(
             await record_qa_pair(
                 session_id=session_id,
                 user_message_id=user_msg_id,
-                asst_message_id=assistant_msg["id"],
+                asst_message_id=assistant_msg_id,
                 user_text=question,
                 assistant_text=full,
                 system_prompt=base_prompt,
@@ -750,7 +801,7 @@ async def api_send_stream(
             "input_tokens": in_tokens,
             "output_tokens": out_tokens,
             "model_used": provider_used,
-            "assistant_id": assistant_msg["id"],
+            "assistant_id": assistant_msg_id,
         }
         yield f"data: {json.dumps(done)}\n\n"
 

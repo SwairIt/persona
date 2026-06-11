@@ -462,6 +462,68 @@
       init() {
         marked.setOptions({ breaks: true, gfm: true });
         this.$nextTick(() => { this.scrollToBottom(); this.autosize(); });
+        // T29 — if the answer is still being generated (tab reopened
+        // mid-stream), attach and show it growing in real time.
+        this.resumeLive();
+      },
+
+      // T29 — poll the in-progress assistant message so a reopened tab
+      // shows generation live. Multi-worker safe (reads the shared DB row).
+      async resumeLive() {
+        if (!this.sessionId) return;
+        let activeId = null;
+        const last = this.messages[this.messages.length - 1];
+        if (last && last.role === 'assistant' && last.is_streaming) {
+          activeId = last.id;
+        }
+        if (!activeId) {
+          try {
+            const r = await fetch(`/api/chat/sessions/${this.sessionId}/live`);
+            if (r.ok) { const d = await r.json(); if (d.streaming) activeId = d.id; }
+          } catch (e) { return; }
+        }
+        if (!activeId) return;
+
+        let idx = this.messages.findIndex(m => m.id === activeId);
+        if (idx === -1) {
+          this.messages.push({
+            id: activeId, session_id: this.sessionId, role: 'assistant',
+            content: '', created_at: new Date().toISOString(),
+          });
+          idx = this.messages.length - 1;
+        }
+        this.thinking = true;
+        this._startThinkingClock();
+
+        const tick = async () => {
+          let streaming = false;
+          try {
+            const r = await fetch(`/api/chat/sessions/${this.sessionId}/live`);
+            if (r.ok) {
+              const d = await r.json();
+              if (d.streaming) {
+                this.messages[idx].content = d.content;
+                this.$nextTick(() => this.scrollToBottom());
+                streaming = true;
+              }
+            }
+          } catch (e) { /* transient — fall through to finish */ }
+          if (streaming) { setTimeout(tick, 1200); return; }
+          // Finished — pull final content + timing/token metadata.
+          try {
+            const r2 = await fetch(`/api/chat/sessions/${this.sessionId}/messages`);
+            if (r2.ok) {
+              const d2 = await r2.json();
+              const fin = (d2.messages || []).find(m => m.id === activeId);
+              if (fin) Object.assign(this.messages[idx], fin);
+            }
+          } catch (e) { /* keep whatever we have */ }
+          this.messages[idx].is_streaming = false;
+          this.thinking = false;
+          this._stopThinkingClock();
+          this.$nextTick(() => this.scrollToBottom());
+        };
+        setTimeout(tick, 800);
       },
 
       renderMd(text) {

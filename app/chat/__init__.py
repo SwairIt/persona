@@ -20,13 +20,17 @@ from app.chat.sessions import (
     build_history_for_llm,
     create_session,
     delete_session,
+    finalize_streaming_message,
     get_session,
+    get_streaming_message,
     list_messages,
     list_sessions,
     maybe_summarise,
     rename_session,
+    start_streaming_message,
     touch_session,
     update_session_model,
+    update_streaming_message,
 )
 
 __all__ = [
@@ -34,11 +38,15 @@ __all__ = [
     "build_history_for_llm",
     "create_session",
     "delete_session",
+    "finalize_streaming_message",
     "get_session",
+    "get_streaming_message",
     "list_messages",
     "list_sessions",
     "maybe_summarise",
     "rename_session",
+    "start_streaming_message",
     "touch_session",
     "update_session_model",
+    "update_streaming_message",
 ]

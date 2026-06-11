@@ -102,6 +102,11 @@ def _row_to_message(row: Any) -> ChatMessage:
             if "output_tokens" in keys and row["output_tokens"] is not None
             else None
         ),
+        "is_streaming": (
+            bool(row["is_streaming"])
+            if "is_streaming" in keys and row["is_streaming"] is not None
+            else False
+        ),
     }
 
 
@@ -236,6 +241,82 @@ async def append_message(
     if row is None:
         raise RuntimeError("chat_message insert reported success but lookup failed")
     return _row_to_message(row)
+
+
+async def start_streaming_message(
+    session_id: int, role: str = "assistant", model_used: str | None = None
+) -> int:
+    """T29 — create an in-progress (is_streaming=1) message row and return
+    its id. Content starts empty and grows via update_streaming_message;
+    finalize_streaming_message flips is_streaming off at the end. A
+    reopened tab reads this row live."""
+    async with get_connection() as conn:
+        cursor = await conn.execute(
+            "INSERT INTO chat_message "
+            "  (session_id, role, content, model_used, is_streaming) "
+            "VALUES (?, ?, '', ?, 1)",
+            (session_id, role, model_used),
+        )
+        await conn.commit()
+        new_id = cursor.lastrowid or 0
+        await conn.execute(
+            "UPDATE chat_session SET updated_at = datetime('now') WHERE id = ?",
+            (session_id,),
+        )
+        await conn.commit()
+    return int(new_id)
+
+
+async def update_streaming_message(message_id: int, content: str) -> None:
+    """T29 — update the growing content of an in-progress message (throttled
+    by the caller). Keeps is_streaming=1."""
+    text = content or ""
+    encoded = text.encode("utf-8")
+    if len(encoded) > _MAX_CONTENT_BYTES:
+        text = encoded[:_MAX_CONTENT_BYTES].decode("utf-8", errors="ignore")
+    async with get_connection() as conn:
+        await conn.execute(
+            "UPDATE chat_message SET content = ? WHERE id = ?",
+            (text, message_id),
+        )
+        await conn.commit()
+
+
+async def finalize_streaming_message(
+    message_id: int,
+    content: str,
+    *,
+    model_used: str | None = None,
+    elapsed_ms: int | None = None,
+    input_tokens: int | None = None,
+    output_tokens: int | None = None,
+) -> None:
+    """T29 — write final content + metadata and flip is_streaming off."""
+    text = (content or "").strip() or "(пустой ответ)"
+    encoded = text.encode("utf-8")
+    if len(encoded) > _MAX_CONTENT_BYTES:
+        text = encoded[:_MAX_CONTENT_BYTES].decode("utf-8", errors="ignore")
+    async with get_connection() as conn:
+        await conn.execute(
+            "UPDATE chat_message SET content = ?, model_used = ?, "
+            "elapsed_ms = ?, input_tokens = ?, output_tokens = ?, "
+            "is_streaming = 0 WHERE id = ?",
+            (text, model_used, elapsed_ms, input_tokens, output_tokens, message_id),
+        )
+        await conn.commit()
+
+
+async def get_streaming_message(session_id: int) -> ChatMessage | None:
+    """T29 — the most recent still-streaming assistant message, or None."""
+    async with get_connection() as conn:
+        cursor = await conn.execute(
+            "SELECT * FROM chat_message "
+            "WHERE session_id = ? AND is_streaming = 1 "
+            "ORDER BY id DESC LIMIT 1",
+            (session_id,),
+        )
+        row = await cursor.fetchone()
+    return _row_to_message(row) if row is not None else None
 
 
 async def rename_session(user_id: int, session_id: int, title: str) -> bool:
