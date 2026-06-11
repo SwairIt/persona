@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+
+{% block content %}
+{# T29 — chat system-prompt picker + editor. Pick a preset, edit the full
+   text, save, or reset to default. Global default for all models. #}
+<div x-data="promptSettings(
+       {{ presets | tojson }},
+       {{ active_text | tojson }},
+       {{ is_custom | tojson }}
+     )"
+     class="max-w-3xl mx-auto px-4 py-6 space-y-5">
+
+  <div>
+    <h1 class="text-2xl font-bold mb-1">Системный промпт чата</h1>
+    <p class="text-sm text-zinc-400">
+      Базовый промпт для <b>всех моделей</b> в чате. Выбери пресет, при
+      желании отредактируй текст как угодно и сохрани. «Роль» внутри
+      конкретной беседы по-прежнему перебивает этот промпт.
+    </p>
+  </div>
+
+  {% if saved %}
+    <div class="rounded-lg bg-emerald-500/10 border border-emerald-500/40 px-4 py-2 text-sm text-emerald-300">
+      Сохранено ✓
+    </div>
+  {% endif %}
+
+  {# Preset chips — clicking loads the preset's text into the editor #}
+  <div>
+    <div class="text-[11px] uppercase tracking-widest text-zinc-500 mb-2">Пресеты</div>
+    <div class="flex flex-wrap gap-2">
+      <template x-for="p in presets" :key="p.id">
+        <button type="button" @click="load(p)"
+                :class="loadedId === p.id
+                  ? 'bg-accent-600/20 border-accent-500 text-accent-200'
+                  : 'bg-ink-800 border-ink-700 text-zinc-300 hover:border-ink-600'"
+                class="px-3 py-2 rounded-lg border text-sm font-medium transition">
+          <span x-text="p.name"></span>
+        </button>
+      </template>
+    </div>
+    <p class="text-xs text-zinc-500 mt-2" x-text="currentDesc"></p>
+  </div>
+
+  <form method="post" action="/settings/system-prompt" class="space-y-3">
+    <div>
+      <div class="flex items-center justify-between mb-1">
+        <label class="text-[11px] uppercase tracking-widest text-zinc-500">Текст промпта</label>
+        <span class="text-[11px] text-zinc-500" x-text="text.length + ' симв.'"></span>
+      </div>
+      <textarea name="prompt_text" x-model="text" rows="22" spellcheck="false"
+                class="w-full rounded-xl bg-ink-900 border border-ink-700 focus:border-accent-500
+                       px-4 py-3 text-[13px] leading-relaxed font-mono text-zinc-100
+                       resize-y focus:outline-none"></textarea>
+    </div>
+
+    <div class="flex flex-wrap items-center gap-3">
+      <button type="submit"
+              class="px-4 py-2 rounded-lg bg-accent-600 hover:bg-accent-500 text-white text-sm font-semibold">
+        Сохранить
+      </button>
+      <button type="button" @click="resetDefault()"
+              class="px-4 py-2 rounded-lg bg-ink-800 border border-ink-700 hover:border-rose-500
+                     text-zinc-300 hover:text-rose-300 text-sm">
+        Сбросить на дефолт
+      </button>
+      <button type="button" @click="load(presets[0])"
+              class="text-sm text-zinc-500 hover:text-zinc-300">
+        Вставить дефолтный текст
+      </button>
+      <span class="text-xs ml-auto"
+            :class="isCustom ? 'text-amber-400' : 'text-zinc-500'"
+            x-text="isCustom ? 'активен: свой промпт' : 'активен: дефолтный'"></span>
+    </div>
+  </form>
+
+  {# hidden reset form — submitted by resetDefault() after confirm #}
+  <form id="promptResetForm" method="post" action="/settings/system-prompt/reset" class="hidden"></form>
+</div>
+
+<script>
+  function promptSettings(presets, activeText, isCustom) {
+    return {
+      presets: presets,
+      text: activeText || '',
+      isCustom: isCustom,
+      loadedId: null,
+      currentDesc: isCustom
+        ? 'Сейчас активен отредактированный (свой) промпт.'
+        : 'Сейчас активен дефолтный промпт.',
+      load(p) {
+        this.text = p.text;
+        this.loadedId = p.id;
+        this.currentDesc = p.name + ' — ' + p.description;
+      },
+      resetDefault() {
+        if (confirm('Сбросить системный промпт на дефолтный? Твой текущий текст пропадёт.')) {
+          document.getElementById('promptResetForm').submit();
+        }
+      },
+    };
+  }
+</script>
+{% endblock %}

@@ -27,6 +27,7 @@ from app.chat import (
     create_session,
     delete_session,
     finalize_streaming_message,
+    get_active_system_prompt,
     get_session,
     get_streaming_message,
     list_messages,
@@ -336,13 +337,14 @@ async def api_send_message(
     transcript = "\n".join(
         f"[{turn['role']}] {turn['content']}" for turn in history
     )
+    active_prompt = await get_active_system_prompt()
     if transcript:
         system_with_history = (
-            f"{_SYSTEM_PROMPT_RU}\n\n"
+            f"{active_prompt}\n\n"
             f"Предыдущие сообщения (для контекста):\n{transcript}"
         )
     else:
-        system_with_history = _SYSTEM_PROMPT_RU
+        system_with_history = active_prompt
 
     # T22 (2026-06-08) — session-pinned provider lives in kv (set by
     # update_session_model: writes llm_provider + {provider}_model +
@@ -491,7 +493,9 @@ async def api_send_stream(
             "рассмотри его внимательно." if image_data_url else ""
         )
     else:
-        base_prompt = _SYSTEM_PROMPT_VISION if image_data_url else _SYSTEM_PROMPT_RU
+        base_prompt = (
+            _SYSTEM_PROMPT_VISION if image_data_url else await get_active_system_prompt()
+        )
 
     # T25 — tools fragment: enumerate built-in tools the user enabled
     # in /admin/mcp. LLM sees them in system prompt; uses <tool>...</tool>

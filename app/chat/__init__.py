@@ -15,6 +15,14 @@ at the data layer — the route can pass the session_id from the URL and
 the user_id from the auth dependency without further sanitising.
 """
 
+from app.chat.prompts import (
+    DEFAULT_SYSTEM_PROMPT,
+    PRESETS,
+    get_active_system_prompt,
+    is_custom_system_prompt,
+    reset_active_system_prompt,
+    set_active_system_prompt,
+)
 from app.chat.sessions import (
     append_message,
     build_history_for_llm,
@@ -34,9 +42,15 @@ from app.chat.sessions import (
 )
 
 __all__ = [
+    "DEFAULT_SYSTEM_PROMPT",
+    "PRESETS",
     "append_message",
     "build_history_for_llm",
     "create_session",
+    "get_active_system_prompt",
+    "is_custom_system_prompt",
+    "reset_active_system_prompt",
+    "set_active_system_prompt",
     "delete_session",
     "finalize_streaming_message",
     "get_session",
