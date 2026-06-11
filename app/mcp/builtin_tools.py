@@ -301,20 +301,28 @@ async def web_browse(args: dict[str, Any], user_id: int = 0) -> str:
     out = bdir / f"shot-{int(_time.time())}.png"
 
     repo_root = Path(__file__).resolve().parents[2]
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            _sys.executable, "-m", "app.browse.shot", url, str(out),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+
+    # Run Chromium via a BLOCKING subprocess.run inside a worker thread.
+    # asyncio.create_subprocess_exec raises NotImplementedError on Windows
+    # under uvicorn's SelectorEventLoop — subprocess.run in a thread sidesteps
+    # the event loop entirely and works regardless of loop type.
+    def _shot() -> subprocess.CompletedProcess[str]:
+        return subprocess.run(  # noqa: S603
+            [_sys.executable, "-m", "app.browse.shot", url, str(out)],
+            capture_output=True,
+            text=True,
+            timeout=75,
             cwd=str(repo_root),
         )
-        so, se = await asyncio.wait_for(proc.communicate(), timeout=75.0)
-    except asyncio.TimeoutError:
+
+    try:
+        proc = await asyncio.to_thread(_shot)
+    except subprocess.TimeoutExpired:
         return "[error] браузер не успел загрузить страницу за 75с"
     except Exception as exc:  # noqa: BLE001
         return f"[error] не смог запустить браузер: {type(exc).__name__}: {exc}"
 
-    line = so.decode("utf-8", "replace").strip() or se.decode("utf-8", "replace").strip()
+    line = (proc.stdout or "").strip() or (proc.stderr or "").strip()
     if not out.exists() or not line.startswith("OK"):
         return f"[error] браузер не справился: {line[:200] or 'нет вывода'}"
     title = line[2:].strip()
