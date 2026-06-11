@@ -13,6 +13,7 @@ Pairs with ``app/chat/sessions.py``. Two flavours:
 
 from __future__ import annotations
 
+import asyncio
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
@@ -119,6 +120,54 @@ _SYSTEM_PROMPT_VISION = (
     "что-то нечитаемо — скажи. Не отказывайся от описания. Не ври. "
     "Отвечай по-русски."
 )
+
+
+class _LiveGen:
+    """T29 — one in-flight chat generation, decoupled from the HTTP client.
+
+    The generation runs in a DETACHED task that emits SSE frames here;
+    the HTTP response just relays them. If the user closes the page the
+    relay is cancelled but the generation task keeps running to the end
+    (incl. tool calls + persisting the assistant message), so nothing the
+    model did is lost. Connected clients subscribe and get a replay of
+    everything emitted so far.
+    """
+
+    def __init__(self) -> None:
+        self.buffer: list[str] = []
+        self.subscribers: list[asyncio.Queue] = []
+        self.done = False
+        self.task: asyncio.Task | None = None
+
+    def emit(self, frame: str) -> None:
+        self.buffer.append(frame)
+        for q in list(self.subscribers):
+            q.put_nowait(frame)
+
+    def finish(self) -> None:
+        self.done = True
+        for q in list(self.subscribers):
+            q.put_nowait(None)  # sentinel = end of stream
+
+    def subscribe(self) -> asyncio.Queue:
+        q: asyncio.Queue = asyncio.Queue()
+        for f in self.buffer:  # replay so a (re)connecting client catches up
+            q.put_nowait(f)
+        if self.done:
+            q.put_nowait(None)
+        self.subscribers.append(q)
+        return q
+
+    def unsubscribe(self, q: asyncio.Queue) -> None:
+        try:
+            self.subscribers.remove(q)
+        except ValueError:
+            pass
+
+
+# session_id → active generation. Lets a reopened page attach to a run
+# that's still going, and keeps the run alive when no client is attached.
+_LIVE_GENS: dict[int, _LiveGen] = {}
 
 
 # --- HTML pages ------------------------------------------------------------
@@ -714,8 +763,40 @@ async def api_send_stream(
         import asyncio as _asyncio  # noqa: PLC0415
         _asyncio.create_task(_bg_summarise(session_id))
 
+    # T29 — run the generation in a DETACHED task so it survives the user
+    # closing the page. `event_stream()` (unchanged) is driven by `_pump`,
+    # which keeps iterating it to the end — incl. tool calls + persisting
+    # the assistant message — even when no client is attached. The HTTP
+    # response just relays frames; on disconnect only the relay stops.
+    gen = _LiveGen()
+    _LIVE_GENS[session_id] = gen
+
+    async def _pump() -> None:
+        try:
+            async for frame in event_stream():
+                gen.emit(frame)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("chat.gen.pump_failed", session_id=session_id, error=str(exc))
+        finally:
+            gen.finish()
+            if _LIVE_GENS.get(session_id) is gen:
+                _LIVE_GENS.pop(session_id, None)
+
+    gen.task = asyncio.create_task(_pump())
+
+    async def _relay() -> Any:
+        q = gen.subscribe()
+        try:
+            while True:
+                frame = await q.get()
+                if frame is None:
+                    break
+                yield frame
+        finally:
+            gen.unsubscribe(q)
+
     return StreamingResponse(
-        event_stream(),
+        _relay(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache, no-transform",
