@@ -491,7 +491,7 @@ async def api_send_stream(
     await touch_session(session["user_id"], session_id)
 
     # Build history & system prompt.
-    history = await build_history_for_llm(session_id, max_turns=50)
+    history = await build_history_for_llm(session_id, max_turns=20)
     if history and history[-1]["role"] == "user":
         history = history[:-1]
     transcript = "\n".join(
@@ -529,9 +529,19 @@ async def api_send_stream(
     except Exception as exc:  # noqa: BLE001
         log.warning("chat.skills.inject_failed", error=str(exc))
 
+    # T29 — auto-compaction: feed the rolling summary of older messages
+    # (built by maybe_summarise) + only the last ~20 turns verbatim, instead
+    # of 50 raw turns. Keeps memory while bounding input so the context
+    # window never starves.
+    summary_block = ""
+    if isinstance(thread, dict) and thread.get("summary"):
+        summary_block = (
+            "\n\nСводка более ранней части беседы (помни это, "
+            f"это сжатый контекст):\n{thread['summary']}"
+        )
     system_with_history = (
-        f"{base_prompt}\n\nПредыдущие сообщения (для контекста):\n{transcript}"
-        if transcript else base_prompt
+        f"{base_prompt}{summary_block}\n\nПоследние сообщения:\n{transcript}"
+        if transcript else f"{base_prompt}{summary_block}"
     )
 
     async def event_stream() -> Any:

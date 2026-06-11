@@ -500,8 +500,10 @@ async def build_history_for_llm(
 
 # When a session grows past this, we roll the oldest into a summary and
 # keep this many recent messages verbatim.
-_SUMMARY_TRIGGER_MESSAGES = 60
-_SUMMARY_KEEP_RECENT = 40
+# T29 — compact sooner so input stays small: once a session passes 30
+# messages, fold all but the most recent 16 into the rolling summary.
+_SUMMARY_TRIGGER_MESSAGES = 30
+_SUMMARY_KEEP_RECENT = 16
 
 
 async def maybe_summarise(session_id: int) -> bool:

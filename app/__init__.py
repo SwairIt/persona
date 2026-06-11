@@ -1,3 +1,3 @@
 """Persona — open-source personal AI memory."""
 
-__version__ = "1.86.0"
+__version__ = "1.87.0"
