@@ -589,10 +589,19 @@ async def api_send_stream(
         # then continue the conversation with results in context.
         from app.mcp import call_tool, parse_tool_calls  # noqa: PLC0415
 
+        # T29 — track already-executed calls by their exact <tool>…</tool>
+        # text. `full` accumulates every round, so without this the original
+        # call is re-parsed and re-run each round (the "выполнил 3 раза" bug).
+        executed_raws: set[str] = set()
         for _round in range(5):
-            tool_calls = parse_tool_calls(full)
+            tool_calls = [
+                tc for tc in parse_tool_calls(full)
+                if tc.get("raw") not in executed_raws
+            ]
             if not tool_calls:
                 break
+            for tc in tool_calls:
+                executed_raws.add(tc.get("raw", ""))
             # Execute each tool call serially, stream visible markers.
             tool_results: list[str] = []
             for tc in tool_calls:
