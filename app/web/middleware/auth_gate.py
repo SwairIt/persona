@@ -65,6 +65,10 @@ _PUBLIC_PREFIXES: tuple[str, ...] = (
     # (/push, up) with its X-Device-Token, no cookie session. The routes
     # enforce auth + check the device is the chosen target.
     "/api/workspace/",
+    # T29 — the Mac agent polls the live mic-pause flag here (no cookie). It
+    # was NOT allowlisted, so the agent got a login redirect instead of JSON
+    # → the mute flag never reached the agent and the mic never stopped.
+    "/api/audio/mic",
     # T16 (2026-06-07) — iOS Shortcut hits these with X-Device-Token,
     # not a cookie session. The route itself enforces auth.
     "/api/ingest/",
