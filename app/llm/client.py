@@ -921,6 +921,36 @@ class OllamaClient:
         self.last_output_tokens = _coerce_token_count(data.get("eval_count"))
         return str((data.get("message") or {}).get("content", "")).strip()
 
+    async def complete_json(
+        self, request: CompletionRequest, schema: dict[str, object]
+    ) -> dict[str, object]:
+        """T29 — STRUCTURED output: constrain the model to ``schema`` via
+        Ollama's ``format`` param and return the parsed object. This makes
+        file generation reliable even on a weak 7B — the output is forced to
+        valid JSON, so we never depend on the model "remembering" to call a
+        tool correctly."""
+        self.last_input_tokens = None
+        self.last_output_tokens = None
+        payload = {
+            "model": self._model,
+            "messages": self._native_messages(request),
+            "stream": False,
+            "format": schema,
+            "options": self._native_options(request),
+        }
+        url = f"{self._endpoint}/api/chat"
+        async with httpx.AsyncClient(timeout=600.0) as client:
+            response = await client.post(url, json=payload)
+            response.raise_for_status()
+            data = response.json()
+        self.last_input_tokens = _coerce_token_count(data.get("prompt_eval_count"))
+        self.last_output_tokens = _coerce_token_count(data.get("eval_count"))
+        content = str((data.get("message") or {}).get("content", "")).strip()
+        parsed = json.loads(content)
+        if not isinstance(parsed, dict):
+            raise ValueError("structured output was not a JSON object")
+        return parsed
+
     async def stream(self, request: CompletionRequest) -> AsyncIterator[str]:
         self.last_input_tokens = None
         self.last_output_tokens = None

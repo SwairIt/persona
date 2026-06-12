@@ -292,6 +292,13 @@
                 ⚖
               </button>
 
+              <button type="button" @click="build()"
+                      :disabled="thinking || !question.trim()"
+                      class="px-2 py-1.5 rounded-lg hover:bg-ink-700 text-zinc-400 text-xs disabled:opacity-40"
+                      title="Собрать ответ в РЕАЛЬНЫЕ файлы (надёжно, structured output) — появятся в /workspace и на Mac">
+                📦
+              </button>
+
               {# T22.1 model picker — now lives in composer like Claude does #}
               <div class="relative" @click.outside="modelPickerOpen = false">
                 <button type="button"
@@ -686,6 +693,48 @@
         reader.onload = (e) => { this.attachedImage = e.target.result; };
         reader.readAsDataURL(file);
         ev.target.value = '';
+      },
+
+      async build() {
+        const text = this.question.trim();
+        if (!text) { alert('Опиши в поле, какие файлы создать.'); return; }
+        if (this.thinking) return;
+        this.thinking = true;
+        this._startThinkingClock();
+        this.messages.push({
+          id: Date.now(), session_id: this.sessionId, role: 'user',
+          content: '📦 Собрать в файлы: ' + text, created_at: new Date().toISOString(),
+        });
+        this.question = ''; this.autosize();
+        this.$nextTick(() => this.scrollToBottom());
+        try {
+          const r = await fetch(`/api/chat/sessions/${this.sessionId}/build`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt: text }),
+          });
+          const d = await r.json();
+          if (r.ok) {
+            const lines = (d.files || []).map(f => `- \`${f.path}\` (${f.bytes} б)`).join('\n');
+            this.messages.push({
+              id: Date.now() + 1, session_id: this.sessionId, role: 'assistant',
+              content: `📦 Создал файлы (${d.count}):\n${lines}\n\nПроверь на /workspace — это реальные файлы.`,
+              created_at: new Date().toISOString(),
+            });
+          } else {
+            this.messages.push({
+              id: Date.now() + 1, session_id: this.sessionId, role: 'system',
+              content: 'Ошибка сборки: ' + (d.detail || r.status), created_at: new Date().toISOString(),
+            });
+          }
+        } catch (e) {
+          this.messages.push({
+            id: Date.now() + 1, session_id: this.sessionId, role: 'system',
+            content: 'Сеть отвалилась: ' + e, created_at: new Date().toISOString(),
+          });
+        } finally {
+          this.thinking = false; this._stopThinkingClock();
+          this.$nextTick(() => this.scrollToBottom());
+        }
       },
 
       async doSearch() {

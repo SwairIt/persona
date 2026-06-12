@@ -273,6 +273,101 @@ async def api_chat_search(
     return JSONResponse({"results": results})
 
 
+_BUILD_FILES_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "properties": {
+        "files": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "content": {"type": "string"},
+                },
+                "required": ["path", "content"],
+            },
+        }
+    },
+    "required": ["files"],
+}
+
+
+@router.post("/api/chat/sessions/{session_id}/build", response_class=JSONResponse)
+async def api_build_files(
+    session_id: int,
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+    body: Annotated[dict[str, Any], Body(default_factory=dict)],
+) -> JSONResponse:
+    """T29 — RELIABLE file creation. Instead of hoping the model emits a
+    correct <tool>write_file</tool>, we constrain it to a JSON schema
+    (structured output) and write the files ourselves. Guaranteed even on a
+    weak 7B. Files land in the workspace (→ sync to the Mac agent)."""
+    thread = await get_session(session["user_id"], session_id)
+    if thread is None:
+        raise HTTPException(status_code=404, detail="chat session not found")
+    spec = str(body.get("prompt", "")).strip()
+    if not spec:
+        raise HTTPException(status_code=400, detail="prompt required")
+
+    from app.llm.client import OllamaClient  # noqa: PLC0415
+    from app.mcp import call_tool  # noqa: PLC0415
+    from app.storage.db import get_connection  # noqa: PLC0415
+    from app.storage.repository import get_kv  # noqa: PLC0415
+
+    async with get_connection() as conn:
+        endpoint = (await get_kv(conn, "byo_api_key_ollama") or "").strip()
+        model = (await get_kv(conn, "ollama_model") or "").strip()
+    endpoint = endpoint or "http://localhost:11434"
+    model = model or "qwen2.5:7b"
+    client = OllamaClient(api_key=endpoint, model=model)
+
+    sys_prompt = (
+        "Ты генерируешь файлы проекта. Верни СТРОГО JSON по схеме: массив "
+        "files[], где у каждого файла path — относительный путь от корня "
+        "workspace БЕЗ префикса 'workspace/' (например 'index.html', "
+        "'src/app.js', 'styles/main.css'), а content — ПОЛНОЕ рабочее "
+        "содержимое файла целиком, без заглушек и многоточий. Пиши реальный "
+        "код. Комментарии только на русском или английском, без иероглифов."
+    )
+    try:
+        result = await client.complete_json(
+            CompletionRequest(
+                system=sys_prompt, user=spec, max_tokens=4096, temperature=0.4
+            ),
+            _BUILD_FILES_SCHEMA,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=502, detail=f"генерация не удалась: {exc}"
+        ) from exc
+
+    files = result.get("files") if isinstance(result, dict) else None
+    written: list[dict[str, object]] = []
+    for f in files or []:
+        if not isinstance(f, dict):
+            continue
+        path = str(f.get("path", "")).strip()
+        content = str(f.get("content", ""))
+        if not path:
+            continue
+        res = await call_tool(
+            "write_file", {"path": path, "content": content},
+            user_id=session["user_id"],
+        )
+        written.append(
+            {"path": path, "bytes": len(content.encode("utf-8")), "ok": "[ok]" in res}
+        )
+
+    if written:
+        lines = "\n".join(f"- `{w['path']}` ({w['bytes']} б)" for w in written)
+        note = (
+            f"📦 Создал файлы ({len(written)}):\n{lines}\n\n"
+            "Проверь на /workspace — это реальные файлы на диске."
+        )
+        await append_message(session_id, "assistant", note, model_used=f"{model} (build)")
+    return JSONResponse({"ok": True, "count": len(written), "files": written})
+
+
 @router.get("/api/chat/sessions/{session_id}/live", response_class=JSONResponse)
 async def api_chat_live(
     session_id: int,
