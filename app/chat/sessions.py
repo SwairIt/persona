@@ -107,6 +107,13 @@ def _row_to_message(row: Any) -> ChatMessage:
             if "is_streaming" in keys and row["is_streaming"] is not None
             else False
         ),
+        # T29 — rating lives in training_dataset; brought in via LEFT JOIN so
+        # the chat UI restores 👍/👎 state on reload.
+        "rating": (
+            int(row["rating"])
+            if "rating" in keys and row["rating"] is not None
+            else 0
+        ),
     }
 
 
@@ -181,9 +188,13 @@ async def list_messages(session_id: int, limit: int = 500) -> list[ChatMessage]:
     safe_limit = max(1, min(2000, int(limit)))
     async with get_connection() as conn:
         cursor = await conn.execute(
-            "SELECT * FROM chat_message "
-            "WHERE session_id = ? "
-            "ORDER BY id ASC "
+            "SELECT m.*, "
+            "  (SELECT td.rating FROM training_dataset td "
+            "   WHERE td.asst_message_id = m.id ORDER BY td.id DESC LIMIT 1) "
+            "  AS rating "
+            "FROM chat_message m "
+            "WHERE m.session_id = ? "
+            "ORDER BY m.id ASC "
             "LIMIT ?",
             (session_id, safe_limit),
         )
