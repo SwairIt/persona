@@ -25,6 +25,7 @@ and the agent token inside it is the long-lived credential.
 
 from __future__ import annotations
 
+import json
 import secrets
 import time
 from typing import Annotated
@@ -57,6 +58,42 @@ def _purge_expired() -> None:
     expired = [k for k, (_, _, _, t) in _PENDING.items() if now - t > _TTL_SECONDS]
     for k in expired:
         _PENDING.pop(k, None)
+
+
+# T29 — pending installs are stored in the SHARED DB (kv), not the in-memory
+# dict above, because with --workers N the mint and the script-fetch hit
+# DIFFERENT worker processes → an in-memory dict 410s even on the first run.
+# Kept reusable within the TTL (not single-use) so re-running curl works.
+async def _store_pending(
+    install_id: str, agent_token: str, device_token: str, server_url: str
+) -> None:
+    from app.storage.db import get_connection  # noqa: PLC0415
+    from app.storage.repository import set_kv  # noqa: PLC0415
+
+    payload = json.dumps(
+        {"a": agent_token, "d": device_token, "u": server_url, "t": time.time()}
+    )
+    async with get_connection() as conn:
+        await set_kv(conn, f"install_pending_{install_id}", payload)
+
+
+async def _load_pending(install_id: str) -> tuple[str, str, str] | None:
+    if not install_id:
+        return None
+    from app.storage.db import get_connection  # noqa: PLC0415
+    from app.storage.repository import get_kv  # noqa: PLC0415
+
+    async with get_connection() as conn:
+        raw = await get_kv(conn, f"install_pending_{install_id}")
+    if not raw:
+        return None
+    try:
+        d = json.loads(raw)
+    except ValueError:
+        return None
+    if time.time() - float(d.get("t", 0)) > _TTL_SECONDS:
+        return None
+    return (str(d.get("a", "")), str(d.get("d", "")), str(d.get("u", "")))
 
 
 async def _ensure_mac_device(user_id: int) -> str:
@@ -112,10 +149,9 @@ async def install_mac_page(
 ) -> HTMLResponse:
     """Show the one-liner. If ``install_id`` is set + still valid, render
     the curl command with that token. Otherwise show the 'Generate' button."""
-    _purge_expired()
     server_url, is_local = _detect_public_url(request)
     ready_command = ""
-    if install_id and install_id in _PENDING:
+    if await _load_pending(install_id):
         # zsh treats ``?`` as a glob char so the unquoted URL fails with
         # 'no matches found'. Single-quote the URL so both bash and zsh
         # see it as a literal.
@@ -172,7 +208,7 @@ async def install_mac_mint(
     # bake ``localhost`` into config.json — the Mac agent would then try
     # to POST to its own loopback and silently 404.
     server_url, _is_local = _detect_public_url(request)
-    _PENDING[install_id] = (raw_token, device_token, server_url, time.time())
+    await _store_pending(install_id, raw_token, device_token, server_url)
 
     log.info(
         "install.mac.minted",
@@ -194,8 +230,7 @@ async def install_mac_script(t: str = Query(...)) -> PlainTextResponse:
     No auth dependency — the install_id IS the auth. It was minted
     server-side by an authenticated request via /welcome/install/mac/mint.
     """
-    _purge_expired()
-    record = _PENDING.pop(t, None)
+    record = await _load_pending(t)
     if record is None:
         # Generic 404-equivalent that won't be cached. We don't say
         # "expired" specifically because that helps attackers map TTLs.
@@ -203,7 +238,7 @@ async def install_mac_script(t: str = Query(...)) -> PlainTextResponse:
             "# Install link expired. Refresh /welcome/install/mac to mint a new one.\n",
             status_code=410,
         )
-    agent_token, device_token, server_url, _ = record
+    agent_token, device_token, server_url = record
 
     # Quote everything safely. Tokens are url-safe base64 so they're
     # already shell-safe, but treat as user input anyway.
