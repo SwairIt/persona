@@ -56,7 +56,7 @@ logger = structlog.get_logger("persona_agent")
 # in sync with ``LATEST_AGENT_VERSION`` in app/devices/agent_release.py.
 # 1.13 = T28 workspace sync loop (sync_workspace_loop + device_token).
 # 1.14 = T29 X-Agent-Token header (tunnel strips Authorization) + opt-in audio.
-AGENT_VERSION = "1.17"
+AGENT_VERSION = "1.18"
 
 
 # --------------------------------------------------------------------------- #
@@ -647,7 +647,10 @@ async def remote_pause_poller(state: RuntimeState) -> None:
     last-known value.
     """
     url = _server_endpoint(state.config, "/api/audio/mic")
-    interval_s = 30.0
+    # T29 — was 30s, so muting from the web UI took up to half a minute to
+    # actually stop the mic (felt broken). 5s makes it near-instant; the GET
+    # is tiny so the extra polling is cheap.
+    interval_s = 5.0
     logger.info("agent.remote_pause.poller_start", endpoint=url, interval_s=interval_s)
 
     while not state.stop.is_set():

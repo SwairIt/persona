@@ -55,7 +55,7 @@ _TIMEOUT = 10.0  # seconds per HTTP call
 # T29 — report the agent version on every sync call (incl. heartbeat) so the
 # server stores it in ``device.user_agent`` and can flag outdated installs.
 # Keep in sync with ``AGENT_VERSION`` in persona_agent.py.
-_AGENT_VERSION = "1.17"
+_AGENT_VERSION = "1.18"
 
 
 @dataclass
