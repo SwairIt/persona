@@ -68,6 +68,7 @@ _CATEGORIES: Final[list[dict[str, object]]] = [
         "pages": [
             ("/chat", "Чат с памятью (беседы, модель-пикер, vision)"),
             ("/settings/system-prompt", "Системный промпт чата (пресеты + редактор)"),
+            ("/settings/mac-fs", "AI работает с файлами Mac (allowlist папок)"),
             ("/ask", "Спросить — разовый вопрос по истории"),
             ("/admin/mcp", "MCP-серверы и встроенные инструменты"),
             ("/workspace", "Workspace — файлы, которые пишет AI"),

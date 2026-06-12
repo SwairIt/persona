@@ -42,13 +42,30 @@ def _is_safe_write_path(path: str) -> bool:
     return not any(p.startswith(prefix) for prefix in _FORBIDDEN_WRITE_PREFIXES)
 
 
+async def _remote_fs(op: str, path: str, user_id: int, content: str | None = None) -> str | None:
+    """T29 — when Mac-mode is on, run file ops on the Mac via the agent
+    instead of the server workspace. Returns the result string, or None to
+    fall through to the local workspace."""
+    try:
+        from app.devices.fs_rpc import is_enabled, run_remote  # noqa: PLC0415
+
+        if not await is_enabled():
+            return None
+        return await run_remote(user_id, op, path, content)
+    except Exception as exc:  # noqa: BLE001
+        return f"[error] remote-fs: {type(exc).__name__}: {exc}"
+
+
 async def read_file(args: dict[str, Any], user_id: int = 0) -> str:
-    """T27 — resolves path inside the user's workspace."""
+    """T27 — resolves path inside the user's workspace (or the Mac in mac-mode)."""
     from app.workspace import WorkspaceEscape, resolve_user_path  # noqa: PLC0415
 
     path = str(args.get("path", "")).strip()
     if not path:
         return "[error] path required"
+    remote = await _remote_fs("read", path, user_id)
+    if remote is not None:
+        return remote
     try:
         p = resolve_user_path(user_id, path)
     except WorkspaceEscape as exc:
@@ -75,6 +92,9 @@ async def list_dir(args: dict[str, Any], user_id: int = 0) -> str:
     )
 
     raw = str(args.get("path", "")).strip()
+    remote = await _remote_fs("list", raw or ".", user_id)
+    if remote is not None:
+        return remote
     try:
         if not raw or raw == ".":
             p = ensure_user_workspace(user_id)
@@ -131,6 +151,9 @@ async def write_file(args: dict[str, Any], user_id: int = 0) -> str:
     content = str(args.get("content", ""))
     if not path:
         return "[error] path required"
+    remote = await _remote_fs("write", path, user_id, content)
+    if remote is not None:
+        return remote
     try:
         p = resolve_user_path(user_id, path)
     except WorkspaceEscape as exc:

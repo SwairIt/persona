@@ -55,7 +55,7 @@ _TIMEOUT = 10.0  # seconds per HTTP call
 # T29 — report the agent version on every sync call (incl. heartbeat) so the
 # server stores it in ``device.user_agent`` and can flag outdated installs.
 # Keep in sync with ``AGENT_VERSION`` in persona_agent.py.
-_AGENT_VERSION = "1.16"
+_AGENT_VERSION = "1.17"
 
 
 @dataclass
@@ -152,6 +152,21 @@ class SyncClient:
         """
         path = f"/api/workspace/sync?since={int(since)}&limit={int(limit)}"
         return await self._request("GET", path)
+
+    async def fs_pending(self) -> dict[str, Any]:
+        """T29 — poll for filesystem commands the AI queued for this Mac.
+        Returns ``{commands:[{id,op,path,content}], roots:[...]}``."""
+        return await self._request("GET", "/api/agent/fs/pending")
+
+    async def fs_result(
+        self, command_id: int, status: str, result: str
+    ) -> dict[str, Any]:
+        """T29 — return the result of one filesystem command to the server."""
+        return await self._request(
+            "POST",
+            "/api/agent/fs/result",
+            body={"command_id": command_id, "status": status, "result": result},
+        )
 
     async def push_workspace_file(
         self, relative_path: str, content: str

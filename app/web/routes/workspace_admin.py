@@ -188,6 +188,53 @@ async def workspace_push(
     return JSONResponse({"ok": True, "relative_path": rel_norm})
 
 
+@router.get("/api/agent/fs/pending", response_class=JSONResponse)
+async def agent_fs_pending(request: Request) -> JSONResponse:
+    """T29 — the Mac agent polls this for filesystem commands the AI queued
+    (read/list/write). Returns the commands + the allowlist roots the agent
+    must enforce. X-Device-Token auth, code-target only."""
+    from app.devices.fs_rpc import get_pending, get_roots  # noqa: PLC0415
+
+    token = request.headers.get("x-device-token", "")
+    if not token:
+        raise HTTPException(status_code=401, detail="missing X-Device-Token header")
+    device = await lookup_by_token(token)
+    if device is None:
+        raise HTTPException(status_code=401, detail="unknown device token")
+    if not device["is_code_write_target"]:
+        raise HTTPException(status_code=403, detail="this device is not the code target")
+    return JSONResponse(
+        {
+            "commands": await get_pending(int(device["id"])),
+            "roots": await get_roots(),
+        }
+    )
+
+
+@router.post("/api/agent/fs/result", response_class=JSONResponse)
+async def agent_fs_result(
+    request: Request,
+    body: Annotated[dict[str, Any], Body(default_factory=dict)],
+) -> JSONResponse:
+    """T29 — the agent posts the result of a filesystem command here."""
+    from app.devices.fs_rpc import submit_result  # noqa: PLC0415
+
+    token = request.headers.get("x-device-token", "")
+    if not token:
+        raise HTTPException(status_code=401, detail="missing X-Device-Token header")
+    device = await lookup_by_token(token)
+    if device is None:
+        raise HTTPException(status_code=401, detail="unknown device token")
+    cmd_id = int(body.get("command_id") or 0)
+    if cmd_id:
+        await submit_result(
+            cmd_id,
+            str(body.get("status") or "error"),
+            str(body.get("result") or ""),
+        )
+    return JSONResponse({"ok": True})
+
+
 def _format_size(size: int) -> str:
     """Human-readable bytes (KB/MB/GB)."""
     for unit in ("Б", "КБ", "МБ", "ГБ"):

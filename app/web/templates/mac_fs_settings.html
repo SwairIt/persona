@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto px-4 py-6 space-y-5">
+  <div>
+    <h1 class="text-2xl font-bold mb-1">AI работает с файлами Mac</h1>
+    <p class="text-sm text-zinc-400">
+      Когда включено, инструменты AI (читать / показать / создать файл) и
+      кнопка 📦 работают <b>напрямую на твоём Mac</b> через агента — на
+      сервере ничего не хранится. Доступ ограничен папками из списка ниже
+      (несуществующие агент создаст сам). Нужен запущенный Mac-агент.
+    </p>
+  </div>
+
+  {% if saved %}
+    <div class="rounded-lg bg-emerald-500/10 border border-emerald-500/40 px-4 py-2 text-sm text-emerald-300">
+      Сохранено ✓
+    </div>
+  {% endif %}
+
+  <form method="post" action="/settings/mac-fs" class="space-y-4">
+    <label class="flex items-center gap-3 text-sm">
+      <input type="checkbox" name="enabled" value="on" {% if enabled %}checked{% endif %}
+             class="w-5 h-5 rounded accent-violet-500">
+      <span>Включить работу AI с файлами Mac (вместо серверного workspace)</span>
+    </label>
+
+    <div>
+      <div class="flex items-center justify-between mb-1">
+        <label class="text-[11px] uppercase tracking-widest text-zinc-500">
+          Разрешённые папки (по одной на строку)
+        </label>
+      </div>
+      <textarea name="roots" rows="6" spellcheck="false"
+                class="w-full rounded-xl bg-ink-900 border border-ink-700 focus:border-accent-500
+                       px-4 py-3 text-[13px] leading-relaxed font-mono text-zinc-100
+                       resize-y focus:outline-none"
+                placeholder="~/Projects&#10;/Users/имя/site&#10;~  (весь домашний — рискованно)">{{ roots | join('\n') }}</textarea>
+      <p class="text-xs text-zinc-500 mt-2">
+        Пути на Mac. <code>~</code> = твой домашний каталог. Примеры:
+        <code>~/Projects</code>, <code>/Users/имя/Desktop/site</code>. Чтобы AI
+        видел <b>весь</b> Mac — укажи <code>~</code> (но это небезопасно).
+        Любой путь вне этих папок агент отклонит.
+      </p>
+    </div>
+
+    <button type="submit"
+            class="px-4 py-2 rounded-lg bg-accent-600 hover:bg-accent-500 text-white text-sm font-semibold">
+      Сохранить
+    </button>
+  </form>
+
+  <div class="text-xs text-zinc-500 border-t border-ink-800 pt-3">
+    Важно: нужен <b>переустановленный агент</b> (он умеет это с версии 1.17).
+    Файловые операции идут через опрос агента — несколько секунд задержки на
+    операцию, это нормально.
+  </div>
+</div>
+{% endblock %}

@@ -56,7 +56,7 @@ logger = structlog.get_logger("persona_agent")
 # in sync with ``LATEST_AGENT_VERSION`` in app/devices/agent_release.py.
 # 1.13 = T28 workspace sync loop (sync_workspace_loop + device_token).
 # 1.14 = T29 X-Agent-Token header (tunnel strips Authorization) + opt-in audio.
-AGENT_VERSION = "1.16"
+AGENT_VERSION = "1.17"
 
 
 # --------------------------------------------------------------------------- #
@@ -947,6 +947,140 @@ async def sync_workspace_loop(state: RuntimeState) -> None:
     logger.info("agent.workspace_sync.stopped")
 
 
+# --------------------------------------------------------------------------- #
+# Filesystem RPC loop (T29) — AI reads/writes the REAL Mac filesystem
+# --------------------------------------------------------------------------- #
+
+
+def _fs_expand(raw: str) -> Path:
+    """Expand ~ and resolve a path string."""
+    return Path(raw).expanduser().resolve()
+
+
+def _fs_roots(roots: list[str]) -> list[Path]:
+    out: list[Path] = []
+    for r in roots:
+        try:
+            out.append(_fs_expand(r))
+        except Exception:  # noqa: BLE001
+            continue
+    return out
+
+
+def _fs_within(target: Path, roots: list[Path]) -> bool:
+    for root in roots:
+        try:
+            target.relative_to(root)
+            return True
+        except ValueError:
+            continue
+    return False
+
+
+def _fs_ensure_roots(roots: list[Path]) -> None:
+    # T29 — if a configured root doesn't exist on the Mac, create it.
+    for root in roots:
+        try:
+            root.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            logger.debug("agent.fs_rpc.root_mkdir_failed", root=str(root), error=str(exc))
+
+
+def _fs_exec(cmd: dict[str, Any], roots: list[Path]) -> tuple[str, str]:
+    """Execute one fs command on the Mac. Returns (status, result_text)."""
+    op = str(cmd.get("op", ""))
+    raw = str(cmd.get("path", "")).strip()
+    if not raw:
+        return ("error", "[error] пустой путь")
+    # Absolute / ~ paths used as-is; relative paths resolve under the first
+    # allowed root so the AI can say 'site/index.html'.
+    if raw.startswith("~") or Path(raw).is_absolute():
+        target = _fs_expand(raw)
+    elif roots:
+        target = (roots[0] / raw).resolve()
+    else:
+        target = _fs_expand(raw)
+
+    if not _fs_within(target, roots):
+        allowed = ", ".join(str(r) for r in roots) or "(пусто)"
+        return ("error", f"[error] путь вне разрешённых папок: {target}\nРазрешено: {allowed}")
+
+    try:
+        if op == "list":
+            if not target.exists():
+                return ("done", f"[error] не существует: {target}")
+            if not target.is_dir():
+                return ("done", f"[error] это файл, не папка: {target}")
+            entries = sorted(target.iterdir(), key=lambda e: (e.is_file(), e.name.lower()))
+            lines = [f"[ok] {target}", ""]
+            for e in entries[:300]:
+                tag = "DIR " if e.is_dir() else "FILE"
+                lines.append(f"  {tag} {e.name}")
+            if not entries:
+                lines.append("  (пусто)")
+            return ("done", "\n".join(lines))
+        if op == "read":
+            if not target.exists() or target.is_dir():
+                return ("done", f"[error] нет файла: {target}")
+            if target.stat().st_size > 500_000:
+                return ("done", f"[error] файл больше 500 КБ: {target}")
+            txt = target.read_text(encoding="utf-8", errors="replace")
+            return ("done", f"[ok] {target}\n```\n{txt}\n```")
+        if op == "write":
+            content = cmd.get("content")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(str(content or ""), encoding="utf-8")
+            return ("done", f"[ok] записал {len(str(content or ''))} символов в {target}")
+    except OSError as exc:
+        return ("error", f"[error] {type(exc).__name__}: {exc}")
+    return ("error", f"[error] неизвестная операция: {op}")
+
+
+async def fs_rpc_loop(state: RuntimeState) -> None:
+    """T29 — poll for AI filesystem commands and run them on the real Mac
+    filesystem, restricted to the user's allowlisted directories."""
+    if state.config.server.device_token is None:
+        logger.info("agent.fs_rpc.disabled_no_device_token")
+        return
+
+    from sync_client import SyncClient  # noqa: PLC0415
+
+    client = SyncClient(
+        server_url=str(state.config.server.url),
+        device_token=state.config.server.device_token.get_secret_value(),
+    )
+    interval_s = 2.5
+    logger.info("agent.fs_rpc.start", interval_s=interval_s)
+
+    while not state.stop.is_set():
+        try:
+            resp = await client.fs_pending()
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("agent.fs_rpc.poll_failed", error=str(exc))
+            resp = {}
+
+        if isinstance(resp, dict) and resp.get("status") == 403:
+            pass  # not the code target
+        elif isinstance(resp, dict) and "commands" in resp:
+            roots = _fs_roots(resp.get("roots") or [])
+            _fs_ensure_roots(roots)
+            for cmd in resp.get("commands") or []:
+                if not isinstance(cmd, dict):
+                    continue
+                status, result = _fs_exec(cmd, roots)
+                try:
+                    await client.fs_result(int(cmd["id"]), status, result)
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("agent.fs_rpc.result_failed", error=str(exc))
+
+        try:
+            await asyncio.wait_for(state.stop.wait(), timeout=interval_s)
+        except TimeoutError:
+            continue
+
+    logger.info("agent.fs_rpc.stopped")
+
+
 async def audio_loop(state: RuntimeState) -> None:
     """Capture mic audio, detect speech, encode + transcribe, upload.
 
@@ -1328,6 +1462,15 @@ async def _run_async(config: AgentConfig) -> int:
             asyncio.create_task(
                 sync_workspace_loop(state),
                 name="sync_workspace_loop",
+            )
+        )
+        # T29 (2026-06-12) — run AI filesystem ops (read/list/write) on the
+        # real Mac filesystem within allowlisted dirs. Self-disables without
+        # a device_token, backs off on 403.
+        tasks.append(
+            asyncio.create_task(
+                fs_rpc_loop(state),
+                name="fs_rpc_loop",
             )
         )
 

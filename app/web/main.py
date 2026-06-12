@@ -104,6 +104,7 @@ from app.web.routes import (
     digest_card as digest_card_routes,
     digest_prompts as digest_prompts_routes,
     system_prompt_settings as system_prompt_routes,
+    mac_fs_settings as mac_fs_routes,
     doctor as doctor_routes,
     embeddings_reindex as embeddings_reindex_routes,
     embeddings_stats as embeddings_stats_routes,
@@ -631,6 +632,7 @@ def create_app() -> FastAPI:
     app.include_router(ocr_vision_routes.router)
     app.include_router(digest_prompts_routes.router)
     app.include_router(system_prompt_routes.router)
+    app.include_router(mac_fs_routes.router)
     app.include_router(shot_embed_routes.router)
     app.include_router(diag_bundle_routes.router)
     app.include_router(embeddings_reindex_routes.router)
