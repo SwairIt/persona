@@ -284,6 +284,25 @@
           </div>
         </template>
 
+        {# T31 E8 — меню выбора ответов из последнего ответа ассистента #}
+        <template x-if="lastChoices()">
+          <div class="mb-3 rounded-xl border border-accent-600/40 bg-accent-600/10 p-3">
+            <div class="text-xs text-accent-300 mb-2" x-text="lastChoices().question || 'Выбери вариант'"></div>
+            <div class="flex flex-col gap-2">
+              <template x-for="(opt, oi) in lastChoices().options" :key="oi">
+                <button type="button" @click="pickChoice(opt)"
+                        class="text-left px-3 py-2 rounded-lg border transition"
+                        :class="opt.recommended ? 'border-accent-500 bg-accent-600/20 hover:bg-accent-600/30' : 'border-ink-700 bg-ink-800/60 hover:bg-ink-700'">
+                  <span class="text-sm text-zinc-100" x-text="opt.label"></span>
+                  <span x-show="opt.recommended" class="ml-2 text-[10px] text-accent-300">рекомендую</span>
+                  <template x-if="opt.desc"><span class="block text-xs text-zinc-400 mt-0.5" x-text="opt.desc"></span></template>
+                </button>
+              </template>
+            </div>
+            <div class="text-[11px] text-zinc-500 mt-2">или впиши свой вариант ниже ↓</div>
+          </div>
+        </template>
+
         {# T22.1: composer in Claude-like layout — textarea has model picker
            and attach button INSIDE it as floating controls. #}
         <form @submit.prevent="send()"
@@ -640,9 +659,37 @@
         catch (e) { return (text || '').replace(/[<>]/g, c => c === '<' ? '&lt;' : '&gt;'); }
       },
 
+      // T31 E8 — парсинг блока выбора ```persona:choices {json}```
+      parseChoices(text) {
+        if (!text) return null;
+        const m = text.match(/```persona:choices\s*([\s\S]*?)```/);
+        if (!m) return null;
+        try {
+          const j = JSON.parse(m[1].trim());
+          if (j && Array.isArray(j.options) && j.options.length) return j;
+        } catch (e) { /* неполный/битый JSON — игнор */ }
+        return null;
+      },
+      lastChoices() {
+        if (this.thinking) return null;
+        const msgs = this.messages;
+        for (let i = msgs.length - 1; i >= 0; i--) {
+          if (msgs[i].role === 'assistant') return this.parseChoices(msgs[i].content);
+          if (msgs[i].role === 'user') return null;
+        }
+        return null;
+      },
+      pickChoice(opt) {
+        if (!opt || !opt.label) return;
+        this.question = opt.label;
+        this.send();
+      },
+
       // T31 — рендер ответа + стойкая подсветка оценённых фрагментов (зелёный/красный)
       renderMsg(msg) {
-        let html = this.renderMd(msg && msg.content);
+        // E8 — не показываем сырой блок persona:choices в тексте (он → меню кнопок)
+        const content = (msg && msg.content || '').replace(/```persona:choices[\s\S]*?```/g, '').trim();
+        let html = this.renderMd(content);
         const spans = (msg && msg.span_ratings) || [];
         if (!spans.length) return html;
         const esc = s => s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));

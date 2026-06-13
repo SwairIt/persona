@@ -106,6 +106,23 @@ _PERSONA_IDENTITY = (
     "Не называй себя другим именем или чужой моделью.\n\n"
 )
 
+# T31 E8 — меню выбора ответов (как у Клода). ИИ может в КОНЦЕ сообщения
+# добавить блок выбора; фронт превратит его в кнопки над полем ввода.
+_CHOICES_HINT = (
+    "\n\nМеню выбора: когда уместно предложить пользователю выбрать "
+    "направление/вариант (а не строчить простыню), добавь В САМОМ КОНЦЕ "
+    "сообщения отдельный блок (ровно такой формат, на отдельных строках):\n"
+    "```persona:choices\n"
+    '{"question": "краткий вопрос", "options": ['
+    '{"label": "Вариант 1", "desc": "пояснение", "recommended": true}, '
+    '{"label": "Вариант 2", "desc": "пояснение"}]}\n'
+    "```\n"
+    "Правила: 2–4 варианта; ровно один recommended:true; label короткий "
+    "(до ~5 слов); валидный JSON; блок ОДИН и только в конце. Не злоупотребляй "
+    "— только когда выбор реально экономит время. Пользователь нажмёт вариант "
+    "или впишет свой."
+)
+
 
 async def _base_prompt(user_id: int, image_data_url: str | None) -> str:
     """T29 — the system prompt for a turn: vision prompt (if image) or the
@@ -115,7 +132,7 @@ async def _base_prompt(user_id: int, image_data_url: str | None) -> str:
     from app.profile import get_profile, profile_block  # noqa: PLC0415
 
     base = _SYSTEM_PROMPT_VISION if image_data_url else await get_active_system_prompt()
-    return _PERSONA_IDENTITY + base + profile_block(await get_profile(user_id))
+    return _PERSONA_IDENTITY + base + _CHOICES_HINT + profile_block(await get_profile(user_id))
 
 
 class _LiveGen:
