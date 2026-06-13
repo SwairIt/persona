@@ -198,6 +198,24 @@ async def _set_mode(session_id: int, mode: str) -> None:
         await conn.commit()
 
 
+# T31 E5 — авто-подбор системного промпта под задачу (глобальный флаг).
+async def _get_auto_prompt() -> bool:
+    from app.storage.db import get_connection  # noqa: PLC0415
+    from app.storage.repository import get_kv  # noqa: PLC0415
+
+    async with get_connection() as conn:
+        return (await get_kv(conn, "auto_prompt") or "0").strip() == "1"
+
+
+async def _set_auto_prompt(on: bool) -> None:
+    from app.storage.db import get_connection  # noqa: PLC0415
+    from app.storage.repository import set_kv  # noqa: PLC0415
+
+    async with get_connection() as conn:
+        await set_kv(conn, "auto_prompt", "1" if on else "0")
+        await conn.commit()
+
+
 class _LiveGen:
     """T29 — one in-flight chat generation, decoupled from the HTTP client.
 
@@ -311,6 +329,7 @@ async def chat_thread(
         m["span_ratings"] = spans.get(int(m["id"]), [])
     effort = await _get_effort(session_id)
     mode = await _get_mode(session_id)
+    auto_prompt = await _get_auto_prompt()
     return templates.TemplateResponse(
         request,
         "chat_index.html",
@@ -322,6 +341,7 @@ async def chat_thread(
             "messages": messages,
             "effort": effort,
             "mode": mode,
+            "auto_prompt": auto_prompt,
         },
     )
 
@@ -697,6 +717,12 @@ async def api_send_stream(
         )
     else:
         base_prompt = await _base_prompt(session["user_id"], image_data_url)
+
+    # T31 E5 — авто-подбор промпта под задачу (накладка по триггерам вопроса).
+    if await _get_auto_prompt():
+        from app.chat.auto_prompts import detect_overlay  # noqa: PLC0415
+
+        base_prompt = base_prompt + detect_overlay(question)
 
     # T25 — tools fragment: enumerate built-in tools the user enabled
     # in /admin/mcp. LLM sees them in system prompt; uses <tool>...</tool>
@@ -1349,6 +1375,17 @@ async def api_set_mode(
         mode = "auto"
     await _set_mode(session_id, mode)
     return JSONResponse({"ok": True, "mode": mode})
+
+
+@router.post("/api/chat/auto-prompt", response_class=JSONResponse)
+async def api_set_auto_prompt(
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+    body: Annotated[dict[str, Any], Body(default_factory=dict)],
+) -> JSONResponse:
+    """T31 E5 — вкл/выкл авто-подбор системного промпта под задачу."""
+    on = bool(body.get("on"))
+    await _set_auto_prompt(on)
+    return JSONResponse({"ok": True, "on": on})
 
 
 @router.post("/api/chat/sessions/{session_id}/rename", response_class=JSONResponse)

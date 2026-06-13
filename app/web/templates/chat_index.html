@@ -31,7 +31,8 @@
     {{ messages | tojson | forceescape }},
     {{ (active_session.summary | tojson | forceescape) if active_session and active_session.summary else 'null' }},
     '{{ effort or "normal" }}',
-    '{{ mode or "auto" }}'
+    '{{ mode or "auto" }}',
+    {{ 'true' if auto_prompt else 'false' }}
 )" class="grid grid-cols-1 md:grid-cols-[280px,1fr] gap-0 -mx-3 sm:-mx-6 -my-6 min-h-[calc(100vh-7rem)]">
 
   {# --- LEFT: sessions sidebar --- #}
@@ -367,6 +368,14 @@
                 <option value="deep">🧠 Глубоко</option>
               </select>
 
+              {# T31 E5 — авто-подбор системного промпта под задачу #}
+              <button type="button" @click="toggleAutoPrompt()"
+                      :class="autoPrompt ? 'bg-accent-600/30 text-accent-300 border-accent-500' : 'text-zinc-400 border-ink-700 hover:bg-ink-700'"
+                      class="px-2 py-1 rounded-lg border text-xs transition whitespace-nowrap"
+                      title="Авто-подбор системного промпта под тип задачи (код/перевод/анализ/…)">
+                🧩 <span x-text="autoPrompt ? 'авто-промпт ✓' : 'авто-промпт'"></span>
+              </button>
+
               {# T22.1 model picker — now lives in composer like Claude does #}
               <div class="relative" @click.outside="modelPickerOpen = false">
                 <button type="button"
@@ -504,11 +513,12 @@
 </div>
 
 <script>
-  function chatPage(initialSessionId, initialMessages, summary, initialEffort, initialMode) {
+  function chatPage(initialSessionId, initialMessages, summary, initialEffort, initialMode, initialAutoPrompt) {
     return {
       sessionId: initialSessionId,
       effort: initialEffort || 'normal',
       mode: initialMode || 'auto',
+      autoPrompt: !!initialAutoPrompt,
       messages: (initialMessages || []).map(m => ({ ...m, image_data_url: m.image_data_url || null })),
       // T30 — реакции: ключ (ASCII, для сервера/БД) + эмодзи + подсказка
       reactions: [
@@ -728,6 +738,17 @@
           await fetch(`/api/chat/sessions/${this.sessionId}/mode`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ mode: v }),
+          });
+        } catch (e) { /* локально уже применено */ }
+      },
+
+      // T31 E5 — вкл/выкл авто-подбор системного промпта (глобально)
+      async toggleAutoPrompt() {
+        this.autoPrompt = !this.autoPrompt;
+        try {
+          await fetch('/api/chat/auto-prompt', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ on: this.autoPrompt }),
           });
         } catch (e) { /* локально уже применено */ }
       },
