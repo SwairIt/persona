@@ -98,14 +98,24 @@ _SYSTEM_PROMPT_VISION = (
 )
 
 
+# T31 — идентичность: ИИ знает, что он Persona. Всегда в начале промпта.
+_PERSONA_IDENTITY = (
+    "Ты — Persona: персональный ИИ этого пользователя (модель называется "
+    "«Persona»). Если спросят, кто ты или какая ты модель — ты Persona, "
+    "личный ассистент с памятью о пользователе, работающий на его стороне. "
+    "Не называй себя другим именем или чужой моделью.\n\n"
+)
+
+
 async def _base_prompt(user_id: int, image_data_url: str | None) -> str:
     """T29 — the system prompt for a turn: vision prompt (if image) or the
     user's active prompt, PLUS the user's 'about me' profile so the AI knows
-    who it's talking to. Used by all chat paths (send/send-stream/compare)."""
+    who it's talking to. T31 — также префикс идентичности Persona.
+    Used by all chat paths (send/send-stream/compare)."""
     from app.profile import get_profile, profile_block  # noqa: PLC0415
 
     base = _SYSTEM_PROMPT_VISION if image_data_url else await get_active_system_prompt()
-    return base + profile_block(await get_profile(user_id))
+    return _PERSONA_IDENTITY + base + profile_block(await get_profile(user_id))
 
 
 class _LiveGen:
