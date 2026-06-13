@@ -102,6 +102,13 @@
             <a href="/auth/signup" class="btn btn-primary">Создать аккаунт</a>
             <a href="/auth/login" class="btn btn-ghost">Войти</a>
           </div>
+
+          <form class="quick-magic reveal" method="post" action="/auth/magic" id="quick-magic">
+            <input type="email" name="email" id="quick-email" required
+                   placeholder="твой@email.com" autocomplete="email" spellcheck="false" />
+            <button type="submit" class="btn btn-primary">Войти по ссылке →</button>
+          </form>
+          <p class="quick-hint reveal" id="email-hint" aria-live="polite"></p>
         {% endif %}
 
         <div class="hero-chips reveal">
@@ -225,6 +232,29 @@
       <a href="https://github.com/SwairIt/persona">Исходник</a>
     </span>
   </footer>
+
+  <!-- Проверка опечаток в email для быстрого поля (gmail.ru → gmail.com) -->
+  <script>
+  (function(){
+    var input=document.getElementById('quick-email'),hint=document.getElementById('email-hint');
+    if(!input||!hint)return;
+    var T={'gmail.ru':'gmail.com','gmail.con':'gmail.com','gmail.co':'gmail.com','gmail.cm':'gmail.com','gmail.om':'gmail.com','gmial.com':'gmail.com','gmai.com':'gmail.com','gmaill.com':'gmail.com','gnail.com':'gmail.com','yandex.com':'yandex.ru','yandx.ru':'yandex.ru','yndex.ru':'yandex.ru','mai.ru':'mail.ru','outlook.con':'outlook.com','hotmail.con':'hotmail.com','hotmial.com':'hotmail.com','icloud.con':'icloud.com','icloud.co':'icloud.com'};
+    function check(){
+      var v=input.value.trim().toLowerCase();hint.textContent='';
+      var at=v.lastIndexOf('@');if(at<1)return;
+      var dom=v.slice(at+1),loc=v.slice(0,at);
+      if(T[dom]){
+        var s=loc+'@'+T[dom];
+        hint.innerHTML='Возможно, вы имели в виду <a href="#" id="fix-email">'+s+'</a>?';
+        document.getElementById('fix-email').addEventListener('click',function(e){e.preventDefault();input.value=s;hint.textContent='';input.focus();});
+      }else if(v.indexOf('@')>0&&!/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(v)){
+        hint.textContent='Проверьте адрес: похоже, он введён не полностью.';
+      }
+    }
+    input.addEventListener('blur',check);
+    input.addEventListener('input',function(){if(hint.textContent)check();});
+  })();
+  </script>
 
   <script type="module" src="/static/landing/scene.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/lenis@1.1.13/dist/lenis.min.js" defer></script>

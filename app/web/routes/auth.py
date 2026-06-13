@@ -31,8 +31,13 @@ from app.auth import (
     issue_session,
     revoke_session,
 )
+from app.auth.email_check import check_email
+from app.auth.magic import consume_magic_link, create_magic_link
 from app.auth.sessions import SessionRecord
+from app.auth.waitlist import add_to_waitlist
 from app.logging_setup import get_logger
+from app.smtp_delivery import send_email
+from app.storage.db import get_connection
 from app.web.templates_engine import templates
 
 router = APIRouter(tags=["auth"])
@@ -173,6 +178,111 @@ async def login_submit(
     response = RedirectResponse(url="/now", status_code=303)
     secure = request.url.scheme == "https"
     _set_session_cookie(response, token, secure, 30 * 24 * 3600)
+    return response
+
+
+# --- Magic-link (passwordless) --------------------------------------------
+
+
+async def _user_id_for_email(email: str) -> int | None:
+    async with get_connection() as conn:
+        cursor = await conn.execute("SELECT id FROM users WHERE email = ?", (email,))
+        row = await cursor.fetchone()
+    return int(row["id"]) if row else None
+
+
+@router.post("/auth/magic", response_class=HTMLResponse, response_model=None)
+async def magic_request(
+    request: Request,
+    email: Annotated[str, Form()],
+) -> Response:
+    """Request a passwordless login link.
+
+    Existing user → mint a magic link and email it. Unknown email → add to
+    waitlist (open registration is gated until per-user data isolation).
+    The link is NEVER shown in the HTTP response: otherwise anyone could
+    type someone else's email and log in as them. When SMTP isn't set up,
+    the link is logged server-side so the owner can still test.
+    """
+    chk = check_email(email)
+    # Невалидный формат ИЛИ распознанная опечатка домена (gmail.ru→gmail.com)
+    # → не отправляем вслепую, показываем подсказку (работает и без JS).
+    if not chk["valid"] or chk["suggestion"]:
+        return templates.TemplateResponse(
+            request,
+            "auth_magic_sent.html",
+            {
+                "title": "Проверьте email",
+                "mode": "error",
+                "email": email,
+                "suggestion": chk["suggestion"],
+            },
+            status_code=400,
+        )
+    addr = chk["email"]
+    uid = await _user_id_for_email(addr)
+    if uid is not None:
+        token = await create_magic_link(addr)
+        link = str(request.base_url).rstrip("/") + f"/auth/magic/{token}"
+        text = (
+            "Чтобы войти в Persona, открой ссылку:\n\n"
+            f"{link}\n\n"
+            "Ссылка действует 30 минут и срабатывает один раз. "
+            "Если ты не запрашивал вход — просто проигнорируй письмо."
+        )
+        html = (
+            "<p>Чтобы войти в Persona, нажми кнопку:</p>"
+            f'<p><a href="{link}" '
+            'style="display:inline-block;padding:12px 22px;border-radius:10px;'
+            'background:#7c3aed;color:#fff;text-decoration:none">Войти в Persona</a></p>'
+            "<p>Ссылка действует 30 минут и срабатывает один раз.</p>"
+        )
+        result = await send_email(addr, "Вход в Persona", text, html)
+        if result.get("status") != "sent":
+            # SMTP не настроен/ошибка — НЕ светим ссылку в ответе, только в лог.
+            log.warning("magic.not_emailed", status=result.get("status"), link=link)
+        return templates.TemplateResponse(
+            request,
+            "auth_magic_sent.html",
+            {
+                "title": "Проверьте почту",
+                "mode": "login",
+                "email": addr,
+                "delivered": result.get("status") == "sent",
+            },
+        )
+    await add_to_waitlist(addr)
+    return templates.TemplateResponse(
+        request,
+        "auth_magic_sent.html",
+        {"title": "Вы в списке", "mode": "waitlist", "email": addr},
+    )
+
+
+@router.get("/auth/magic/{token}", response_class=HTMLResponse, response_model=None)
+async def magic_consume(request: Request, token: str) -> Response:
+    """Consume a magic link → issue a session → redirect to the cabinet."""
+    addr = await consume_magic_link(token)
+    if addr is None:
+        return templates.TemplateResponse(
+            request,
+            "auth_magic_sent.html",
+            {"title": "Ссылка недействительна", "mode": "invalid", "email": ""},
+            status_code=400,
+        )
+    uid = await _user_id_for_email(addr)
+    if uid is None:
+        return templates.TemplateResponse(
+            request,
+            "auth_magic_sent.html",
+            {"title": "Аккаунт не найден", "mode": "invalid", "email": addr},
+            status_code=400,
+        )
+    ua = _trim_ua(request.headers.get("user-agent"))
+    token2, _expires_at = await issue_session(uid, user_agent=ua)
+    response = RedirectResponse(url="/now", status_code=303)
+    secure = request.url.scheme == "https"
+    _set_session_cookie(response, token2, secure, 30 * 24 * 3600)
     return response
 
 

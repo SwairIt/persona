@@ -298,6 +298,18 @@ section{position:relative;z-index:2;padding-inline:clamp(16px,5vw,40px)}
 .card:hover{box-shadow:0 22px 60px rgba(124,58,237,.28),inset 0 1px 0 rgba(255,255,255,.1)}
 .card:hover::after{opacity:1}
 
+/* ---------- быстрый вход по ссылке ---------- */
+.quick-magic{display:flex;gap:10px;margin-top:24px;max-width:460px;width:100%;flex-wrap:wrap;justify-content:center}
+.quick-magic input{
+  flex:1;min-width:210px;padding:13px 18px;border-radius:999px;color:var(--ink);font-size:1rem;outline:none;
+  background:rgba(255,255,255,.05);border:1px solid var(--glass-brd);transition:border-color .2s;
+}
+.quick-magic input::placeholder{color:var(--ink-faint)}
+.quick-magic input:focus{border-color:var(--violet)}
+.quick-magic .btn{white-space:nowrap}
+.quick-hint{margin-top:10px;font-size:.88rem;color:var(--ink-faint);min-height:1.1em}
+.quick-hint a{color:var(--accent-400,#a78bfa);text-decoration:underline;cursor:pointer}
+
 /* ---------- hero-чипы ---------- */
 .hero-chips{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-top:30px;max-width:560px}
 .chip{

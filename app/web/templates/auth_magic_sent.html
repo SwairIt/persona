@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0a0a12" />
+  <meta name="robots" content="noindex" />
+  <title>{{ title }} — Persona</title>
+  <style>:root{color-scheme:dark}html,body{margin:0;background:#07070d;color:#eef0ff}</style>
+  <link rel="stylesheet" href="/static/landing/style.css" />
+  <link rel="stylesheet" href="/static/blog/blog.css" />
+</head>
+<body>
+  <div class="bg-mesh" aria-hidden="true"></div>
+  <div class="bg-grid" aria-hidden="true"></div>
+
+  <main class="blog-main" style="max-width:560px;text-align:center">
+    <a class="brand" href="/" style="justify-content:center;margin-bottom:28px;display:flex">
+      <span class="brand-dot"></span> Persona
+    </a>
+
+    <div class="glass" style="padding:40px 32px;border-radius:22px">
+      {% if mode == "login" %}
+        <div style="font-size:2.4rem;margin-bottom:14px">📬</div>
+        <h1 style="font-size:1.6rem;font-weight:800;margin-bottom:12px">Проверьте почту</h1>
+        {% if delivered %}
+          <p style="color:var(--ink-dim)">Мы отправили ссылку для входа на <b style="color:var(--ink)">{{ email }}</b>. Откройте письмо и нажмите кнопку — ссылка действует 30&nbsp;минут.</p>
+        {% else %}
+          <p style="color:var(--ink-dim)">Запрос на вход для <b style="color:var(--ink)">{{ email }}</b> принят. Если почта (SMTP) ещё не настроена администратором — письмо не уйдёт. Пока можно войти по <a href="/auth/login" style="color:var(--accent-400,#a78bfa)">паролю</a>.</p>
+        {% endif %}
+      {% elif mode == "waitlist" %}
+        <div style="font-size:2.4rem;margin-bottom:14px">✅</div>
+        <h1 style="font-size:1.6rem;font-weight:800;margin-bottom:12px">Вы в списке раннего доступа</h1>
+        <p style="color:var(--ink-dim)">Аккаунта на <b style="color:var(--ink)">{{ email }}</b> пока нет, и мы добавили вас в список ожидания. Открытая регистрация скоро — мы напишем.</p>
+      {% elif mode == "error" %}
+        <div style="font-size:2.4rem;margin-bottom:14px">✉️</div>
+        <h1 style="font-size:1.6rem;font-weight:800;margin-bottom:12px">Проверьте email</h1>
+        <p style="color:var(--ink-dim)">Адрес <b style="color:var(--ink)">{{ email }}</b> выглядит некорректно.</p>
+        {% if suggestion %}
+          <form method="post" action="/auth/magic" style="margin-top:16px">
+            <input type="hidden" name="email" value="{{ suggestion }}" />
+            <p style="color:var(--ink-dim);margin-bottom:10px">Возможно, вы имели в виду:</p>
+            <button type="submit" class="btn btn-primary">{{ suggestion }}</button>
+          </form>
+        {% endif %}
+        <p style="margin-top:16px"><a href="/" style="color:var(--accent-400,#a78bfa)">← На главную</a></p>
+      {% else %}
+        <div style="font-size:2.4rem;margin-bottom:14px">⚠️</div>
+        <h1 style="font-size:1.6rem;font-weight:800;margin-bottom:12px">{{ title }}</h1>
+        <p style="color:var(--ink-dim)">Ссылка устарела или уже использована. Запросите новую.</p>
+        <p style="margin-top:18px"><a href="/auth/login" class="btn btn-primary">Войти</a></p>
+      {% endif %}
+    </div>
+
+    <p style="margin-top:22px"><a href="/" style="color:var(--ink-faint)">← Persona</a></p>
+  </main>
+</body>
+</html>

@@ -198,3 +198,66 @@ async def send_digest_email(
 
     log.info("smtp.send.ok", to=recipient)
     return {"status": "sent", "to": recipient}
+
+
+async def send_email(
+    to_addr: str,
+    subject: str,
+    body_text: str,
+    body_html: str | None = None,
+) -> dict[str, Any]:
+    """Send a one-off transactional email to an arbitrary recipient.
+
+    Unlike :func:`send_digest_email` (which mails the configured
+    ``smtp_to``), this sends to ``to_addr`` — used for magic-link login and
+    other per-user notifications. Same config + same status-dict contract;
+    never raises for config/network problems. ``smtp_to`` is NOT required
+    here (the recipient is the argument).
+    """
+    settings = await _load_settings()
+
+    if settings["smtp_enabled"].strip().lower() != "true":
+        return {"status": "disabled"}
+
+    missing = [
+        k for k in ("smtp_host", "smtp_port", "smtp_from")
+        if not settings.get(k, "").strip()
+    ]
+    if missing:
+        return {"status": "misconfigured", "missing": missing}
+
+    try:
+        import aiosmtplib  # noqa: PLC0415 — optional dep, imported lazily
+    except ImportError:
+        return {"status": "missing_dep", "hint": _MISSING_DEP_HINT}
+
+    host = settings["smtp_host"].strip()
+    port = _parse_port(settings["smtp_port"])
+    user = settings["smtp_user"].strip()
+    password = settings["smtp_pass"]
+    sender = settings["smtp_from"].strip()
+    use_tls = settings["smtp_tls"].strip().lower() == "true"
+
+    message = _build_message(
+        sender=sender,
+        recipient=to_addr,
+        subject=subject,
+        body_markdown=body_text,
+        body_html=body_html,
+    )
+    log.info("smtp.send.attempt", host=host, port=port, to=to_addr, starttls=use_tls)
+    try:
+        await aiosmtplib.send(
+            message,
+            hostname=host,
+            port=port,
+            start_tls=use_tls,
+            username=user or None,
+            password=password or None,
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("smtp.send.failed", error=str(exc), host=host, port=port)
+        return {"status": "error", "error": str(exc)}
+
+    log.info("smtp.send.ok", to=to_addr)
+    return {"status": "sent", "to": to_addr}
