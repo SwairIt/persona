@@ -81,6 +81,10 @@ _PUBLIC_PREFIXES: tuple[str, ...] = (
     # T18 — installer.sh fetch happens from user's Mac terminal where
     # there's no session cookie. Single-use ``t`` query token is the auth.
     "/api/install/",
+    # T31 ФАЗА F — голосовой ассистент: Mac-агент шлёт распознанную фразу,
+    # опрашивает очередь озвучки и подтверждает её с Bearer/X-Agent-Token
+    # (без cookie). Эндпоинты сами проверяют токен агента.
+    "/api/voice/",
     "/favicon.ico",
 )
 

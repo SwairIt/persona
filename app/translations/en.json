@@ -294,5 +294,6 @@
   "table_show_24_hours": "Show all 24 hours as a table",
   "dow_mon": "Mon",
   "dow_wed": "Wed",
-  "dow_fri": "Fri"
+  "dow_fri": "Fri",
+  "nav_voice": "🎙️ Voice"
 }

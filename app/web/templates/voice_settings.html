@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="max-w-2xl mx-auto px-4 sm:px-6 py-6">
+  <header class="mb-6">
+    <h1 class="text-2xl font-bold tracking-tight">🎙️ Голосовой ассистент</h1>
+    <p class="text-sm text-zinc-500 mt-1">
+      Скажи «<span class="text-accent-300 font-semibold">Персона</span>, …» — фраза уйдёт в выбранный чат,
+      а ответ Persona проговорит вслух на Mac (через <span class="font-mono">say</span>).
+    </p>
+  </header>
+
+  <section class="mb-5 rounded-lg border border-amber-500/40 bg-amber-500/5 p-4 text-xs text-amber-200/90">
+    Захват микрофона, распознавание речи и проигрывание голоса выполняет
+    <b>Mac-агент</b>. Сервер хранит настройки, генерирует ответ и кладёт его в
+    очередь озвучки. Нужна свежая версия агента с поддержкой голоса
+    (<span class="font-mono">/api/voice/*</span>) — это нужно проверить на Mac.
+  </section>
+
+  <form method="post" action="/settings/voice" class="space-y-5">
+    <label class="flex items-center gap-3 cursor-pointer">
+      <input type="checkbox" name="enabled" value="1" {% if settings.enabled %}checked{% endif %}
+             class="w-5 h-5 rounded accent-accent-600">
+      <span class="text-sm">Включить голосового ассистента</span>
+    </label>
+
+    <div>
+      <label class="block text-sm font-medium mb-1.5">Чат для голоса</label>
+      <select name="session_id"
+              class="w-full px-3 py-2 rounded-lg border border-zinc-300 dark:border-ink-700 bg-zinc-50 dark:bg-ink-800 text-sm">
+        <option value="">— не выбран —</option>
+        {% for s in sessions %}
+          <option value="{{ s.id }}" {% if settings.session_id == s.id %}selected{% endif %}>
+            {{ s.title or ('Чат #' ~ s.id) }}
+          </option>
+        {% endfor %}
+      </select>
+      <p class="text-xs text-zinc-500 mt-1">В этот чат будут попадать голосовые фразы и его историю Persona учитывает.</p>
+    </div>
+
+    <div>
+      <label class="block text-sm font-medium mb-1.5">Голос <span class="text-zinc-500">(say -v, опционально)</span></label>
+      <input type="text" name="voice" value="{{ settings.voice }}" placeholder="напр. Milena (рус.), Yuri, Alex…"
+             class="w-full px-3 py-2 rounded-lg border border-zinc-300 dark:border-ink-700 bg-zinc-50 dark:bg-ink-800 text-sm">
+      <p class="text-xs text-zinc-500 mt-1">Список голосов на Mac: <span class="font-mono">say -v '?'</span>. Пусто — системный по умолчанию.</p>
+    </div>
+
+    <button type="submit" class="px-5 py-2.5 rounded-lg bg-accent-600 hover:bg-accent-500 text-white text-sm font-medium">
+      Сохранить
+    </button>
+  </form>
+
+  <section class="mt-8 text-xs text-zinc-500 space-y-1">
+    <h2 class="text-sm font-semibold text-zinc-400 mb-1">Как это работает</h2>
+    <p>1. Агент слушает микрофон и при wake-word «Персона» шлёт фразу на <span class="font-mono">POST /api/voice/utterance</span>.</p>
+    <p>2. Сервер отрезает «Персона», отвечает в выбранном чате, кладёт ответ в очередь.</p>
+    <p>3. Агент опрашивает <span class="font-mono">GET /api/voice/pending</span> и проигрывает ответ через <span class="font-mono">say</span>, затем подтверждает <span class="font-mono">/api/voice/tts/{id}/ack</span>.</p>
+  </section>
+</div>
+{% endblock %}
