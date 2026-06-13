@@ -20,6 +20,24 @@
     можно держать несколько одновременно, переключаться без потери.
     «<strong>Никто</strong>» отключает AI-фичи не удаляя ключи.
   </p>
+
+  {# T29 MVP — рекомендация по модели/контексту (пункты 4+5) #}
+  <div class="mt-4 rounded-xl border border-accent-500/40 bg-accent-600/10 p-4 text-sm space-y-2">
+    <div class="font-semibold text-accent-200">💡 Хочешь 1М контекста и уровень ~GPT-4 — бесплатно?</div>
+    <p class="text-zinc-300">
+      На 1050 Ti локально это невозможно (потолок ~7B и ~16-32к контекста).
+      Лучший бесплатный путь — <strong>Google Gemini</strong>: до
+      <strong>1 000 000 токенов</strong> контекста, сильнее любой локальной
+      модели, бесплатный тариф. Возьми ключ на
+      <a href="https://aistudio.google.com/apikey" target="_blank" class="text-accent-400 underline">aistudio.google.com</a>,
+      вставь в слот <code>gemini</code> ниже и выбери его.
+    </p>
+    <p class="text-zinc-400">
+      Приватно/оффлайн — оставайся на <code>ollama</code> (локально):
+      <code>qwen2.5:7b</code> для общения, <code>qwen2.5-coder:7b</code> для
+      кода (качаю на хост). Гибрид: Gemini для тяжёлого, локалка для личного.
+    </p>
+  </div>
 </div>
 
 <div class="rounded-lg border border-amber-700/40 bg-amber-900/20 text-amber-200 px-4 py-3 mb-6 text-xs">
