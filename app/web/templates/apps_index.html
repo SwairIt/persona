@@ -25,7 +25,7 @@
         <tbody>
           {% for a in apps %}
             {% set spark_max = (a.spark | max) or 1 %}
-            <tr class="border-t border-ink-700 hover:bg-ink-900/50" x-show="filter('{{ a.name | replace(\"'\", \"\\'\") }}')">
+            <tr class="border-t border-ink-700 hover:bg-ink-900/50" x-show='filter({{ a.name | tojson }})'>
               <td class="py-2 px-4">
                 <a href="/apps/{{ a.name }}" class="text-zinc-200 hover:text-accent-400 flex items-center gap-2">
                   <img src="/icons/{{ a.name | replace(' ', '_') }}.png" alt=""
