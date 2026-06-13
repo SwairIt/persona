@@ -463,6 +463,19 @@ def builtin_command_to_tool_name(command: str) -> str | None:
     return command.removeprefix("builtin:")
 
 
+# T29 — weak models invent tool names (write_dir, create_file, ls...). Map
+# the common hallucinations to real tools so file creation just works.
+_TOOL_ALIASES: dict[str, str] = {
+    "write_dir": "write_file", "create_file": "write_file", "createfile": "write_file",
+    "new_file": "write_file", "make_file": "write_file", "save_file": "write_file",
+    "writefile": "write_file", "create": "write_file", "edit_file": "write_file",
+    "read": "read_file", "readfile": "read_file", "open_file": "read_file", "cat": "read_file",
+    "ls": "list_dir", "dir": "list_dir", "listdir": "list_dir", "list_files": "list_dir",
+    "browse": "web_browse", "open_url": "web_browse", "fetch_url": "web_browse",
+}
+_MKDIR_NAMES = {"mkdir", "make_dir", "makedir", "create_dir", "createdir", "create_directory"}
+
+
 async def call_tool(name: str, args: dict[str, Any], user_id: int = 0) -> str:
     """Dispatch a tool by name. Returns stringified result for the LLM.
 
@@ -470,9 +483,21 @@ async def call_tool(name: str, args: dict[str, Any], user_id: int = 0) -> str:
     correct per-user directory. Tools that don't care (run_shell,
     git_status) ignore the parameter.
     """
+    name = (name or "").strip()
+    # mkdir-style → create a folder by writing a .gitkeep inside it.
+    if name in _MKDIR_NAMES:
+        path = str(args.get("path") or args.get("dir") or args.get("name") or "").strip().rstrip("/\\")
+        if not path:
+            return "[error] нужен path для создания папки"
+        return await write_file({"path": f"{path}/.gitkeep", "content": ""}, user_id=user_id)
+    name = _TOOL_ALIASES.get(name, name)
     entry = _BUILTIN_TOOLS.get(name)
     if entry is None:
-        return f"[error] unknown tool: {name}"
+        available = ", ".join(_BUILTIN_TOOLS.keys())
+        return (
+            f"[error] нет инструмента '{name}'. Доступные: {available}. "
+            "Для файлов используй write_file({\"path\":..., \"content\":...})."
+        )
     try:
         fn = entry["fn"]
         # Inspect: workspace-aware tools accept user_id, legacy ones don't.
