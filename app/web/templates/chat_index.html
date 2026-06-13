@@ -135,7 +135,7 @@
         </div>
       {% endif %}
 
-      <div id="chat-scroll" class="flex-1 overflow-y-auto px-4 sm:px-8 py-6 space-y-6 max-w-3xl mx-auto w-full"
+      <div id="chat-scroll" class="flex-1 overflow-y-auto overflow-x-hidden px-4 sm:px-8 py-6 space-y-6 max-w-3xl mx-auto w-full"
            x-ref="scroll">
         <template x-for="(msg, mIdx) in messages" :key="msg.id">
           <div :class="msg.role === 'system' ? 'flex justify-center' : (msg.role === 'user' ? 'flex flex-col gap-2' : 'block')">
@@ -159,7 +159,7 @@
                      : 'w-full')">
               <div :class="msg.role === 'user' ? 'text-[15px] text-zinc-100' : ''">
                 <template x-if="msg.role === 'assistant'">
-                  <div class="text-[15px] text-zinc-100 leading-relaxed prose prose-invert prose-base max-w-none"
+                  <div class="text-[15px] text-zinc-100 leading-relaxed prose prose-invert prose-base max-w-none overflow-x-hidden"
                        x-html="renderMd(msg.content)"></div>
                 </template>
                 <template x-if="msg.role === 'user'">
@@ -979,6 +979,11 @@
   /* T24 — улучшенный prose стиль, ближе к Claude */
   .prose-base, .prose-sm {
     color: #e4e4e7;
+    /* T29 — длинные строки/URL/tool-текст переносятся, а не вылазят за край
+       (иначе при стриминге дёргается горизонтальный скролл). Код в <pre>
+       по-прежнему скроллится внутри себя. */
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
   .prose-base h1, .prose-sm h1 { font-size: 1.4em; font-weight: 700; margin: 0.8em 0 0.4em; color: #fff; }
   .prose-base h2, .prose-sm h2 { font-size: 1.2em; font-weight: 700; margin: 0.7em 0 0.3em; color: #fff; border-bottom: 1px solid #2a2f3a; padding-bottom: 0.2em; }

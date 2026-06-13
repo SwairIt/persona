@@ -176,6 +176,27 @@ class _LiveGen:
 _LIVE_GENS: dict[int, _LiveGen] = {}
 
 
+# T29 — cap how much chat history we send by CHARACTERS, not turn count: a
+# few huge turns (code, tool output) of 20 turns could still fill the whole
+# context window and starve the answer (input 16383/16384 → 1-token reply).
+# Keep the MOST RECENT turns that fit; older context lives in the summary.
+_HISTORY_CHAR_BUDGET = 28000  # ~7k tokens; leaves room for prompt + answer
+
+
+def _bounded_transcript(
+    history: list[dict[str, str]], budget: int = _HISTORY_CHAR_BUDGET
+) -> str:
+    kept: list[str] = []
+    total = 0
+    for turn in reversed(history):
+        line = f"[{turn['role']}] {turn['content']}"
+        if kept and total + len(line) > budget:
+            break
+        kept.append(line)
+        total += len(line)
+    return "\n".join(reversed(kept))
+
+
 # --- HTML pages ------------------------------------------------------------
 
 
@@ -441,9 +462,7 @@ async def api_send_message(
     if history and history[-1]["role"] == "user":
         history = history[:-1]
 
-    transcript = "\n".join(
-        f"[{turn['role']}] {turn['content']}" for turn in history
-    )
+    transcript = _bounded_transcript(history)
     active_prompt = await get_active_system_prompt()
     if transcript:
         system_with_history = (
@@ -589,9 +608,7 @@ async def api_send_stream(
     history = await build_history_for_llm(session_id, max_turns=20)
     if history and history[-1]["role"] == "user":
         history = history[:-1]
-    transcript = "\n".join(
-        f"[{turn['role']}] {turn['content']}" for turn in history
-    )
+    transcript = _bounded_transcript(history)
     # T24 — per-session custom prompt + T25 — tool-use prompt fragment.
     custom_prompt = (thread.get("custom_system_prompt") or "").strip() if isinstance(thread, dict) else ""
     if custom_prompt:
