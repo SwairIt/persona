@@ -31,10 +31,12 @@ from app.auth import (
     issue_session,
     revoke_session,
 )
+import secrets
+
 from app.auth.email_check import check_email
 from app.auth.magic import consume_magic_link, create_magic_link
+from app.auth.owner import is_owner
 from app.auth.sessions import SessionRecord
-from app.auth.waitlist import add_to_waitlist
 from app.logging_setup import get_logger
 from app.smtp_delivery import send_email
 from app.storage.db import get_connection
@@ -147,7 +149,7 @@ async def signup_submit(
         )
     ua = _trim_ua(request.headers.get("user-agent"))
     token, _expires_at = await issue_session(user["id"], user_agent=ua)
-    response = RedirectResponse(url="/now", status_code=303)
+    response = RedirectResponse(url=await _post_auth_dest(user["id"]), status_code=303)
     secure = request.url.scheme == "https"
     _set_session_cookie(response, token, secure, 30 * 24 * 3600)
     return response
@@ -175,7 +177,7 @@ async def login_submit(
         )
     ua = _trim_ua(request.headers.get("user-agent"))
     token, _expires_at = await issue_session(user["id"], user_agent=ua)
-    response = RedirectResponse(url="/now", status_code=303)
+    response = RedirectResponse(url=await _post_auth_dest(user["id"]), status_code=303)
     secure = request.url.scheme == "https"
     _set_session_cookie(response, token, secure, 30 * 24 * 3600)
     return response
@@ -191,15 +193,23 @@ async def _user_id_for_email(email: str) -> int | None:
     return int(row["id"]) if row else None
 
 
+async def _post_auth_dest(user_id: int) -> str:
+    """Owner → cabinet; everyone else → /pending (sandboxed by owner-gate)."""
+    return "/now" if await is_owner(user_id) else "/pending"
+
+
 @router.post("/auth/magic", response_class=HTMLResponse, response_model=None)
 async def magic_request(
     request: Request,
     email: Annotated[str, Form()],
 ) -> Response:
-    """Request a passwordless login link.
+    """Request a passwordless login link (and auto-register new emails).
 
-    Existing user → mint a magic link and email it. Unknown email → add to
-    waitlist (open registration is gated until per-user data isolation).
+    Existing user → mint a magic link and email it. Unknown email →
+    auto-create a passwordless account, then mint + email the link. New
+    accounts are SAFE to create openly because the owner-gate sandboxes
+    every non-owner to /pending — a stranger can never see the owner's data.
+
     The link is NEVER shown in the HTTP response: otherwise anyone could
     type someone else's email and log in as them. When SMTP isn't set up,
     the link is logged server-side so the owner can still test.
@@ -221,41 +231,53 @@ async def magic_request(
         )
     addr = chk["email"]
     uid = await _user_id_for_email(addr)
-    if uid is not None:
-        token = await create_magic_link(addr)
-        link = str(request.base_url).rstrip("/") + f"/auth/magic/{token}"
-        text = (
-            "Чтобы войти в Persona, открой ссылку:\n\n"
-            f"{link}\n\n"
-            "Ссылка действует 30 минут и срабатывает один раз. "
-            "Если ты не запрашивал вход — просто проигнорируй письмо."
-        )
-        html = (
-            "<p>Чтобы войти в Persona, нажми кнопку:</p>"
-            f'<p><a href="{link}" '
-            'style="display:inline-block;padding:12px 22px;border-radius:10px;'
-            'background:#7c3aed;color:#fff;text-decoration:none">Войти в Persona</a></p>'
-            "<p>Ссылка действует 30 минут и срабатывает один раз.</p>"
-        )
-        result = await send_email(addr, "Вход в Persona", text, html)
-        if result.get("status") != "sent":
-            # SMTP не настроен/ошибка — НЕ светим ссылку в ответе, только в лог.
-            log.warning("magic.not_emailed", status=result.get("status"), link=link)
+    registered_now = False
+    if uid is None:
+        # Авто-регистрация: passwordless-аккаунт (вход по magic-link; пароль
+        # можно задать позже). Случайный пароль — заглушка, им не пользуются.
+        try:
+            user = await create_user(addr, secrets.token_urlsafe(18), "")
+            uid = int(user["id"])
+            registered_now = True
+        except ValueError:
+            uid = await _user_id_for_email(addr)
+    if uid is None:
         return templates.TemplateResponse(
             request,
             "auth_magic_sent.html",
-            {
-                "title": "Проверьте почту",
-                "mode": "login",
-                "email": addr,
-                "delivered": result.get("status") == "sent",
-            },
+            {"title": "Ошибка", "mode": "invalid", "email": addr},
+            status_code=400,
         )
-    await add_to_waitlist(addr)
+
+    token = await create_magic_link(addr)
+    link = str(request.base_url).rstrip("/") + f"/auth/magic/{token}"
+    text = (
+        "Чтобы войти в Persona, открой ссылку:\n\n"
+        f"{link}\n\n"
+        "Ссылка действует 30 минут и срабатывает один раз. "
+        "Если ты не запрашивал вход — просто проигнорируй письмо."
+    )
+    html = (
+        "<p>Чтобы войти в Persona, нажми кнопку:</p>"
+        f'<p><a href="{link}" '
+        'style="display:inline-block;padding:12px 22px;border-radius:10px;'
+        'background:#7c3aed;color:#fff;text-decoration:none">Войти в Persona</a></p>'
+        "<p>Ссылка действует 30 минут и срабатывает один раз.</p>"
+    )
+    result = await send_email(addr, "Вход в Persona", text, html)
+    if result.get("status") != "sent":
+        # SMTP не настроен/ошибка — НЕ светим ссылку в ответе, только в лог.
+        log.warning("magic.not_emailed", status=result.get("status"), link=link)
     return templates.TemplateResponse(
         request,
         "auth_magic_sent.html",
-        {"title": "Вы в списке", "mode": "waitlist", "email": addr},
+        {
+            "title": "Проверьте почту",
+            "mode": "login",
+            "email": addr,
+            "delivered": result.get("status") == "sent",
+            "registered": registered_now,
+        },
     )
 
 
@@ -280,10 +302,27 @@ async def magic_consume(request: Request, token: str) -> Response:
         )
     ua = _trim_ua(request.headers.get("user-agent"))
     token2, _expires_at = await issue_session(uid, user_agent=ua)
-    response = RedirectResponse(url="/now", status_code=303)
+    response = RedirectResponse(url=await _post_auth_dest(uid), status_code=303)
     secure = request.url.scheme == "https"
     _set_session_cookie(response, token2, secure, 30 * 24 * 3600)
     return response
+
+
+@router.get("/pending", response_class=HTMLResponse, response_model=None)
+async def pending_page(
+    request: Request,
+    session: Annotated[SessionRecord | None, Depends(current_user_optional)],
+) -> Response:
+    """Holding page for non-owner accounts (sandboxed by the owner-gate)."""
+    if session is None:
+        return RedirectResponse(url="/landing", status_code=303)
+    if await is_owner(session.get("user_id")):
+        return RedirectResponse(url="/now", status_code=303)
+    return templates.TemplateResponse(
+        request,
+        "auth_pending.html",
+        {"title": "Аккаунт ожидает доступа", "email": session.get("email")},
+    )
 
 
 @router.post("/auth/logout")

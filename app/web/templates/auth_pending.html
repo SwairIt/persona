@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0a0a12" />
+  <meta name="robots" content="noindex" />
+  <title>{{ title }} — Persona</title>
+  <style>:root{color-scheme:dark}html,body{margin:0;background:#07070d;color:#eef0ff}</style>
+  <link rel="stylesheet" href="/static/landing/style.css" />
+  <link rel="stylesheet" href="/static/blog/blog.css" />
+</head>
+<body>
+  <div class="bg-mesh" aria-hidden="true"></div>
+  <div class="bg-grid" aria-hidden="true"></div>
+
+  <main class="blog-main" style="max-width:560px;text-align:center">
+    <a class="brand" href="/" style="justify-content:center;margin-bottom:28px;display:flex">
+      <span class="brand-dot"></span> Persona
+    </a>
+
+    <div class="glass" style="padding:42px 32px;border-radius:22px">
+      <div style="font-size:2.6rem;margin-bottom:14px">🚀</div>
+      <h1 style="font-size:1.6rem;font-weight:800;margin-bottom:12px">Аккаунт создан — вы в раннем доступе</h1>
+      <p style="color:var(--ink-dim)">
+        Вы вошли как <b style="color:var(--ink)">{{ email }}</b>. Persona сейчас —
+        персональный продукт для одного владельца, поэтому ваш аккаунт ожидает
+        открытия полного доступа. Мы готовим режим, где у каждого будет своё
+        изолированное пространство памяти. Как только он будет готов — откроем.
+      </p>
+      <p style="color:var(--ink-faint);font-size:.9rem;margin-top:18px">
+        Спасибо, что заглянули. Пока можно почитать
+        <a href="/blog" style="color:var(--accent-400,#a78bfa)">блог</a>.
+      </p>
+      <form method="post" action="/auth/logout" style="margin-top:24px">
+        <button type="submit" class="btn btn-ghost">Выйти</button>
+      </form>
+    </div>
+
+    <p style="margin-top:22px"><a href="/" style="color:var(--ink-faint)">← На главную</a></p>
+  </main>
+</body>
+</html>

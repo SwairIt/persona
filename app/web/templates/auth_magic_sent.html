@@ -23,6 +23,9 @@
       {% if mode == "login" %}
         <div style="font-size:2.4rem;margin-bottom:14px">📬</div>
         <h1 style="font-size:1.6rem;font-weight:800;margin-bottom:12px">Проверьте почту</h1>
+        {% if registered %}
+          <p style="color:var(--ink-dim);margin-bottom:10px">Аккаунт на <b style="color:var(--ink)">{{ email }}</b> создан 🎉</p>
+        {% endif %}
         {% if delivered %}
           <p style="color:var(--ink-dim)">Мы отправили ссылку для входа на <b style="color:var(--ink)">{{ email }}</b>. Откройте письмо и нажмите кнопку — ссылка действует 30&nbsp;минут.</p>
         {% else %}

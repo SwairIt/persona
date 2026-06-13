@@ -33,6 +33,7 @@ from starlette.requests import Request
 from starlette.responses import RedirectResponse, Response
 
 from app.auth import SESSION_COOKIE_NAME, verify_session
+from app.auth.owner import is_owner
 from app.logging_setup import get_logger
 from app.storage.db import get_connection
 
@@ -128,7 +129,21 @@ class AuthGateMiddleware(BaseHTTPMiddleware):
         token = request.cookies.get(SESSION_COOKIE_NAME)
         session = await verify_session(token) if token else None
         if session is not None:
-            return await call_next(request)
+            # Owner-gate: only the owner account may reach the private
+            # surface. Any other authenticated user is sandboxed to /pending
+            # so a stranger who registers can NEVER see the owner's data.
+            # /pending and /auth/* (logout) stay reachable for them.
+            if path == "/pending" or path.startswith("/auth/"):
+                return await call_next(request)
+            if await is_owner(session.get("user_id")):
+                return await call_next(request)
+            if path.startswith("/api/"):
+                return Response(
+                    content='{"detail":"account pending access"}',
+                    status_code=403,
+                    media_type="application/json",
+                )
+            return RedirectResponse(url="/pending", status_code=303)
 
         # Browser nav → 303 to /landing. JSON / agent endpoints get 401
         # so they don't end up with HTML in their response body.
