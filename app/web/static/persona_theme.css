@@ -1,0 +1,48 @@
+/* T31 — тема «persona»: фиолетовая, в стиле лендинга, поверх тёмного кабинета.
+   Активна только при <html class="dark theme-persona">. Аддитивно — не трогает
+   обычные dark/light. Цель: градиентный фон + лёгкое стекло панелей, читаемо. */
+
+.theme-persona body{
+  background:
+    radial-gradient(900px 620px at -3% -8%, rgba(124,58,237,.22), transparent 56%),
+    radial-gradient(840px 640px at 104% 0%, rgba(34,211,238,.12), transparent 54%),
+    radial-gradient(760px 740px at 50% 122%, rgba(244,114,182,.12), transparent 58%),
+    radial-gradient(120% 100% at 50% 0%, #0c0b1a 0%, #07060f 60%) !important;
+  background-attachment: fixed !important;
+}
+
+/* лёгкая «стеклянная» подложка панелей вместо плоского ink */
+.theme-persona .bg-ink-950{ background-color: transparent !important; }
+.theme-persona .bg-ink-900{ background-color: rgba(20,18,36,.72) !important; }
+.theme-persona .bg-ink-800{ background-color: rgba(30,27,50,.70) !important; }
+.theme-persona .bg-ink-800\/60,
+.theme-persona .bg-ink-800\/50,
+.theme-persona .bg-zinc-800\/60{ background-color: rgba(30,27,50,.55) !important; }
+
+/* границы с фиолетовым оттенком */
+.theme-persona .border-ink-700,
+.theme-persona .border-ink-800{ border-color: rgba(139,92,246,.20) !important; }
+
+/* шапка — фиолетовое стекло */
+.theme-persona header{
+  background: rgba(12,10,26,.55) !important;
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  border-bottom: 1px solid rgba(139,92,246,.16) !important;
+}
+
+/* акцентная «точка»-лого как на лендинге (градиент) */
+.theme-persona .brand-dot,
+.theme-persona header span.text-2xl:first-child{
+  color: transparent;
+}
+
+/* мягкое свечение у активного пункта меню */
+.theme-persona .bg-accent-600\/20{ background-color: rgba(139,92,246,.22) !important; }
+
+/* карточки/панели на app.css (если используют переменные) — лёгкий тинт */
+.theme-persona .card,
+.theme-persona .panel{ border-color: rgba(139,92,246,.18) !important; }
+
+/* плавность переключения */
+.theme-persona body, .theme-persona header{ transition: background-color .4s ease; }

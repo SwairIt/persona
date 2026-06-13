@@ -26,8 +26,8 @@ from app.web.templates_engine import invalidate_theme_cache, templates
 router = APIRouter(tags=["settings"])
 log = get_logger("persona.theme")
 
-_VALID_THEMES: Final[frozenset[str]] = frozenset({"dark", "light", "auto"})
-_DEFAULT_THEME: Final[str] = "dark"
+_VALID_THEMES: Final[frozenset[str]] = frozenset({"dark", "light", "auto", "persona"})
+_DEFAULT_THEME: Final[str] = "persona"
 
 
 async def _load_theme() -> str:
@@ -51,9 +51,10 @@ async def theme_settings_page(request: Request) -> HTMLResponse:
             "active_nav": "settings",
             "current": current,
             "options": (
-                ("dark", "Dark", "Low-light palette, easy on the eyes after sunset."),
-                ("light", "Light", "High-contrast palette for bright rooms."),
-                ("auto", "Auto", "Follow the operating system's preference."),
+                ("persona", "Persona ✨", "Фиолетовая тема в стиле лендинга — градиенты и стекло."),
+                ("dark", "Dark", "Тёмная минималистичная палитра."),
+                ("light", "Light", "Светлая палитра для яркой комнаты."),
+                ("auto", "Auto", "Следовать системной теме ОС."),
             ),
         },
     )
