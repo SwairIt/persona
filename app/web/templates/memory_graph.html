@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block content %}
+<link rel="stylesheet" href="/static/graph/memgraph.css" />
+
+<div class="mg-wrap">
+  <div class="mg-head">
+    <div>
+      <h1 class="mg-title">Граф памяти</h1>
+      <p class="mg-sub" id="mg-stats">Загружаю твою память…</p>
+    </div>
+    <div class="mg-legend" id="mg-legend"></div>
+  </div>
+
+  <div class="mg-stage" id="mg-stage">
+    <canvas id="mg-canvas" aria-label="Граф памяти"></canvas>
+    <div class="mg-tip" id="mg-tip" hidden></div>
+    <div class="mg-empty" id="mg-empty" hidden>
+      Пока пусто. Пообщайся в <a href="/chat">чате</a> — и узлы появятся здесь.
+    </div>
+  </div>
+  <p class="mg-note">
+    Связи структурные (сессия · пара промпт→ответ · день). Смысловые связи
+    по эмбеддингам добавим, когда включим индексацию. Сжатые сообщения —
+    приглушены, конспект сессии — отдельный узел.
+  </p>
+</div>
+
+<script src="/static/graph/memgraph.js" defer></script>
+{% endblock %}

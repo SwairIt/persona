@@ -55,6 +55,7 @@ _CATEGORIES: Final[list[dict[str, object]]] = [
         "icon": "🧠",
         "description": "LLM, дайджесты, обогащение карточек, перевод.",
         "pages": [
+            ("/graph", "🕸 Граф памяти — промпты, ответы, записи и связи"),
             ("/settings/llm", "Провайдер + ключ LLM"),
             ("/settings/digest-prompt", "Промпт для дайджестов"),
             ("/memory", "Tier 1+5: hourly cards + daily pins"),
