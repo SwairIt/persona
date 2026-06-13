@@ -20,27 +20,54 @@ from __future__ import annotations
 
 from typing import Annotated
 
+import secrets
+
 from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from app.auth import (
     SESSION_COOKIE_NAME,
     authenticate,
     create_user,
     current_user_optional,
+    current_user_required,
     issue_session,
     revoke_session,
 )
-import secrets
-
 from app.auth.email_check import check_email
 from app.auth.magic import consume_magic_link, create_magic_link
 from app.auth.owner import is_owner
 from app.auth.sessions import SessionRecord
+from app.auth.users import update_password
 from app.logging_setup import get_logger
 from app.smtp_delivery import send_email
 from app.storage.db import get_connection
 from app.web.templates_engine import templates
+
+
+def _wants_json(request: Request) -> bool:
+    """True when the request is an inline fetch (wants JSON, not a page)."""
+    return (
+        request.headers.get("x-requested-with", "").lower() == "fetch"
+        or "application/json" in request.headers.get("accept", "")
+    )
+
+
+def _magic_email_html(link: str) -> tuple[str, str]:
+    text = (
+        "Чтобы войти в Persona, открой ссылку:\n\n"
+        f"{link}\n\n"
+        "Ссылка действует 30 минут и срабатывает один раз. "
+        "Если ты не запрашивал вход — просто проигнорируй письмо."
+    )
+    html = (
+        "<p>Чтобы войти в Persona, нажми кнопку:</p>"
+        f'<p><a href="{link}" '
+        'style="display:inline-block;padding:12px 22px;border-radius:10px;'
+        'background:#7c3aed;color:#fff;text-decoration:none">Войти в Persona</a></p>'
+        "<p>Ссылка действует 30 минут и срабатывает один раз.</p>"
+    )
+    return text, html
 
 router = APIRouter(tags=["auth"])
 log = get_logger("persona.auth.routes")
@@ -161,24 +188,25 @@ async def login_submit(
     email: Annotated[str, Form()],
     password: Annotated[str, Form()],
 ) -> Response:
-    """Verify credentials, start a session, redirect to /now."""
+    """Verify credentials, start a session. JSON for inline fetch, else page."""
     user = await authenticate(email, password)
     if user is None:
+        if _wants_json(request):
+            return JSONResponse({"ok": False, "error": "Неверный email или пароль."}, status_code=401)
         return templates.TemplateResponse(
             request,
             "auth_login.html",
-            {
-                "title": "Войти",
-                "active_nav": "",
-                "error": "Неверный email или пароль.",
-                "email": email,
-            },
+            {"title": "Войти", "active_nav": "", "error": "Неверный email или пароль.", "email": email},
             status_code=401,
         )
     ua = _trim_ua(request.headers.get("user-agent"))
     token, _expires_at = await issue_session(user["id"], user_agent=ua)
-    response = RedirectResponse(url=await _post_auth_dest(user["id"]), status_code=303)
+    dest = await _post_auth_dest(user["id"])
     secure = request.url.scheme == "https"
+    if _wants_json(request):
+        response: Response = JSONResponse({"ok": True, "redirect": dest})
+    else:
+        response = RedirectResponse(url=dest, status_code=303)
     _set_session_cookie(response, token, secure, 30 * 24 * 3600)
     return response
 
@@ -215,26 +243,25 @@ async def magic_request(
     the link is logged server-side so the owner can still test.
     """
     chk = check_email(email)
+    json_mode = _wants_json(request)
     # Невалидный формат ИЛИ распознанная опечатка домена (gmail.ru→gmail.com)
     # → не отправляем вслепую, показываем подсказку (работает и без JS).
     if not chk["valid"] or chk["suggestion"]:
-        return templates.TemplateResponse(
-            request,
-            "auth_magic_sent.html",
-            {
-                "title": "Проверьте email",
-                "mode": "error",
-                "email": email,
+        if json_mode:
+            return JSONResponse({
+                "ok": False,
+                "error": "Похоже, email с ошибкой.",
                 "suggestion": chk["suggestion"],
-            },
+            }, status_code=400)
+        return templates.TemplateResponse(
+            request, "auth_magic_sent.html",
+            {"title": "Проверьте email", "mode": "error", "email": email, "suggestion": chk["suggestion"]},
             status_code=400,
         )
     addr = chk["email"]
     uid = await _user_id_for_email(addr)
     registered_now = False
     if uid is None:
-        # Авто-регистрация: passwordless-аккаунт (вход по magic-link; пароль
-        # можно задать позже). Случайный пароль — заглушка, им не пользуются.
         try:
             user = await create_user(addr, secrets.token_urlsafe(18), "")
             uid = int(user["id"])
@@ -242,42 +269,32 @@ async def magic_request(
         except ValueError:
             uid = await _user_id_for_email(addr)
     if uid is None:
+        if json_mode:
+            return JSONResponse({"ok": False, "error": "Не удалось обработать email."}, status_code=400)
         return templates.TemplateResponse(
-            request,
-            "auth_magic_sent.html",
-            {"title": "Ошибка", "mode": "invalid", "email": addr},
-            status_code=400,
+            request, "auth_magic_sent.html",
+            {"title": "Ошибка", "mode": "invalid", "email": addr}, status_code=400,
         )
 
     token = await create_magic_link(addr)
     link = str(request.base_url).rstrip("/") + f"/auth/magic/{token}"
-    text = (
-        "Чтобы войти в Persona, открой ссылку:\n\n"
-        f"{link}\n\n"
-        "Ссылка действует 30 минут и срабатывает один раз. "
-        "Если ты не запрашивал вход — просто проигнорируй письмо."
-    )
-    html = (
-        "<p>Чтобы войти в Persona, нажми кнопку:</p>"
-        f'<p><a href="{link}" '
-        'style="display:inline-block;padding:12px 22px;border-radius:10px;'
-        'background:#7c3aed;color:#fff;text-decoration:none">Войти в Persona</a></p>'
-        "<p>Ссылка действует 30 минут и срабатывает один раз.</p>"
-    )
+    text, html = _magic_email_html(link)
     result = await send_email(addr, "Вход в Persona", text, html)
-    if result.get("status") != "sent":
-        # SMTP не настроен/ошибка — НЕ светим ссылку в ответе, только в лог.
+    delivered = result.get("status") == "sent"
+    if not delivered:
         log.warning("magic.not_emailed", status=result.get("status"), link=link)
+    if json_mode:
+        msg = (
+            f"Аккаунт создан 🎉 Ссылка для входа отправлена на {addr}."
+            if registered_now else f"Ссылка для входа отправлена на {addr}."
+        ) if delivered else (
+            "Аккаунт создан. " if registered_now else ""
+        ) + "Письмо не ушло (SMTP не настроен) — пока войди по паролю или настрой почту."
+        return JSONResponse({"ok": True, "delivered": delivered, "registered": registered_now, "message": msg})
     return templates.TemplateResponse(
-        request,
-        "auth_magic_sent.html",
-        {
-            "title": "Проверьте почту",
-            "mode": "login",
-            "email": addr,
-            "delivered": result.get("status") == "sent",
-            "registered": registered_now,
-        },
+        request, "auth_magic_sent.html",
+        {"title": "Проверьте почту", "mode": "login", "email": addr,
+         "delivered": delivered, "registered": registered_now},
     )
 
 
@@ -302,10 +319,75 @@ async def magic_consume(request: Request, token: str) -> Response:
         )
     ua = _trim_ua(request.headers.get("user-agent"))
     token2, _expires_at = await issue_session(uid, user_agent=ua)
-    response = RedirectResponse(url=await _post_auth_dest(uid), status_code=303)
+    # ?next=/safe/path (например, сброс пароля). Только внутренние пути.
+    nxt = request.query_params.get("next", "")
+    dest = nxt if nxt.startswith("/") and not nxt.startswith("//") else await _post_auth_dest(uid)
+    response = RedirectResponse(url=dest, status_code=303)
     secure = request.url.scheme == "https"
     _set_session_cookie(response, token2, secure, 30 * 24 * 3600)
     return response
+
+
+@router.post("/auth/forgot", response_class=HTMLResponse, response_model=None)
+async def forgot_password(
+    request: Request,
+    email: Annotated[str, Form()],
+) -> Response:
+    """Сброс пароля через письмо: шлём magic-link на страницу установки пароля.
+    Ответ одинаковый независимо от наличия аккаунта (не палим, кто зареган)."""
+    chk = check_email(email)
+    json_mode = _wants_json(request)
+    generic = "Если такой аккаунт есть — на почту отправлена ссылка для смены пароля."
+    if chk["valid"] and not chk["suggestion"]:
+        uid = await _user_id_for_email(chk["email"])
+        if uid is not None:
+            token = await create_magic_link(chk["email"])
+            link = str(request.base_url).rstrip("/") + f"/auth/magic/{token}?next=/auth/set-password"
+            text, html = _magic_email_html(link)
+            result = await send_email(chk["email"], "Смена пароля Persona", text, html)
+            if result.get("status") != "sent":
+                log.warning("forgot.not_emailed", status=result.get("status"), link=link)
+    if json_mode:
+        return JSONResponse({"ok": True, "message": generic})
+    return templates.TemplateResponse(
+        request, "auth_magic_sent.html",
+        {"title": "Проверьте почту", "mode": "login", "email": chk.get("email", email), "delivered": True},
+    )
+
+
+@router.get("/auth/set-password", response_class=HTMLResponse, response_model=None)
+async def set_password_page(
+    request: Request,
+    session: Annotated[SessionRecord | None, Depends(current_user_optional)],
+) -> Response:
+    if session is None:
+        return RedirectResponse(url="/landing", status_code=303)
+    return templates.TemplateResponse(
+        request, "auth_set_password.html",
+        {"title": "Новый пароль", "email": session.get("email"), "error": None},
+    )
+
+
+@router.post("/auth/set-password", response_class=HTMLResponse, response_model=None)
+async def set_password_submit(
+    request: Request,
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+    password: Annotated[str, Form()],
+) -> Response:
+    try:
+        await update_password(int(session["user_id"]), password)
+    except ValueError as exc:
+        msg = "Пароль должен быть минимум 8 символов." if "8" in str(exc) else str(exc)
+        if _wants_json(request):
+            return JSONResponse({"ok": False, "error": msg}, status_code=400)
+        return templates.TemplateResponse(
+            request, "auth_set_password.html",
+            {"title": "Новый пароль", "email": session.get("email"), "error": msg}, status_code=400,
+        )
+    dest = await _post_auth_dest(int(session["user_id"]))
+    if _wants_json(request):
+        return JSONResponse({"ok": True, "redirect": dest})
+    return RedirectResponse(url=dest, status_code=303)
 
 
 @router.get("/pending", response_class=HTMLResponse, response_model=None)

@@ -103,6 +103,18 @@ async def authenticate(email: str, password: str) -> UserRow | None:
     }
 
 
+async def update_password(user_id: int, new_password: str) -> None:
+    """Set a new password (no old-password check — used after email reset)."""
+    validate_password(new_password)
+    hashed = hash_password(new_password)
+    async with get_connection() as conn:
+        await conn.execute(
+            "UPDATE users SET password_hash = ? WHERE id = ?", (hashed, user_id)
+        )
+        await conn.commit()
+    log.info("auth.user.password_changed", user_id=user_id)
+
+
 async def count_users() -> int:
     """Return the total number of registered users. Used by the landing
     gate so a brand-new install still falls through to /setup instead of

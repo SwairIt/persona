@@ -56,7 +56,7 @@
       {% if session %}
         <a href="/now" class="nav-cta">В кабинет</a>
       {% else %}
-        <a href="/auth/login">Войти</a>
+        <a href="#top" id="nav-login">Войти</a>
         <a href="#cta" class="nav-cta">Начать</a>
       {% endif %}
     </nav>
@@ -87,16 +87,25 @@
               </form>
             </div>
           {% else %}
-            <form class="hero-cta reveal" method="post" action="/auth/magic" id="quick-magic">
+            <form class="hero-cta reveal" method="post" action="/auth/magic" id="magic-form">
               <input type="email" name="email" id="quick-email" required
                      placeholder="введи свой email" autocomplete="email" spellcheck="false" />
               <button type="submit" class="btn btn-primary">Начать →</button>
             </form>
             <p class="hero-cta-note reveal">
               Войдём или создадим аккаунт за секунду · вход по ссылке, без пароля
-              · <a href="/auth/login">войти паролем</a>
+              · <a href="#" id="show-pw">войти паролем</a>
             </p>
+            <div class="pw-box reveal" id="pw-box" hidden>
+              <form id="pw-form">
+                <input type="email" name="email" id="pw-email" required placeholder="email" autocomplete="email" />
+                <input type="password" name="password" id="pw-pass" required placeholder="пароль" autocomplete="current-password" />
+                <button type="submit" class="btn btn-primary">Войти</button>
+              </form>
+              <p class="hero-cta-note"><a href="#" id="forgot">забыли пароль?</a></p>
+            </div>
             <p class="quick-hint" id="email-hint" aria-live="polite"></p>
+            <div class="auth-msg" id="auth-msg" role="status" hidden></div>
           {% endif %}
 
           <div class="hero-chips reveal">
@@ -310,25 +319,71 @@
     </span>
   </footer>
 
-  <!-- email typo (gmail.ru → gmail.com) -->
+  <!-- inline-авторизация: magic-link, пароль, сброс + проверка опечаток email -->
   <script>
   (function(){
-    var input=document.getElementById('quick-email'),hint=document.getElementById('email-hint');
-    if(!input||!hint)return;
+    var input=document.getElementById('quick-email');
+    var hint=document.getElementById('email-hint');
+    var magicForm=document.getElementById('magic-form');
+    if(!magicForm) return; // залогинен — формы нет
+
+    var msg=document.getElementById('auth-msg');
+    function showMsg(t, ok){ if(!msg)return; msg.hidden=false; msg.textContent=t; msg.className='auth-msg '+(ok?'ok':'err'); }
+    async function post(url, data){
+      try{
+        var r=await fetch(url,{method:'POST',headers:{'X-Requested-With':'fetch','Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams(data)});
+        var j={}; try{ j=await r.json(); }catch(e){}
+        return Object.assign({status:r.status}, j);
+      }catch(e){ return {status:0, ok:false, error:'Нет связи с сервером.'}; }
+    }
+
+    magicForm.addEventListener('submit', async function(e){
+      e.preventDefault();
+      var email=(input.value||'').trim(); if(!email)return;
+      showMsg('Отправляю…', true);
+      var res=await post('/auth/magic',{email:email});
+      if(res.ok){ showMsg(res.message||'Проверь почту — там ссылка для входа.', true); }
+      else { showMsg((res.error||'Ошибка.')+(res.suggestion?(' Может, '+res.suggestion+'?'):''), false); }
+    });
+
+    var pwBox=document.getElementById('pw-box');
+    function openPw(){ if(!pwBox)return; pwBox.hidden=false; var pe=document.getElementById('pw-email'); if(pe){ if(!pe.value) pe.value=(input.value||'').trim(); pe.focus(); } }
+    var showPw=document.getElementById('show-pw');
+    if(showPw&&pwBox){ showPw.addEventListener('click', function(e){ e.preventDefault(); pwBox.hidden=!pwBox.hidden; if(!pwBox.hidden) openPw(); }); }
+    var navLogin=document.getElementById('nav-login');
+    if(navLogin){ navLogin.addEventListener('click', function(e){ e.preventDefault(); window.scrollTo({top:0,behavior:'smooth'}); openPw(); }); }
+
+    var pwForm=document.getElementById('pw-form');
+    if(pwForm){ pwForm.addEventListener('submit', async function(e){
+      e.preventDefault();
+      var email=(document.getElementById('pw-email').value||'').trim();
+      var password=document.getElementById('pw-pass').value;
+      showMsg('Вхожу…', true);
+      var res=await post('/auth/login',{email:email,password:password});
+      if(res.ok&&res.redirect){ window.location=res.redirect; }
+      else { showMsg(res.error||'Неверный email или пароль.', false); }
+    }); }
+
+    var forgot=document.getElementById('forgot');
+    if(forgot){ forgot.addEventListener('click', async function(e){
+      e.preventDefault();
+      var email=((document.getElementById('pw-email').value||'')||(input.value||'')).trim();
+      if(!email){ showMsg('Введи email в поле выше.', false); return; }
+      var res=await post('/auth/forgot',{email:email});
+      showMsg(res.message||'Если аккаунт есть — письмо со ссылкой отправлено.', true);
+    }); }
+
+    // проверка опечаток домена
     var T={'gmail.ru':'gmail.com','gmail.con':'gmail.com','gmail.co':'gmail.com','gmail.cm':'gmail.com','gmail.om':'gmail.com','gmial.com':'gmail.com','gmai.com':'gmail.com','gmaill.com':'gmail.com','gnail.com':'gmail.com','yandex.com':'yandex.ru','yandx.ru':'yandex.ru','yndex.ru':'yandex.ru','mai.ru':'mail.ru','outlook.con':'outlook.com','hotmail.con':'hotmail.com','hotmial.com':'hotmail.com','icloud.con':'icloud.com','icloud.co':'icloud.com'};
     function check(){
-      var v=input.value.trim().toLowerCase();hint.textContent='';
-      var at=v.lastIndexOf('@');if(at<1)return;
-      var dom=v.slice(at+1),loc=v.slice(0,at);
-      if(T[dom]){var s=loc+'@'+T[dom];
+      if(!input||!hint)return; var v=input.value.trim().toLowerCase(); hint.textContent='';
+      var at=v.lastIndexOf('@'); if(at<1)return; var dom=v.slice(at+1),loc=v.slice(0,at);
+      if(T[dom]){ var s=loc+'@'+T[dom];
         hint.innerHTML='Возможно, вы имели в виду <a href="#" id="fix-email">'+s+'</a>?';
         document.getElementById('fix-email').addEventListener('click',function(e){e.preventDefault();input.value=s;hint.textContent='';input.focus();});
-      }else if(v.indexOf('@')>0&&!/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(v)){
-        hint.textContent='Проверьте адрес: похоже, он введён не полностью.';
-      }
+      } else if(v.indexOf('@')>0&&!/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(v)){ hint.textContent='Проверьте адрес: похоже, он введён не полностью.'; }
     }
-    input.addEventListener('blur',check);
-    input.addEventListener('input',function(){if(hint.textContent)check();});
+    if(input){ input.addEventListener('blur',check); input.addEventListener('input',function(){if(hint&&hint.textContent)check();}); }
   })();
   </script>
 

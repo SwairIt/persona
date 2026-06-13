@@ -542,3 +542,18 @@ a.card:hover .card-link{text-decoration:underline}
 .preview{ background:rgba(12,12,22,.92) }
 /* у наклоняемых карточек включаем сглаживание граней при transform */
 [data-tilt]{ -webkit-backface-visibility:hidden; backface-visibility:hidden }
+
+/* ---------- inline-авторизация на лендинге ---------- */
+.pw-box{margin-top:10px;max-width:480px}
+.pw-box form{display:flex;gap:8px;flex-wrap:wrap}
+.pw-box input{
+  flex:1;min-width:150px;padding:11px 16px;border-radius:999px;color:var(--ink);font-size:.95rem;outline:none;
+  background:rgba(255,255,255,.05);border:1px solid var(--glass-brd);transition:border-color .2s;
+}
+.pw-box input::placeholder{color:var(--ink-faint)}
+.pw-box input:focus{border-color:var(--violet)}
+.pw-box .btn{border-radius:999px;white-space:nowrap}
+.auth-msg{margin-top:12px;font-size:.9rem;padding:10px 14px;border-radius:12px;max-width:480px;line-height:1.4}
+.auth-msg.ok{background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.35);color:#86efac}
+.auth-msg.err{background:rgba(244,63,94,.12);border:1px solid rgba(244,63,94,.35);color:#fca5a5}
+.auth-msg a{color:inherit;text-decoration:underline}
