@@ -31,6 +31,7 @@ from app.chat import (
     get_active_system_prompt,
     get_pinned_messages,
     get_session,
+    get_span_ratings,
     latest_reaction,
     get_streaming_message,
     list_messages,
@@ -214,6 +215,10 @@ async def chat_thread(
         raise HTTPException(status_code=404, detail="chat session not found")
     sessions = await list_sessions(session["user_id"], limit=50)
     messages = await list_messages(session_id, limit=500)
+    # T31 — подтянуть спан-рейтинги (подсветка выделенных фрагментов).
+    spans = await get_span_ratings(session_id)
+    for m in messages:
+        m["span_ratings"] = spans.get(int(m["id"]), [])
     return templates.TemplateResponse(
         request,
         "chat_index.html",

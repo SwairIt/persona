@@ -1,6 +1,12 @@
 {% extends "base.html" %}
 
 {% block content %}
+<style>
+  /* T31 — стойкая подсветка оценённых фрагментов ответа */
+  .span-rate{border-radius:3px;padding:0 2px;cursor:help}
+  .span-rate.span-like{background:rgba(34,197,94,.28);box-shadow:inset 0 -2px 0 rgba(34,197,94,.75)}
+  .span-rate.span-dislike{background:rgba(244,63,94,.28);box-shadow:inset 0 -2px 0 rgba(244,63,94,.75)}
+</style>
 {# T21 (2026-06-07): chat UI redesign — markdown rendering of replies,
    per-message timing badge, context usage indicator, image attachments
    (uploaded base64-inline for vision-capable providers), unlimited
@@ -161,7 +167,7 @@
                 <template x-if="msg.role === 'assistant'">
                   <div class="text-[15px] text-zinc-100 leading-relaxed prose prose-invert prose-base max-w-none overflow-x-hidden"
                        @mouseup="onAssistantSelect($event, msg.id)"
-                       x-html="renderMd(msg.content)"></div>
+                       x-html="renderMsg(msg)"></div>
                 </template>
                 <template x-if="msg.role === 'user'">
                   {# Show-more collapse — текст >5 строк сворачивается. #}
@@ -634,6 +640,24 @@
         catch (e) { return (text || '').replace(/[<>]/g, c => c === '<' ? '&lt;' : '&gt;'); }
       },
 
+      // T31 — рендер ответа + стойкая подсветка оценённых фрагментов (зелёный/красный)
+      renderMsg(msg) {
+        let html = this.renderMd(msg && msg.content);
+        const spans = (msg && msg.span_ratings) || [];
+        if (!spans.length) return html;
+        const esc = s => s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+        for (const sp of spans) {
+          const raw = (sp.text || '').trim();
+          if (raw.length < 2) continue;
+          const needle = esc(raw);
+          if (html.indexOf(needle) === -1) continue;
+          const cls = (sp.rating > 0) ? 'span-like' : 'span-dislike';
+          const title = (sp.rating > 0) ? 'лайк фрагмента' : 'дизлайк фрагмента';
+          html = html.split(needle).join('<mark class="span-rate ' + cls + '" title="' + title + '">' + needle + '</mark>');
+        }
+        return html;
+      },
+
       async rateAt(idx, rating) {
         // T27 — берём актуальное сообщение по индексу из messages,
         // а не через captured `msg` ref который мог устареть после
@@ -828,13 +852,20 @@
         const s = this.spanSel;
         this.spanSel = { ...s, show: false };
         if (!s.text || !s.messageId) return;
+        // Оптимистично подсвечиваем фрагмент сразу (зелёным/красным).
+        const idx = this.messages.findIndex(m => m.id === s.messageId);
+        if (idx >= 0) {
+          const m = this.messages[idx];
+          m.span_ratings = (m.span_ratings || []).concat([{ text: s.text, rating }]);
+          this.messages.splice(idx, 1, m);
+        }
+        try { window.getSelection().removeAllRanges(); } catch (_) {}
         try {
           await fetch(`/api/chat/messages/${s.messageId}/rate-span`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ selected_text: s.text, rating, session_id: this.sessionId }),
           });
-        } catch (e) { /* best-effort */ }
-        try { window.getSelection().removeAllRanges(); } catch (_) {}
+        } catch (e) { /* подсветка уже показана локально */ }
       },
 
       async doSearch() {

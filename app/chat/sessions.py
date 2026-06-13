@@ -452,6 +452,27 @@ async def add_span_rating(
         await conn.commit()
 
 
+async def get_span_ratings(session_id: int) -> dict[int, list[dict[str, object]]]:
+    """T31 — спан-рейтинги по сессии: {message_id: [{text, rating}, ...]}.
+    Берём последнюю оценку для каждого уникального фрагмента (текст+сообщение)."""
+    out: dict[int, list[dict[str, object]]] = {}
+    async with get_connection() as conn:
+        cursor = await conn.execute(
+            "SELECT asst_message_id, selected_text, rating, MAX(id) AS mx "
+            "FROM training_dataset_span_rating "
+            "WHERE session_id = ? AND rating IN (-1, 1) "
+            "GROUP BY asst_message_id, selected_text "
+            "ORDER BY mx ASC",
+            (session_id,),
+        )
+        for row in await cursor.fetchall():
+            mid = int(row["asst_message_id"])
+            out.setdefault(mid, []).append(
+                {"text": str(row["selected_text"]), "rating": int(row["rating"])}
+            )
+    return out
+
+
 async def get_streaming_message(session_id: int) -> ChatMessage | None:
     """T29 — the most recent still-streaming assistant message, or None."""
     async with get_connection() as conn:
