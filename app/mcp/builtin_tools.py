@@ -421,6 +421,44 @@ async def install_mcp(args: dict[str, Any], user_id: int = 0) -> str:
     )
 
 
+# T31 E4 — опасные паттерны, которые не выполняем на Mac ни при каких условиях.
+_MAC_BLOCKED = (
+    "rm -rf /", "rm -rf ~", "mkfs", ":(){:|:&};:", "shutdown", "reboot",
+    "diskutil erase", "> /dev/", "dd if=", "sudo rm",
+)
+_MAC_SHELLS = ("bash", "zsh", "sh", "powershell", "pwsh")
+
+
+async def run_mac(args: dict[str, Any], user_id: int = 0) -> str:
+    """T31 E4 — выполнить команду на Mac пользователя через агента.
+
+    Ставит команду в очередь (op=exec) для выбранного code-target устройства;
+    Mac-агент выполняет её в разрешённой папке (allowlist) и возвращает
+    stdout/stderr/код. Требует включённого mac-fs и онлайн-агента — иначе
+    возвращает [error] (не падает). Поддержку op=exec на стороне агента нужно
+    проверить на Mac.
+    """
+    from app.devices.fs_rpc import is_enabled, run_remote  # noqa: PLC0415
+
+    command = str(args.get("command", "")).strip()
+    if not command:
+        return "[error] нужна команда (command)"
+    shell = str(args.get("shell", "bash")).strip().lower() or "bash"
+    if shell not in _MAC_SHELLS:
+        shell = "bash"
+    lowered = command.lower()
+    for b in _MAC_BLOCKED:
+        if b in lowered:
+            return f"[error] заблокировано (опасная команда): {b}"
+    if not await is_enabled():
+        return (
+            "[error] mac-fs выключен — включи на /settings/mac-fs, чтобы я мог "
+            "выполнять команды на твоём Mac"
+        )
+    # path несёт тип шелла, content — саму команду (agent_fs_command, op=exec).
+    return await run_remote(user_id, "exec", shell, command)
+
+
 # Tool registry — name → (function, description-for-LLM, params-schema)
 _BUILTIN_TOOLS: dict[str, dict[str, Any]] = {
     "read_file": {
@@ -487,6 +525,19 @@ _BUILTIN_TOOLS: dict[str, dict[str, Any]] = {
             "name": "короткое имя сервера",
             "command": "команда запуска MCP-сервера или URL",
             "description": "что делает (опционально)",
+        },
+    },
+    "run_mac": {
+        "fn": run_mac,
+        "description": (
+            "Выполнить команду НА MAC пользователя (bash/zsh/powershell) через "
+            "агента, в разрешённой папке. Используй для реальных действий на "
+            "Mac: запустить скрипт, собрать проект, git, установить пакет. "
+            "Возвращает stdout/stderr/код. Требует включённого mac-fs."
+        ),
+        "params": {
+            "command": "команда для выполнения на Mac",
+            "shell": "bash | zsh | sh | powershell (по умолчанию bash)",
         },
     },
 }

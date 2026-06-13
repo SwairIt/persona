@@ -754,10 +754,75 @@
       },
 
       // T31 — рендер ответа + стойкая подсветка оценённых фрагментов (зелёный/красный)
+      // T31 E4 — экранирование для HTML-карточек команд
+      escHtml(s) {
+        return String(s == null ? '' : s).replace(/[&<>"]/g, c => (
+          { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+      },
+      // T31 E4 — длинный вывод: показать первые HEAD и последние TAIL строк,
+      // середину спрятать под «развернуть» (сворачивание сверху И снизу).
+      collapseOutput(text, uid) {
+        const HEAD = 8, TAIL = 8;
+        const lines = String(text).replace(/\s+$/, '').split('\n');
+        if (lines.length <= HEAD + TAIL + 2) return this.escHtml(text);
+        const head = lines.slice(0, HEAD).join('\n');
+        const tail = lines.slice(-TAIL).join('\n');
+        const mid = lines.slice(HEAD, -TAIL).join('\n');
+        const hidden = lines.length - HEAD - TAIL;
+        return this.escHtml(head)
+          + '\n<span class="cmd-mid" id="' + uid + '" style="display:none">' + this.escHtml(mid) + '</span>'
+          + '<button type="button" class="cmd-expand" onclick="(function(b){var m=document.getElementById(\'' + uid
+          + '\');var on=m.style.display===\'none\';m.style.display=on?\'inline\':\'none\';b.textContent=on?\'▲ свернуть середину\':\'… развернуть ещё ' + hidden + ' строк …\';})(this)">… развернуть ещё ' + hidden + ' строк …</button>\n'
+          + this.escHtml(tail);
+      },
+      // T31 E4 — карточка одной команды: IN (команда) + OUT (вывод) + кружок-статус
+      toolCard(t, idx) {
+        let cmd = '', shell = '';
+        try {
+          const a = JSON.parse(t.args);
+          cmd = a.command || a.cmd || a.path || t.args;
+          shell = (a.shell || '').toLowerCase();
+        } catch (e) { cmd = t.args; }
+        if (!shell) {
+          shell = (t.name === 'run_mac') ? 'bash'
+                : (t.name === 'run_shell') ? 'powershell' : '';
+        }
+        const out = (t.out || '').trim();
+        const isErr = /^\[error\]|error|stderr:/i.test(out) && /exit_code:\s*[1-9]|^\[error\]/im.test(out) || /^\[error\]/.test(out);
+        const status = (out === '') ? 'running' : (isErr ? 'error' : 'done');
+        const badge = shell ? '<span class="shell-badge">' + this.escHtml(shell) + '</span>' : '';
+        const uid = 'cmdout-' + (t.mid || 'm') + '-' + idx;
+        const inBody = cmd ? this.escHtml(cmd) : ('<span class="cmd-name">' + this.escHtml(t.name) + '</span> ' + this.escHtml(t.args));
+        const outHtml = out ? this.collapseOutput(out, uid) : '<span class="cmd-wait">выполняется…</span>';
+        return ''
+          + '<div class="cmd-card cmd-' + status + '">'
+          +   '<div class="cmd-head">'
+          +     '<span class="cmd-circle cmd-circle-' + status + '"></span>'
+          +     '<span class="cmd-label">' + this.escHtml(t.name) + '</span>'
+          +     badge
+          +   '</div>'
+          +   '<div class="cmd-in"><span class="cmd-tag">IN</span><pre>' + inBody + '</pre></div>'
+          +   '<div class="cmd-out"><span class="cmd-tag">OUT</span><pre>' + outHtml + '</pre></div>'
+          + '</div>';
+      },
       renderMsg(msg) {
         // E8 — не показываем сырой блок persona:choices в тексте (он → меню кнопок)
-        const content = (msg && msg.content || '').replace(/```persona:choices[\s\S]*?```/g, '').trim();
+        let content = (msg && msg.content || '').replace(/```persona:choices[\s\S]*?```/g, '').trim();
+        // T31 E4 — вырезаем tool-блоки (🔧 name(args) + ```вывод```) и заменяем
+        // плейсхолдером, чтобы отрисовать их как карточки IN/OUT после markdown.
+        const tools = [];
+        content = content.replace(
+          /🔧\s*([a-zA-Z_][\w]*)\s*\(([\s\S]*?)\)\s*\n+```[a-zA-Z]*\n([\s\S]*?)```/g,
+          (m, name, args, out) => {
+            const i = tools.length;
+            tools.push({ name, args, out, mid: (msg && msg.id) || 'm' });
+            return '\n\n@@TOOL' + i + '@@\n\n';
+          });
         let html = this.renderMd(content);
+        tools.forEach((t, i) => {
+          const card = this.toolCard(t, i);
+          html = html.replace('<p>@@TOOL' + i + '@@</p>', card).replace('@@TOOL' + i + '@@', card);
+        });
         const spans = (msg && msg.span_ratings) || [];
         if (!spans.length) return html;
         const esc = s => s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
@@ -1335,6 +1400,35 @@
     font-size: 0.85em;
     font-weight: 600;
   }
+
+  /* T31 E4 — карточки команд: IN (команда) + OUT (вывод) + кружок-статус */
+  .cmd-card{margin:.6em 0;border:1px solid #27272a;border-radius:10px;overflow:hidden;background:#0c0c0f}
+  .cmd-card.cmd-done{border-color:rgba(34,197,94,.4)}
+  .cmd-card.cmd-error{border-color:rgba(244,63,94,.45)}
+  .cmd-card.cmd-running{border-color:rgba(99,102,241,.5)}
+  .cmd-head{display:flex;align-items:center;gap:.5em;padding:.4em .7em;background:#16161b;border-bottom:1px solid #27272a}
+  .cmd-circle{width:.7em;height:.7em;border-radius:50%;flex:0 0 auto;box-shadow:0 0 0 3px rgba(255,255,255,.04)}
+  .cmd-circle-done{background:#22c55e}
+  .cmd-circle-error{background:#f43f5e}
+  .cmd-circle-running{background:#6366f1;animation:cmdpulse 1.1s ease-in-out infinite}
+  @keyframes cmdpulse{0%,100%{opacity:.35}50%{opacity:1}}
+  .cmd-label{font-family:ui-monospace,monospace;font-size:.8em;font-weight:600;color:#a1a1aa}
+  .shell-badge{margin-left:auto;font-size:.68em;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
+    padding:.1em .5em;border-radius:5px;background:rgba(129,140,248,.15);color:#a5b4fc;font-family:ui-monospace,monospace}
+  .cmd-in,.cmd-out{position:relative;padding:.5em .7em .5em 2.6em}
+  .cmd-in{background:#101014;border-bottom:1px solid #1f1f23}
+  .cmd-out{background:#0a0a0d}
+  .cmd-tag{position:absolute;left:.6em;top:.55em;font-size:.6em;font-weight:700;letter-spacing:.06em;
+    color:#52525b;font-family:ui-monospace,monospace}
+  .cmd-in pre,.cmd-out pre{margin:0;white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,monospace;font-size:.82em;line-height:1.5}
+  .cmd-in pre{color:#e4e4e7}
+  .cmd-out pre{color:#b8b8bf}
+  .cmd-card.cmd-error .cmd-out pre{color:#fca5a5}
+  .cmd-expand{display:inline-block;margin:.2em 0;padding:.05em .5em;font-size:.72em;cursor:pointer;
+    border:1px dashed #3f3f46;border-radius:5px;background:transparent;color:#818cf8;font-family:ui-monospace,monospace}
+  .cmd-expand:hover{border-color:#6366f1;color:#a5b4fc}
+  .cmd-wait{color:#818cf8;font-style:italic}
+  .cmd-name{color:#a5b4fc}
 
   /* T24 — reasoning/think block */
   .think-block {
