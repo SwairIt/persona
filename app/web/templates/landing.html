@@ -35,6 +35,9 @@
     .preload *{transition:none!important;animation:none!important}
   </style>
   <link rel="stylesheet" href="/static/landing/style.css" />
+  <script type="importmap">
+  { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+  </script>
 </head>
 
 <body class="preload">
@@ -107,24 +110,25 @@
           </div>
         </div>
 
-        <!-- Живое превью продукта (CSS, без WebGL — быстро и плавно) -->
-        <div class="hero-preview reveal" aria-hidden="true">
-          <div class="preview glass" data-tilt>
+        <!-- Живое ИНТЕРАКТИВНОЕ превью: можно печатать, Persona отвечает (демо) -->
+        <div class="hero-preview reveal">
+          <div class="preview glass">
             <div class="preview-bar">
               <span class="pb-dot"></span><span class="pb-dot"></span><span class="pb-dot"></span>
-              <span class="pb-title">Persona — чат</span>
+              <span class="pb-title">Persona — чат · демо</span>
             </div>
-            <div class="preview-body">
+            <div class="preview-body" id="demo-body">
               <div class="msg user">Над чем я работал вчера вечером?</div>
               <div class="msg ai">
                 <span class="ai-tag">Persona · помнит</span>
                 Ты дорабатывал лендинг Persona: правил hero и наполнял блог.
                 Незакрытым осталось — адаптив таблицы сравнения. Продолжим с него?
               </div>
-              <div class="msg user">Да, и напомни про встречу.</div>
-              <div class="msg ai typing"><span></span><span></span><span></span></div>
             </div>
-            <div class="preview-input"><span>Спросить Persona…</span><kbd>⏎</kbd></div>
+            <form class="preview-input" id="demo-form" autocomplete="off">
+              <input id="demo-input" type="text" placeholder="Спросить Persona…" aria-label="Спросить Persona" maxlength="120" />
+              <button type="submit" aria-label="Отправить"><kbd>⏎</kbd></button>
+            </form>
           </div>
           <div class="preview-glow"></div>
         </div>
@@ -167,26 +171,31 @@
         <p class="section-lead reveal">Пять опор личного ИИ — каждая работает на то, чтобы он понимал именно тебя.</p>
       </div>
       <div class="bento">
-        <article class="card glass b-wide" data-card>
+        <a class="card glass b-wide" data-card data-tilt href="/blog/zapis-ekrana-ii-pamyat">
           <div class="card-ico">🎥</div><h3>Всегда помнит</h3>
           <p>С твоего разрешения Persona фиксирует экран и звук и превращает это в живую память. Контекст не теряется между сессиями.</p>
-        </article>
-        <article class="card glass b-wide" data-card>
+          <span class="card-link">Как это работает →</span>
+        </a>
+        <a class="card glass b-wide" data-card data-tilt href="/blog/kak-rabotaet-pamyat-ii">
           <div class="card-ico">🧠</div><h3>Знает, кто ты</h3>
           <p>Профиль «обо мне» и авто-память подключены к каждому чату. Любой новый разговор начинается со знания о тебе, а не с нуля.</p>
-        </article>
-        <article class="card glass" data-card>
+          <span class="card-link">Про память ИИ →</span>
+        </a>
+        <a class="card glass" data-card data-tilt href="/blog/svoya-model-fine-tune">
           <div class="card-ico">⚡</div><h3>Твоя модель</h3>
           <p>Оценки 👍/👎 копятся в датасет → fine-tune модели, которая звучит как нужно тебе.</p>
-        </article>
-        <article class="card glass" data-card>
+          <span class="card-link">Своя модель →</span>
+        </a>
+        <a class="card glass" data-card data-tilt href="/blog/ii-rabota-s-faylami">
           <div class="card-ico">📁</div><h3>Файлы на Mac</h3>
           <p>ИИ создаёт и правит файлы в разрешённых папках. На сервере ничего лишнего.</p>
-        </article>
-        <article class="card glass" data-card>
+          <span class="card-link">Безопасный доступ →</span>
+        </a>
+        <a class="card glass" data-card data-tilt href="/blog/privatnyy-ii-lokalno">
           <div class="card-ico">🔒</div><h3>Приватность</h3>
           <p>Локальная модель и твой allowlist. Можно офлайн. Данные не утекают наружу.</p>
-        </article>
+          <span class="card-link">Про приватность →</span>
+        </a>
       </div>
     </section>
 
@@ -198,6 +207,18 @@
         <li class="step reveal"><span class="step-n">02</span><h3>Помнит</h3><p>Отдельный процесс превращает поток в карточки памяти. Обработка изолирована.</p></li>
         <li class="step reveal"><span class="step-n">03</span><h3>Понимает</h3><p>В каждом чате ИИ подтягивает релевантную память и отвечает с учётом контекста.</p></li>
       </ol>
+    </section>
+
+    <!-- 3D — интерактивный кристалл (Three.js, ленивый, ограниченный canvas) -->
+    <section class="core3d" id="core3d">
+      <div class="core3d-inner">
+        <h2 class="section-title reveal">Ядро твоей <span class="grad">памяти</span></h2>
+        <p class="section-lead reveal">Потяни мышью или пальцем — покрути. Маленькое и лёгкое: грузится только когда долистал, на систему не давит.</p>
+        <div class="core3d-stage reveal">
+          <canvas id="crystal-canvas" aria-label="Интерактивный 3D-объект"></canvas>
+          <span class="core3d-hint" id="core3d-hint">↻ потяни, чтобы покрутить</span>
+        </div>
+      </div>
     </section>
 
     <!-- COMPARE -->
@@ -233,6 +254,30 @@
         </ul>
       </div>
     </section>
+
+    <!-- БЛОГ на главной -->
+    {% if posts %}
+    <section class="home-blog" id="home-blog">
+      <div class="home-blog-head">
+        <div>
+          <h2 class="section-title reveal">Из блога</h2>
+          <p class="section-lead reveal">Разборы про личный ИИ, память, приватность и свою модель.</p>
+        </div>
+        <a href="/blog" class="blog-all reveal">Все статьи →</a>
+      </div>
+      <div class="home-posts">
+        {% for p in posts %}
+        <a class="hpost glass" data-card data-tilt href="/blog/{{ p.slug }}">
+          <span class="hpost-cover">{{ p.cover }}</span>
+          <span class="hpost-cat">{{ p.category }}</span>
+          <h3>{{ p.title }}</h3>
+          <p>{{ p.excerpt }}</p>
+          <span class="hpost-meta">{{ p.date_human }} · {{ p.read_minutes }} мин</span>
+        </a>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
 
     <!-- CTA -->
     <section class="cta" id="cta">
@@ -284,6 +329,7 @@
   })();
   </script>
 
+  <script type="module" src="/static/landing/crystal.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js" defer></script>
   <script src="/static/landing/main.js" defer></script>

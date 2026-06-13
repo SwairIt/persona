@@ -19,7 +19,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from app import __version__
+from app import __version__, blog
 from app.auth import current_user_optional
 from app.auth.sessions import SessionRecord
 from app.logging_setup import get_logger
@@ -38,6 +38,7 @@ def _render(request: Request, session: SessionRecord | None) -> HTMLResponse:
             "active_nav": "",
             "app_version": __version__,
             "session": session,
+            "posts": blog.list_posts()[:3],
         },
     )
 

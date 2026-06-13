@@ -17,6 +17,54 @@
   window.addEventListener('scroll', onScroll, { passive: true });
   onScroll();
 
+  // ---- интерактивный демо-чат (работает всегда, даже при reduced-motion) ----
+  (function () {
+    const form = document.getElementById('demo-form');
+    const input = document.getElementById('demo-input');
+    const body = document.getElementById('demo-body');
+    if (!form || !input || !body) return;
+    const replies = [
+      'Помню контекст: ты на этом и остановился вчера. В реальном аккаунте я подтяну твои файлы и историю и отвечу по делу.',
+      'Это демо — но в Persona я держу твою память локально и в каждом чате знаю, над чем ты работаешь. Создай аккаунт, чтобы я помнил <b>именно тебя</b>.',
+      'Хороший вопрос. С доступом к твоей памяти я отвечу с учётом твоих проектов, заметок и активности — а не общими словами.',
+    ];
+    let i = 0;
+    const add = (cls, html) => {
+      const d = document.createElement('div');
+      d.className = 'msg ' + cls;
+      d.innerHTML = html;
+      body.appendChild(d);
+      body.scrollTop = body.scrollHeight;
+      return d;
+    };
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const q = input.value.trim();
+      if (!q) return;
+      input.value = '';
+      add('user', q.replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c])));
+      const typing = add('ai typing', '<span></span><span></span><span></span>');
+      setTimeout(() => {
+        typing.remove();
+        add('ai', '<span class="ai-tag">Persona · помнит</span>' + replies[i % replies.length]);
+        i++;
+      }, 850);
+    });
+  })();
+
+  // ---- 3D-наклон карточек на мышь (cheap, только десктоп) ----
+  if (window.matchMedia('(pointer:fine)').matches && !reduceMotion) {
+    document.querySelectorAll('[data-tilt]').forEach((el) => {
+      el.addEventListener('pointermove', (e) => {
+        const r = el.getBoundingClientRect();
+        const x = (e.clientX - r.left) / r.width - 0.5;
+        const y = (e.clientY - r.top) / r.height - 0.5;
+        el.style.transform = `perspective(800px) rotateY(${x * 7}deg) rotateX(${-y * 7}deg) translateY(-4px)`;
+      });
+      el.addEventListener('pointerleave', () => { el.style.transform = ''; });
+    });
+  }
+
   const hasGSAP = typeof window.gsap !== 'undefined' && typeof window.ScrollTrigger !== 'undefined';
 
   // Нет анимаций / нет библиотек → показать всё сразу
