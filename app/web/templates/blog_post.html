@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0a0a12" />
+  <title>{{ title }}</title>
+  <meta name="description" content="{{ post.excerpt }}" />
+  {% if post.keywords %}<meta name="keywords" content="{{ post.keywords }}" />{% endif %}
+  <link rel="canonical" href="/blog/{{ post.slug }}" />
+  <meta property="og:title" content="{{ post.title }}" />
+  <meta property="og:description" content="{{ post.excerpt }}" />
+  <meta property="og:type" content="article" />
+  <meta property="article:published_time" content="{{ post.date }}" />
+  <link rel="manifest" href="/static/manifest.json" />
+  <style>:root{color-scheme:dark}html,body{margin:0;background:#07070d;color:#eef0ff}</style>
+  <link rel="stylesheet" href="/static/landing/style.css" />
+  <link rel="stylesheet" href="/static/blog/blog.css" />
+  <script type="application/ld+json">
+  {
+    "@context":"https://schema.org","@type":"BlogPosting",
+    "headline":{{ post.title|tojson }},
+    "description":{{ post.excerpt|tojson }},
+    "datePublished":"{{ post.date }}",
+    "author":{"@type":"Organization","name":"Persona"},
+    "publisher":{"@type":"Organization","name":"Persona"},
+    "mainEntityOfPage":"/blog/{{ post.slug }}",
+    "inLanguage":"ru-RU"
+  }
+  </script>
+</head>
+<body>
+  <div class="read-progress" aria-hidden="true"></div>
+  <div class="bg-mesh" aria-hidden="true"></div>
+  <div class="bg-grid" aria-hidden="true"></div>
+  <div class="grain" aria-hidden="true"></div>
+
+  {% include "_public_nav.html" %}
+
+  <div class="post-wrap">
+    <nav class="breadcrumb"><a href="/">Главная</a> / <a href="/blog">Блог</a> / {{ post.category }}</nav>
+
+    <header class="post-header">
+      <span class="cat">{{ post.cover }} {{ post.category }}</span>
+      <h1>{{ post.title }}</h1>
+      <div class="post-meta">
+        <span>{{ post.date_human }}</span>
+        <span class="dot">·</span>
+        <span>{{ post.read_minutes }} мин чтения</span>
+        <span class="dot">·</span>
+        <span>{{ post.word_count }} слов</span>
+      </div>
+    </header>
+
+    <div class="post-layout">
+      <article class="post-body">
+        {{ post.html|safe }}
+      </article>
+
+      {% if post.toc %}
+      <aside class="post-toc" aria-label="Содержание">
+        <div class="toc-title">Содержание</div>
+        <ul>
+          {% for item in post.toc %}
+            <li><a href="#{{ item.id }}" class="lvl-{{ item.level }}">{{ item.title }}</a></li>
+          {% endfor %}
+        </ul>
+      </aside>
+      {% endif %}
+    </div>
+
+    <div class="post-footer">
+      <div class="post-nav">
+        {% if prev_post %}
+          <a href="/blog/{{ prev_post.slug }}"><div class="lbl">← Раньше</div><div class="ttl">{{ prev_post.title }}</div></a>
+        {% endif %}
+        {% if next_post %}
+          <a href="/blog/{{ next_post.slug }}" class="next"><div class="lbl">Новее →</div><div class="ttl">{{ next_post.title }}</div></a>
+        {% endif %}
+      </div>
+
+      {% if related %}
+      <div class="related">
+        <h3>Ещё по теме</h3>
+        <div class="post-grid">
+          {% for p in related %}
+          <a class="post-card" href="/blog/{{ p.slug }}">
+            <span class="cover">{{ p.cover }}</span>
+            <span class="cat">{{ p.category }}</span>
+            <h2>{{ p.title }}</h2>
+            <span class="meta"><span>{{ p.read_minutes }} мин</span></span>
+          </a>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      <div class="cta-band">
+        <h3>Хочешь ИИ, который помнит тебя?</h3>
+        <p>Persona видит твой день, помнит контекст и работает на твоём железе.</p>
+        {% if session %}
+          <a href="/now" class="btn btn-primary">Открыть кабинет</a>
+        {% else %}
+          <a href="/auth/signup" class="btn btn-primary">Создать аккаунт</a>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <footer class="footer">
+    <span>Persona</span>
+    <span class="footer-links"><a href="/">Главная</a> · <a href="/blog">Блог</a> · <a href="/help">Справка</a></span>
+  </footer>
+
+  <script src="/static/blog/blog.js" defer></script>
+</body>
+</html>

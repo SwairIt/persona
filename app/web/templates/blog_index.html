@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0a0a12" />
+  <title>{{ title }}</title>
+  <meta name="description" content="Блог Persona: статьи про личный ИИ, память и контекст, приватность, локальные модели, продуктивность и second brain. Практика и разборы." />
+  <meta name="keywords" content="блог про ии, личный ии, ии с памятью, приватный ассистент, локальная модель, продуктивность, second brain" />
+  <link rel="canonical" href="/blog" />
+  <meta property="og:title" content="Блог Persona" />
+  <meta property="og:description" content="Личный ИИ, память, приватность, своя модель — статьи и разборы." />
+  <meta property="og:type" content="website" />
+  <link rel="manifest" href="/static/manifest.json" />
+  <style>:root{color-scheme:dark}html,body{margin:0;background:#07070d;color:#eef0ff}</style>
+  <link rel="stylesheet" href="/static/landing/style.css" />
+  <link rel="stylesheet" href="/static/blog/blog.css" />
+  <script type="application/ld+json">
+  {"@context":"https://schema.org","@type":"Blog","name":"Блог Persona","url":"/blog","inLanguage":"ru-RU"}
+  </script>
+</head>
+<body>
+  <div class="bg-mesh" aria-hidden="true"></div>
+  <div class="bg-grid" aria-hidden="true"></div>
+  <div class="grain" aria-hidden="true"></div>
+
+  {% include "_public_nav.html" %}
+
+  <main class="blog-main">
+    <div class="blog-head">
+      <h1>Блог <span class="grad">Persona</span></h1>
+      <p>Личный ИИ, память и контекст, приватность, своя модель и продуктивность — практика и разборы без воды.</p>
+    </div>
+
+    <div class="cat-filter">
+      <button class="cat-btn active" data-cat="">Все</button>
+      {% for c in categories %}
+        <button class="cat-btn" data-cat="{{ c }}">{{ c }}</button>
+      {% endfor %}
+    </div>
+
+    <div class="post-grid">
+      {% for p in posts %}
+      <a class="post-card" href="/blog/{{ p.slug }}" data-cat="{{ p.category }}">
+        <span class="cover">{{ p.cover }}</span>
+        <span class="cat">{{ p.category }}</span>
+        <h2>{{ p.title }}</h2>
+        <p class="excerpt">{{ p.excerpt }}</p>
+        <span class="meta"><span>{{ p.date_human }}</span><span>· {{ p.read_minutes }} мин</span></span>
+      </a>
+      {% endfor %}
+    </div>
+
+    {% if not posts %}
+      <p style="color:var(--ink-dim)">Статьи скоро появятся.</p>
+    {% endif %}
+  </main>
+
+  <footer class="footer">
+    <span>Persona</span>
+    <span class="footer-links"><a href="/">Главная</a> · <a href="/blog">Блог</a> · <a href="/help">Справка</a></span>
+  </footer>
+
+  <script src="/static/blog/blog.js" defer></script>
+</body>
+</html>

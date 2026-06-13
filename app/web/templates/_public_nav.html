@@ -1,0 +1,14 @@
+<header class="nav nav--solid" id="nav">
+  <a class="brand" href="/"><span class="brand-dot"></span> Persona</a>
+  <nav class="nav-links">
+    <a href="/#features">Возможности</a>
+    <a href="/#how">Как работает</a>
+    <a href="/blog">Блог</a>
+    {% if session %}
+      <a href="/now" class="nav-cta">В кабинет</a>
+    {% else %}
+      <a href="/auth/login">Войти</a>
+      <a href="/auth/signup" class="nav-cta">Создать аккаунт</a>
+    {% endif %}
+  </nav>
+</header>

@@ -404,6 +404,7 @@ from app.web.routes import (
     metrics_extended as metrics_extended_routes,
     help_walkthrough as help_walkthrough_routes,
     landing as landing_routes,
+    blog as blog_routes,
     auth as auth_routes,
     devices as devices_routes,
     sync_api as sync_api_routes,
@@ -825,6 +826,7 @@ def create_app() -> FastAPI:
     app.include_router(metrics_extended_routes.router)
     app.include_router(help_walkthrough_routes.router)
     app.include_router(landing_routes.router)
+    app.include_router(blog_routes.router)
     app.include_router(auth_routes.router)
     app.include_router(devices_routes.router)
     app.include_router(sync_api_routes.router)

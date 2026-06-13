@@ -49,6 +49,7 @@ from xml.etree import ElementTree as ET
 from fastapi import APIRouter, Request
 from fastapi.responses import Response
 
+from app import blog
 from app.logging_setup import get_logger
 from app.settings import get_settings
 from app.storage.db import get_connection
@@ -102,6 +103,14 @@ async def sitemap_xml(request: Request) -> Response:
     # --- Always-on main pages ---------------------------------------
     _append_url(urlset, f"{base}/", now_iso, _CHANGEFREQ_MAIN)
     _append_url(urlset, f"{base}/features", now_iso, _CHANGEFREQ_MAIN)
+    _append_url(urlset, f"{base}/landing", now_iso, _CHANGEFREQ_MAIN)
+    _append_url(urlset, f"{base}/blog", now_iso, _CHANGEFREQ_MAIN)
+
+    # --- Blog (file-based SEO content) ------------------------------
+    blog_posts = blog.list_posts()
+    for post in blog_posts:
+        lastmod = f"{post.date}T00:00:00Z" if post.date else now_iso
+        _append_url(urlset, f"{base}/blog/{post.slug}", lastmod, _CHANGEFREQ_PUBLIC_DAY)
 
     # --- Per-row sections -------------------------------------------
     public_days = await _fetch_public_days()
