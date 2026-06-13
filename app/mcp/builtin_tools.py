@@ -390,6 +390,28 @@ async def install_skill(args: dict[str, Any], user_id: int = 0) -> str:
     )
 
 
+async def install_mcp(args: dict[str, Any], user_id: int = 0) -> str:
+    """T31 — добавить и включить MCP-сервер по просьбе пользователя.
+    Только регистрирует конфиг в БД (mcp_server); ничего не запускает само."""
+    from app.mcp.servers import upsert_server  # noqa: PLC0415
+
+    name = str(args.get("name", "")).strip()
+    command = str(args.get("command", "") or args.get("url", "")).strip()
+    description = str(args.get("description", "")).strip() or None
+    if not name or not command:
+        return "[error] нужны 'name' и 'command' (или 'url') MCP-сервера"
+    try:
+        sid = await upsert_server(
+            name=name, description=description, command=command, enabled=True
+        )
+    except Exception as exc:  # noqa: BLE001
+        return f"[error] не смог добавить MCP: {type(exc).__name__}: {exc}"
+    return (
+        f"[ok] MCP-сервер «{name}» добавлен и включён (id={sid}). "
+        f"Команда: {command}. Управление — на странице /admin/mcp."
+    )
+
+
 # Tool registry — name → (function, description-for-LLM, params-schema)
 _BUILTIN_TOOLS: dict[str, dict[str, Any]] = {
     "read_file": {
@@ -443,6 +465,20 @@ _BUILTIN_TOOLS: dict[str, dict[str, Any]] = {
             "когда пользователь говорит «установи скилл» и даёт ссылку."
         ),
         "params": {"url": "ссылка на GitHub-репозиторий со скиллом"},
+    },
+    "install_mcp": {
+        "fn": install_mcp,
+        "description": (
+            "Добавить и включить MCP-сервер по просьбе пользователя «установи "
+            "mcp …». Укажи name (короткое имя) и command (команда запуска, "
+            "напр. 'npx -y @modelcontextprotocol/server-filesystem ~/Projects' "
+            "или URL). Сервер появится включённым в /admin/mcp."
+        ),
+        "params": {
+            "name": "короткое имя сервера",
+            "command": "команда запуска MCP-сервера или URL",
+            "description": "что делает (опционально)",
+        },
     },
 }
 

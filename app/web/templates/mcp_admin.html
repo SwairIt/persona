@@ -9,19 +9,18 @@
   </header>
 
   {# --- STATUS BANNER --- #}
-  <section class="mb-6 rounded-lg border border-amber-500/40 bg-amber-500/5 p-4 text-sm">
-    <h2 class="font-semibold text-amber-300 mb-2">⚠️ Готовность к запуску</h2>
+  <section class="mb-6 rounded-lg border border-accent-500/40 bg-accent-500/5 p-4 text-sm">
+    <h2 class="font-semibold text-accent-300 mb-2">✨ Установка через чат</h2>
     <p class="text-zinc-300 mb-2">
-      Реестр серверов готов. Запуск MCP-runtime (subprocess + JSON-RPC мост) — следующий тик. Пока ты можешь:
+      Можно просто сказать Persona в чате: <span class="font-mono text-accent-300">«установи mcp …»</span>
+      — ИИ сам добавит сервер сюда и включит (инструмент <span class="font-mono">install_mcp</span>).
+      Встроенные инструменты (файлы, шелл, git, веб, скиллы) работают уже сейчас.
     </p>
     <ul class="text-xs text-zinc-400 list-disc list-inside space-y-1">
-      <li>Включить тех серверов которые тебе нужны (filesystem на D:\, git, brave-search)</li>
-      <li>Поправить команду запуска под свои пути (например, поменять D:\Projects на свой)</li>
-      <li>Установить Node.js + npm на машине (для большинства MCP-серверов нужны)</li>
+      <li>Включай нужные серверы тумблером, правь команду запуска под свои пути</li>
+      <li>Внешним MCP-серверам обычно нужен Node.js + npm на машине</li>
+      <li>Запуск внешнего MCP-runtime (subprocess + JSON-RPC мост) — в работе</li>
     </ul>
-    <p class="text-xs text-zinc-400 mt-2">
-      Когда я доделаю runtime — твои настройки сразу подхватятся.
-    </p>
   </section>
 
   {# --- SERVERS TABLE --- #}
