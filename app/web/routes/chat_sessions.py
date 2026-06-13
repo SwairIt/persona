@@ -158,6 +158,46 @@ async def _set_effort(session_id: int, effort: str) -> None:
         await conn.commit()
 
 
+# T31 E3 — режимы работы. Инструменты выполняются только в auto/bypass.
+_MODES: tuple[str, ...] = ("plan", "ask", "auto", "bypass")
+_MODE_HINT: dict[str, str] = {
+    "plan": (
+        "\n\nРЕЖИМ: ПЛАН. Только составь подробный план действий (что бы ты "
+        "сделал по шагам). НЕ выполняй инструменты, НЕ пиши вызовы <tool>. "
+        "Заверши предложением подтвердить план."
+    ),
+    "ask": (
+        "\n\nРЕЖИМ: СПРАШИВАТЬ. Прежде чем что-то делать (создавать файлы, "
+        "запускать команды) — СПРОСИ разрешение: предложи действие через блок "
+        "```persona:choices``` («Сделать X?» с вариантами Да/Нет) и дождись "
+        "ответа. Сам инструменты не выполняй."
+    ),
+    "auto": "\n\nРЕЖИМ: АВТО. Действуй сам, вызывай инструменты где нужно.",
+    "bypass": (
+        "\n\nРЕЖИМ: БЕЗ СПРОСА. Выполняй задачу до конца, не переспрашивай по "
+        "мелочам, используй инструменты свободно."
+    ),
+}
+
+
+async def _get_mode(session_id: int) -> str:
+    from app.storage.db import get_connection  # noqa: PLC0415
+    from app.storage.repository import get_kv  # noqa: PLC0415
+
+    async with get_connection() as conn:
+        v = (await get_kv(conn, f"chat_mode_{session_id}") or "").strip()
+    return v if v in _MODES else "auto"
+
+
+async def _set_mode(session_id: int, mode: str) -> None:
+    from app.storage.db import get_connection  # noqa: PLC0415
+    from app.storage.repository import set_kv  # noqa: PLC0415
+
+    async with get_connection() as conn:
+        await set_kv(conn, f"chat_mode_{session_id}", mode)
+        await conn.commit()
+
+
 class _LiveGen:
     """T29 — one in-flight chat generation, decoupled from the HTTP client.
 
@@ -270,6 +310,7 @@ async def chat_thread(
     for m in messages:
         m["span_ratings"] = spans.get(int(m["id"]), [])
     effort = await _get_effort(session_id)
+    mode = await _get_mode(session_id)
     return templates.TemplateResponse(
         request,
         "chat_index.html",
@@ -280,6 +321,7 @@ async def chat_thread(
             "active_session": thread,
             "messages": messages,
             "effort": effort,
+            "mode": mode,
         },
     )
 
@@ -663,9 +705,14 @@ async def api_send_stream(
         build_tools_prompt,
         enabled_builtin_tool_names,
     )
+    # T31 E3 — режим: инструменты доступны только в auto/bypass.
+    _mode = await _get_mode(session_id)
+    _tools_on = _mode in ("auto", "bypass")
     enabled_tools = await enabled_builtin_tool_names()
-    tools_fragment = build_tools_prompt(enabled_tools)
-    base_prompt = base_prompt + tools_fragment
+    if _tools_on:
+        tools_fragment = build_tools_prompt(enabled_tools)
+        base_prompt = base_prompt + tools_fragment
+    base_prompt = base_prompt + _MODE_HINT.get(_mode, "")
 
     # T29 — installed skills: instruction sets the user pulled from GitHub
     # ("установи скилл <url>"). Inject enabled ones so the model follows them.
@@ -898,7 +945,8 @@ async def api_send_stream(
         # text. `full` accumulates every round, so without this the original
         # call is re-parsed and re-run each round (the "выполнил 3 раза" bug).
         executed_raws: set[str] = set()
-        for _round in range(5):
+        # T31 E3 — в режимах plan/ask инструменты НЕ выполняются (только план/спрос).
+        for _round in (range(5) if _tools_on else range(0)):
             tool_calls = [
                 tc for tc in parse_tool_calls(full)
                 if tc.get("raw") not in executed_raws
@@ -1287,6 +1335,20 @@ async def api_set_effort(
         eff = "normal"
     await _set_effort(session_id, eff)
     return JSONResponse({"ok": True, "effort": eff})
+
+
+@router.post("/api/chat/sessions/{session_id}/mode", response_class=JSONResponse)
+async def api_set_mode(
+    session_id: int,
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+    body: Annotated[dict[str, Any], Body(default_factory=dict)],
+) -> JSONResponse:
+    """T31 E3 — выбрать режим работы сессии: plan/ask/auto/bypass."""
+    mode = str(body.get("mode") or "auto").strip()
+    if mode not in _MODES:
+        mode = "auto"
+    await _set_mode(session_id, mode)
+    return JSONResponse({"ok": True, "mode": mode})
 
 
 @router.post("/api/chat/sessions/{session_id}/rename", response_class=JSONResponse)

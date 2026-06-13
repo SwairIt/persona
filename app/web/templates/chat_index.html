@@ -30,7 +30,8 @@
     {{ active_session.id if active_session else 'null' }},
     {{ messages | tojson | forceescape }},
     {{ (active_session.summary | tojson | forceescape) if active_session and active_session.summary else 'null' }},
-    '{{ effort or "normal" }}'
+    '{{ effort or "normal" }}',
+    '{{ mode or "auto" }}'
 )" class="grid grid-cols-1 md:grid-cols-[280px,1fr] gap-0 -mx-3 sm:-mx-6 -my-6 min-h-[calc(100vh-7rem)]">
 
   {# --- LEFT: sessions sidebar --- #}
@@ -347,6 +348,16 @@
                 📦
               </button>
 
+              {# T31 E3 — режим работы #}
+              <select x-model="mode" @change="setMode(mode)"
+                      class="px-2 py-1 rounded-lg bg-ink-800 border border-ink-700 text-xs text-zinc-300 focus:outline-none cursor-pointer"
+                      title="Режим: План (только план) · Спрашивать (спросит перед действием) · Авто · Без спроса">
+                <option value="plan">📋 План</option>
+                <option value="ask">✋ Спрашивать</option>
+                <option value="auto">🤖 Авто</option>
+                <option value="bypass">⚡ Без спроса</option>
+              </select>
+
               {# T31 E2 — эффорт (мощность ответа) #}
               <select x-model="effort" @change="setEffort(effort)"
                       class="px-2 py-1 rounded-lg bg-ink-800 border border-ink-700 text-xs text-zinc-300 focus:outline-none cursor-pointer"
@@ -493,10 +504,11 @@
 </div>
 
 <script>
-  function chatPage(initialSessionId, initialMessages, summary, initialEffort) {
+  function chatPage(initialSessionId, initialMessages, summary, initialEffort, initialMode) {
     return {
       sessionId: initialSessionId,
       effort: initialEffort || 'normal',
+      mode: initialMode || 'auto',
       messages: (initialMessages || []).map(m => ({ ...m, image_data_url: m.image_data_url || null })),
       // T30 — реакции: ключ (ASCII, для сервера/БД) + эмодзи + подсказка
       reactions: [
@@ -704,6 +716,18 @@
           await fetch(`/api/chat/sessions/${this.sessionId}/effort`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ effort: v }),
+          });
+        } catch (e) { /* локально уже применено */ }
+      },
+
+      // T31 E3 — сохранить режим работы для сессии
+      async setMode(v) {
+        this.mode = v;
+        if (!this.sessionId) return;
+        try {
+          await fetch(`/api/chat/sessions/${this.sessionId}/mode`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode: v }),
           });
         } catch (e) { /* локально уже применено */ }
       },
