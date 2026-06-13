@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto px-4 py-6 space-y-5">
+  <div>
+    <h1 class="text-2xl font-bold mb-1">Профиль — что ИИ знает обо мне</h1>
+    <p class="text-sm text-zinc-400">
+      Этот текст подставляется в <b>каждый чат</b>, чтобы ИИ знал, кто ты,
+      и отвечал по-твоему. Напиши о себе: кто ты, чем занимаешься, над чем
+      работаешь, предпочтения, какой тон любишь, важные факты. Чем
+      конкретнее — тем точнее ответы.
+    </p>
+  </div>
+
+  {% if saved %}
+    <div class="rounded-lg bg-emerald-500/10 border border-emerald-500/40 px-4 py-2 text-sm text-emerald-300">
+      Сохранено ✓
+    </div>
+  {% endif %}
+
+  <form method="post" action="/settings/profile" class="space-y-3">
+    <textarea name="profile_text" rows="14" spellcheck="false"
+              class="w-full rounded-xl bg-ink-900 border border-ink-700 focus:border-accent-500
+                     px-4 py-3 text-[14px] leading-relaxed text-zinc-100 resize-y focus:outline-none"
+              placeholder="Например:&#10;Меня зовут ... , я ... .&#10;Делаю продукт Persona — личный ИИ.&#10;Стек: Python/FastAPI, фронт на Alpine.&#10;Люблю прямые ответы без воды, по-русски.&#10;Сейчас собираю сайт с parallax-эффектом.">{{ profile }}</textarea>
+    <button type="submit"
+            class="px-4 py-2 rounded-lg bg-accent-600 hover:bg-accent-500 text-white text-sm font-semibold">
+      Сохранить
+    </button>
+  </form>
+
+  <p class="text-xs text-zinc-500 border-t border-ink-800 pt-3">
+    Дальше (по плану) ИИ будет ещё и сам подтягивать релевантную память из
+    твоих скринов/звука/карточек. Профиль — базовый слой «обо мне».
+  </p>
+</div>
+{% endblock %}

@@ -92,6 +92,16 @@ _SYSTEM_PROMPT_VISION = (
 )
 
 
+async def _base_prompt(user_id: int, image_data_url: str | None) -> str:
+    """T29 — the system prompt for a turn: vision prompt (if image) or the
+    user's active prompt, PLUS the user's 'about me' profile so the AI knows
+    who it's talking to. Used by all chat paths (send/send-stream/compare)."""
+    from app.profile import get_profile, profile_block  # noqa: PLC0415
+
+    base = _SYSTEM_PROMPT_VISION if image_data_url else await get_active_system_prompt()
+    return base + profile_block(await get_profile(user_id))
+
+
 class _LiveGen:
     """T29 — one in-flight chat generation, decoupled from the HTTP client.
 
@@ -427,7 +437,7 @@ async def api_send_message(
         history = history[:-1]
 
     transcript = _bounded_transcript(history)
-    active_prompt = await get_active_system_prompt()
+    active_prompt = await _base_prompt(session["user_id"], image_data_url)
     if transcript:
         system_with_history = (
             f"{active_prompt}\n\n"
@@ -581,9 +591,7 @@ async def api_send_stream(
             "рассмотри его внимательно." if image_data_url else ""
         )
     else:
-        base_prompt = (
-            _SYSTEM_PROMPT_VISION if image_data_url else await get_active_system_prompt()
-        )
+        base_prompt = await _base_prompt(session["user_id"], image_data_url)
 
     # T25 — tools fragment: enumerate built-in tools the user enabled
     # in /admin/mcp. LLM sees them in system prompt; uses <tool>...</tool>
@@ -1029,9 +1037,7 @@ async def api_compare_models(
     # T29 — was hard-coded _SYSTEM_PROMPT_RU, which IGNORED the user's
     # custom system prompt → compare results disagreed with chat. Use the
     # active prompt like /send and /send-stream.
-    base_prompt = (
-        _SYSTEM_PROMPT_VISION if image_data_url else await get_active_system_prompt()
-    )
+    base_prompt = await _base_prompt(session["user_id"], image_data_url)
 
     async def one(provider: str, model: str) -> dict[str, Any]:
         try:

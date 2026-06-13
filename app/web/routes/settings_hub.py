@@ -67,6 +67,7 @@ _CATEGORIES: Final[list[dict[str, object]]] = [
         "description": "Чат с памятью, MCP-инструменты, workspace, датасет для своей модели.",
         "pages": [
             ("/chat", "Чат с памятью (беседы, модель-пикер, vision)"),
+            ("/settings/profile", "Профиль — что ИИ знает обо мне"),
             ("/settings/system-prompt", "Системный промпт чата (пресеты + редактор)"),
             ("/settings/mac-fs", "AI работает с файлами Mac (allowlist папок)"),
             ("/ask", "Спросить — разовый вопрос по истории"),
