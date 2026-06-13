@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "skills": {
+    "3d-web-experience": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "skillPath": "skills/3d-web-experience/SKILL.md",
+      "computedHash": "87c4b32078381ee1e6df164ddd5c28dd67fc7552431a7415626e63b8cf74b11a"
+    },
+    "find-skills": {
+      "source": "vercel-labs/skills",
+      "sourceType": "github",
+      "skillPath": "skills/find-skills/SKILL.md",
+      "computedHash": "9e1c8b3103f92fa8092568a44fe64858de7c5c9dc65ce4bea8f168080e889cfd"
+    },
+    "gsap-framer-scroll-animation": {
+      "source": "github/awesome-copilot",
+      "sourceType": "github",
+      "skillPath": "skills/gsap-framer-scroll-animation/SKILL.md",
+      "computedHash": "e6a4caf23b818ffc5185d51339e941ca783944b6693da877fc1206693b2dff66"
+    },
+    "scroll-experience": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "skillPath": "skills/scroll-experience/SKILL.md",
+      "computedHash": "aec5ceb7847b4833989da279f21a1743e41086a7e47398f54e9996efb3ed8c99"
+    },
+    "web-performance-optimization": {
+      "source": "davila7/claude-code-templates",
+      "sourceType": "github",
+      "skillPath": "cli-tool/components/skills/web-development/web-performance-optimization/SKILL.md",
+      "computedHash": "ae9ce304ef1454ae440e7db4772ce3831621bb15cc637eda28c7505e93dd99ff"
+    }
+  }
+}
