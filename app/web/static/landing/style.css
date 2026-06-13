@@ -30,12 +30,15 @@
 
 /* ---------- reset ---------- */
 *,*::before,*::after{box-sizing:border-box}
-html{-webkit-text-size-adjust:100%;overflow-x:hidden}
+/* overflow-x:clip клипит горизонтальный вылет, но (в отличие от hidden)
+   НЕ делает body скролл-контейнером → position:sticky продолжает работать
+   (нужно для закреплённого оглавления статьи). */
+html{-webkit-text-size-adjust:100%;overflow-x:clip}
 body{
   font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
   line-height:1.55;
   -webkit-font-smoothing:antialiased;
-  overflow-x:hidden;
+  overflow-x:clip;
 }
 h1,h2,h3,p,ul,ol{margin:0}
 ul,ol{padding:0;list-style:none}
@@ -523,3 +526,19 @@ a.card:hover .card-link{text-decoration:underline}
 .graph-legend{display:flex;gap:18px;justify-content:center;flex-wrap:wrap;margin-top:18px;color:var(--ink-dim);font-size:.86rem}
 .graph-legend span{display:inline-flex;align-items:center;gap:7px}
 .graph-legend i{width:10px;height:10px;border-radius:50%;display:inline-block}
+
+/* ============================================================
+   ФИКС: прозрачные карточки иногда глючили — backdrop-filter
+   плохо дружит с 3D-наклоном/анимацией (артефакты перерисовки).
+   Делаем фон плотным и убираем backdrop-filter на крупных карточках.
+   ============================================================ */
+.card, .hpost, .stat, .preview, .privacy-card{
+  backdrop-filter:none !important;
+  -webkit-backdrop-filter:none !important;
+}
+.card, .hpost{ background:rgba(17,18,32,.78) }
+.stat{ background:rgba(17,18,32,.6) }
+.privacy-card{ background:rgba(15,16,28,.82) }
+.preview{ background:rgba(12,12,22,.92) }
+/* у наклоняемых карточек включаем сглаживание граней при transform */
+[data-tilt]{ -webkit-backface-visibility:hidden; backface-visibility:hidden }
