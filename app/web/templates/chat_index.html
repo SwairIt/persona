@@ -29,7 +29,8 @@
 <div x-data="chatPage(
     {{ active_session.id if active_session else 'null' }},
     {{ messages | tojson | forceescape }},
-    {{ (active_session.summary | tojson | forceescape) if active_session and active_session.summary else 'null' }}
+    {{ (active_session.summary | tojson | forceescape) if active_session and active_session.summary else 'null' }},
+    '{{ effort or "normal" }}'
 )" class="grid grid-cols-1 md:grid-cols-[280px,1fr] gap-0 -mx-3 sm:-mx-6 -my-6 min-h-[calc(100vh-7rem)]">
 
   {# --- LEFT: sessions sidebar --- #}
@@ -346,6 +347,15 @@
                 📦
               </button>
 
+              {# T31 E2 — эффорт (мощность ответа) #}
+              <select x-model="effort" @change="setEffort(effort)"
+                      class="px-2 py-1 rounded-lg bg-ink-800 border border-ink-700 text-xs text-zinc-300 focus:outline-none cursor-pointer"
+                      title="Эффорт — мощность ответа: Быстро (короче/быстрее) · Норма · Глубоко (длиннее/детальнее)">
+                <option value="fast">⚡ Быстро</option>
+                <option value="normal">◐ Норма</option>
+                <option value="deep">🧠 Глубоко</option>
+              </select>
+
               {# T22.1 model picker — now lives in composer like Claude does #}
               <div class="relative" @click.outside="modelPickerOpen = false">
                 <button type="button"
@@ -483,9 +493,10 @@
 </div>
 
 <script>
-  function chatPage(initialSessionId, initialMessages, summary) {
+  function chatPage(initialSessionId, initialMessages, summary, initialEffort) {
     return {
       sessionId: initialSessionId,
+      effort: initialEffort || 'normal',
       messages: (initialMessages || []).map(m => ({ ...m, image_data_url: m.image_data_url || null })),
       // T30 — реакции: ключ (ASCII, для сервера/БД) + эмодзи + подсказка
       reactions: [
@@ -683,6 +694,18 @@
         if (!opt || !opt.label) return;
         this.question = opt.label;
         this.send();
+      },
+
+      // T31 E2 — сохранить выбранный эффорт для сессии
+      async setEffort(v) {
+        this.effort = v;
+        if (!this.sessionId) return;
+        try {
+          await fetch(`/api/chat/sessions/${this.sessionId}/effort`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ effort: v }),
+          });
+        } catch (e) { /* локально уже применено */ }
       },
 
       // T31 — рендер ответа + стойкая подсветка оценённых фрагментов (зелёный/красный)

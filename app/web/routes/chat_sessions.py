@@ -135,6 +135,29 @@ async def _base_prompt(user_id: int, image_data_url: str | None) -> str:
     return _PERSONA_IDENTITY + base + _CHOICES_HINT + profile_block(await get_profile(user_id))
 
 
+# T31 E2 — эффорт: бюджет ответа (max_tokens) + температура. Гибрид «мощности».
+_EFFORT_TOKENS: dict[str, int] = {"fast": 900, "normal": 4096, "deep": 8192}
+_EFFORT_TEMP: dict[str, float] = {"fast": 0.5, "normal": 0.7, "deep": 0.7}
+
+
+async def _get_effort(session_id: int) -> str:
+    from app.storage.db import get_connection  # noqa: PLC0415
+    from app.storage.repository import get_kv  # noqa: PLC0415
+
+    async with get_connection() as conn:
+        v = (await get_kv(conn, f"chat_effort_{session_id}") or "").strip()
+    return v if v in _EFFORT_TOKENS else "normal"
+
+
+async def _set_effort(session_id: int, effort: str) -> None:
+    from app.storage.db import get_connection  # noqa: PLC0415
+    from app.storage.repository import set_kv  # noqa: PLC0415
+
+    async with get_connection() as conn:
+        await set_kv(conn, f"chat_effort_{session_id}", effort)
+        await conn.commit()
+
+
 class _LiveGen:
     """T29 — one in-flight chat generation, decoupled from the HTTP client.
 
@@ -246,6 +269,7 @@ async def chat_thread(
     spans = await get_span_ratings(session_id)
     for m in messages:
         m["span_ratings"] = spans.get(int(m["id"]), [])
+    effort = await _get_effort(session_id)
     return templates.TemplateResponse(
         request,
         "chat_index.html",
@@ -255,6 +279,7 @@ async def chat_thread(
             "sessions": sessions,
             "active_session": thread,
             "messages": messages,
+            "effort": effort,
         },
     )
 
@@ -508,11 +533,12 @@ async def api_send_message(
 
     t_start = time.perf_counter()
     try:
+        eff = await _get_effort(session_id)
         completion_req = CompletionRequest(
             system=system_with_history,
             user=question,
-            temperature=0.7,
-            max_tokens=4096,
+            temperature=_EFFORT_TEMP[eff],
+            max_tokens=_EFFORT_TOKENS[eff],
             image_data_url=image_data_url,
         )
         answer = await client.complete(completion_req)
@@ -756,11 +782,12 @@ async def api_send_stream(
         # a reopened tab can poll /live and watch the answer grow in real time.
         streaming_msg_id: int | None = None
         last_save = 0.0
+        eff = await _get_effort(session_id)
         completion_req = CompletionRequest(
             system=system_with_history,
             user=question,
-            temperature=0.7,
-            max_tokens=4096,
+            temperature=_EFFORT_TEMP[eff],
+            max_tokens=_EFFORT_TOKENS[eff],
             image_data_url=image_data_url,
         )
 
@@ -1246,6 +1273,20 @@ async def api_react_message(
         return JSONResponse({"ok": False, "error": "unknown reaction"}, status_code=400)
     await set_reaction(message_id, session["user_id"], reaction)
     return JSONResponse({"ok": True, "reaction": reaction})
+
+
+@router.post("/api/chat/sessions/{session_id}/effort", response_class=JSONResponse)
+async def api_set_effort(
+    session_id: int,
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+    body: Annotated[dict[str, Any], Body(default_factory=dict)],
+) -> JSONResponse:
+    """T31 E2 — выбрать «эффорт» (мощность) для сессии: fast/normal/deep."""
+    eff = str(body.get("effort") or "normal").strip()
+    if eff not in _EFFORT_TOKENS:
+        eff = "normal"
+    await _set_effort(session_id, eff)
+    return JSONResponse({"ok": True, "effort": eff})
 
 
 @router.post("/api/chat/sessions/{session_id}/rename", response_class=JSONResponse)
