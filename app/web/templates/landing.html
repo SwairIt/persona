@@ -35,9 +35,6 @@
     .preload *{transition:none!important;animation:none!important}
   </style>
   <link rel="stylesheet" href="/static/landing/style.css" />
-  <script type="importmap">
-  { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
-  </script>
 </head>
 
 <body class="preload">
@@ -209,14 +206,20 @@
       </ol>
     </section>
 
-    <!-- 3D — интерактивный кристалл (Three.js, ленивый, ограниченный canvas) -->
-    <section class="core3d" id="core3d">
-      <div class="core3d-inner">
-        <h2 class="section-title reveal">Ядро твоей <span class="grad">памяти</span></h2>
-        <p class="section-lead reveal">Потяни мышью или пальцем — покрути. Маленькое и лёгкое: грузится только когда долистал, на систему не давит.</p>
-        <div class="core3d-stage reveal">
-          <canvas id="crystal-canvas" aria-label="Интерактивный 3D-объект"></canvas>
-          <span class="core3d-hint" id="core3d-hint">↻ потяни, чтобы покрутить</span>
+    <!-- ГРАФ ПАМЯТИ (Obsidian-стиль, canvas-2D, ленивый, интерактивный) -->
+    <section class="graph-sec" id="graph-sec">
+      <div class="graph-inner">
+        <h2 class="section-title reveal">Так Persona <span class="grad">видит твою память</span></h2>
+        <p class="section-lead reveal">Каждый промпт, ответ и день записи — узлы, и все связаны между собой. Наведи на узел — подсветятся связи. Потяни — разложи по-своему. В кабинете это <b>твой настоящий граф</b> из реальных данных.</p>
+        <div class="graph-stage reveal">
+          <canvas id="graph-canvas" aria-label="Граф памяти Persona"></canvas>
+          <span class="core3d-hint">наведи · потяни узлы</span>
+        </div>
+        <div class="graph-legend reveal">
+          <span><i style="background:#a78bfa"></i>промпт</span>
+          <span><i style="background:#5eead4"></i>ответ</span>
+          <span><i style="background:#f472b6"></i>память</span>
+          <span><i style="background:#fbbf24"></i>день записи</span>
         </div>
       </div>
     </section>
@@ -329,7 +332,7 @@
   })();
   </script>
 
-  <script type="module" src="/static/landing/crystal.js"></script>
+  <script src="/static/landing/graph.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js" defer></script>
   <script src="/static/landing/main.js" defer></script>
