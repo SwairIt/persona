@@ -3,14 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="theme-color" content="#0a0a12" />
+  <meta name="theme-color" content="#08080f" />
 
   <title>Persona — личный ИИ, который знает о тебе всё</title>
-  <meta name="description" content="Persona — личный ИИ, который видит твой день, помнит контекст и работает на твоём железе. Запись экрана и звука, живая память в каждом чате, своя модель, файлы прямо на Mac. Приватность по умолчанию." />
-  <meta name="keywords" content="личный ИИ, персональный ассистент, ИИ с памятью, приватный ИИ, локальная нейросеть, своя модель, запись экрана ИИ, ассистент с контекстом, Persona" />
+  <meta name="description" content="Persona — личный ИИ, который видит твой день, помнит контекст и работает на твоём железе. Живая память в каждом чате, своя модель, файлы прямо на Mac. Приватность по умолчанию." />
+  <meta name="keywords" content="личный ИИ, персональный ассистент, ИИ с памятью, приватный ИИ, локальная нейросеть, своя модель, Persona" />
   <link rel="canonical" href="/landing" />
-
-  <!-- Open Graph / Twitter -->
   <meta property="og:title" content="Persona — личный ИИ с памятью о тебе" />
   <meta property="og:description" content="Видит, помнит, понимает. ИИ, который знает о тебе всё — и остаётся у тебя." />
   <meta property="og:type" content="website" />
@@ -20,7 +18,6 @@
   <link rel="manifest" href="/static/manifest.json" />
   <link rel="apple-touch-icon" href="/static/icon-180.png" />
 
-  <!-- JSON-LD: организация + сайт (SEO) -->
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -34,16 +31,10 @@
 
   <style>
     :root{color-scheme:dark}
-    html,body{margin:0;background:#07070d;color:#eef0ff}
+    html,body{margin:0;background:#08080f;color:#eef0ff}
     .preload *{transition:none!important;animation:none!important}
-    #hero-canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
   </style>
-  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
   <link rel="stylesheet" href="/static/landing/style.css" />
-
-  <script type="importmap">
-  { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
-  </script>
 </head>
 
 <body class="preload">
@@ -53,10 +44,7 @@
 
   <div class="bg-mesh" aria-hidden="true"></div>
   <div class="bg-grid" aria-hidden="true"></div>
-  <div class="grain" aria-hidden="true"></div>
-
-  <canvas id="hero-canvas" aria-hidden="true"></canvas>
-  <div id="hero-fallback" class="hero-fallback" aria-hidden="true"></div>
+  <div class="aurora" aria-hidden="true"></div>
 
   <header class="nav" id="nav">
     <a class="brand" href="#top"><span class="brand-dot"></span> Persona</a>
@@ -69,7 +57,7 @@
         <a href="/now" class="nav-cta">В кабинет</a>
       {% else %}
         <a href="/auth/login">Войти</a>
-        <a href="/auth/signup" class="nav-cta">Создать аккаунт</a>
+        <a href="#cta" class="nav-cta">Начать</a>
       {% endif %}
     </nav>
   </header>
@@ -77,53 +65,83 @@
   <main id="top">
 
     <!-- HERO -->
-    <section class="hero" id="hero" data-section="0">
-      <div class="hero-inner">
-        <p class="eyebrow reveal">Личный ИИ · работает на твоём железе</p>
-        <h1 class="hero-title">
-          <span class="line reveal">ИИ, который</span>
-          <span class="line reveal grad">знает о тебе всё</span>
-        </h1>
-        <p class="hero-sub reveal">
-          Persona видит твой день, помнит контекст и думает рядом с тобой —
-          а все данные остаются у тебя.
-        </p>
+    <section class="hero" id="hero">
+      <div class="hero-grid">
+        <div class="hero-left">
+          <p class="eyebrow reveal"><span class="dot-live"></span>личный ИИ · локально · приватно</p>
+          <h1 class="hero-title">
+            <span class="line reveal">ИИ, который</span>
+            <span class="line reveal grad">знает о тебе всё</span>
+          </h1>
+          <p class="hero-sub reveal">
+            Persona видит твой день, помнит контекст и думает рядом с тобой.
+            Память, файлы и модель — у тебя на устройстве.
+          </p>
 
-        {% if session %}
-          <div class="welcome-back glass reveal">
-            <span>Вы уже вошли как <b>{{ session.display_name or session.email }}</b></span>
-            <a href="/now" class="btn btn-primary">Продолжить в кабинет →</a>
-            <form method="post" action="/auth/logout" class="logout-inline">
-              <button type="submit" class="linklike">выйти</button>
+          {% if session %}
+            <div class="welcome-back glass reveal">
+              <span>Вы вошли как <b>{{ session.display_name or session.email }}</b></span>
+              <a href="/now" class="btn btn-primary">В кабинет →</a>
+              <form method="post" action="/auth/logout" class="logout-inline">
+                <button type="submit" class="linklike">выйти</button>
+              </form>
+            </div>
+          {% else %}
+            <form class="hero-cta reveal" method="post" action="/auth/magic" id="quick-magic">
+              <input type="email" name="email" id="quick-email" required
+                     placeholder="введи свой email" autocomplete="email" spellcheck="false" />
+              <button type="submit" class="btn btn-primary">Начать →</button>
             </form>
-          </div>
-        {% else %}
-          <div class="hero-actions reveal">
-            <a href="/auth/signup" class="btn btn-primary">Создать аккаунт</a>
-            <a href="/auth/login" class="btn btn-ghost">Войти</a>
-          </div>
+            <p class="hero-cta-note reveal">
+              Войдём или создадим аккаунт за секунду · вход по ссылке, без пароля
+              · <a href="/auth/login">войти паролем</a>
+            </p>
+            <p class="quick-hint" id="email-hint" aria-live="polite"></p>
+          {% endif %}
 
-          <form class="quick-magic reveal" method="post" action="/auth/magic" id="quick-magic">
-            <input type="email" name="email" id="quick-email" required
-                   placeholder="твой@email.com" autocomplete="email" spellcheck="false" />
-            <button type="submit" class="btn btn-primary">Войти по ссылке →</button>
-          </form>
-          <p class="quick-hint reveal" id="email-hint" aria-live="polite"></p>
-        {% endif %}
+          <div class="hero-chips reveal">
+            <span class="chip">🔒 Локально</span>
+            <span class="chip">🧠 Живая память</span>
+            <span class="chip">⚡ Своя модель</span>
+            <span class="chip">🌙 Офлайн</span>
+          </div>
+        </div>
 
-        <div class="hero-chips reveal">
-          <span class="chip">🔒 <b>Локально</b></span>
-          <span class="chip">🧠 <b>Живая память</b></span>
-          <span class="chip">⚡ <b>Своя модель</b></span>
-          <span class="chip">📁 <b>Файлы на Mac</b></span>
-          <span class="chip">🌙 <b>Работает офлайн</b></span>
+        <!-- Живое превью продукта (CSS, без WebGL — быстро и плавно) -->
+        <div class="hero-preview reveal" aria-hidden="true">
+          <div class="preview glass" data-tilt>
+            <div class="preview-bar">
+              <span class="pb-dot"></span><span class="pb-dot"></span><span class="pb-dot"></span>
+              <span class="pb-title">Persona — чат</span>
+            </div>
+            <div class="preview-body">
+              <div class="msg user">Над чем я работал вчера вечером?</div>
+              <div class="msg ai">
+                <span class="ai-tag">Persona · помнит</span>
+                Ты дорабатывал лендинг Persona: правил hero и наполнял блог.
+                Незакрытым осталось — адаптив таблицы сравнения. Продолжим с него?
+              </div>
+              <div class="msg user">Да, и напомни про встречу.</div>
+              <div class="msg ai typing"><span></span><span></span><span></span></div>
+            </div>
+            <div class="preview-input"><span>Спросить Persona…</span><kbd>⏎</kbd></div>
+          </div>
+          <div class="preview-glow"></div>
         </div>
       </div>
       <div class="scroll-hint reveal" aria-hidden="true"><span>скролл</span><i></i></div>
     </section>
 
+    <!-- TECH -->
+    <section class="tech-wrap" aria-label="Технологии">
+      <div class="tech reveal">
+        <span class="t-lbl">Построено на</span>
+        <b>Local-first</b><b>Ollama</b><b>FastAPI</b><b>SQLite</b><b>твоём железе</b>
+      </div>
+    </section>
+
     <!-- STATEMENT -->
-    <section class="statement" id="statement" data-section="1">
+    <section class="statement" id="statement">
       <p class="big-statement">
         <span class="w">Обычные</span> <span class="w">ассистенты</span>
         <span class="w">забывают</span> <span class="w">тебя</span>
@@ -142,62 +160,69 @@
       </div>
     </section>
 
-    <!-- FEATURES -->
-    <section class="features" id="features" data-section="2">
+    <!-- FEATURES (bento) -->
+    <section class="features" id="features">
       <div class="features-head">
         <h2 class="section-title reveal">Что умеет <span class="grad">Persona</span></h2>
         <p class="section-lead reveal">Пять опор личного ИИ — каждая работает на то, чтобы он понимал именно тебя.</p>
       </div>
-      <div class="cards">
-        <article class="card glass" data-card><div class="card-ico">🎥</div><h3>Всегда помнит</h3><p>С твоего разрешения Persona фиксирует экран и звук и превращает это в живую память. Контекст не теряется между сессиями.</p></article>
-        <article class="card glass" data-card><div class="card-ico">🧠</div><h3>Знает, кто ты</h3><p>Профиль «обо мне» и авто-память подключены к каждому чату. Любой новый разговор начинается со знания о тебе, а не с нуля.</p></article>
-        <article class="card glass" data-card><div class="card-ico">⚡</div><h3>Твоя модель</h3><p>Оценки 👍/👎 копятся в датасет. Со временем — fine-tune собственной модели, которая звучит и думает как нужно тебе.</p></article>
-        <article class="card glass" data-card><div class="card-ico">📁</div><h3>Файлы прямо на Mac</h3><p>ИИ создаёт и правит файлы в разрешённых папках на твоём компьютере. На сервере не хранится ничего лишнего.</p></article>
-        <article class="card glass" data-card><div class="card-ico">🔒</div><h3>Приватность по умолчанию</h3><p>Локальная модель и твой allowlist. Хочешь — работает офлайн на твоём железе. Данные о тебе не утекают наружу.</p></article>
+      <div class="bento">
+        <article class="card glass b-wide" data-card>
+          <div class="card-ico">🎥</div><h3>Всегда помнит</h3>
+          <p>С твоего разрешения Persona фиксирует экран и звук и превращает это в живую память. Контекст не теряется между сессиями.</p>
+        </article>
+        <article class="card glass b-wide" data-card>
+          <div class="card-ico">🧠</div><h3>Знает, кто ты</h3>
+          <p>Профиль «обо мне» и авто-память подключены к каждому чату. Любой новый разговор начинается со знания о тебе, а не с нуля.</p>
+        </article>
+        <article class="card glass" data-card>
+          <div class="card-ico">⚡</div><h3>Твоя модель</h3>
+          <p>Оценки 👍/👎 копятся в датасет → fine-tune модели, которая звучит как нужно тебе.</p>
+        </article>
+        <article class="card glass" data-card>
+          <div class="card-ico">📁</div><h3>Файлы на Mac</h3>
+          <p>ИИ создаёт и правит файлы в разрешённых папках. На сервере ничего лишнего.</p>
+        </article>
+        <article class="card glass" data-card>
+          <div class="card-ico">🔒</div><h3>Приватность</h3>
+          <p>Локальная модель и твой allowlist. Можно офлайн. Данные не утекают наружу.</p>
+        </article>
       </div>
     </section>
 
     <!-- HOW -->
-    <section class="how" id="how" data-section="3">
+    <section class="how" id="how">
       <h2 class="section-title reveal">Как это работает</h2>
       <ol class="steps">
         <li class="step reveal"><span class="step-n">01</span><h3>Видит</h3><p>Запись экрана и звука (по твоему разрешению) — поток твоего дня.</p></li>
-        <li class="step reveal"><span class="step-n">02</span><h3>Помнит</h3><p>Отдельный процесс превращает поток в карточки памяти. Сервер не падает — обработка изолирована.</p></li>
-        <li class="step reveal"><span class="step-n">03</span><h3>Понимает</h3><p>В каждом чате ИИ подтягивает релевантную память и отвечает с учётом твоего контекста.</p></li>
+        <li class="step reveal"><span class="step-n">02</span><h3>Помнит</h3><p>Отдельный процесс превращает поток в карточки памяти. Обработка изолирована.</p></li>
+        <li class="step reveal"><span class="step-n">03</span><h3>Понимает</h3><p>В каждом чате ИИ подтягивает релевантную память и отвечает с учётом контекста.</p></li>
       </ol>
     </section>
 
-    <!-- TECH -->
-    <section class="tech-wrap" aria-label="Технологии">
-      <div class="tech reveal">
-        <span class="t-lbl">Построено на</span>
-        <b>Local-first</b><b>Ollama</b><b>Three.js</b><b>FastAPI</b><b>SQLite</b><b>твоём железе</b>
-      </div>
-    </section>
-
     <!-- COMPARE -->
-    <section class="compare" id="compare" data-section="4">
+    <section class="compare" id="compare">
       <h2 class="section-title reveal">Чем Persona отличается</h2>
       <p class="section-lead reveal">Облачные ассистенты умные, но «общие» и забывчивые. Persona — личная и помнящая.</p>
       <div class="compare-table reveal">
         <table>
           <thead>
-            <tr><th>Возможность</th><th class="hi">Persona</th><th>Облачные ассистенты</th><th>Локальные чат-боты</th></tr>
+            <tr><th>Возможность</th><th class="hi">Persona</th><th>Облачные</th><th>Локальные боты</th></tr>
           </thead>
           <tbody>
-            <tr><td>Помнит твой контекст между сессиями</td><td class="hi">✓ живая память</td><td>✗ забывает</td><td>✗ нет памяти</td></tr>
-            <tr><td>Знает о тебе (профиль + активность)</td><td class="hi">✓ в каждом чате</td><td>~ только в сессии</td><td>✗</td></tr>
+            <tr><td>Память между сессиями</td><td class="hi">✓ живая</td><td>✗ забывает</td><td>✗ нет</td></tr>
+            <tr><td>Знает о тебе (профиль + активность)</td><td class="hi">✓ в каждом чате</td><td>~ в сессии</td><td>✗</td></tr>
             <tr><td>Данные остаются у тебя</td><td class="hi">✓ локально</td><td>✗ в облаке</td><td>✓</td></tr>
             <tr><td>Работает офлайн</td><td class="hi">✓ опц.</td><td>✗</td><td>✓</td></tr>
-            <tr><td>Своя дообученная модель</td><td class="hi">✓ датасет → LoRA</td><td>✗</td><td>~ вручную</td></tr>
-            <tr><td>Создаёт файлы на твоём ПК</td><td class="hi">✓ allowlist</td><td>✗</td><td>~</td></tr>
+            <tr><td>Своя дообученная модель</td><td class="hi">✓ LoRA</td><td>✗</td><td>~ вручную</td></tr>
+            <tr><td>Создаёт файлы на ПК</td><td class="hi">✓ allowlist</td><td>✗</td><td>~</td></tr>
           </tbody>
         </table>
       </div>
     </section>
 
     <!-- PRIVACY -->
-    <section class="privacy" id="privacy" data-section="5">
+    <section class="privacy" id="privacy">
       <div class="privacy-card glass reveal">
         <h2>Твой ИИ — <span class="grad">твои данные</span></h2>
         <p>Persona создаётся для тебя. Никакой общей облачной модели «про всех» — память, файлы и собственная модель живут у тебя и работают на тебя.</p>
@@ -210,15 +235,19 @@
     </section>
 
     <!-- CTA -->
-    <section class="cta" id="cta" data-section="6">
+    <section class="cta" id="cta">
       <div class="cta-inner reveal">
         <h2>Готов к ИИ, который <span class="grad">помнит тебя</span>?</h2>
         {% if session %}
           <p>Вы уже с нами, {{ session.display_name or session.email }}.</p>
           <a href="/now" class="btn btn-primary btn-lg">Открыть кабинет</a>
         {% else %}
-          <p>Создай аккаунт и дай Persona узнать, кто ты.</p>
-          <a href="/auth/signup" class="btn btn-primary btn-lg">Создать аккаунт</a>
+          <p>Введи email — войдём или создадим аккаунт за секунду.</p>
+          <form class="hero-cta cta-form" method="post" action="/auth/magic">
+            <input type="email" name="email" required placeholder="введи свой email" autocomplete="email" spellcheck="false" />
+            <button type="submit" class="btn btn-primary btn-lg">Начать →</button>
+          </form>
+          <p class="hero-cta-note">вход по ссылке, без пароля · <a href="/auth/login">войти паролем</a></p>
         {% endif %}
       </div>
     </section>
@@ -233,7 +262,7 @@
     </span>
   </footer>
 
-  <!-- Проверка опечаток в email для быстрого поля (gmail.ru → gmail.com) -->
+  <!-- email typo (gmail.ru → gmail.com) -->
   <script>
   (function(){
     var input=document.getElementById('quick-email'),hint=document.getElementById('email-hint');
@@ -243,8 +272,7 @@
       var v=input.value.trim().toLowerCase();hint.textContent='';
       var at=v.lastIndexOf('@');if(at<1)return;
       var dom=v.slice(at+1),loc=v.slice(0,at);
-      if(T[dom]){
-        var s=loc+'@'+T[dom];
+      if(T[dom]){var s=loc+'@'+T[dom];
         hint.innerHTML='Возможно, вы имели в виду <a href="#" id="fix-email">'+s+'</a>?';
         document.getElementById('fix-email').addEventListener('click',function(e){e.preventDefault();input.value=s;hint.textContent='';input.focus();});
       }else if(v.indexOf('@')>0&&!/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(v)){
@@ -256,8 +284,6 @@
   })();
   </script>
 
-  <script type="module" src="/static/landing/scene.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/lenis@1.1.13/dist/lenis.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js" defer></script>
   <script src="/static/landing/main.js" defer></script>
