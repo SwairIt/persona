@@ -160,6 +160,7 @@
               <div :class="msg.role === 'user' ? 'text-[15px] text-zinc-100' : ''">
                 <template x-if="msg.role === 'assistant'">
                   <div class="text-[15px] text-zinc-100 leading-relaxed prose prose-invert prose-base max-w-none overflow-x-hidden"
+                       @mouseup="onAssistantSelect($event, msg.id)"
                        x-html="renderMd(msg.content)"></div>
                 </template>
                 <template x-if="msg.role === 'user'">
@@ -196,6 +197,14 @@
                           class="cursor-pointer select-none inline-flex items-center justify-center w-8 h-8 rounded-lg text-base transition-all"
                           title="плохо — фильтровать из датасета">
                     👎
+                  </button>
+                  <button type="button" @click.stop="pinMessage(mIdx)"
+                          :class="messages[mIdx] && messages[mIdx].is_pinned
+                            ? 'bg-amber-500/20 ring-1 ring-amber-500/60'
+                            : 'opacity-60 hover:opacity-100 hover:bg-ink-800'"
+                          class="cursor-pointer select-none inline-flex items-center justify-center w-8 h-8 rounded-lg text-base transition-all"
+                          title="закрепить в контексте — модель будет помнить это после обрезки истории">
+                    📌
                   </button>
                   <template x-if="msg.elapsed_ms">
                     <span x-text="formatTime(msg.elapsed_ms)"></span>
@@ -411,6 +420,17 @@
   {# T22.8 — Click-to-zoom lightbox для прикреплённых картинок. Открывается
      при клике на thumbnail в user-message. Закрывается на клик по фону
      или ESC. #}
+  {# T29 шаг4a — floating 👍/👎 для выделенного фрагмента ответа #}
+  <div x-show="spanSel.show" x-cloak
+       :style="`left:${spanSel.x}px; top:${spanSel.y}px`"
+       @mousedown.prevent
+       class="fixed z-50 -translate-x-1/2 -translate-y-full flex gap-1 bg-ink-900 border border-ink-700 rounded-lg shadow-2xl px-1.5 py-1">
+    <button type="button" @click="rateSpan(1)"
+            class="px-2 py-1 rounded hover:bg-emerald-500/20 text-base" title="нравится этот фрагмент">👍</button>
+    <button type="button" @click="rateSpan(-1)"
+            class="px-2 py-1 rounded hover:bg-rose-500/20 text-base" title="не нравится этот фрагмент">👎</button>
+  </div>
+
   <div x-show="lightboxImage" x-cloak
        @click="lightboxImage = null"
        @keydown.escape.window="lightboxImage = null"
@@ -436,6 +456,8 @@
       searchQuery: '',
       searchResults: [],
       searching: false,
+      // T29 шаг4 — span rating popover
+      spanSel: { show: false, x: 0, y: 0, text: '', messageId: null },
       attachedImage: null,
       thinking: false,
       thinkingSeconds: 0,
@@ -735,6 +757,45 @@
           this.thinking = false; this._stopThinkingClock();
           this.$nextTick(() => this.scrollToBottom());
         }
+      },
+
+      async pinMessage(idx) {
+        const msg = this.messages[idx];
+        if (!msg || !msg.id) return;
+        const next = !msg.is_pinned;
+        msg.is_pinned = next;
+        this.messages.splice(idx, 1, msg);
+        try {
+          await fetch(`/api/chat/messages/${msg.id}/pin`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pinned: next }),
+          });
+        } catch (e) { /* keep local state */ }
+      },
+
+      onAssistantSelect(e, messageId) {
+        const sel = window.getSelection();
+        const text = sel ? sel.toString().trim() : '';
+        if (!text || text.length < 2) { this.spanSel.show = false; return; }
+        let x = e.clientX, y = e.clientY - 8;
+        try {
+          const r = sel.getRangeAt(0).getBoundingClientRect();
+          x = r.left + r.width / 2; y = r.top - 6;
+        } catch (_) { /* fall back to cursor */ }
+        this.spanSel = { show: true, x, y, text, messageId };
+      },
+
+      async rateSpan(rating) {
+        const s = this.spanSel;
+        this.spanSel = { ...s, show: false };
+        if (!s.text || !s.messageId) return;
+        try {
+          await fetch(`/api/chat/messages/${s.messageId}/rate-span`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ selected_text: s.text, rating, session_id: this.sessionId }),
+          });
+        } catch (e) { /* best-effort */ }
+        try { window.getSelection().removeAllRanges(); } catch (_) {}
       },
 
       async doSearch() {

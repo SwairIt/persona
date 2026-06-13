@@ -22,12 +22,14 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Stre
 from app.auth import current_user_required
 from app.auth.sessions import SessionRecord
 from app.chat import (
+    add_span_rating,
     append_message,
     build_history_for_llm,
     create_session,
     delete_session,
     finalize_streaming_message,
     get_active_system_prompt,
+    get_pinned_messages,
     get_session,
     get_streaming_message,
     list_messages,
@@ -35,6 +37,7 @@ from app.chat import (
     maybe_summarise,
     rename_session,
     search_messages,
+    set_message_pinned,
     start_streaming_message,
     touch_session,
     update_session_model,
@@ -632,9 +635,20 @@ async def api_send_stream(
         memory_block = await build_memory_context(question)
     except Exception as exc:  # noqa: BLE001
         log.warning("chat.memory.inject_failed", error=str(exc))
+    # T29 шаг4b — pinned messages always stay in context (survive trimming).
+    pinned_block = ""
+    try:
+        pins = await get_pinned_messages(session_id)
+        if pins:
+            pinned_block = (
+                "\n\n── Закреплённые сообщения (пользователь выделил — помни) ──\n"
+                + "\n".join(f"[{p['role']}] {p['content'][:2000]}" for p in pins)
+            )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("chat.pin.inject_failed", error=str(exc))
     system_with_history = (
-        f"{base_prompt}{memory_block}{summary_block}\n\nПоследние сообщения:\n{transcript}"
-        if transcript else f"{base_prompt}{memory_block}{summary_block}"
+        f"{base_prompt}{pinned_block}{memory_block}{summary_block}\n\nПоследние сообщения:\n{transcript}"
+        if transcript else f"{base_prompt}{pinned_block}{memory_block}{summary_block}"
     )
 
     async def event_stream() -> Any:
@@ -1134,6 +1148,35 @@ async def api_rate_message(
         await conn.commit()
         affected = cursor.rowcount
     return JSONResponse({"ok": True, "rating": rating, "rows_updated": affected})
+
+
+@router.post("/api/chat/messages/{message_id}/rate-span", response_class=JSONResponse)
+async def api_rate_span(
+    message_id: int,
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+    body: Annotated[dict[str, Any], Body(default_factory=dict)],
+) -> JSONResponse:
+    """T29 — like/dislike a SELECTED fragment of an answer, with the text,
+    so the dataset captures exactly what bothered the user."""
+    rating = int(body.get("rating") or 0)
+    selected = str(body.get("selected_text") or "").strip()
+    session_id = int(body.get("session_id") or 0)
+    if rating not in (-1, 1) or not selected:
+        raise HTTPException(status_code=400, detail="selected_text + rating(-1|1) required")
+    await add_span_rating(message_id, session_id, selected, rating)
+    return JSONResponse({"ok": True})
+
+
+@router.post("/api/chat/messages/{message_id}/pin", response_class=JSONResponse)
+async def api_pin_message(
+    message_id: int,
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+    body: Annotated[dict[str, Any], Body(default_factory=dict)],
+) -> JSONResponse:
+    """T29 — pin/unpin a message so it stays in context after trimming."""
+    pinned = bool(body.get("pinned"))
+    await set_message_pinned(message_id, pinned)
+    return JSONResponse({"ok": True, "pinned": pinned})
 
 
 @router.post("/api/chat/sessions/{session_id}/rename", response_class=JSONResponse)

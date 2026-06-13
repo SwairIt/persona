@@ -114,6 +114,11 @@ def _row_to_message(row: Any) -> ChatMessage:
             if "rating" in keys and row["rating"] is not None
             else 0
         ),
+        "is_pinned": (
+            bool(row["is_pinned"])
+            if "is_pinned" in keys and row["is_pinned"] is not None
+            else False
+        ),
     }
 
 
@@ -362,6 +367,44 @@ async def search_messages(
         }
         for r in rows
     ]
+
+
+async def set_message_pinned(message_id: int, pinned: bool) -> None:
+    """T29 — pin/unpin a message so it stays in the chat context even after
+    the history is trimmed by volume."""
+    async with get_connection() as conn:
+        await conn.execute(
+            "UPDATE chat_message SET is_pinned = ? WHERE id = ?",
+            (1 if pinned else 0, message_id),
+        )
+        await conn.commit()
+
+
+async def get_pinned_messages(session_id: int, limit: int = 20) -> list[dict[str, str]]:
+    """Pinned messages for a session, oldest-first, as {role, content}."""
+    async with get_connection() as conn:
+        cur = await conn.execute(
+            "SELECT role, content FROM chat_message "
+            "WHERE session_id = ? AND is_pinned = 1 ORDER BY id ASC LIMIT ?",
+            (session_id, limit),
+        )
+        return [{"role": str(r["role"]), "content": str(r["content"])} for r in await cur.fetchall()]
+
+
+async def add_span_rating(
+    asst_message_id: int, session_id: int, selected_text: str, rating: int
+) -> None:
+    """T29 — record a like/dislike on a selected fragment of an answer."""
+    text = (selected_text or "").strip()[:4000]
+    if not text or rating not in (-1, 0, 1):
+        return
+    async with get_connection() as conn:
+        await conn.execute(
+            "INSERT INTO training_dataset_span_rating "
+            "  (asst_message_id, session_id, selected_text, rating) VALUES (?, ?, ?, ?)",
+            (asst_message_id, session_id, text, rating),
+        )
+        await conn.commit()
 
 
 async def get_streaming_message(session_id: int) -> ChatMessage | None:

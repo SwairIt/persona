@@ -24,11 +24,13 @@ from app.chat.prompts import (
     set_active_system_prompt,
 )
 from app.chat.sessions import (
+    add_span_rating,
     append_message,
     build_history_for_llm,
     create_session,
     delete_session,
     finalize_streaming_message,
+    get_pinned_messages,
     get_session,
     get_streaming_message,
     list_messages,
@@ -36,6 +38,7 @@ from app.chat.sessions import (
     maybe_summarise,
     rename_session,
     search_messages,
+    set_message_pinned,
     start_streaming_message,
     touch_session,
     update_session_model,
@@ -45,7 +48,10 @@ from app.chat.sessions import (
 __all__ = [
     "DEFAULT_SYSTEM_PROMPT",
     "PRESETS",
+    "add_span_rating",
     "append_message",
+    "get_pinned_messages",
+    "set_message_pinned",
     "build_history_for_llm",
     "create_session",
     "get_active_system_prompt",
