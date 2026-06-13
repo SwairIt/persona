@@ -623,9 +623,18 @@ async def api_send_stream(
             "\n\nСводка более ранней части беседы (помни это, "
             f"это сжатый контекст):\n{thread['summary']}"
         )
+    # T29 MVP 3b — auto-memory: inject what we know about the user's recent
+    # activity (hourly cards, apps/windows, voice) so the AI isn't blind.
+    memory_block = ""
+    try:
+        from app.memory_context import build_memory_context  # noqa: PLC0415
+
+        memory_block = await build_memory_context(question)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("chat.memory.inject_failed", error=str(exc))
     system_with_history = (
-        f"{base_prompt}{summary_block}\n\nПоследние сообщения:\n{transcript}"
-        if transcript else f"{base_prompt}{summary_block}"
+        f"{base_prompt}{memory_block}{summary_block}\n\nПоследние сообщения:\n{transcript}"
+        if transcript else f"{base_prompt}{memory_block}{summary_block}"
     )
 
     async def event_stream() -> Any:
