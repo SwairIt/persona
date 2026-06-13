@@ -142,35 +142,20 @@
   }
 
   // ============================================================
-  // Parallax фоновых blob'ов (слои разной скорости, scroll-experience)
+  // Count-up чисел в стат-бэнде (дёшево, один раз по входу).
+  // Фон теперь статичный (запечённые градиенты) — БЕЗ поэкранного blur/hue
+  // каждый кадр: это была главная причина лагов. Жизнь даёт 3D + reveal.
   // ============================================================
-  const layers = [
-    { el: '.blob-1', y: -120 },
-    { el: '.blob-2', y: 180 },
-    { el: '.blob-3', y: -90 },
-  ];
-  layers.forEach((L) => {
-    const node = document.querySelector(L.el);
-    if (!node) return;
-    gsap.to(node, {
-      yPercent: L.y / 6, ease: 'none',
-      scrollTrigger: { start: 0, end: 'max', scrub: true },
-    });
-  });
-
-  // hue-сдвиг фона по секциям — «каждый скролл меняет фон»
-  const sections = gsap.utils.toArray('section[data-section]');
-  const hues = [255, 280, 200, 230, 300, 260];
-  sections.forEach((sec, i) => {
-    ScrollTrigger.create({
-      trigger: sec,
-      start: 'top center',
-      end: 'bottom center',
-      onToggle: (self) => {
-        if (self.isActive) {
-          gsap.to('.bg-mesh', { filter: `hue-rotate(${hues[i] - 255}deg)`, duration: 1.2, ease: 'power2.out' });
-        }
-      },
+  gsap.utils.toArray('.stat .num').forEach((el) => {
+    const m = el.textContent.trim().match(/^(\d+)(.*)$/);
+    if (!m) return; // «∞» и подобное оставляем как есть
+    const target = parseInt(m[1], 10);
+    const suffix = m[2] || '';
+    const obj = { v: 0 };
+    gsap.to(obj, {
+      v: target, duration: 1.4, ease: 'power2.out',
+      scrollTrigger: { trigger: el, start: 'top 90%', once: true },
+      onUpdate: () => { el.textContent = Math.round(obj.v) + suffix; },
     });
   });
 

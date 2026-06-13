@@ -51,8 +51,8 @@ img{max-width:100%;display:block}
 .glass{
   background:var(--glass-bg);
   border:1px solid var(--glass-brd);
-  backdrop-filter:blur(16px) saturate(140%);
-  -webkit-backdrop-filter:blur(16px) saturate(140%);
+  backdrop-filter:blur(12px) saturate(140%);
+  -webkit-backdrop-filter:blur(12px) saturate(140%);
   box-shadow:0 12px 40px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.08);
 }
 
@@ -64,20 +64,28 @@ img{max-width:100%;display:block}
 }
 .skip-link:focus{top:14px}
 
-/* ---------- фон mesh ---------- */
+/* ---------- фон: запечённые градиентные пятна (БЕЗ поэкранного blur каждый кадр) ----------
+   Радиальные градиенты мягкие сами по себе → не нужен filter:blur, рисуется один раз,
+   GPU-композитится. Это убирает и «кашу», и главный источник лагов. */
 .bg-mesh{
   position:fixed;inset:0;z-index:0;overflow:hidden;pointer-events:none;
-  background:radial-gradient(120% 120% at 50% 0%,#10101f 0%,var(--bg) 60%);
+  background:
+    radial-gradient(900px 600px at -2% -10%, rgba(124,58,237,.46), transparent 56%),
+    radial-gradient(860px 640px at 108% 0%, rgba(34,211,238,.30), transparent 54%),
+    radial-gradient(820px 720px at 50% 124%, rgba(244,114,182,.26), transparent 58%),
+    radial-gradient(560px 560px at 50% 40%, rgba(124,58,237,.22), transparent 62%),
+    radial-gradient(130% 100% at 50% 0%, #0c0c1c 0%, #06060c 60%);
 }
-.blob{
-  position:absolute;border-radius:50%;filter:blur(70px);opacity:.8;
-  will-change:transform;mix-blend-mode:screen;
+/* тонкая сетка-точки с радиальной маской — «дорого выглядит», дёшево рисуется (Linear/Vercel) */
+.bg-grid{
+  position:fixed;inset:0;z-index:0;pointer-events:none;
+  background-image:radial-gradient(rgba(255,255,255,.08) 1px, transparent 1.5px);
+  background-size:30px 30px;
+  -webkit-mask-image:radial-gradient(ellipse 82% 60% at 50% 24%, #000 30%, transparent 80%);
+  mask-image:radial-gradient(ellipse 82% 60% at 50% 24%, #000 30%, transparent 80%);
 }
-.blob-1{width:52vw;height:52vw;left:-6vw;top:-4vw;background:radial-gradient(circle,#8b5cf6,transparent 68%)}
-.blob-2{width:48vw;height:48vw;right:-8vw;top:12vh;background:radial-gradient(circle,#22d3ee,transparent 68%)}
-.blob-3{width:46vw;height:46vw;left:22vw;bottom:-14vw;background:radial-gradient(circle,#f472b6,transparent 68%)}
 .grain{
-  position:absolute;inset:0;opacity:.04;pointer-events:none;
+  position:fixed;inset:0;z-index:0;opacity:.035;pointer-events:none;
   background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
@@ -277,6 +285,48 @@ section{position:relative;z-index:2;padding-inline:clamp(16px,5vw,40px)}
 /* ---------- footer links ---------- */
 .footer-links a{transition:color .2s}
 .footer-links a:hover{color:var(--accent-400,#a78bfa)}
+
+/* ---------- градиентная рамка + glow у карточек (современно, дёшево) ---------- */
+.card{position:relative;overflow:hidden}
+.card::after{
+  content:"";position:absolute;inset:0;border-radius:inherit;padding:1px;
+  background:linear-gradient(155deg,rgba(167,139,250,.6),rgba(34,211,238,.22) 42%,transparent 72%);
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
+  -webkit-mask-composite:xor;mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
+  mask-composite:exclude;opacity:.5;transition:opacity .35s var(--ease);pointer-events:none;
+}
+.card:hover{box-shadow:0 22px 60px rgba(124,58,237,.28),inset 0 1px 0 rgba(255,255,255,.1)}
+.card:hover::after{opacity:1}
+
+/* ---------- hero-чипы ---------- */
+.hero-chips{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-top:30px;max-width:560px}
+.chip{
+  display:inline-flex;align-items:center;gap:7px;padding:9px 15px;border-radius:999px;
+  font-size:.85rem;color:var(--ink-dim);background:rgba(255,255,255,.045);
+  border:1px solid var(--glass-brd);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+  transition:transform .25s var(--ease),border-color .25s;
+}
+.chip:hover{transform:translateY(-2px);border-color:rgba(167,139,250,.5)}
+.chip b{color:var(--ink);font-weight:600}
+
+/* ---------- стат-бэнд ---------- */
+.stats{
+  max-width:var(--maxw);margin:0 auto;padding-block:clamp(40px,7vh,90px);
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:16px;text-align:center;
+}
+.stat{padding:26px 16px;border-radius:var(--radius);will-change:transform,opacity}
+.stat .num{font-size:clamp(1.9rem,4.4vw,3rem);font-weight:850;letter-spacing:-.03em;line-height:1}
+.stat .lbl{color:var(--ink-dim);font-size:.92rem;margin-top:8px}
+
+/* ---------- тех-строка ---------- */
+.tech{
+  max-width:var(--maxw);margin:0 auto;padding-block:26px;
+  display:flex;flex-wrap:wrap;gap:12px 26px;align-items:center;justify-content:center;
+  color:var(--ink-faint);font-size:.92rem;
+  border-top:1px solid rgba(255,255,255,.06);border-bottom:1px solid rgba(255,255,255,.06);
+}
+.tech .t-lbl{text-transform:uppercase;letter-spacing:.2em;font-size:.7rem}
+.tech b{color:var(--ink-dim);font-weight:600}
 
 /* ============================================================
    RESPONSIVE

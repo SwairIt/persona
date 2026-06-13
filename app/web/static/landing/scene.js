@@ -41,12 +41,20 @@ async function boot() {
   const canvas = document.getElementById('hero-canvas');
   if (!canvas) { markNoWebGL(); return; }
 
+  // Детект слабого железа: мало ядер/памяти → «облегчённый» режим
+  // (меньше геометрии/частиц, DPR=1, без antialias). Гарантия «не лагает».
+  const isMobile = window.matchMedia('(max-width: 768px)').matches;
+  const lowPower =
+    (navigator.hardwareConcurrency || 8) <= 4 ||
+    (navigator.deviceMemory || 8) <= 4;
+  const lite = isMobile || lowPower;
+
   // --- детект WebGL ---
   let renderer;
   try {
     renderer = new THREE.WebGLRenderer({
       canvas,
-      antialias: window.innerWidth > 768,
+      antialias: !lite,
       alpha: true,
       powerPreference: 'high-performance',
     });
@@ -56,8 +64,7 @@ async function boot() {
     return;
   }
 
-  const isMobile = window.matchMedia('(max-width: 768px)').matches;
-  const DPR_CAP = isMobile ? 1 : 2;                          // скилл: DPR=1 на мобиле
+  const DPR_CAP = lite ? 1 : 2;                              // скилл: DPR=1 на слабых
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_CAP));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -73,7 +80,7 @@ async function boot() {
   const core = new THREE.Group();
   scene.add(core);
 
-  const detail = isMobile ? 1 : 2;                           // меньше геометрии на мобиле
+  const detail = lite ? 1 : 2;                               // меньше геометрии на слабых
   const geo = new THREE.IcosahedronGeometry(1.7, detail);
 
   // каркас (additive — светится на тёмном)
@@ -111,7 +118,7 @@ async function boot() {
   core.add(glow2);
 
   // --- облако частиц вокруг ---
-  const STAR_COUNT = isMobile ? 350 : 900;
+  const STAR_COUNT = lite ? 280 : 800;
   const starPos = new Float32Array(STAR_COUNT * 3);
   for (let i = 0; i < STAR_COUNT; i++) {
     const r = 4 + Math.random() * 9;
@@ -140,7 +147,7 @@ async function boot() {
   let targetMouseX = 0, targetMouseY = 0;
   let mouseX = 0, mouseY = 0;
 
-  if (!isMobile) {
+  if (!lite) {
     window.addEventListener('pointermove', (e) => {
       targetMouseX = (e.clientX / window.innerWidth - 0.5);
       targetMouseY = (e.clientY / window.innerHeight - 0.5);
@@ -185,11 +192,17 @@ async function boot() {
   // показать canvas после первого кадра
   canvas.classList.add('ready');
 
+  // Кап рендера ~30 FPS: медленно вращающийся объект визуально не отличить
+  // от 60, а GPU-нагрузка вдвое меньше — ключ к «не лагает» на слабых.
+  const FRAME_MS = 1000 / 30;
   let t = 0;
-  function tick() {
+  let lastDraw = 0;
+  function tick(now) {
     requestAnimationFrame(tick);
     if (!visible || !tabActive) return;     // экономим на слабых: не рисуем зря
-    t += 0.016;
+    if (now - lastDraw < FRAME_MS) return;  // троттлинг до 30 FPS
+    lastDraw = now;
+    t += 0.033;
 
     // плавный курсор-параллакс
     mouseX += (targetMouseX - mouseX) * 0.05;
@@ -208,5 +221,5 @@ async function boot() {
     stars.rotation.y = t * 0.02;
     renderer.render(scene, camera);
   }
-  tick();
+  requestAnimationFrame(tick);   // старт цикла (now всегда определён → троттлинг корректен)
 }

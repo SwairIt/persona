@@ -51,10 +51,9 @@
   <a href="#features" class="skip-link">Перейти к содержанию</a>
   <div class="scroll-progress" aria-hidden="true"><span id="progress-bar"></span></div>
 
-  <div class="bg-mesh" aria-hidden="true">
-    <span class="blob blob-1"></span><span class="blob blob-2"></span><span class="blob blob-3"></span>
-    <span class="grain"></span>
-  </div>
+  <div class="bg-mesh" aria-hidden="true"></div>
+  <div class="bg-grid" aria-hidden="true"></div>
+  <div class="grain" aria-hidden="true"></div>
 
   <canvas id="hero-canvas" aria-hidden="true"></canvas>
   <div id="hero-fallback" class="hero-fallback" aria-hidden="true"></div>
@@ -104,6 +103,14 @@
             <a href="/auth/login" class="btn btn-ghost">Войти</a>
           </div>
         {% endif %}
+
+        <div class="hero-chips reveal">
+          <span class="chip">🔒 <b>Локально</b></span>
+          <span class="chip">🧠 <b>Живая память</b></span>
+          <span class="chip">⚡ <b>Своя модель</b></span>
+          <span class="chip">📁 <b>Файлы на Mac</b></span>
+          <span class="chip">🌙 <b>Работает офлайн</b></span>
+        </div>
       </div>
       <div class="scroll-hint reveal" aria-hidden="true"><span>скролл</span><i></i></div>
     </section>
@@ -116,6 +123,16 @@
         <span class="w">каждый</span> <span class="w">раз.</span>
         <span class="w grad">Persona</span> <span class="w grad">—</span> <span class="w grad">нет.</span>
       </p>
+    </section>
+
+    <!-- STATS -->
+    <section class="stats-wrap" aria-label="Коротко о Persona">
+      <div class="stats">
+        <div class="stat glass reveal"><div class="num grad">100%</div><div class="lbl">данные локально</div></div>
+        <div class="stat glass reveal"><div class="num grad">∞</div><div class="lbl">память без лимита</div></div>
+        <div class="stat glass reveal"><div class="num grad">0</div><div class="lbl">утечек наружу</div></div>
+        <div class="stat glass reveal"><div class="num grad">1</div><div class="lbl">человек: ты</div></div>
+      </div>
     </section>
 
     <!-- FEATURES -->
@@ -141,6 +158,14 @@
         <li class="step reveal"><span class="step-n">02</span><h3>Помнит</h3><p>Отдельный процесс превращает поток в карточки памяти. Сервер не падает — обработка изолирована.</p></li>
         <li class="step reveal"><span class="step-n">03</span><h3>Понимает</h3><p>В каждом чате ИИ подтягивает релевантную память и отвечает с учётом твоего контекста.</p></li>
       </ol>
+    </section>
+
+    <!-- TECH -->
+    <section class="tech-wrap" aria-label="Технологии">
+      <div class="tech reveal">
+        <span class="t-lbl">Построено на</span>
+        <b>Local-first</b><b>Ollama</b><b>Three.js</b><b>FastAPI</b><b>SQLite</b><b>твоём железе</b>
+      </div>
     </section>
 
     <!-- COMPARE -->
