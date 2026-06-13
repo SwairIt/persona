@@ -47,6 +47,11 @@ _cache: dict[str, float | bool] = {"value": False, "checked_at": 0.0}
 # Prefixes that bypass auth. Order matters only insofar as readability.
 _PUBLIC_PREFIXES: tuple[str, ...] = (
     "/landing",
+    # Public marketing surface — blog + SEO files must be crawlable and
+    # readable without a session (huge-SEO content lives under /blog).
+    "/blog",
+    "/sitemap.xml",
+    "/robots.txt",
     "/auth/",
     "/help",
     "/static/",
@@ -111,7 +116,10 @@ class AuthGateMiddleware(BaseHTTPMiddleware):
     ) -> Response:
         path = request.url.path
 
-        if _is_public_path(path):
+        # Exact root "/" is public (landing for logged-out, redirect for
+        # logged-in) — can't be a prefix in the allow-list since "/" prefixes
+        # every path.
+        if path == "/" or _is_public_path(path):
             return await call_next(request)
 
         if not await _gate_active():

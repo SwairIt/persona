@@ -36,14 +36,6 @@ _SORT_OPTIONS: dict[str, tuple[str, bool]] = {
 _DEFAULT_SORT = "captured_at"
 
 
-@router.get("/")
-async def root_to_dashboard() -> RedirectResponse:
-    """Home = the lightweight dashboard (/now). The screenshot timeline is
-    a heavy page (renders hundreds of shots) and must NOT be the landing —
-    that was making the home page slow and stalling the loop under load."""
-    return RedirectResponse(url="/now", status_code=303)
-
-
 @router.get("/timeline", response_class=HTMLResponse, response_model=None)
 async def home(
     request: Request,
