@@ -119,6 +119,12 @@ def _row_to_message(row: Any) -> ChatMessage:
             if "is_pinned" in keys and row["is_pinned"] is not None
             else False
         ),
+        # T30 — реакция пользователя (🤔/✅/🔥/❤️/😕/⚠️), brought in via subquery
+        "reaction": (
+            str(row["reaction"])
+            if "reaction" in keys and row["reaction"] is not None
+            else ""
+        ),
     }
 
 
@@ -196,7 +202,10 @@ async def list_messages(session_id: int, limit: int = 500) -> list[ChatMessage]:
             "SELECT m.*, "
             "  (SELECT td.rating FROM training_dataset td "
             "   WHERE td.asst_message_id = m.id ORDER BY td.id DESC LIMIT 1) "
-            "  AS rating "
+            "  AS rating, "
+            "  (SELECT cr.reaction FROM chat_reaction cr "
+            "   WHERE cr.message_id = m.id ORDER BY cr.id DESC LIMIT 1) "
+            "  AS reaction "
             "FROM chat_message m "
             "WHERE m.session_id = ? "
             "ORDER BY m.id ASC "
@@ -378,6 +387,42 @@ async def set_message_pinned(message_id: int, pinned: bool) -> None:
             (1 if pinned else 0, message_id),
         )
         await conn.commit()
+
+
+async def set_reaction(message_id: int, user_id: int | None, reaction: str) -> None:
+    """T30 — поставить/снять реакцию на сообщение (одна на юзера, toggle).
+
+    Пустая reaction удаляет. ИИ учитывает последнюю реакцию в контексте.
+    """
+    async with get_connection() as conn:
+        if not reaction:
+            await conn.execute(
+                "DELETE FROM chat_reaction WHERE message_id = ? AND user_id IS ?",
+                (message_id, user_id),
+            )
+        else:
+            await conn.execute(
+                "INSERT INTO chat_reaction (message_id, user_id, reaction) "
+                "VALUES (?, ?, ?) "
+                "ON CONFLICT(message_id, user_id) DO UPDATE SET "
+                "  reaction = excluded.reaction, created_at = datetime('now')",
+                (message_id, user_id, reaction),
+            )
+        await conn.commit()
+
+
+async def latest_reaction(session_id: int) -> str:
+    """Последняя реакция на ответ ассистента в сессии (для подсказки ИИ)."""
+    async with get_connection() as conn:
+        cur = await conn.execute(
+            "SELECT cr.reaction FROM chat_reaction cr "
+            "JOIN chat_message m ON m.id = cr.message_id "
+            "WHERE m.session_id = ? AND m.role = 'assistant' "
+            "ORDER BY cr.id DESC LIMIT 1",
+            (session_id,),
+        )
+        row = await cur.fetchone()
+    return str(row["reaction"]) if row and row["reaction"] else ""
 
 
 async def get_pinned_messages(session_id: int, limit: int = 20) -> list[dict[str, str]]:

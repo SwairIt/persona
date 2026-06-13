@@ -31,6 +31,7 @@ from app.chat import (
     get_active_system_prompt,
     get_pinned_messages,
     get_session,
+    latest_reaction,
     get_streaming_message,
     list_messages,
     list_sessions,
@@ -38,6 +39,7 @@ from app.chat import (
     rename_session,
     search_messages,
     set_message_pinned,
+    set_reaction,
     start_streaming_message,
     touch_session,
     update_session_model,
@@ -646,9 +648,27 @@ async def api_send_stream(
             )
     except Exception as exc:  # noqa: BLE001
         log.warning("chat.pin.inject_failed", error=str(exc))
+
+    # T30 — последняя реакция пользователя на прошлый ответ → подсказка ИИ.
+    reaction_block = ""
+    try:
+        rx = await latest_reaction(session_id)
+        _rx_hint = {
+            "confused": "Прошлый ответ пользователь отметил «не понял» — объясни проще, короче, с примерами.",
+            "off": "Прошлый ответ отметили «не то, мимо» — смени подход; при необходимости уточни вопрос.",
+            "error": "Пользователь отметил в прошлом ответе ошибку — перепроверь факты и аккуратно исправься.",
+            "ok": "Прошлый ответ был полезен — держи тот же стиль и уровень детализации.",
+            "fire": "Прошлый ответ зашёл — продолжай в том же духе.",
+            "love": "Прошлый ответ понравился — сохраняй тон и подачу.",
+        }.get(rx, "")
+        if _rx_hint:
+            reaction_block = "\n\n── Реакция на прошлый ответ ──\n" + _rx_hint
+    except Exception as exc:  # noqa: BLE001
+        log.warning("chat.reaction.inject_failed", error=str(exc))
+
     system_with_history = (
-        f"{base_prompt}{pinned_block}{memory_block}{summary_block}\n\nПоследние сообщения:\n{transcript}"
-        if transcript else f"{base_prompt}{pinned_block}{memory_block}{summary_block}"
+        f"{base_prompt}{pinned_block}{reaction_block}{memory_block}{summary_block}\n\nПоследние сообщения:\n{transcript}"
+        if transcript else f"{base_prompt}{pinned_block}{reaction_block}{memory_block}{summary_block}"
     )
 
     async def event_stream() -> Any:
@@ -1177,6 +1197,23 @@ async def api_pin_message(
     pinned = bool(body.get("pinned"))
     await set_message_pinned(message_id, pinned)
     return JSONResponse({"ok": True, "pinned": pinned})
+
+
+_ALLOWED_REACTIONS = {"confused", "ok", "fire", "love", "off", "error"}
+
+
+@router.post("/api/chat/messages/{message_id}/react", response_class=JSONResponse)
+async def api_react_message(
+    message_id: int,
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+    body: Annotated[dict[str, Any], Body(default_factory=dict)],
+) -> JSONResponse:
+    """T30 — поставить/снять реакцию на ответ ИИ. ИИ учтёт её в контексте."""
+    reaction = str(body.get("reaction") or "").strip()
+    if reaction and reaction not in _ALLOWED_REACTIONS:
+        return JSONResponse({"ok": False, "error": "unknown reaction"}, status_code=400)
+    await set_reaction(message_id, session["user_id"], reaction)
+    return JSONResponse({"ok": True, "reaction": reaction})
 
 
 @router.post("/api/chat/sessions/{session_id}/rename", response_class=JSONResponse)

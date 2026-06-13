@@ -206,6 +206,19 @@
                           title="закрепить в контексте — модель будет помнить это после обрезки истории">
                     📌
                   </button>
+
+                  {# T30 — реакции на ответ: ИИ учитывает их в следующем ответе #}
+                  <span class="w-px h-5 bg-ink-700 mx-0.5"></span>
+                  <template x-for="rx in reactions" :key="rx.k">
+                    <button type="button" @click.stop="reactAt(mIdx, rx.k)"
+                            :class="messages[mIdx] && messages[mIdx].reaction === rx.k
+                              ? 'bg-violet-500/25 ring-1 ring-violet-500/60 scale-110'
+                              : 'opacity-50 hover:opacity-100 hover:bg-ink-800'"
+                            class="cursor-pointer select-none inline-flex items-center justify-center w-8 h-8 rounded-lg text-base transition-all"
+                            :title="rx.t">
+                      <span x-text="rx.e"></span>
+                    </button>
+                  </template>
                   <template x-if="msg.elapsed_ms">
                     <span x-text="formatTime(msg.elapsed_ms)"></span>
                   </template>
@@ -449,6 +462,15 @@
     return {
       sessionId: initialSessionId,
       messages: (initialMessages || []).map(m => ({ ...m, image_data_url: m.image_data_url || null })),
+      // T30 — реакции: ключ (ASCII, для сервера/БД) + эмодзи + подсказка
+      reactions: [
+        { k: 'confused', e: '🤔', t: 'Не понял — объясни проще' },
+        { k: 'ok',       e: '✅', t: 'Понятно, помогло' },
+        { k: 'fire',     e: '🔥', t: 'Огонь, отличный ответ' },
+        { k: 'love',     e: '❤️', t: 'Супер — в избранное' },
+        { k: 'off',      e: '😕', t: 'Не то, мимо' },
+        { k: 'error',    e: '⚠️', t: 'Здесь ошибка' },
+      ],
       summary,
       showSummary: false,
       question: '',
@@ -632,6 +654,23 @@
           });
           if (!r.ok) console.warn('rate failed', r.status);
         } catch (e) { console.warn('rate err', e); }
+      },
+
+      async reactAt(idx, emoji) {
+        // T30 — реакция на ответ. Toggle: повторный клик снимает.
+        const msg = this.messages[idx];
+        if (!msg) return;
+        const next = (msg.reaction === emoji) ? '' : emoji;
+        msg.reaction = next;
+        this.messages.splice(idx, 1, msg);
+        try {
+          const r = await fetch(`/api/chat/messages/${msg.id}/react`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reaction: next }),
+          });
+          if (!r.ok) console.warn('react failed', r.status);
+        } catch (e) { console.warn('react err', e); }
       },
 
       async setSystemPrompt() {
