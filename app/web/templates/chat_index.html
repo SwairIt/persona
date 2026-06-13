@@ -216,6 +216,20 @@
                     📌
                   </button>
 
+                  {# T31 E9 — копировать ответ #}
+                  <button type="button" @click.stop="copyMsg(mIdx, $event)"
+                          class="opacity-60 hover:opacity-100 hover:bg-ink-800 cursor-pointer select-none inline-flex items-center justify-center w-8 h-8 rounded-lg text-base transition-all"
+                          title="скопировать ответ">
+                    📋
+                  </button>
+                  {# T31 E9 — перегенерировать последний ответ #}
+                  <button type="button" x-show="mIdx === messages.length - 1 && !thinking"
+                          @click.stop="regenerate()"
+                          class="opacity-60 hover:opacity-100 hover:bg-ink-800 cursor-pointer select-none inline-flex items-center justify-center w-8 h-8 rounded-lg text-base transition-all"
+                          title="перегенерировать ответ">
+                    🔄
+                  </button>
+
                   {# T30 — реакции на ответ: ИИ учитывает их в следующем ответе #}
                   <span class="w-px h-5 bg-ink-700 mx-0.5"></span>
                   <template x-for="rx in reactions" :key="rx.k">
@@ -256,6 +270,15 @@
           </div>
         </div>
       </div>
+
+      {# T31 E9 — кнопка «вниз», когда пользователь проскроллил вверх #}
+      <button type="button" x-show="!atBottom && messages.length > 1"
+              x-transition.opacity
+              @click="scrollToBottom()"
+              title="Вниз"
+              class="fixed bottom-28 right-6 sm:right-10 z-30 w-10 h-10 rounded-full bg-ink-800/90 border border-ink-600 text-zinc-200 shadow-lg hover:bg-ink-700 backdrop-blur flex items-center justify-center">
+        ↓
+      </button>
 
       <footer class="px-4 sm:px-8 py-4 border-t border-ink-800 max-w-3xl mx-auto w-full">
         {# T26 — Queue preview when user typed-ahead while AI was busy #}
@@ -323,7 +346,7 @@
                      send();
                    }
                  })()"
-                 @input="autosize()"
+                 @input="autosize(); saveDraft()"
                  rows="1"
                  class="w-full px-4 pt-3 pb-1 bg-transparent focus:outline-none text-[15px] resize-none max-h-40 placeholder-zinc-500"></textarea>
 
@@ -542,6 +565,8 @@
       thinking: false,
       thinkingSeconds: 0,
       _thinkingTimer: null,
+      // T31 E9 — «живой» чат: умный авто-скролл + кнопка «вниз» + черновик
+      atBottom: true,
       // T26 — track active stream so we can abort it on Stop click
       _abortController: null,
       // T26 — queue: messages typed while previous still streaming
@@ -615,9 +640,69 @@
       init() {
         marked.setOptions({ breaks: true, gfm: true });
         this.$nextTick(() => { this.scrollToBottom(); this.autosize(); });
+        // T31 E9 — восстановить черновик для этой сессии
+        try {
+          const d = localStorage.getItem(this._draftKey());
+          if (d && !this.question) { this.question = d; this.$nextTick(() => this.autosize()); }
+        } catch (e) { /* приватный режим — ок */ }
+        // T31 E9 — отслеживать позицию скролла (для умного авто-скролла + кнопки «вниз»)
+        this.$nextTick(() => {
+          const el = document.getElementById('chat-scroll');
+          if (el) el.addEventListener('scroll', () => this.onScroll(), { passive: true });
+        });
         // T29 — if the answer is still being generated (tab reopened
         // mid-stream), attach and show it growing in real time.
         this.resumeLive();
+      },
+
+      // T31 E9 — черновик в localStorage по сессии
+      _draftKey() { return 'persona_draft_' + (this.sessionId || 'new'); },
+      saveDraft() {
+        try {
+          if (this.question && this.question.trim()) localStorage.setItem(this._draftKey(), this.question);
+          else localStorage.removeItem(this._draftKey());
+        } catch (e) { /* ignore */ }
+      },
+      clearDraft() { try { localStorage.removeItem(this._draftKey()); } catch (e) {} },
+
+      // T31 E9 — внизу ли пользователь (с допуском 80px)
+      onScroll() {
+        const el = document.getElementById('chat-scroll');
+        if (!el) return;
+        this.atBottom = (el.scrollHeight - el.scrollTop - el.clientHeight) < 80;
+      },
+      // T31 E9 — авто-скролл во время стрима ТОЛЬКО если пользователь уже внизу
+      autoScroll() { if (this.atBottom) this.scrollToBottom(); },
+
+      // T31 E9 — перегенерировать последний ответ: убрать его и повторить
+      // последний вопрос пользователя.
+      regenerate() {
+        if (this.thinking) return;
+        let lastUser = null;
+        for (let i = this.messages.length - 1; i >= 0; i--) {
+          if (this.messages[i].role === 'user') { lastUser = this.messages[i]; break; }
+        }
+        if (!lastUser) return;
+        // удалить хвост ответов после последнего вопроса (визуально)
+        const ui = this.messages.lastIndexOf(lastUser);
+        if (ui >= 0) this.messages = this.messages.slice(0, ui);
+        this.question = lastUser.content || '';
+        if (lastUser.image_data_url) this.attachedImage = lastUser.image_data_url;
+        this.send();
+      },
+
+      // T31 E9 — копировать текст ответа в буфер
+      async copyMsg(idx, ev) {
+        const msg = this.messages[idx];
+        if (!msg) return;
+        try {
+          await navigator.clipboard.writeText(msg.content || '');
+          if (ev && ev.target) {
+            const b = ev.target.closest('button'); if (!b) return;
+            const old = b.textContent; b.textContent = '✓';
+            setTimeout(() => { b.textContent = old; }, 1200);
+          }
+        } catch (e) { /* нет доступа к clipboard — игнор */ }
       },
 
       // T29 — poll the in-progress assistant message so a reopened tab
@@ -656,7 +741,7 @@
               const d = await r.json();
               if (d.streaming) {
                 this.messages[idx].content = d.content;
-                this.$nextTick(() => this.scrollToBottom());
+                this.$nextTick(() => this.autoScroll());
                 streaming = true;
               }
             }
@@ -937,7 +1022,7 @@
 
       scrollToBottom() {
         const el = document.getElementById('chat-scroll');
-        if (el) el.scrollTop = el.scrollHeight;
+        if (el) { el.scrollTop = el.scrollHeight; this.atBottom = true; }
       },
 
       autosize() {
@@ -1146,8 +1231,10 @@
         };
         this.messages.push(userMsg);
         this.question = '';
+        this.clearDraft();
         this.attachedImage = null;
         this.thinking = true;
+        this.atBottom = true;
         this._startThinkingClock();
         this.$nextTick(() => { this.scrollToBottom(); this.autosize(); });
 
@@ -1212,7 +1299,7 @@
                     this.thinkingSeconds = 0;
                   }
                   this.messages[assistantIdx].content += evt.text;
-                  this.$nextTick(() => this.scrollToBottom());
+                  this.$nextTick(() => this.autoScroll());
                 } else if (evt.type === 'done') {
                   this.messages[assistantIdx].elapsed_ms = evt.elapsed_ms;
                   this.messages[assistantIdx].input_tokens = evt.input_tokens;
@@ -1400,6 +1487,11 @@
     font-size: 0.85em;
     font-weight: 600;
   }
+
+  /* T31 E9 — плавное появление сообщений */
+  #chat-scroll > div { animation: msgIn .28s ease-out both; }
+  @keyframes msgIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { #chat-scroll > div { animation: none; } }
 
   /* T31 E4 — карточки команд: IN (команда) + OUT (вывод) + кружок-статус */
   .cmd-card{margin:.6em 0;border:1px solid #27272a;border-radius:10px;overflow:hidden;background:#0c0c0f}
