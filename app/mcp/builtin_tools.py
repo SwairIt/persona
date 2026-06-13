@@ -384,9 +384,18 @@ async def install_skill(args: dict[str, Any], user_id: int = 0) -> str:
     except Exception as exc:  # noqa: BLE001
         return f"[error] не смог скачать навык: {type(exc).__name__}: {exc}"
     await save_skill(user_id, name, content, resolved)
+    mirror = ""
+    try:
+        from app.devices.fs_rpc import is_enabled  # noqa: PLC0415
+        from app.skills.store import get_skills_dir  # noqa: PLC0415
+
+        if await is_enabled():
+            mirror = f" Также зеркалю файлом в папку {await get_skills_dir()} на устройстве."
+    except Exception:  # noqa: BLE001, S110
+        pass
     return (
         f"[ok] Установил навык «{name}» ({len(content)} символов) из {resolved}. "
-        "Теперь я применяю его в этом и будущих чатах."
+        f"Теперь я применяю его в этом и будущих чатах.{mirror}"
     )
 
 

@@ -9,17 +9,54 @@ installing a skill from an arbitrary repo cannot run anything on the box.
 
 from __future__ import annotations
 
+import asyncio
 import re
 
 import httpx
 
 from app.logging_setup import get_logger
 from app.storage.db import get_connection
+from app.storage.repository import get_kv
 
 log = get_logger("persona.skills")
 
 _MAX_SKILL_BYTES = 60_000
 _PER_SKILL_PROMPT_CHARS = 8_000
+
+# T31 E7 — где зеркалить скиллы на устройстве (Mac), как .agents/skills.
+_SKILLS_DIR_KEY = "skills_dir"
+_SKILLS_DIR_DEFAULT = "~/.persona/skills"
+
+
+async def get_skills_dir() -> str:
+    async with get_connection() as conn:
+        raw = await get_kv(conn, _SKILLS_DIR_KEY)
+    return (raw or "").strip() or _SKILLS_DIR_DEFAULT
+
+
+def _skill_filename(name: str) -> str:
+    """Безопасное имя файла ``<slug>.md`` из названия навыка."""
+    slug = re.sub(r"[^\w\-]+", "-", name.strip().lower(), flags=re.UNICODE).strip("-")
+    return f"{slug or 'skill'}.md"
+
+
+async def mirror_skill_to_device(user_id: int, name: str, content: str) -> None:
+    """Best-effort: записать навык файлом в папку на устройстве (Mac) через
+    агента. Если агент офлайн / mac-fs выключен / любая ошибка — молча
+    игнорируем (навык всё равно сохранён в БД). T31 E7."""
+    try:
+        from app.devices.fs_rpc import is_enabled, run_remote  # noqa: PLC0415
+
+        if not await is_enabled():
+            return
+        path = f"{(await get_skills_dir()).rstrip('/')}/{_skill_filename(name)}"
+        res = await run_remote(user_id, "write_file", path, content)
+        if str(res).startswith("[error]"):
+            log.info("skill.mirror_skipped", name=name, result=res)
+        else:
+            log.info("skill.mirrored", name=name, path=path)
+    except Exception as exc:  # noqa: BLE001 — зеркалирование не должно ломать установку
+        log.info("skill.mirror_failed", name=name, error=str(exc))
 
 
 def _parse_github(url: str) -> tuple[str, str] | None:
@@ -83,6 +120,11 @@ async def save_skill(user_id: int, name: str, content: str, source_url: str) -> 
             (user_id, name, content, source_url),
         )
         await conn.commit()
+    # T31 E7 — зеркалим в папку на устройстве, не блокируя установку.
+    try:
+        asyncio.create_task(mirror_skill_to_device(user_id, name, content))
+    except RuntimeError:  # нет работающего loop (например, из синхронного теста)
+        pass
 
 
 async def set_skill_enabled(user_id: int, skill_id: int, enabled: bool) -> None:
