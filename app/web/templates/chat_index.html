@@ -763,11 +763,27 @@
       },
 
       // ── озвучка ответов (браузерный синтез речи, как в /ask) ──
+      _voices: [],
       _initTts() {
         this.ttsAvailable = typeof window.speechSynthesis !== 'undefined'
           && typeof window.SpeechSynthesisUtterance !== 'undefined';
         try { this.autoSpeak = localStorage.getItem('persona.chat.autoSpeak') === '1'; }
         catch (e) { this.autoSpeak = false; }
+        if (this.ttsAvailable) {
+          const load = () => { try { this._voices = window.speechSynthesis.getVoices() || []; } catch (e) {} };
+          load();
+          try { window.speechSynthesis.onvoiceschanged = load; } catch (e) {}
+        }
+      },
+      // выбрать ЛУЧШИЙ голос: нейронные Natural/Online сильно качественнее
+      _pickVoice(lang) {
+        const vs = (this._voices && this._voices.length) ? this._voices
+          : (window.speechSynthesis.getVoices() || []);
+        const want = lang.slice(0, 2);
+        const cand = vs.filter(v => (v.lang || '').toLowerCase().startsWith(want));
+        const rank = (n) => /natural|neural/i.test(n) ? 3 : /online|premium|enhanced/i.test(n) ? 2 : 1;
+        cand.sort((a, b) => rank(b.name) - rank(a.name));
+        return cand[0] || null;
       },
       toggleAutoSpeak() {
         this.autoSpeak = !this.autoSpeak;
@@ -792,7 +808,9 @@
         this.stopSpeaking();
         const u = new SpeechSynthesisUtterance(clean.slice(0, 4000));
         u.lang = (document.documentElement.lang || 'ru') === 'ru' ? 'ru-RU' : 'en-US';
-        u.rate = 1.0; u.pitch = 1.0;
+        const v = this._pickVoice(u.lang);
+        if (v) u.voice = v;
+        u.rate = 1.0; u.pitch = 1.05;  // чуть живее
         u.onstart = () => { this.speaking = true; };
         u.onend = () => { this.speaking = false; };
         u.onerror = () => { this.speaking = false; };

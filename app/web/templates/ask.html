@@ -202,12 +202,26 @@ PERSONA_EMBEDDINGS_ENABLED=true   # необязательно, но улучш�
       autoSpeak: false,
       speaking: false,
       _lastSpokenAnswer: '',
+      _voices: [],
       _initTts() {
         this.ttsAvailable = typeof window.speechSynthesis !== 'undefined'
           && typeof window.SpeechSynthesisUtterance !== 'undefined';
         try {
           this.autoSpeak = window.localStorage.getItem('persona.ask.autoSpeak') === '1';
         } catch (_e) { this.autoSpeak = false; }
+        if (this.ttsAvailable) {
+          const load = () => { try { this._voices = window.speechSynthesis.getVoices() || []; } catch (e) {} };
+          load();
+          try { window.speechSynthesis.onvoiceschanged = load; } catch (e) {}
+        }
+      },
+      _pickVoice(lang) {
+        const vs = (this._voices && this._voices.length) ? this._voices : (window.speechSynthesis.getVoices() || []);
+        const want = lang.slice(0, 2);
+        const cand = vs.filter(v => (v.lang || '').toLowerCase().startsWith(want));
+        const rank = (n) => /natural|neural/i.test(n) ? 3 : /online|premium|enhanced/i.test(n) ? 2 : 1;
+        cand.sort((a, b) => rank(b.name) - rank(a.name));
+        return cand[0] || null;
       },
       toggleAutoSpeak() {
         this.autoSpeak = !this.autoSpeak;
@@ -225,8 +239,10 @@ PERSONA_EMBEDDINGS_ENABLED=true   # необязательно, но улучш�
         this.stopSpeaking();
         const u = new SpeechSynthesisUtterance(text);
         u.lang = (document.documentElement.lang || 'en') === 'ru' ? 'ru-RU' : 'en-US';
+        const v = this._pickVoice(u.lang);
+        if (v) u.voice = v;
         u.rate = 1.0;
-        u.pitch = 1.0;
+        u.pitch = 1.05;
         u.onstart = () => { this.speaking = true; };
         u.onend = () => { this.speaking = false; };
         u.onerror = () => { this.speaking = false; };
