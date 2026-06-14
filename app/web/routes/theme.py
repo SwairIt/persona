@@ -26,7 +26,7 @@ from app.web.templates_engine import invalidate_theme_cache, templates
 router = APIRouter(tags=["settings"])
 log = get_logger("persona.theme")
 
-_VALID_THEMES: Final[frozenset[str]] = frozenset({"dark", "light", "auto", "persona"})
+_VALID_THEMES: Final[frozenset[str]] = frozenset({"dark", "light", "auto", "persona", "cosmos"})
 _DEFAULT_THEME: Final[str] = "persona"
 
 
@@ -51,6 +51,7 @@ async def theme_settings_page(request: Request) -> HTMLResponse:
             "active_nav": "settings",
             "current": current,
             "options": (
+                ("cosmos", "Cosmos 🌌", "Космос: живой 3D-фон со звёздами, туманностями и планетой-ядром."),
                 ("persona", "Persona ✨", "Фиолетовая тема в стиле лендинга — градиенты и стекло."),
                 ("dark", "Dark", "Тёмная минималистичная палитра."),
                 ("light", "Light", "Светлая палитра для яркой комнаты."),

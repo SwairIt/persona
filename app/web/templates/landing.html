@@ -77,10 +77,10 @@
     <!-- HERO -->
     <section class="hero" id="hero">
       <div class="floaters" aria-hidden="true">
-        <span class="floater" data-float="0.10" style="width:110px;height:110px;top:18%;left:6%"></span>
-        <span class="floater f-ring" data-float="0.18" style="width:180px;height:180px;top:54%;left:2%"></span>
-        <span class="floater f-sq" data-float="0.14" style="width:70px;height:70px;top:24%;right:8%"></span>
-        <span class="floater" data-float="0.22" style="width:46px;height:46px;bottom:14%;right:18%"></span>
+        <span class="floater" data-float="0.10" style="width:90px;height:90px;top:12%;right:32%"></span>
+        <span class="floater f-ring" data-float="0.18" style="width:160px;height:160px;top:60%;right:6%"></span>
+        <span class="floater f-sq" data-float="0.14" style="width:62px;height:62px;top:20%;right:12%"></span>
+        <span class="floater" data-float="0.22" style="width:44px;height:44px;bottom:16%;right:26%"></span>
       </div>
       <div class="hero-grid">
         <div class="hero-left">
@@ -112,14 +112,6 @@
               Войдём или создадим аккаунт за секунду · вход по ссылке, без пароля
               · <a href="#" id="show-pw">войти паролем</a>
             </p>
-            <div class="pw-box reveal" id="pw-box" hidden>
-              <form id="pw-form">
-                <input type="email" name="email" id="pw-email" required placeholder="email" autocomplete="email" />
-                <input type="password" name="password" id="pw-pass" required placeholder="пароль" autocomplete="current-password" />
-                <button type="submit" class="btn btn-primary">Войти</button>
-              </form>
-              <p class="hero-cta-note"><a href="#" id="forgot">забыли пароль?</a></p>
-            </div>
             <p class="quick-hint" id="email-hint" aria-live="polite"></p>
             <div class="auth-msg" id="auth-msg" role="status" hidden></div>
           {% endif %}
@@ -379,12 +371,43 @@
             <input type="email" name="email" required placeholder="введи свой email" autocomplete="email" spellcheck="false" />
             <button type="submit" class="btn btn-primary btn-lg">Начать →</button>
           </form>
-          <p class="hero-cta-note">вход по ссылке, без пароля · <a href="/auth/login">войти паролем</a></p>
+          <p class="hero-cta-note">вход по ссылке, без пароля · <a href="#" class="open-login">войти паролем</a></p>
         {% endif %}
       </div>
     </section>
 
   </main>
+
+  {% if not session %}
+  <!-- МОДАЛКА ВХОДА -->
+  <div class="login-modal" id="login-modal" hidden aria-modal="true" role="dialog" aria-labelledby="lm-title">
+    <div class="login-backdrop" data-close></div>
+    <div class="login-dialog glass" role="document">
+      <button type="button" class="login-x" data-close aria-label="Закрыть">✕</button>
+      <h2 id="lm-title" class="login-title">Вход в <span class="grad">Persona</span></h2>
+      <p class="login-sub">Войди по паролю или получи ссылку на почту — аккаунт создастся сам.</p>
+
+      <form id="lm-pw-form" class="login-form">
+        <label class="login-field">
+          <span>Email</span>
+          <input type="email" id="lm-email" name="email" required placeholder="you@example.com" autocomplete="email" spellcheck="false" />
+        </label>
+        <label class="login-field">
+          <span>Пароль</span>
+          <input type="password" id="lm-pass" name="password" required placeholder="••••••••" autocomplete="current-password" />
+        </label>
+        <button type="submit" class="btn btn-primary btn-lg login-submit">Войти</button>
+      </form>
+
+      <div class="login-msg" id="lm-msg" role="status" hidden></div>
+
+      <div class="login-alt">
+        <button type="button" class="login-ghost" id="lm-magic">✉ Войти по ссылке (без пароля)</button>
+        <button type="button" class="login-link" id="lm-forgot">Забыли пароль?</button>
+      </div>
+    </div>
+  </div>
+  {% endif %}
 
   <footer class="footer">
     <span>Persona <span style="opacity:.6">v{{ app_version }}</span></span>
@@ -421,31 +444,48 @@
       else { showMsg((res.error||'Ошибка.')+(res.suggestion?(' Может, '+res.suggestion+'?'):''), false); }
     });
 
-    var pwBox=document.getElementById('pw-box');
-    function openPw(){ if(!pwBox)return; pwBox.hidden=false; var pe=document.getElementById('pw-email'); if(pe){ if(!pe.value) pe.value=(input.value||'').trim(); pe.focus(); } }
-    var showPw=document.getElementById('show-pw');
-    if(showPw&&pwBox){ showPw.addEventListener('click', function(e){ e.preventDefault(); pwBox.hidden=!pwBox.hidden; if(!pwBox.hidden) openPw(); }); }
-    var navLogin=document.getElementById('nav-login');
-    if(navLogin){ navLogin.addEventListener('click', function(e){ e.preventDefault(); window.scrollTo({top:0,behavior:'smooth'}); openPw(); }); }
+    // ---- модальное окно входа (пароль / ссылка / сброс) ----
+    var modal=document.getElementById('login-modal');
+    var lmEmail=document.getElementById('lm-email');
+    var lmPass=document.getElementById('lm-pass');
+    var lmMsg=document.getElementById('lm-msg');
+    function lmShow(t, ok){ if(!lmMsg)return; lmMsg.hidden=false; lmMsg.textContent=t; lmMsg.className='login-msg '+(ok?'ok':'err'); }
+    function openModal(){ if(!modal)return; modal.hidden=false; document.body.style.overflow='hidden';
+      if(lmEmail){ if(!lmEmail.value) lmEmail.value=(input&&input.value||'').trim(); setTimeout(function(){lmEmail.focus();},40); } }
+    function closeModal(){ if(!modal)return; modal.hidden=true; document.body.style.overflow=''; if(lmMsg)lmMsg.hidden=true; }
 
-    var pwForm=document.getElementById('pw-form');
-    if(pwForm){ pwForm.addEventListener('submit', async function(e){
+    document.querySelectorAll('.open-login, #show-pw, #nav-login').forEach(function(el){
+      el.addEventListener('click', function(e){ e.preventDefault(); openModal(); });
+    });
+    if(modal){
+      modal.querySelectorAll('[data-close]').forEach(function(el){ el.addEventListener('click', closeModal); });
+      document.addEventListener('keydown', function(e){ if(e.key==='Escape' && !modal.hidden) closeModal(); });
+    }
+
+    var lmPwForm=document.getElementById('lm-pw-form');
+    if(lmPwForm){ lmPwForm.addEventListener('submit', async function(e){
       e.preventDefault();
-      var email=(document.getElementById('pw-email').value||'').trim();
-      var password=document.getElementById('pw-pass').value;
-      showMsg('Вхожу…', true);
+      var email=(lmEmail.value||'').trim(), password=lmPass.value;
+      lmShow('Вхожу…', true);
       var res=await post('/auth/login',{email:email,password:password});
       if(res.ok&&res.redirect){ window.location=res.redirect; }
-      else { showMsg(res.error||'Неверный email или пароль.', false); }
+      else { lmShow(res.error||'Неверный email или пароль.', false); }
     }); }
 
-    var forgot=document.getElementById('forgot');
-    if(forgot){ forgot.addEventListener('click', async function(e){
-      e.preventDefault();
-      var email=((document.getElementById('pw-email').value||'')||(input.value||'')).trim();
-      if(!email){ showMsg('Введи email в поле выше.', false); return; }
+    var lmMagic=document.getElementById('lm-magic');
+    if(lmMagic){ lmMagic.addEventListener('click', async function(){
+      var email=(lmEmail.value||'').trim(); if(!email){ lmShow('Введи email.', false); lmEmail.focus(); return; }
+      lmShow('Отправляю ссылку…', true);
+      var res=await post('/auth/magic',{email:email});
+      if(res.ok){ lmShow(res.message||'Проверь почту — там ссылка для входа.', true); }
+      else { lmShow((res.error||'Ошибка.')+(res.suggestion?(' Может, '+res.suggestion+'?'):''), false); }
+    }); }
+
+    var lmForgot=document.getElementById('lm-forgot');
+    if(lmForgot){ lmForgot.addEventListener('click', async function(){
+      var email=(lmEmail.value||'').trim(); if(!email){ lmShow('Введи email.', false); lmEmail.focus(); return; }
       var res=await post('/auth/forgot',{email:email});
-      showMsg(res.message||'Если аккаунт есть — письмо со ссылкой отправлено.', true);
+      lmShow(res.message||'Если аккаунт есть — письмо со ссылкой отправлено.', true);
     }); }
 
     // проверка опечаток домена

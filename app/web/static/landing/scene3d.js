@@ -28,6 +28,19 @@
   var camera = new THREE.PerspectiveCamera(48, window.innerWidth / window.innerHeight, 0.1, 100);
   camera.position.set(0, 0, 5.2);
 
+  // мягкий круглый спрайт для точек (иначе PointsMaterial рисует квадраты)
+  function discTex() {
+    var c = document.createElement('canvas'); c.width = c.height = 64;
+    var x = c.getContext('2d');
+    var g = x.createRadialGradient(32, 32, 0, 32, 32, 32);
+    g.addColorStop(0, 'rgba(255,255,255,1)');
+    g.addColorStop(0.45, 'rgba(255,255,255,.55)');
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    x.fillStyle = g; x.beginPath(); x.arc(32, 32, 32, 0, 7); x.fill();
+    return new THREE.CanvasTexture(c);
+  }
+  var DISC = discTex();
+
   // ---------- иридесцентный морф-объект ----------
   var NOISE = [
     'vec3 mod289(vec3 x){return x-floor(x*(1.0/289.0))*289.0;}',
@@ -118,7 +131,7 @@
   pg.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   pg.setAttribute('color', new THREE.BufferAttribute(col, 3));
   var particles = new THREE.Points(pg, new THREE.PointsMaterial({
-    size: 0.045, vertexColors: true, transparent: true, opacity: 0.85,
+    size: 0.07, map: DISC, vertexColors: true, transparent: true, opacity: 0.85,
     blending: THREE.AdditiveBlending, depthWrite: false,
   }));
   scene.add(particles);
@@ -140,7 +153,7 @@
     g.setAttribute('position', new THREE.BufferAttribute(sp, 3));
     g.setAttribute('color', new THREE.BufferAttribute(sc, 3));
     return new THREE.Points(g, new THREE.PointsMaterial({
-      size: size, vertexColors: true, transparent: true, opacity: opacity,
+      size: size, map: DISC, vertexColors: true, transparent: true, opacity: opacity,
       blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true,
     }));
   }

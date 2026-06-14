@@ -197,6 +197,45 @@ section{position:relative}
 .chip svg{width:15px;height:15px;stroke:currentColor;stroke-width:1.8;fill:none;
   stroke-linecap:round;stroke-linejoin:round;vertical-align:-2px;margin-right:5px}
 
+/* ---------- модальное окно входа ---------- */
+.login-modal{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:20px}
+.login-modal[hidden]{display:none}
+.login-backdrop{position:absolute;inset:0;background:rgba(4,4,14,.66);
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);animation:lmFade .25s ease}
+.login-dialog{position:relative;z-index:1;width:min(420px,100%);border-radius:22px;padding:32px 28px;
+  background:rgba(14,13,30,.94);border:1px solid rgba(155,123,255,.28);
+  box-shadow:0 30px 90px rgba(0,0,0,.6),0 0 60px rgba(123,92,255,.18),inset 0 1px 0 rgba(255,255,255,.08);
+  animation:lmPop .32s cubic-bezier(.16,.84,.34,1)}
+@keyframes lmFade{from{opacity:0}to{opacity:1}}
+@keyframes lmPop{from{opacity:0;transform:translateY(16px) scale(.96)}to{opacity:1;transform:none}}
+.login-x{position:absolute;top:14px;right:16px;background:none;border:none;color:var(--ink-dim);
+  font-size:1.05rem;cursor:pointer;line-height:1;padding:4px}
+.login-x:hover{color:#fff}
+.login-title{font-family:var(--font-display);font-size:1.6rem;font-weight:700;margin:0 0 6px}
+.login-sub{color:var(--ink-dim);font-size:.9rem;margin:0 0 22px;line-height:1.5}
+.login-form{display:flex;flex-direction:column;gap:14px}
+.login-field{display:flex;flex-direction:column;gap:6px}
+.login-field span{font-size:.76rem;color:var(--ink-dim);font-family:var(--font-mono)}
+.login-field input{width:100%;padding:12px 14px;border-radius:12px;background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.14);color:var(--ink);font-size:1rem;outline:none;
+  transition:border-color .2s,background .2s}
+.login-field input:focus{border-color:var(--violet);background:rgba(255,255,255,.10)}
+.login-submit{width:100%;margin-top:6px;display:flex;align-items:center;justify-content:center}
+.login-msg{margin-top:14px;padding:10px 12px;border-radius:10px;font-size:.88rem;line-height:1.45}
+.login-msg.ok{background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.3);color:#86efac}
+.login-msg.err{background:rgba(244,63,94,.12);border:1px solid rgba(244,63,94,.3);color:#fca5a5}
+.login-alt{display:flex;flex-direction:column;gap:10px;align-items:stretch;margin-top:20px;
+  padding-top:18px;border-top:1px solid rgba(255,255,255,.08)}
+.login-ghost{width:100%;padding:11px;border-radius:12px;background:rgba(255,255,255,.05);
+  border:1px solid rgba(255,255,255,.14);color:var(--ink);font-size:.92rem;cursor:pointer;transition:.2s}
+.login-ghost:hover{background:rgba(155,123,255,.16);border-color:rgba(155,123,255,.42)}
+.login-link{background:none;border:none;color:var(--ink-dim);font-size:.85rem;cursor:pointer;
+  text-decoration:underline;align-self:center}
+.login-link:hover{color:#a78bfa}
+
+/* hero email-поле — непрозрачный фон, чтобы за ним не просвечивали объекты */
+.hero-cta{background:rgba(14,13,30,.66) !important;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+
 /* мерцающие звёзды-точки в CSS-слое (доп. глубина к WebGL) */
 .starfield{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
 .starfield::before,.starfield::after{
