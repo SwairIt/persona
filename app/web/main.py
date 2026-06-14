@@ -317,6 +317,7 @@ from app.web.routes import (
     voice_note as voice_note_routes,
     voice_note_widget as voice_note_widget_routes,
     voice as voice_routes,
+    advanced_settings as advanced_settings_routes,
     entities as entities_routes,
     shot_compare as shot_compare_routes,
     outbox_admin as outbox_admin_routes,
@@ -741,6 +742,7 @@ def create_app() -> FastAPI:
     app.include_router(voice_note_routes.router)
     app.include_router(voice_note_widget_routes.router)
     app.include_router(voice_routes.router)
+    app.include_router(advanced_settings_routes.router)
     app.include_router(entities_routes.router)
     app.include_router(shot_compare_routes.router)
     app.include_router(outbox_admin_routes.router)

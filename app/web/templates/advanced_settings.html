@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="max-w-2xl mx-auto px-4 sm:px-6 py-6">
+  <header class="mb-6">
+    <h1 class="text-2xl font-bold tracking-tight">⚙️ Расширенные функции</h1>
+    <p class="text-sm text-zinc-500 mt-1">
+      Управление «умными» возможностями чата. Выключи мастер-переключатель —
+      и Persona станет простым ассистентом-собеседником: без планов, режимов,
+      кода и инструментов. Просто общение, поддержка и советы.
+    </p>
+  </header>
+
+  <form method="post" action="/settings/advanced" x-data="{ master: {{ 'true' if flags.master else 'false' }} }">
+
+    {# --- МАСТЕР --- #}
+    <section class="rounded-xl border p-4 mb-5"
+             :class="master ? 'border-accent-500/50 bg-accent-600/10' : 'border-ink-700 bg-ink-900'">
+      <label class="flex items-start gap-3 cursor-pointer">
+        <input type="checkbox" name="master" x-model="master" class="mt-1 w-5 h-5 rounded accent-accent-600">
+        <span>
+          <span class="block font-semibold text-base">Расширенный режим</span>
+          <span class="block text-sm text-zinc-400 mt-0.5">
+            <span x-show="master">Включён — доступны все возможности ниже.</span>
+            <span x-show="!master">Выключен — простой ассистент (друг/советчик), без техники и планов.</span>
+          </span>
+        </span>
+      </label>
+    </section>
+
+    {# --- ПО-ФИЧАМ --- #}
+    <section class="space-y-2 transition-opacity" :class="master ? '' : 'opacity-40 pointer-events-none select-none'">
+      <div class="text-xs uppercase tracking-widest text-zinc-500 mb-1 px-1">Возможности</div>
+      {% for key, title, desc in features %}
+      <label class="flex items-start gap-3 rounded-lg border border-ink-700 bg-ink-900 p-3.5 cursor-pointer hover:border-ink-600">
+        <input type="checkbox" name="{{ key }}" {% if flags[key] %}checked{% endif %}
+               :disabled="!master" class="mt-0.5 w-5 h-5 rounded accent-accent-600">
+        <span>
+          <span class="block text-sm font-medium">{{ title }}</span>
+          <span class="block text-xs text-zinc-500 mt-0.5">{{ desc }}</span>
+        </span>
+      </label>
+      {% endfor %}
+    </section>
+
+    <div class="mt-6 flex items-center gap-3">
+      <button type="submit" class="px-5 py-2.5 rounded-lg bg-accent-600 hover:bg-accent-500 text-white text-sm font-medium">
+        Сохранить
+      </button>
+      <button type="button" @click="master = !master"
+              class="px-4 py-2.5 rounded-lg border border-ink-700 hover:bg-ink-800 text-sm text-zinc-300">
+        <span x-show="master">Выключить всё одним кликом</span>
+        <span x-show="!master">Включить расширенный режим</span>
+      </button>
+    </div>
+    <p class="text-xs text-zinc-600 mt-2">После «Выключить всё» не забудь нажать «Сохранить».</p>
+  </form>
+</div>
+{% endblock %}

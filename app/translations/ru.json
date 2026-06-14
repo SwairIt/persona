@@ -295,5 +295,6 @@
   "dow_mon": "Пн",
   "dow_wed": "Ср",
   "dow_fri": "Пт",
-  "nav_voice": "🎙️ Голос"
+  "nav_voice": "🎙️ Голос",
+  "nav_advanced": "⚙️ Расширенные"
 }

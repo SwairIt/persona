@@ -124,15 +124,19 @@ _CHOICES_HINT = (
 )
 
 
-async def _base_prompt(user_id: int, image_data_url: str | None) -> str:
+async def _base_prompt(
+    user_id: int, image_data_url: str | None, *, choices: bool = True
+) -> str:
     """T29 — the system prompt for a turn: vision prompt (if image) or the
     user's active prompt, PLUS the user's 'about me' profile so the AI knows
     who it's talking to. T31 — также префикс идентичности Persona.
+    ``choices`` — добавлять ли подсказку про меню выбора (выкл в простом режиме).
     Used by all chat paths (send/send-stream/compare)."""
     from app.profile import get_profile, profile_block  # noqa: PLC0415
 
     base = _SYSTEM_PROMPT_VISION if image_data_url else await get_active_system_prompt()
-    return _PERSONA_IDENTITY + base + _CHOICES_HINT + profile_block(await get_profile(user_id))
+    hint = _CHOICES_HINT if choices else ""
+    return _PERSONA_IDENTITY + base + hint + profile_block(await get_profile(user_id))
 
 
 # T31 E2 — эффорт: бюджет ответа (max_tokens) + температура. Гибрид «мощности».
@@ -213,6 +217,48 @@ async def _set_auto_prompt(on: bool) -> None:
 
     async with get_connection() as conn:
         await set_kv(conn, "auto_prompt", "1" if on else "0")
+        await conn.commit()
+
+
+# ── Расширенные функции (один мастер-выключатель + по-фичам) ──────────────
+# Когда мастер ВЫКЛ — ИИ становится простым ассистентом-другом: без планов,
+# режимов, инструментов/кода, эффорта и авто-промптов.
+_ADV_FEATURES: tuple[str, ...] = ("effort", "modes", "tools", "auto_prompt", "choices")
+
+_SIMPLE_ASSISTANT_PROMPT = (
+    "Ты — Persona, личный ассистент и собеседник этого пользователя. Общайся "
+    "тепло и по-человечески: подбадривай, поддерживай, помогай советом — по "
+    "бизнесу, идеям, учёбе и жизни. Будь другом. Отвечай живо, по делу и без "
+    "воды.\n\n"
+    "ВАЖНО: ты в простом режиме. НЕ пиши код, НЕ выдавай пошаговые «планы», НЕ "
+    "предлагай и не вызывай инструменты, НЕ выполняй технических действий. Если "
+    "просят что-то техническое — просто по-дружески объясни словами или "
+    "подбодри. Отвечай по-русски."
+)
+
+
+async def get_advanced_flags() -> dict[str, bool]:
+    """Мастер-флаг ``advanced_mode`` + по-фичам ``feat_<name>``. Если мастер
+    выключен — все фичи False. Дефолт всё включено (как было раньше)."""
+    from app.storage.db import get_connection  # noqa: PLC0415
+    from app.storage.repository import get_kv  # noqa: PLC0415
+
+    async with get_connection() as conn:
+        master = (await get_kv(conn, "advanced_mode") or "1").strip() == "1"
+        flags: dict[str, bool] = {"master": master}
+        for f in _ADV_FEATURES:
+            on = (await get_kv(conn, f"feat_{f}") or "1").strip() == "1"
+            flags[f] = master and on
+    return flags
+
+
+async def set_advanced_flag(key: str, on: bool) -> None:
+    from app.storage.db import get_connection  # noqa: PLC0415
+    from app.storage.repository import set_kv  # noqa: PLC0415
+
+    kv_key = "advanced_mode" if key == "master" else f"feat_{key}"
+    async with get_connection() as conn:
+        await set_kv(conn, kv_key, "1" if on else "0")
         await conn.commit()
 
 
@@ -307,6 +353,7 @@ async def chat_index(
             "sessions": sessions,
             "active_session": None,
             "messages": [],
+            "adv": await get_advanced_flags(),
         },
     )
 
@@ -342,6 +389,7 @@ async def chat_thread(
             "effort": effort,
             "mode": mode,
             "auto_prompt": auto_prompt,
+            "adv": await get_advanced_flags(),
         },
     )
 
@@ -708,6 +756,10 @@ async def api_send_stream(
     if history and history[-1]["role"] == "user":
         history = history[:-1]
     transcript = _bounded_transcript(history)
+    # Расширенные функции: один мастер-выключатель + по-фичам. Выкл → простой
+    # ассистент-друг (без планов/режимов/инструментов/эффорта/авто-промптов).
+    adv = await get_advanced_flags()
+
     # T24 — per-session custom prompt + T25 — tool-use prompt fragment.
     custom_prompt = (thread.get("custom_system_prompt") or "").strip() if isinstance(thread, dict) else ""
     if custom_prompt:
@@ -715,11 +767,20 @@ async def api_send_stream(
             "\nНа этой странице к сообщению прикреплено изображение — "
             "рассмотри его внимательно." if image_data_url else ""
         )
+    elif not adv["master"]:
+        # Простой режим: тёплый ассистент-друг + кто пользователь (профиль).
+        from app.profile import get_profile, profile_block  # noqa: PLC0415
+
+        base_prompt = _SIMPLE_ASSISTANT_PROMPT + profile_block(
+            await get_profile(session["user_id"])
+        )
     else:
-        base_prompt = await _base_prompt(session["user_id"], image_data_url)
+        base_prompt = await _base_prompt(
+            session["user_id"], image_data_url, choices=adv["choices"]
+        )
 
     # T31 E5 — авто-подбор промпта под задачу (накладка по триггерам вопроса).
-    if await _get_auto_prompt():
+    if adv["auto_prompt"] and await _get_auto_prompt():
         from app.chat.auto_prompts import detect_overlay  # noqa: PLC0415
 
         base_prompt = base_prompt + detect_overlay(question)
@@ -731,14 +792,15 @@ async def api_send_stream(
         build_tools_prompt,
         enabled_builtin_tool_names,
     )
-    # T31 E3 — режим: инструменты доступны только в auto/bypass.
-    _mode = await _get_mode(session_id)
-    _tools_on = _mode in ("auto", "bypass")
+    # T31 E3 — режим: инструменты доступны только в auto/bypass И если фичи вкл.
+    _mode = await _get_mode(session_id) if adv["modes"] else "auto"
     enabled_tools = await enabled_builtin_tool_names()
+    _tools_on = adv["tools"] and (not adv["modes"] or _mode in ("auto", "bypass"))
     if _tools_on:
         tools_fragment = build_tools_prompt(enabled_tools)
         base_prompt = base_prompt + tools_fragment
-    base_prompt = base_prompt + _MODE_HINT.get(_mode, "")
+    if adv["modes"]:
+        base_prompt = base_prompt + _MODE_HINT.get(_mode, "")
 
     # T29 — installed skills: instruction sets the user pulled from GitHub
     # ("установи скилл <url>"). Inject enabled ones so the model follows them.
@@ -855,7 +917,7 @@ async def api_send_stream(
         # a reopened tab can poll /live and watch the answer grow in real time.
         streaming_msg_id: int | None = None
         last_save = 0.0
-        eff = await _get_effort(session_id)
+        eff = await _get_effort(session_id) if adv["effort"] else "normal"
         completion_req = CompletionRequest(
             system=system_with_history,
             user=question,

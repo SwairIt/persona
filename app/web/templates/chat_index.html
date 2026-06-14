@@ -361,19 +361,24 @@
                 📎
               </label>
 
+              {% if adv and adv.master %}
               <button type="button" @click="compareModels()"
                       class="px-2 py-1.5 rounded-lg hover:bg-ink-700 text-zinc-400 text-xs"
                       title="спросить 3 модели одновременно — сравнить ответы">
                 ⚖
               </button>
+              {% endif %}
 
+              {% if adv and adv.tools %}
               <button type="button" @click="build()"
                       :disabled="thinking || !question.trim()"
                       class="px-2 py-1.5 rounded-lg hover:bg-ink-700 text-zinc-400 text-xs disabled:opacity-40"
                       title="Собрать ответ в РЕАЛЬНЫЕ файлы (надёжно, structured output) — появятся в /workspace и на Mac">
                 📦
               </button>
+              {% endif %}
 
+              {% if adv and adv.modes %}
               {# T31 E3 — режим работы #}
               <select x-model="mode" @change="setMode(mode)"
                       class="px-2 py-1 rounded-lg bg-ink-800 border border-ink-700 text-xs text-zinc-300 focus:outline-none cursor-pointer"
@@ -383,7 +388,9 @@
                 <option value="auto">🤖 Авто</option>
                 <option value="bypass">⚡ Без спроса</option>
               </select>
+              {% endif %}
 
+              {% if adv and adv.effort %}
               {# T31 E2 — эффорт (мощность ответа) #}
               <select x-model="effort" @change="setEffort(effort)"
                       class="px-2 py-1 rounded-lg bg-ink-800 border border-ink-700 text-xs text-zinc-300 focus:outline-none cursor-pointer"
@@ -392,7 +399,9 @@
                 <option value="normal">◐ Норма</option>
                 <option value="deep">🧠 Глубоко</option>
               </select>
+              {% endif %}
 
+              {% if adv and adv.auto_prompt %}
               {# T31 E5 — авто-подбор системного промпта под задачу #}
               <button type="button" @click="toggleAutoPrompt()"
                       :class="autoPrompt ? 'bg-accent-600/30 text-accent-300 border-accent-500' : 'text-zinc-400 border-ink-700 hover:bg-ink-700'"
@@ -400,6 +409,7 @@
                       title="Авто-подбор системного промпта под тип задачи (код/перевод/анализ/…)">
                 🧩 <span x-text="autoPrompt ? 'авто-промпт ✓' : 'авто-промпт'"></span>
               </button>
+              {% endif %}
 
               {# T22.1 model picker — now lives in composer like Claude does #}
               <div class="relative" @click.outside="modelPickerOpen = false">

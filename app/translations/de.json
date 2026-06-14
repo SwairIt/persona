@@ -295,5 +295,6 @@
   "dow_mon": "Mo",
   "dow_wed": "Mi",
   "dow_fri": "Fr",
-  "nav_voice": "🎙️ Sprache"
+  "nav_voice": "🎙️ Sprache",
+  "nav_advanced": "⚙️ Erweitert"
 }
