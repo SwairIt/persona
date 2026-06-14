@@ -2,6 +2,12 @@
 
 {% block content %}
 <style>
+  /* переход из графа: вспышка-подсветка целевого сообщения */
+  .msg-flash{animation:msgFlash 2.6s ease-out}
+  @keyframes msgFlash{
+    0%,18%{background:rgba(139,92,246,.22);box-shadow:0 0 0 2px rgba(139,92,246,.5);border-radius:14px}
+    100%{background:transparent;box-shadow:0 0 0 0 transparent;border-radius:14px}
+  }
   /* T31 — стойкая подсветка оценённых фрагментов ответа */
   .span-rate{border-radius:3px;padding:0 2px;cursor:pointer}
   .span-rate:hover{outline:1px dashed rgba(255,255,255,.5);outline-offset:1px}
@@ -148,7 +154,8 @@
       <div id="chat-scroll" class="flex-1 overflow-y-auto overflow-x-hidden px-4 sm:px-8 py-6 space-y-6 max-w-3xl mx-auto w-full"
            x-ref="scroll">
         <template x-for="(msg, mIdx) in messages" :key="msg.id">
-          <div :class="msg.role === 'system' ? 'flex justify-center' : (msg.role === 'user' ? 'flex flex-col gap-2' : 'block')">
+          <div :id="'msg-' + msg.id"
+               :class="msg.role === 'system' ? 'flex justify-center' : (msg.role === 'user' ? 'flex flex-col gap-2' : 'block')">
             {# T22.8 (2026-06-08): Claude-style user message:
                1. Image как отдельный chip ВЫШЕ текста (если есть)
                2. Text в bubble подогнанной под content (не max-w-85%)
@@ -662,9 +669,26 @@
           const el = document.getElementById('chat-scroll');
           if (el) el.addEventListener('scroll', () => this.onScroll(), { passive: true });
         });
+        // Граф памяти → ?msg=<id>: проскроллить к сообщению и подсветить.
+        this.jumpToMessage();
         // T29 — if the answer is still being generated (tab reopened
         // mid-stream), attach and show it growing in real time.
         this.resumeLive();
+      },
+
+      // Переход к конкретному сообщению (из графа памяти ?msg=ID)
+      jumpToMessage() {
+        try {
+          const mid = new URLSearchParams(location.search).get('msg');
+          if (!mid) return;
+          this.$nextTick(() => setTimeout(() => {
+            const el = document.getElementById('msg-' + mid);
+            if (!el) return;
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            el.classList.add('msg-flash');
+            setTimeout(() => el.classList.remove('msg-flash'), 2600);
+          }, 250));
+        } catch (e) { /* ignore */ }
       },
 
       // T31 E9 — черновик в localStorage по сессии
@@ -938,7 +962,7 @@
         uniq.forEach((sp, i) => {
           const needle = esc(sp.text);
           if (html.indexOf(needle) === -1) return;
-          const token = ' SR' + i + ' ';
+          const token = '@@SR' + i + '@@';
           const cls = (sp.rating > 0) ? 'span-like' : 'span-dislike';
           marks.push({ token, cls, inner: needle });
           html = html.split(needle).join(token);

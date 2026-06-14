@@ -71,7 +71,12 @@ async def graph_data(
         nid = f"d{d}"
         if d not in seen_days:
             seen_days.add(d)
-            nodes.append({"id": nid, "type": "day", "label": d})
+            nodes.append({
+                "id": nid, "type": "day", "label": d,
+                "at": d, "where": "День записи",
+                "full": "Все скриншоты, звук и карточки памяти за этот день.",
+                "href": f"/timeline?date={d}",
+            })
         return nid
 
     async with get_connection() as conn:
@@ -83,12 +88,17 @@ async def graph_data(
         )
         sessions = await cur.fetchall()
         sess_ids = [int(s["id"]) for s in sessions]
+        titles: dict[int, str] = {}
         summary_cut: dict[int, int] = {}
         for s in sessions:
             sid = int(s["id"])
+            title = s["title"] or f"Чат {sid}"
+            titles[sid] = title
             nodes.append({
                 "id": f"s{sid}", "type": "session",
-                "label": _short(s["title"] or f"Чат {sid}", 30),
+                "label": _short(title, 30),
+                "at": str(s["created_at"] or ""), "where": "Чат",
+                "full": title, "href": f"/chat/{sid}",
             })
             dn = day_node(s["created_at"])
             if dn:
@@ -99,6 +109,9 @@ async def graph_data(
                 nodes.append({
                     "id": f"sum{sid}", "type": "summary",
                     "label": "сжато: " + _short(s["summary"], 38),
+                    "at": str(s["created_at"] or ""),
+                    "where": f"Конспект чата «{_short(title, 40)}»",
+                    "full": str(s["summary"]), "href": f"/chat/{sid}",
                 })
                 links.append({"a": f"sum{sid}", "b": f"s{sid}"})
 
@@ -128,6 +141,11 @@ async def graph_data(
                 "type": "prompt" if is_user else "answer",
                 "label": _short(m["content"], 46),
                 "compressed": compressed,
+                "at": str(m["created_at"] or ""),
+                "where": ("Твой вопрос" if is_user else "Ответ Persona")
+                + f" в чате «{_short(titles.get(sid, f'Чат {sid}'), 36)}»",
+                "full": str(m["content"] or "")[:1200],
+                "href": f"/chat/{sid}?msg={mid}",
             })
             links.append({"a": f"m{mid}", "b": f"s{sid}"})
             dn = day_node(m["created_at"])
@@ -153,10 +171,22 @@ async def graph_data(
             spoke = (c["audio_seconds"] or 0) > 0 or bool((c["transcript_excerpt"] or "").strip())
             label = _short(c["transcript_excerpt"] or c["summary"], 44) or "час памяти"
             nid = f"h{hs}"
+            day = _day(hs)
+            full_parts = []
+            if (c["summary"] or "").strip():
+                full_parts.append(str(c["summary"]).strip())
+            if (c["transcript_excerpt"] or "").strip():
+                full_parts.append("Речь: " + str(c["transcript_excerpt"]).strip())
+            if c["audio_seconds"]:
+                full_parts.append(f"Звука: ~{int(c['audio_seconds'] // 60)} мин")
             nodes.append({
                 "id": nid,
                 "type": "recording" if spoke else "memory",
                 "label": label,
+                "at": str(hs or ""),
+                "where": "Запись (экран + звук)" if spoke else "Карточка памяти",
+                "full": "\n\n".join(full_parts) or "Час записи без расшифровки.",
+                "href": f"/timeline?date={day}" if day else "/timeline",
             })
             dn = day_node(hs)
             if dn:

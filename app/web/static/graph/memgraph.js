@@ -129,12 +129,19 @@
   const at = (e) => { const r = canvas.getBoundingClientRect(); const t = e.touches ? e.touches[0] : e; return { x: t.clientX - r.left, y: t.clientY - r.top, cx: t.clientX, cy: t.clientY }; };
   const pick = (p) => { if (!sim) return -1; let b = -1, bd = 18 * 18; for (let i = 0; i < sim.nodes.length; i++) { const dx = sim.nodes[i].x - p.x, dy = sim.nodes[i].y - p.y, d = dx * dx + dy * dy; if (d < bd) { bd = d; b = i; } } return b; };
   canvas.style.touchAction = 'none';
-  canvas.addEventListener('pointerdown', (e) => { if (!sim) return; sim.drag = pick(at(e)); if (sim.drag >= 0) { canvas.classList.add('grabbing'); sim.alpha = Math.max(sim.alpha, 0.6); } });
+  canvas.addEventListener('pointerdown', (e) => {
+    if (!sim) return;
+    sim.drag = pick(at(e));
+    sim.downNode = sim.drag; sim.downX = e.clientX; sim.downY = e.clientY; sim.moved = false;
+    if (sim.drag >= 0) { canvas.classList.add('grabbing'); sim.alpha = Math.max(sim.alpha, 0.6); }
+  });
   canvas.addEventListener('pointermove', (e) => {
     if (!sim) return;
     const p = at(e);
-    if (sim.drag >= 0) { const n = sim.nodes[sim.drag]; n.x = p.x; n.y = p.y; n.vx = n.vy = 0; sim.alpha = Math.max(sim.alpha, 0.5); }
-    else {
+    if (sim.drag >= 0) {
+      if (Math.abs(e.clientX - sim.downX) + Math.abs(e.clientY - sim.downY) > 5) sim.moved = true;
+      const n = sim.nodes[sim.drag]; n.x = p.x; n.y = p.y; n.vx = n.vy = 0; sim.alpha = Math.max(sim.alpha, 0.5);
+    } else {
       sim.hover = pick(p);
       canvas.style.cursor = sim.hover >= 0 ? 'grab' : 'default';
       if (sim.hover >= 0 && tip) {
@@ -148,8 +155,60 @@
       } else if (tip) tip.hidden = true;
     }
   });
-  addEventListener('pointerup', () => { if (sim) sim.drag = -1; canvas.classList.remove('grabbing'); });
+  addEventListener('pointerup', (e) => {
+    if (sim) {
+      // клик (без перетаскивания): смещение считаем прямо здесь по координатам
+      const dx = Math.abs((e.clientX != null ? e.clientX : sim.downX) - sim.downX);
+      const dy = Math.abs((e.clientY != null ? e.clientY : sim.downY) - sim.downY);
+      if (dx + dy <= 6) {
+        if (sim.downNode >= 0) openDetail(sim.nodes[sim.downNode]);
+        else if (sim.downNode === -1 && e.target === canvas) closeDetail();
+      }
+      sim.drag = -1; sim.downNode = -2;
+    }
+    canvas.classList.remove('grabbing');
+  });
   canvas.addEventListener('pointerleave', () => { if (sim && sim.drag < 0) { sim.hover = -1; if (tip) tip.hidden = true; } });
+
+  // --- карточка деталей узла ---
+  const detailEl = document.getElementById('mg-detail');
+  const dType = document.getElementById('mg-detail-type');
+  const dLabel = document.getElementById('mg-detail-label');
+  const dMeta = document.getElementById('mg-detail-meta');
+  const dFull = document.getElementById('mg-detail-full');
+  const dGo = document.getElementById('mg-detail-go');
+  const dX = document.getElementById('mg-detail-x');
+  if (dX) dX.addEventListener('click', closeDetail);
+
+  function fmtTime(s) {
+    if (!s) return '';
+    const iso = String(s).replace(' ', 'T');
+    const d = new Date(iso);
+    if (isNaN(d)) return String(s);
+    try {
+      return d.toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+    } catch (e) { return String(s); }
+  }
+  const GO_LABEL = {
+    prompt: 'Открыть в чате →', answer: 'Открыть в чате →', session: 'Открыть чат →',
+    summary: 'Открыть чат →', day: 'Открыть день в хранилище →',
+    recording: 'Смотреть записи дня →', memory: 'Смотреть записи дня →',
+  };
+  function openDetail(n) {
+    if (!n || !detailEl) return;
+    const t = TYPES[n.type] || TYPES.prompt;
+    dType.textContent = t.label + (n.compressed ? ' · сжато' : '');
+    dType.style.background = `rgb(${t.c})`;
+    dLabel.textContent = n.label || '';
+    const when = fmtTime(n.at);
+    dMeta.textContent = [n.where || '', when].filter(Boolean).join(' · ');
+    dFull.textContent = n.full || '';
+    dFull.hidden = !n.full;
+    if (n.href) { dGo.hidden = false; dGo.href = n.href; dGo.textContent = GO_LABEL[n.type] || 'Перейти →'; }
+    else dGo.hidden = true;
+    detailEl.hidden = false;
+  }
+  function closeDetail() { if (detailEl) detailEl.hidden = true; }
 
   // --- физика (по cfg.phys), мягкие границы вместо жёсткого клампа в углы ---
   function step() {

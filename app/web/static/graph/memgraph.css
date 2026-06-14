@@ -43,6 +43,32 @@
 .mg-empty a{color:#a78bfa;text-decoration:underline}
 .mg-panel-note{color:#7c7fa6;font-size:.72rem;line-height:1.5;margin:12px 0 0;padding-top:12px;border-top:1px solid rgba(255,255,255,.08)}
 
+/* --- карточка деталей узла (по клику), слева-снизу над легендой --- */
+.mg-detail{
+  position:absolute;left:16px;bottom:16px;z-index:8;width:min(380px,calc(100vw - 32px));
+  max-height:calc(100% - 96px);overflow-y:auto;
+  background:rgba(11,11,24,.96);border:1px solid rgba(167,139,250,.4);border-radius:16px;
+  padding:18px 18px 16px;box-shadow:0 20px 60px rgba(0,0,0,.6);backdrop-filter:blur(10px);
+  animation:mgDetailIn .22s cubic-bezier(.16,.84,.34,1);
+}
+.mg-detail[hidden]{display:none}
+@keyframes mgDetailIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+.mg-detail-x{position:absolute;top:10px;right:12px;background:none;border:none;color:#9aa0c8;
+  font-size:1rem;cursor:pointer;padding:4px;line-height:1}
+.mg-detail-x:hover{color:#fff}
+.mg-detail-type{display:inline-block;font-family:ui-monospace,monospace;font-size:.7rem;
+  letter-spacing:.05em;text-transform:uppercase;color:#0a0a18;font-weight:700;
+  padding:2px 8px;border-radius:6px;background:#a78bfa}
+.mg-detail-label{font-size:1.02rem;font-weight:700;color:#f2f3ff;margin:10px 0 4px;line-height:1.35}
+.mg-detail-meta{font-size:.78rem;color:#9aa0c8;margin-bottom:10px}
+.mg-detail-full{font-size:.86rem;color:#c7cbe6;line-height:1.55;white-space:pre-wrap;word-break:break-word;
+  max-height:240px;overflow-y:auto;padding-right:4px}
+.mg-detail-go{display:inline-flex;align-items:center;gap:6px;margin-top:14px;
+  background:linear-gradient(110deg,#7c5cff,#36e0ff);color:#fff;font-weight:600;font-size:.88rem;
+  padding:9px 16px;border-radius:10px;text-decoration:none;transition:filter .2s}
+.mg-detail-go:hover{filter:brightness(1.12)}
+.mg-detail-go[hidden]{display:none}
+
 /* --- панель настроек графа --- */
 .mg-panel-btn{
   position:absolute;top:12px;right:12px;z-index:6;cursor:pointer;
