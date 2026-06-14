@@ -65,8 +65,8 @@
   <script src="https://unpkg.com/htmx.org@2.0.4" defer></script>
   <script defer src="https://unpkg.com/alpinejs@3.14.7/dist/cdn.min.js"></script>
   <link rel="stylesheet" href="/static/css/app.css">
-  <link rel="stylesheet" href="/static/persona_theme.css">
-  {% if _persona_theme in ['cosmos', 'cosmos-dark'] %}<link rel="stylesheet" href="/static/cosmos_theme.css">{% endif %}
+  <link rel="stylesheet" href="/static/persona_theme.css?v={{ app_version }}">
+  {% if _persona_theme in ['cosmos', 'cosmos-dark'] %}<link rel="stylesheet" href="/static/cosmos_theme.css?v={{ app_version }}">{% endif %}
   <link rel="stylesheet" href="/static/compact_mode.css">
   <link rel="stylesheet" href="/static/grayscale.css">
   <link rel="stylesheet" href="/static/reduce_motion.css">
@@ -519,7 +519,7 @@
   {% include "_help_widget.html" ignore missing %}
   {% if _persona_theme in ['cosmos', 'cosmos-dark'] %}
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js" defer></script>
-  <script src="/static/cosmos_scene.js" defer></script>
+  <script src="/static/cosmos_scene.js?v={{ app_version }}" defer></script>
   {% endif %}
 </body>
 </html>

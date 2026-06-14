@@ -38,8 +38,8 @@
     html,body{margin:0;background:#08080f;color:#eef0ff}
     .preload *{transition:none!important;animation:none!important}
   </style>
-  <link rel="stylesheet" href="/static/landing/style.css" />
-  <link rel="stylesheet" href="/static/landing/landing3d.css" />
+  <link rel="stylesheet" href="/static/landing/style.css?v={{ app_version }}" />
+  <link rel="stylesheet" href="/static/landing/landing3d.css?v={{ app_version }}" />
 </head>
 
 <body class="preload">
@@ -535,11 +535,11 @@
   })();
   </script>
 
-  <script src="/static/landing/graph.js" defer></script>
+  <script src="/static/landing/graph.js?v={{ app_version }}" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js" defer></script>
-  <script src="/static/landing/scene3d.js" defer></script>
+  <script src="/static/landing/scene3d.js?v={{ app_version }}" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js" defer></script>
-  <script src="/static/landing/main.js" defer></script>
+  <script src="/static/landing/main.js?v={{ app_version }}" defer></script>
 </body>
 </html>

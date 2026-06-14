@@ -11,35 +11,41 @@
 /* ---------- фон ---------- */
 .theme-cosmos body{
   background:
-    radial-gradient(1100px 760px at 12% -6%, rgba(124,58,237,.20), transparent 58%),
-    radial-gradient(1000px 700px at 98% 6%, rgba(34,211,238,.12), transparent 56%),
-    radial-gradient(1150px 880px at 50% 120%, rgba(232,121,249,.14), transparent 60%),
-    #06061180 0%, #050510 100% !important;
-  background-color:#050510 !important;
+    radial-gradient(620px 520px at -6% -14%, rgba(139,92,246,.42), transparent 62%),
+    radial-gradient(640px 540px at 107% 106%, rgba(232,121,249,.34), transparent 64%),
+    radial-gradient(540px 460px at 110% 4%, rgba(34,211,238,.22), transparent 62%),
+    radial-gradient(480px 420px at -8% 70%, rgba(56,90,255,.18), transparent 64%),
+    #030309 !important;
+  background-color:#030309 !important;
   background-attachment: fixed !important;
 }
 .theme-cosmos-dark body{
   background:
-    radial-gradient(1000px 720px at 12% -6%, rgba(99,60,200,.16), transparent 58%),
-    radial-gradient(900px 680px at 98% 8%, rgba(34,211,238,.08), transparent 56%),
-    #020208 !important;
-  background-color:#020208 !important;
+    radial-gradient(900px 700px at 6% -8%, rgba(124,58,237,.32), transparent 56%),
+    radial-gradient(820px 640px at 102% 2%, rgba(34,211,238,.20), transparent 54%),
+    radial-gradient(1000px 800px at 52% 122%, rgba(232,121,249,.22), transparent 58%),
+    #010106 !important;
+  background-color:#010106 !important;
 }
 
 /* ---------- слои за контентом ---------- */
 .theme-cosmos #cosmos-scene{
-  position:fixed;inset:0;width:100vw;height:100vh;z-index:-3;pointer-events:none;opacity:.55;
+  position:fixed;inset:0;width:100vw;height:100vh;z-index:-3;pointer-events:none;opacity:.85;
 }
-.theme-cosmos-dark #cosmos-scene{opacity:.38}
+.theme-cosmos-dark #cosmos-scene{opacity:.55}
 
-/* равномерная тёмная вуаль — текст поверх фона читается ВЕЗДЕ, а звёзды
-   (additive, яркие) всё равно пробиваются → космос сохраняется */
+/* ВИНЬЕТКА вместо плоского налёта: центр сочный, края затемнены рамкой +
+   мягкая тень под шапкой, чтобы верхний текст читался. Серость убрана. */
 .theme-cosmos .cosmos-scrim{
   position:fixed;inset:0;z-index:-1;pointer-events:none;
-  background:linear-gradient(180deg, rgba(5,4,16,.55), rgba(5,4,16,.66));
+  background:
+    linear-gradient(180deg, rgba(3,3,9,.82) 0, rgba(3,3,9,0) 230px),
+    radial-gradient(ellipse 130% 110% at 50% 40%, transparent 55%, rgba(3,3,9,.45) 100%);
 }
 .theme-cosmos-dark .cosmos-scrim{
-  background:linear-gradient(180deg, rgba(2,2,8,.72), rgba(2,2,8,.8));
+  background:
+    linear-gradient(180deg, rgba(1,1,6,.72) 0, rgba(1,1,6,0) 160px),
+    radial-gradient(ellipse 115% 95% at 50% 42%, transparent 34%, rgba(1,1,6,.72) 100%);
 }
 
 .theme-cosmos .cosmos-stars{position:fixed;inset:0;z-index:-2;pointer-events:none;overflow:hidden}
@@ -64,9 +70,9 @@
 
 /* ---------- ПЛОТНЫЕ панели (без «тумана», текст читается) ---------- */
 .theme-cosmos .bg-ink-950{ background-color: transparent !important; }
-.theme-cosmos .bg-ink-900{ background-color: rgba(16,16,34,.92) !important; backdrop-filter: blur(12px) saturate(130%); -webkit-backdrop-filter: blur(12px) saturate(130%); }
-.theme-cosmos .bg-ink-800{ background-color: rgba(26,26,52,.92) !important; }
-.theme-cosmos .bg-white{ background-color: rgba(20,20,42,.92) !important; }
+.theme-cosmos .bg-ink-900{ background-color: rgba(12,12,26,.96) !important; }
+.theme-cosmos .bg-ink-800{ background-color: rgba(20,20,42,.96) !important; }
+.theme-cosmos .bg-white{ background-color: rgba(15,15,32,.96) !important; }
 .theme-cosmos .bg-zinc-50{ background-color: transparent !important; }
 .theme-cosmos .bg-ink-800\/60,
 .theme-cosmos .bg-ink-800\/50,
