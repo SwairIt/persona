@@ -216,10 +216,37 @@ section{position:relative}
 .login-form{display:flex;flex-direction:column;gap:14px}
 .login-field{display:flex;flex-direction:column;gap:6px}
 .login-field span{font-size:.76rem;color:var(--ink-dim);font-family:var(--font-mono)}
-.login-field input{width:100%;padding:12px 14px;border-radius:12px;background:rgba(255,255,255,.06);
+.login-field input{width:100%;padding:12px 14px;border-radius:12px;background:rgba(18,17,38,.92);
   border:1px solid rgba(255,255,255,.14);color:var(--ink);font-size:1rem;outline:none;
-  transition:border-color .2s,background .2s}
-.login-field input:focus{border-color:var(--violet);background:rgba(255,255,255,.10)}
+  transition:border-color .2s,box-shadow .2s,background .2s}
+.login-field input:focus{border-color:var(--violet);background:rgba(24,22,48,.95);
+  box-shadow:0 0 0 3px rgba(139,92,246,.22)}
+/* убрать нативные кнопки Edge/IE (квадратики reveal/clear в полях) */
+.login-dialog input::-ms-reveal,
+.login-dialog input::-ms-clear{display:none!important}
+/* показать/скрыть пароль */
+.login-pass-wrap{position:relative;display:flex;align-items:center}
+.login-pass-wrap input{padding-right:46px}
+.login-eye{position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;
+  cursor:pointer;padding:7px;border-radius:8px;color:var(--ink-dim);display:flex;transition:.15s}
+.login-eye:hover{color:#fff;background:rgba(255,255,255,.07)}
+.login-eye svg{width:20px;height:20px;stroke:currentColor;stroke-width:1.7;fill:none;
+  stroke-linecap:round;stroke-linejoin:round}
+.login-eye .eye-off{display:none}
+.login-eye.revealed .eye-on{display:none}
+.login-eye.revealed .eye-off{display:inline}
+.login-caps{display:none;margin-top:7px;font-size:.78rem;color:#fbbf24;
+  font-family:var(--font-mono);animation:lmFade .2s ease}
+.login-caps.show{display:block}
+/* спиннер на кнопке входа */
+.login-submit.loading .ls-label{opacity:.5}
+.ls-spin{width:17px;height:17px;border-radius:50%;border:2px solid rgba(255,255,255,.4);
+  border-top-color:#fff;animation:lmSpin .7s linear infinite;margin-left:9px}
+@keyframes lmSpin{to{transform:rotate(360deg)}}
+/* тряска диалога при ошибке */
+.login-dialog.shake{animation:lmShake .4s cubic-bezier(.36,.07,.19,.97)}
+@keyframes lmShake{10%,90%{transform:translateX(-2px)}20%,80%{transform:translateX(4px)}
+  30%,50%,70%{transform:translateX(-7px)}40%,60%{transform:translateX(7px)}}
 .login-submit{width:100%;margin-top:6px;display:flex;align-items:center;justify-content:center}
 .login-msg{margin-top:14px;padding:10px 12px;border-radius:10px;font-size:.88rem;line-height:1.45}
 .login-msg.ok{background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.3);color:#86efac}

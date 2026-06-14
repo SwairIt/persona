@@ -394,9 +394,19 @@
         </label>
         <label class="login-field">
           <span>Пароль</span>
-          <input type="password" id="lm-pass" name="password" required placeholder="••••••••" autocomplete="current-password" />
+          <div class="login-pass-wrap">
+            <input type="password" id="lm-pass" name="password" required placeholder="••••••••" autocomplete="current-password" />
+            <button type="button" class="login-eye" id="lm-eye" aria-label="Показать пароль" aria-pressed="false">
+              <svg class="eye-on" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+              <svg class="eye-off" viewBox="0 0 24 24" hidden><path d="M9.9 4.24A9.1 9.1 0 0 1 12 4c6.5 0 10 7 10 7a13.2 13.2 0 0 1-1.67 2.68"/><path d="M6.6 6.6A13.5 13.5 0 0 0 2 12s3.5 7 10 7a9.1 9.1 0 0 0 5.4-1.6"/><path d="m9.9 9.9a3 3 0 0 0 4.2 4.2"/><line x1="2" y1="2" x2="22" y2="22"/></svg>
+            </button>
+          </div>
+          <span class="login-caps" id="lm-caps" hidden>⇪ включён Caps Lock</span>
         </label>
-        <button type="submit" class="btn btn-primary btn-lg login-submit">Войти</button>
+        <button type="submit" class="btn btn-primary btn-lg login-submit" id="lm-submit">
+          <span class="ls-label">Войти</span>
+          <span class="ls-spin" hidden></span>
+        </button>
       </form>
 
       <div class="login-msg" id="lm-msg" role="status" hidden></div>
@@ -462,14 +472,37 @@
       document.addEventListener('keydown', function(e){ if(e.key==='Escape' && !modal.hidden) closeModal(); });
     }
 
+    // показать/скрыть пароль
+    var lmEye=document.getElementById('lm-eye');
+    if(lmEye&&lmPass){ lmEye.addEventListener('click', function(){
+      var show=lmPass.type==='password'; lmPass.type=show?'text':'password';
+      lmEye.classList.toggle('revealed', show);
+      lmEye.setAttribute('aria-pressed', show?'true':'false');
+      lmEye.setAttribute('aria-label', show?'Скрыть пароль':'Показать пароль');
+      lmPass.focus();
+    }); }
+    // предупреждение Caps Lock
+    var lmCaps=document.getElementById('lm-caps');
+    function capsCheck(e){ if(!lmCaps||!e.getModifierState)return; lmCaps.classList.toggle('show', e.getModifierState('CapsLock')); }
+    if(lmPass){ lmPass.addEventListener('keydown', capsCheck); lmPass.addEventListener('keyup', capsCheck); }
+    // запомнить email
+    try{ var rem=localStorage.getItem('persona_email'); if(rem&&lmEmail&&!lmEmail.value) lmEmail.value=rem; }catch(e){}
+
+    var dialog=modal?modal.querySelector('.login-dialog'):null;
+    var lmSubmit=document.getElementById('lm-submit');
+    function lmBusy(on){ if(!lmSubmit)return; lmSubmit.classList.toggle('loading',on); lmSubmit.disabled=on;
+      var sp=lmSubmit.querySelector('.ls-spin'); if(sp)sp.hidden=!on; }
+    function lmShake(){ if(!dialog)return; dialog.classList.remove('shake'); void dialog.offsetWidth; dialog.classList.add('shake'); }
+
     var lmPwForm=document.getElementById('lm-pw-form');
     if(lmPwForm){ lmPwForm.addEventListener('submit', async function(e){
       e.preventDefault();
       var email=(lmEmail.value||'').trim(), password=lmPass.value;
-      lmShow('Вхожу…', true);
+      try{ localStorage.setItem('persona_email', email); }catch(err){}
+      lmBusy(true); lmShow('Вхожу…', true);
       var res=await post('/auth/login',{email:email,password:password});
-      if(res.ok&&res.redirect){ window.location=res.redirect; }
-      else { lmShow(res.error||'Неверный email или пароль.', false); }
+      if(res.ok&&res.redirect){ lmShow('Готово! Открываю кабинет…', true); window.location=res.redirect; }
+      else { lmBusy(false); lmShow(res.error||'Неверный email или пароль.', false); lmShake(); }
     }); }
 
     var lmMagic=document.getElementById('lm-magic');

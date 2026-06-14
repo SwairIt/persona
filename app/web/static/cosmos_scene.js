@@ -68,7 +68,7 @@
     'void main(){float fres=pow(1.0-max(dot(vView,vNormal),0.0),2.4);',
     ' float hue=fract(uHue+fres*0.32+vDisp*0.4+uTime*0.02);',
     ' vec3 glow=hsv2rgb(vec3(hue,0.68,1.0));vec3 base=hsv2rgb(vec3(fract(hue+0.5),0.5,0.2));',
-    ' vec3 col=mix(base,glow,clamp(fres*1.2,0.0,1.0))+glow*fres*0.6;gl_FragColor=vec4(col,0.85);}',
+    ' vec3 col=mix(base,glow,clamp(fres*1.2,0.0,1.0))+glow*fres*0.6;gl_FragColor=vec4(col,0.6);}',
   ].join('\n');
 
   var uniforms = { uTime: { value: 0 }, uAmp: { value: 0.22 }, uHue: { value: 0.7 } };
@@ -80,8 +80,8 @@
   scene.add(blob);
 
   var rings = new THREE.Group();
-  var rm1 = new THREE.MeshBasicMaterial({ color: 0x8ea2ff, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending });
-  var rm2 = new THREE.MeshBasicMaterial({ color: 0x46e6ff, transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending });
+  var rm1 = new THREE.MeshBasicMaterial({ color: 0x8ea2ff, transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending });
+  var rm2 = new THREE.MeshBasicMaterial({ color: 0x46e6ff, transparent: true, opacity: 0.18, blending: THREE.AdditiveBlending });
   rings.add(new THREE.Mesh(new THREE.TorusGeometry(2.35, 0.011, 8, 170), rm1));
   rings.add(new THREE.Mesh(new THREE.TorusGeometry(2.75, 0.007, 8, 170), rm2));
   rings.rotation.x = Math.PI * 0.46; rings.rotation.y = Math.PI * 0.1;
@@ -117,9 +117,10 @@
   function resize() {
     camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight, false);
-    // планета смещена вправо-вверх, чтобы не мешать контенту
-    blob.position.x = camera.aspect > 1 ? 2.4 : 0.6;
-    blob.position.y = camera.aspect > 1 ? 1.0 : 2.2;
+    // планета — небольшой акцент в дальнем правом-верхнем углу, не мешает контенту
+    blob.position.x = camera.aspect > 1 ? 3.2 : 0.9;
+    blob.position.y = camera.aspect > 1 ? 1.9 : 2.7;
+    blob.position.z = -1.6;
   }
   window.addEventListener('resize', resize, { passive: true });
   resize();
@@ -131,12 +132,11 @@
     uniforms.uAmp.value = 0.18 + Math.sin(time * 1.1) * 0.05;
     uniforms.uHue.value = 0.62 + Math.sin(time * 0.05) * 0.18; // медленная смена палитры
 
-    var sc = 1.0 + Math.sin(time * 0.7) * 0.05;
+    var sc = 0.72 + Math.sin(time * 0.7) * 0.04;
     blob.scale.setScalar(sc);
     blob.rotation.y = time * 0.1; blob.rotation.x = Math.sin(time * 0.2) * 0.25;
-    blob.position.x += cmx * 0.0; // позиция фиксируется в resize; параллакс через камеру
     rings.position.copy(blob.position); rings.scale.setScalar(sc * 1.3);
-    rings.rotation.z = time * 0.1; rm1.opacity = 0.36 + Math.sin(time * 0.8) * 0.14; rm2.opacity = 0.24 + Math.cos(time * 0.6) * 0.1;
+    rings.rotation.z = time * 0.1; rm1.opacity = 0.2 + Math.sin(time * 0.8) * 0.1; rm2.opacity = 0.13 + Math.cos(time * 0.6) * 0.07;
 
     starsFar.rotation.y = time * 0.005; starsFar.position.x = -cmx * 0.5; starsFar.position.y = -cmy * 0.35;
     starsNear.rotation.y = -time * 0.008; starsNear.position.x = -cmx * 1.3; starsNear.position.y = -cmy * 0.9;

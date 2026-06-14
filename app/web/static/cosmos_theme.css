@@ -15,17 +15,17 @@
   background-attachment: fixed !important;
 }
 
-/* слои фона */
+/* слои фона — ОТРИЦАТЕЛЬНЫЙ z-index: за контентом, ничего не репозиционируем */
 .theme-cosmos #cosmos-scene{
-  position:fixed;inset:0;width:100vw;height:100vh;z-index:0;pointer-events:none;
+  position:fixed;inset:0;width:100vw;height:100vh;z-index:-3;pointer-events:none;
 }
 .theme-cosmos .cosmos-scrim{
-  position:fixed;inset:0;z-index:0;pointer-events:none;
+  position:fixed;inset:0;z-index:-1;pointer-events:none;
   background:
-    radial-gradient(120% 80% at 50% 0%, transparent 40%, rgba(5,4,16,.5) 100%),
-    linear-gradient(180deg, rgba(5,4,16,.42), rgba(5,4,16,.6));
+    radial-gradient(130% 90% at 50% 0%, transparent 55%, rgba(5,4,16,.34) 100%),
+    linear-gradient(180deg, rgba(5,4,16,.18), rgba(5,4,16,.34));
 }
-.theme-cosmos .cosmos-stars{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
+.theme-cosmos .cosmos-stars{position:fixed;inset:0;z-index:-2;pointer-events:none;overflow:hidden}
 .theme-cosmos .cosmos-stars::before,
 .theme-cosmos .cosmos-stars::after{
   content:"";position:absolute;inset:-50%;
@@ -44,21 +44,16 @@
   .theme-cosmos .cosmos-stars::before,.theme-cosmos .cosmos-stars::after{animation:none}
 }
 
-/* контент поверх сцены/скрима */
-.theme-cosmos body > *:not(#cosmos-scene):not(.cosmos-stars):not(.cosmos-scrim){
-  position:relative;z-index:2;
-}
-
-/* ---------- стеклянные поверхности ---------- */
+/* ---------- стеклянные поверхности (плотнее — чтобы не было «тумана») ---------- */
 .theme-cosmos .bg-ink-950{ background-color: transparent !important; }
-.theme-cosmos .bg-ink-900{ background-color: rgba(13,13,30,.64) !important; backdrop-filter: blur(10px) saturate(135%); -webkit-backdrop-filter: blur(10px) saturate(135%); }
-.theme-cosmos .bg-ink-800{ background-color: rgba(22,22,46,.62) !important; }
-.theme-cosmos .bg-white{ background-color: rgba(16,16,36,.60) !important; }
+.theme-cosmos .bg-ink-900{ background-color: rgba(15,15,32,.86) !important; backdrop-filter: blur(12px) saturate(135%); -webkit-backdrop-filter: blur(12px) saturate(135%); }
+.theme-cosmos .bg-ink-800{ background-color: rgba(24,24,50,.84) !important; }
+.theme-cosmos .bg-white{ background-color: rgba(18,18,40,.84) !important; }
 .theme-cosmos .bg-zinc-50{ background-color: transparent !important; }
 .theme-cosmos .bg-ink-800\/60,
 .theme-cosmos .bg-ink-800\/50,
 .theme-cosmos .bg-zinc-800\/60,
-.theme-cosmos .bg-zinc-100{ background-color: rgba(26,26,52,.5) !important; }
+.theme-cosmos .bg-zinc-100{ background-color: rgba(28,28,56,.7) !important; }
 
 /* границы с космо-оттенком */
 .theme-cosmos .border-ink-700,
