@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request
@@ -31,6 +32,15 @@ router = APIRouter(tags=["memory-graph"])
 
 _MAX_MESSAGES = 220   # последние N сообщений (чтобы граф был живой, но не тяжёлый)
 _MAX_CARDS = 60
+
+# слова с большой буквы, которые НЕ являются именами/сущностями (частые начала
+# предложений и общие термины) — не связываем по ним узлы графа.
+_ENTITY_STOP: frozenset[str] = frozenset({
+    "это", "вот", "если", "когда", "потом", "сейчас", "также", "можно", "нужно",
+    "давай", "хорошо", "ладно", "спасибо", "привет", "конечно", "persona",
+    "ты", "мне", "как", "что", "там", "они", "она", "для", "при", "persona",
+    "да", "нет", "ок", "итак", "кстати", "например", "однако", "просто",
+})
 
 
 def _short(text: str | None, n: int = 46) -> str:
@@ -158,6 +168,32 @@ async def graph_data(
                 pu = prev_user_by_session.get(sid)
                 if pu in present:
                     links.append({"a": f"m{pu}", "b": f"m{mid}"})
+
+        # --- СМЫСЛОВЫЕ связи: сообщения, где упоминается одно и то же имя/
+        # сущность (с большой буквы), соединяем между собой. Так граф
+        # «связывается» по людям и темам (напр. все сообщения про «Олег»). ---
+        ent_to_mids: dict[str, list[int]] = {}
+        for m in msgs:
+            mid = int(m["id"])
+            ents = set(re.findall(r"\b[A-ZА-ЯЁ][A-Za-zА-Яа-яЁё-]{2,}\b", m["content"] or ""))
+            for e in ents:
+                low = e.lower()
+                if low in _ENTITY_STOP:
+                    continue
+                ent_to_mids.setdefault(low, []).append(mid)
+        ent_link_count = 0
+        for _ent, mids in ent_to_mids.items():
+            uniq = list(dict.fromkeys(mids))
+            if len(uniq) < 2:
+                continue
+            # цепочкой (не полный граф), чтобы не плодить рёбра
+            for a, b in zip(uniq, uniq[1:]):
+                links.append({"a": f"m{a}", "b": f"m{b}", "kind": "entity"})
+                ent_link_count += 1
+                if ent_link_count >= 250:
+                    break
+            if ent_link_count >= 250:
+                break
 
         # --- карточки памяти / записи ---
         cur = await conn.execute(

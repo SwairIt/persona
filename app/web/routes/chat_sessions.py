@@ -792,6 +792,27 @@ async def api_send_stream(
 
         base_prompt = base_prompt + detect_overlay(question)
 
+    # ПАМЯТЬ ПО ВСЕМ ЧАТАМ: перед ответом подтянуть релевантные прошлые
+    # сообщения (по именам/ключевым словам), чтобы ИИ помнил, что обсуждали
+    # раньше — например «кто такой Олег». Работает во всех режимах.
+    try:
+        from app.chat import recall_relevant  # noqa: PLC0415
+
+        recalled = await recall_relevant(
+            session["user_id"], question, exclude_session_id=session_id
+        )
+        if recalled:
+            base_prompt = base_prompt + (
+                "\n\nПАМЯТЬ ИЗ ПРОШЛЫХ РАЗГОВОРОВ (это РЕАЛЬНО говорилось в других "
+                "чатах — опирайся на это, если относится к вопросу; не выдумывай "
+                "сверх этого):\n" + recalled +
+                "\n\nЕсли называют человека только по имени и есть несколько людей "
+                "с таким именем или ты не уверен, кто это — уточни фамилию, чтобы "
+                "не путать разных людей."
+            )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("chat.recall_failed", error=str(exc))
+
     # T25 — tools fragment: enumerate built-in tools the user enabled
     # in /admin/mcp. LLM sees them in system prompt; uses <tool>...</tool>
     # syntax to call. We parse, execute, feed back as another user msg.

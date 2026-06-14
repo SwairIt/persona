@@ -378,6 +378,78 @@ async def search_messages(
     ]
 
 
+_RECALL_STOP: frozenset[str] = frozenset({
+    "что", "как", "кто", "такой", "такая", "такое", "это", "этот", "эта",
+    "мне", "меня", "мой", "моя", "мои", "тебе", "тебя", "про", "для", "или",
+    "был", "была", "быть", "есть", "где", "когда", "почему", "зачем", "чем",
+    "себя", "свой", "своя", "расскажи", "скажи", "знаешь", "помнишь", "можешь",
+    "пожалуйста", "привет", "вообще", "просто", "что-то", "кстати",
+})
+
+
+def _recall_terms(question: str) -> list[str]:
+    """Ключевые слова из вопроса: имена собственные (с большой буквы) и
+    длинные слова. По ним ищем релевантные прошлые сообщения."""
+    import re  # noqa: PLC0415
+
+    terms: list[str] = []
+    for w in re.findall(r"[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё0-9-]+", question or ""):
+        lw = w.lower()
+        proper = w[:1].isupper() and not w.isupper()  # «Олег», не «ОЛЕГ»/«олег»
+        if lw in _RECALL_STOP and not proper:
+            continue
+        if (proper or len(lw) >= 5) and lw not in terms:
+            terms.append(lw)
+    return terms[:6]
+
+
+async def recall_relevant(
+    user_id: int, question: str, exclude_session_id: int | None = None, limit: int = 6
+) -> str:
+    """Поднять из ВСЕХ чатов пользователя сообщения, релевантные вопросу
+    (по ключевым словам/именам). Возвращает готовый блок для системного
+    промпта, чтобы ИИ помнил, что обсуждалось раньше (напр. «кто такой Олег»)."""
+    terms = _recall_terms(question)
+    if not terms:
+        return ""
+    where = " OR ".join(["lower(m.content) LIKE ?"] * len(terms))
+    params: list[Any] = [f"%{t}%" for t in terms]
+    sql = (
+        "SELECT m.content, m.role, m.created_at, s.title "
+        "FROM chat_message m JOIN chat_session s ON s.id = m.session_id "
+        f"WHERE s.user_id = ? AND ({where}) "
+    )
+    params = [user_id, *params]
+    if exclude_session_id is not None:
+        sql += "AND m.session_id != ? "
+        params.append(exclude_session_id)
+    sql += "ORDER BY m.id DESC LIMIT 80"
+    async with get_connection() as conn:
+        cur = await conn.execute(sql, params)
+        rows = await cur.fetchall()
+    scored: list[tuple[int, Any]] = []
+    for r in rows:
+        cl = (r["content"] or "").lower()
+        hits = sum(1 for t in terms if t in cl)
+        if hits:
+            scored.append((hits, r))
+    scored.sort(key=lambda x: -x[0])
+    out: list[str] = []
+    seen: set[str] = set()
+    for _hits, r in scored[:limit]:
+        txt = " ".join((r["content"] or "").split())
+        if len(txt) < 3:
+            continue
+        key = txt[:80]
+        if key in seen:
+            continue
+        seen.add(key)
+        who = "Ты" if r["role"] == "user" else "Persona"
+        title = (r["title"] or "чат")
+        out.append(f"• [{(r['created_at'] or '')[:10]} · «{title[:24]}»] {who}: {txt[:280]}")
+    return "\n".join(out)
+
+
 async def set_message_pinned(message_id: int, pinned: bool) -> None:
     """T29 — pin/unpin a message so it stays in the chat context even after
     the history is trimmed by volume."""
