@@ -123,6 +123,42 @@
   }));
   scene.add(particles);
 
+  // ---------- звёздные слои (космос) ----------
+  function makeStars(count, spread, size, opacity) {
+    var sp = new Float32Array(count * 3), sc = new Float32Array(count * 3);
+    var white = new THREE.Color(0xffffff), blue = new THREE.Color(0xa8c4ff), vio = new THREE.Color(0xceb8ff);
+    for (var k = 0; k < count; k++) {
+      sp[k * 3] = (Math.random() - 0.5) * spread;
+      sp[k * 3 + 1] = (Math.random() - 0.5) * spread;
+      sp[k * 3 + 2] = (Math.random() - 0.5) * spread * 0.7 - spread * 0.15;
+      var r = Math.random();
+      var cc = r < 0.7 ? white : (r < 0.86 ? blue : vio);
+      var b = 0.6 + Math.random() * 0.4;
+      sc[k * 3] = cc.r * b; sc[k * 3 + 1] = cc.g * b; sc[k * 3 + 2] = cc.b * b;
+    }
+    var g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(sp, 3));
+    g.setAttribute('color', new THREE.BufferAttribute(sc, 3));
+    return new THREE.Points(g, new THREE.PointsMaterial({
+      size: size, vertexColors: true, transparent: true, opacity: opacity,
+      blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true,
+    }));
+  }
+  var starsFar = makeStars(small ? 700 : 1500, 44, 0.07, 0.9);
+  var starsNear = makeStars(small ? 220 : 520, 26, 0.12, 0.95);
+  scene.add(starsFar); scene.add(starsNear);
+
+  // ---------- кольцо-орбита вокруг ядра (как у планеты) ----------
+  var rings = new THREE.Group();
+  var ringMat1 = new THREE.MeshBasicMaterial({ color: 0x8ea2ff, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending });
+  var ringMat2 = new THREE.MeshBasicMaterial({ color: 0x46e6ff, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending });
+  var ring1 = new THREE.Mesh(new THREE.TorusGeometry(2.55, 0.012, 8, 180), ringMat1);
+  var ring2 = new THREE.Mesh(new THREE.TorusGeometry(2.95, 0.008, 8, 180), ringMat2);
+  rings.add(ring1); rings.add(ring2);
+  rings.rotation.x = Math.PI * 0.46;
+  rings.rotation.y = Math.PI * 0.08;
+  scene.add(rings);
+
   // ---------- скролл + курсор ----------
   var prog = 0, progTarget = 0, mx = 0, my = 0, cmx = 0, cmy = 0;
   function onScroll() {
@@ -177,6 +213,21 @@
     particles.rotation.y = time * 0.02 + prog * 0.4;
     particles.position.y = prog * 2.0;
     particles.position.x = -cmx * 1.2;
+
+    // кольца-орбита вокруг ядра
+    rings.position.copy(blob.position);
+    rings.scale.setScalar(sc * 1.35);
+    rings.rotation.z = time * 0.12 + prog * 1.2;
+    ringMat1.opacity = 0.4 + Math.sin(time * 0.8) * 0.15;
+    ringMat2.opacity = 0.28 + Math.cos(time * 0.6) * 0.12;
+
+    // звёзды: лёгкий дрейф + параллакс по глубине + мерцание
+    starsFar.rotation.y = time * 0.006;
+    starsFar.position.x = -cmx * 0.6; starsFar.position.y = -cmy * 0.4 + prog * 1.0;
+    starsFar.material.opacity = 0.78 + Math.sin(time * 0.7) * 0.12;
+    starsNear.rotation.y = -time * 0.01;
+    starsNear.position.x = -cmx * 1.6; starsNear.position.y = -cmy * 1.1 + prog * 2.4;
+    starsNear.material.opacity = 0.85 + Math.cos(time * 1.1) * 0.12;
 
     camera.position.x = cmx * 0.6;
     camera.position.y = -cmy * 0.5;

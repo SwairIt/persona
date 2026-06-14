@@ -119,18 +119,29 @@
     });
   }
 
-  // reveal-блоки
+  // reveal-блоки — лёгкий 3D-влёт из глубины
   gsap.utils.toArray('.reveal').forEach((el) => {
-    gsap.to(el, {
-      opacity: 1, y: 0, duration: 0.85, ease: 'power3.out',
-      scrollTrigger: { trigger: el, start: 'top 88%', once: true },
-    });
+    gsap.fromTo(el,
+      { opacity: 0, y: 38, z: -60, rotateX: -10 },
+      {
+        opacity: 1, y: 0, z: 0, rotateX: 0, duration: 0.9, ease: 'power3.out',
+        transformPerspective: 1000, transformOrigin: 'center top',
+        scrollTrigger: { trigger: el, start: 'top 88%', once: true },
+      });
   });
 
-  // карточки (bento) — со stagger
-  gsap.to('[data-card]', {
-    opacity: 1, y: 0, duration: 0.7, ease: 'power3.out', stagger: 0.1,
-    scrollTrigger: { trigger: '.bento', start: 'top 82%', once: true },
+  // карточки (bento/блог) — выезжают с поворотом, со stagger
+  gsap.utils.toArray('.bento, .home-posts').forEach((grid) => {
+    const cards = grid.querySelectorAll('[data-card]');
+    if (!cards.length) return;
+    gsap.fromTo(cards,
+      { opacity: 0, y: 60, z: -160, rotateX: -24, rotateY: 6 },
+      {
+        opacity: 1, y: 0, z: 0, rotateX: 0, rotateY: 0,
+        duration: 0.9, ease: 'power3.out', stagger: 0.09,
+        transformPerspective: 1200, transformOrigin: 'center center',
+        scrollTrigger: { trigger: grid, start: 'top 82%', once: true },
+      });
   });
 
   // statement — слова всплывают по скроллу
