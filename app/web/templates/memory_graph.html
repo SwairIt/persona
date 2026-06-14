@@ -3,23 +3,24 @@
 {% block content %}
 <link rel="stylesheet" href="/static/graph/memgraph.css" />
 
-<div class="mg-wrap">
-  <div class="mg-head">
-    <div>
+<div class="mg-wrap mg-full">
+  <div class="mg-stage" id="mg-stage">
+    <canvas id="mg-canvas" aria-label="Граф памяти"></canvas>
+
+    {# заголовок + статистика — оверлеем слева-сверху #}
+    <div class="mg-overlay-tl">
       <h1 class="mg-title">Граф памяти</h1>
       <p class="mg-sub" id="mg-stats">Загружаю твою память…</p>
     </div>
+    {# легенда — оверлеем слева-снизу #}
     <div class="mg-legend" id="mg-legend"></div>
-  </div>
 
-  <div class="mg-stage" id="mg-stage">
-    <canvas id="mg-canvas" aria-label="Граф памяти"></canvas>
     <div class="mg-tip" id="mg-tip" hidden></div>
     <div class="mg-empty" id="mg-empty" hidden>
       Пока пусто. Пообщайся в <a href="/chat">чате</a> — и узлы появятся здесь.
     </div>
 
-    {# --- панель настроек графа --- #}
+    {# --- панель настроек графа (справа-сверху) --- #}
     <button class="mg-panel-btn" id="mg-panel-toggle" title="Настройки графа">⚙ настройки</button>
     <div class="mg-panel" id="mg-panel">
       <div class="mg-panel-sec">
@@ -45,13 +46,12 @@
           <input type="range" id="mg-friction" min="0.5" max="0.95" step="0.01"></label>
         <button class="mg-reset" id="mg-phys-reset">Сбросить физику</button>
       </div>
+      <p class="mg-panel-note">
+        Связи структурные (сессия · пара промпт→ответ · день). Сжатые сообщения
+        приглушены, конспект сессии — отдельный узел.
+      </p>
     </div>
   </div>
-  <p class="mg-note">
-    Связи структурные (сессия · пара промпт→ответ · день). Смысловые связи
-    по эмбеддингам добавим, когда включим индексацию. Сжатые сообщения —
-    приглушены, конспект сессии — отдельный узел.
-  </p>
 </div>
 
 <script src="/static/graph/memgraph.js" defer></script>

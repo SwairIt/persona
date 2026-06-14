@@ -1,15 +1,31 @@
+/* full-bleed: граф на всю ширину/высоту области под шапкой */
 .mg-wrap{max-width:1280px;margin:0 auto;padding:18px clamp(12px,3vw,28px) 40px}
-.mg-head{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;flex-wrap:wrap;margin-bottom:14px}
-.mg-title{font-size:clamp(1.5rem,3vw,2.2rem);font-weight:800;letter-spacing:-.02em;margin:0}
-.mg-sub{color:#9aa0c8;margin:6px 0 0;font-size:.95rem}
-.mg-legend{display:flex;gap:14px;flex-wrap:wrap;font-size:.82rem;color:#aab}
+.mg-wrap.mg-full{
+  max-width:none;padding:0;
+  width:100vw;margin-left:calc(50% - 50vw);margin-right:calc(50% - 50vw);
+  margin-top:-2rem;margin-bottom:-2rem;          /* съесть py-8 у <main> */
+}
+.mg-title{font-size:clamp(1.4rem,3vw,2rem);font-weight:800;letter-spacing:-.02em;margin:0}
+.mg-sub{color:#aab0d8;margin:5px 0 0;font-size:.9rem}
+
+/* легенда — оверлей слева-снизу (стеклянная плашка) */
+.mg-legend{
+  position:absolute;left:16px;bottom:16px;z-index:6;
+  display:flex;gap:14px;flex-wrap:wrap;font-size:.8rem;color:#c7cbe6;
+  background:rgba(8,8,20,.6);backdrop-filter:blur(8px);
+  border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:8px 12px;max-width:70vw;
+}
 .mg-legend span{display:inline-flex;align-items:center;gap:6px}
 .mg-legend i{width:10px;height:10px;border-radius:50%;display:inline-block}
 
+/* заголовок-оверлей слева-сверху */
+.mg-overlay-tl{position:absolute;top:16px;left:18px;z-index:6;pointer-events:none;
+  text-shadow:0 2px 14px rgba(0,0,0,.6)}
+
 .mg-stage{
-  position:relative;width:100%;height:min(72vh,720px);
-  border-radius:18px;overflow:hidden;border:1px solid rgba(255,255,255,.12);
-  background:radial-gradient(120% 120% at 50% 0%,rgba(124,58,237,.10),transparent 60%),#0a0a14;
+  position:relative;width:100%;height:calc(100dvh - 64px);min-height:420px;
+  overflow:hidden;border-top:1px solid rgba(255,255,255,.08);
+  background:radial-gradient(120% 120% at 50% 0%,rgba(124,58,237,.10),transparent 60%),#070710;
 }
 #mg-canvas{display:block;width:100%;height:100%;cursor:default}
 #mg-canvas.grabbing{cursor:grabbing}
@@ -25,7 +41,7 @@
 .mg-empty{position:absolute;inset:0;display:grid;place-items:center;color:#9aa0c8;text-align:center;padding:20px}
 .mg-empty[hidden]{display:none}
 .mg-empty a{color:#a78bfa;text-decoration:underline}
-.mg-note{color:#6f7196;font-size:.82rem;margin-top:12px;max-width:760px}
+.mg-panel-note{color:#7c7fa6;font-size:.72rem;line-height:1.5;margin:12px 0 0;padding-top:12px;border-top:1px solid rgba(255,255,255,.08)}
 
 /* --- панель настроек графа --- */
 .mg-panel-btn{
