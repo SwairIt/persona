@@ -52,18 +52,48 @@
     });
   })();
 
-  // ---- 3D-наклон карточек на мышь (cheap, только десктоп) ----
+  // ---- 3D-наклон карточек на мышь + glare (cheap, только десктоп) ----
   if (window.matchMedia('(pointer:fine)').matches && !reduceMotion) {
     document.querySelectorAll('[data-tilt]').forEach((el) => {
+      // блик, следующий за курсором
+      const glare = document.createElement('span');
+      glare.className = 'glare';
+      el.appendChild(glare);
       el.addEventListener('pointermove', (e) => {
         const r = el.getBoundingClientRect();
-        const x = (e.clientX - r.left) / r.width - 0.5;
-        const y = (e.clientY - r.top) / r.height - 0.5;
-        el.style.transform = `perspective(800px) rotateY(${x * 7}deg) rotateX(${-y * 7}deg) translateY(-4px)`;
+        const px = (e.clientX - r.left) / r.width;
+        const py = (e.clientY - r.top) / r.height;
+        el.style.transform = `perspective(900px) rotateY(${(px - 0.5) * 8}deg) rotateX(${-(py - 0.5) * 8}deg) translateY(-5px)`;
+        el.style.setProperty('--gx', (px * 100) + '%');
+        el.style.setProperty('--gy', (py * 100) + '%');
       });
       el.addEventListener('pointerleave', () => { el.style.transform = ''; });
     });
   }
+
+  // ---- параллакс плавающих 3D-объектов (скролл + курсор) ----
+  (function () {
+    const floaters = Array.from(document.querySelectorAll('.floater[data-float]'));
+    if (!floaters.length || reduceMotion) return;
+    let mx = 0, my = 0, sy = 0;
+    const apply = () => {
+      floaters.forEach((f) => {
+        const k = parseFloat(f.dataset.float) || 0.1;
+        const tx = mx * 40 * k;
+        const ty = my * 40 * k - sy * k;
+        const base = f.classList.contains('f-sq') ? ' rotate(18deg)' : '';
+        f.style.transform = `translate3d(${tx}px,${ty}px,0)${base}`;
+      });
+    };
+    if (window.matchMedia('(pointer:fine)').matches) {
+      window.addEventListener('pointermove', (e) => {
+        mx = e.clientX / window.innerWidth - 0.5;
+        my = e.clientY / window.innerHeight - 0.5;
+        apply();
+      }, { passive: true });
+    }
+    window.addEventListener('scroll', () => { sy = window.scrollY * 0.15; apply(); }, { passive: true });
+  })();
 
   const hasGSAP = typeof window.gsap !== 'undefined' && typeof window.ScrollTrigger !== 'undefined';
 

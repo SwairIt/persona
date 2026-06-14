@@ -18,6 +18,10 @@
   <link rel="manifest" href="/static/manifest.json" />
   <link rel="apple-touch-icon" href="/static/icon-180.png" />
 
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet" />
+
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -35,6 +39,7 @@
     .preload *{transition:none!important;animation:none!important}
   </style>
   <link rel="stylesheet" href="/static/landing/style.css" />
+  <link rel="stylesheet" href="/static/landing/landing3d.css" />
 </head>
 
 <body class="preload">
@@ -45,6 +50,8 @@
   <div class="bg-mesh" aria-hidden="true"></div>
   <div class="bg-grid" aria-hidden="true"></div>
   <div class="aurora" aria-hidden="true"></div>
+  <div class="depth-glow g1" aria-hidden="true"></div>
+  <div class="depth-glow g2" aria-hidden="true"></div>
 
   <header class="nav" id="nav">
     <a class="brand" href="#top"><span class="brand-dot"></span> Persona</a>
@@ -66,6 +73,13 @@
 
     <!-- HERO -->
     <section class="hero" id="hero">
+      <canvas class="hero-3d" id="hero3d" aria-hidden="true"></canvas>
+      <div class="floaters" aria-hidden="true">
+        <span class="floater" data-float="0.10" style="width:110px;height:110px;top:18%;left:6%"></span>
+        <span class="floater f-ring" data-float="0.18" style="width:180px;height:180px;top:54%;left:2%"></span>
+        <span class="floater f-sq" data-float="0.14" style="width:70px;height:70px;top:24%;right:8%"></span>
+        <span class="floater" data-float="0.22" style="width:46px;height:46px;bottom:14%;right:18%"></span>
+      </div>
       <div class="hero-grid">
         <div class="hero-left">
           <p class="eyebrow reveal"><span class="dot-live"></span>личный ИИ · локально · приватно</p>
@@ -205,6 +219,40 @@
       </div>
     </section>
 
+    <!-- ORBIT: возможности вокруг ядра -->
+    <section class="orbit-sec" id="orbit">
+      <div class="orbit-head">
+        <h2 class="orbit-title reveal">Один <span class="grad">центр</span> — твоя память</h2>
+        <p class="section-lead reveal">Всё вращается вокруг тебя: экран, звук, файлы, профиль и модель сходятся в одном живом ядре.</p>
+      </div>
+      <div class="orbit-stage reveal">
+        <div class="orbit-ring"></div>
+        <div class="orbit-ring r2"></div>
+        <div class="orbit-ring r3"></div>
+        <div class="orbit-core">YOU</div>
+        <div class="orbit-spin">
+          <span class="orbit-node" style="transform:translate(-50%,-50%) rotate(0deg) translateX(min(300px,42vw)) rotate(0deg)"><span><i></i>экран</span></span>
+          <span class="orbit-node" style="transform:translate(-50%,-50%) rotate(72deg) translateX(min(300px,42vw)) rotate(-72deg)"><span><i></i>звук</span></span>
+          <span class="orbit-node" style="transform:translate(-50%,-50%) rotate(144deg) translateX(min(300px,42vw)) rotate(-144deg)"><span><i></i>файлы</span></span>
+          <span class="orbit-node" style="transform:translate(-50%,-50%) rotate(216deg) translateX(min(300px,42vw)) rotate(-216deg)"><span><i></i>профиль</span></span>
+          <span class="orbit-node" style="transform:translate(-50%,-50%) rotate(288deg) translateX(min(300px,42vw)) rotate(-288deg)"><span><i></i>модель</span></span>
+        </div>
+        <div class="orbit-spin rev">
+          <span class="orbit-node" style="transform:translate(-50%,-50%) rotate(36deg) translateX(min(200px,28vw)) rotate(-36deg)"><span><i></i>память</span></span>
+          <span class="orbit-node" style="transform:translate(-50%,-50%) rotate(180deg) translateX(min(200px,28vw)) rotate(-180deg)"><span><i></i>контекст</span></span>
+          <span class="orbit-node" style="transform:translate(-50%,-50%) rotate(300deg) translateX(min(200px,28vw)) rotate(-300deg)"><span><i></i>день</span></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- MARQUEE -->
+    <div class="marquee" aria-hidden="true">
+      <div class="marquee-row">
+        <span>помнит тебя</span><span>локально</span><span>своя модель</span><span>офлайн</span><span>живая память</span><span>приватно</span>
+        <span>помнит тебя</span><span>локально</span><span>своя модель</span><span>офлайн</span><span>живая память</span><span>приватно</span>
+      </div>
+    </div>
+
     <!-- HOW -->
     <section class="how" id="how">
       <h2 class="section-title reveal">Как это работает</h2>
@@ -290,6 +338,31 @@
       </div>
     </section>
     {% endif %}
+
+    <!-- FAQ -->
+    <section class="faq" id="faq">
+      <h2 class="reveal">Частые вопросы</h2>
+      <details class="faq-item reveal" open>
+        <summary>Это безопасно? Куда уходят мои данные?</summary>
+        <div class="faq-a">Память, файлы и модель живут на твоём устройстве. Можно работать офлайн. Запись экрана и звука включается только с твоего разрешения, а доступ к файлам ограничен allowlist-папками.</div>
+      </details>
+      <details class="faq-item reveal">
+        <summary>Нужен ли мощный компьютер?</summary>
+        <div class="faq-a">Нет. Persona работает с локальной моделью на обычном железе, а для тяжёлых задач можно подключить облачную модель с большим контекстом. Гибрид — твой выбор.</div>
+      </details>
+      <details class="faq-item reveal">
+        <summary>Что значит «живая память»?</summary>
+        <div class="faq-a">В каждом новом чате Persona подтягивает релевантный контекст: твой профиль, недавнюю активность и карточки памяти. Разговор начинается со знания о тебе, а не с чистого листа.</div>
+      </details>
+      <details class="faq-item reveal">
+        <summary>Как Persona становится «моей» моделью?</summary>
+        <div class="faq-a">Твои оценки 👍/👎 копятся в датасет. На его основе можно дообучить модель (LoRA), которая отвечает в нужном тебе стиле и тоне.</div>
+      </details>
+      <details class="faq-item reveal">
+        <summary>Сколько стоит?</summary>
+        <div class="faq-a">Persona — open-source и работает на твоём железе. Платишь только за облачную модель, если решишь её подключить.</div>
+      </details>
+    </section>
 
     <!-- CTA -->
     <section class="cta" id="cta">
@@ -388,6 +461,8 @@
   </script>
 
   <script src="/static/landing/graph.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js" defer></script>
+  <script src="/static/landing/hero3d.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js" defer></script>
   <script src="/static/landing/main.js" defer></script>
