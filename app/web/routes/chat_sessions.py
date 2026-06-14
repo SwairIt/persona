@@ -220,6 +220,49 @@ async def _set_auto_prompt(on: bool) -> None:
         await conn.commit()
 
 
+# ── Режим памяти по чатам (recall): off / keyword / smart ─────────────────
+_RECALL_MODES = ("off", "keyword", "smart")
+
+
+async def _get_recall_mode() -> str:
+    from app.storage.db import get_connection  # noqa: PLC0415
+    from app.storage.repository import get_kv  # noqa: PLC0415
+
+    async with get_connection() as conn:
+        v = (await get_kv(conn, "recall_mode") or "keyword").strip()
+    return v if v in _RECALL_MODES else "keyword"
+
+
+async def _smart_recall_terms(question: str) -> list[str]:
+    """Умный режим: ИИ сам решает, что искать в истории — имена, темы,
+    синонимы и падежные формы. Возвращает список терминов (или []) ."""
+    import re  # noqa: PLC0415
+
+    try:
+        client = make_client(kind="chat")
+        raw = await client.complete(
+            CompletionRequest(
+                system=(
+                    "Ты — поисковый помощник по истории чатов. По вопросу пользователя "
+                    "выпиши, что искать в его ПРОШЛЫХ сообщениях, чтобы вспомнить контекст: "
+                    "имена, фамилии, темы и их синонимы/падежные формы. Ответ — ТОЛЬКО список "
+                    "через запятую, 3–10 коротких слов, без пояснений и нумерации."
+                ),
+                user=question,
+                temperature=0.0,
+                max_tokens=80,
+            )
+        )
+    except Exception:  # noqa: BLE001
+        return []
+    terms: list[str] = []
+    for p in re.split(r"[,\n;]+", raw or ""):
+        w = p.strip().strip(".\"'`*-—•").lower()
+        if 2 <= len(w) <= 40 and w not in terms:
+            terms.append(w)
+    return terms[:10]
+
+
 # ── Расширенные функции (один мастер-выключатель + по-фичам) ──────────────
 # Когда мастер ВЫКЛ — ИИ становится простым ассистентом-другом: без планов,
 # режимов, инструментов/кода, эффорта и авто-промптов.
@@ -796,11 +839,21 @@ async def api_send_stream(
     # сообщения (по именам/ключевым словам), чтобы ИИ помнил, что обсуждали
     # раньше — например «кто такой Олег». Работает во всех режимах.
     try:
-        from app.chat import recall_relevant  # noqa: PLC0415
+        from app.chat import recall_by_terms, recall_relevant  # noqa: PLC0415
 
-        recalled = await recall_relevant(
-            session["user_id"], question, exclude_session_id=session_id
-        )
+        _rmode = await _get_recall_mode()
+        recalled = ""
+        if _rmode == "smart":
+            _terms = await _smart_recall_terms(question)
+            recalled = (
+                await recall_by_terms(session["user_id"], _terms, exclude_session_id=session_id)
+                if _terms
+                else await recall_relevant(session["user_id"], question, exclude_session_id=session_id)
+            )
+        elif _rmode == "keyword":
+            recalled = await recall_relevant(
+                session["user_id"], question, exclude_session_id=session_id
+            )
         if recalled:
             base_prompt = base_prompt + (
                 "\n\nПАМЯТЬ ИЗ ПРОШЛЫХ РАЗГОВОРОВ (это РЕАЛЬНО говорилось в других "

@@ -36,11 +36,21 @@ _FEATURES: tuple[tuple[str, str, str], ...] = (
 )
 
 
-async def _read_raw() -> dict[str, bool]:
+# режимы поиска памяти по всем чатам
+_RECALL_MODES: tuple[tuple[str, str, str], ...] = (
+    ("off", "Выключена", "ИИ помнит только текущий чат."),
+    ("keyword", "По ключевым словам", "Быстро ищет прошлые сообщения по именам и словам из вопроса. (по умолчанию)"),
+    ("smart", "Умная (ИИ сам ищет)", "ИИ сам решает, что искать — имена, темы, синонимы, падежи. Точнее, но чуть медленнее (доп. запрос к модели)."),
+)
+
+
+async def _read_raw() -> dict[str, object]:
     async with get_connection() as conn:
-        out = {"master": (await get_kv(conn, "advanced_mode") or "1").strip() == "1"}
+        out: dict[str, object] = {"master": (await get_kv(conn, "advanced_mode") or "1").strip() == "1"}
         for key, _t, _d in _FEATURES:
             out[key] = (await get_kv(conn, f"feat_{key}") or "1").strip() == "1"
+        rm = (await get_kv(conn, "recall_mode") or "keyword").strip()
+        out["recall_mode"] = rm if rm in {m[0] for m in _RECALL_MODES} else "keyword"
     return out
 
 
@@ -57,6 +67,7 @@ async def advanced_page(
             "active_nav": "settings",
             "flags": await _read_raw(),
             "features": _FEATURES,
+            "recall_modes": _RECALL_MODES,
         },
     )
 
@@ -67,10 +78,13 @@ async def advanced_save(
     user: Annotated[SessionRecord, Depends(current_user_required)],
 ) -> RedirectResponse:
     form = await request.form()
+    valid_modes = {m[0] for m in _RECALL_MODES}
+    rm = str(form.get("recall_mode", "keyword"))
     async with get_connection() as conn:
         await set_kv(conn, "advanced_mode", "1" if form.get("master") else "0")
         for key, _t, _d in _FEATURES:
             await set_kv(conn, f"feat_{key}", "1" if form.get(key) else "0")
+        await set_kv(conn, "recall_mode", rm if rm in valid_modes else "keyword")
     return RedirectResponse(url="/settings/advanced", status_code=303)
 
 

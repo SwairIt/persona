@@ -42,6 +42,23 @@
       {% endfor %}
     </section>
 
+    {# --- ПАМЯТЬ ПО ВСЕМ ЧАТАМ (работает в любом режиме) --- #}
+    <section class="mt-6 space-y-2">
+      <div class="text-xs uppercase tracking-widest text-zinc-500 mb-1 px-1">Память по всем чатам</div>
+      <p class="text-xs text-zinc-500 px-1 mb-2">Перед ответом ИИ подтягивает релевантные сообщения из других чатов — чтобы помнить, что обсуждали раньше (напр. «кто такой Олег»).</p>
+      {% for val, title, desc in recall_modes %}
+      <label class="flex items-start gap-3 rounded-lg border p-3.5 cursor-pointer hover:border-ink-600
+                    {% if flags.recall_mode == val %}border-accent-500/60 bg-accent-600/10{% else %}border-ink-700 bg-ink-900{% endif %}">
+        <input type="radio" name="recall_mode" value="{{ val }}" {% if flags.recall_mode == val %}checked{% endif %}
+               class="mt-0.5 w-5 h-5 accent-accent-600">
+        <span>
+          <span class="block text-sm font-medium">{{ title }}</span>
+          <span class="block text-xs text-zinc-500 mt-0.5">{{ desc }}</span>
+        </span>
+      </label>
+      {% endfor %}
+    </section>
+
     <div class="mt-6 flex items-center gap-3">
       <button type="submit" class="px-5 py-2.5 rounded-lg bg-accent-600 hover:bg-accent-500 text-white text-sm font-medium">
         Сохранить

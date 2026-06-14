@@ -403,23 +403,24 @@ def _recall_terms(question: str) -> list[str]:
     return terms[:6]
 
 
-async def recall_relevant(
-    user_id: int, question: str, exclude_session_id: int | None = None, limit: int = 6
+async def recall_by_terms(
+    user_id: int,
+    terms: list[str],
+    exclude_session_id: int | None = None,
+    limit: int = 6,
 ) -> str:
-    """Поднять из ВСЕХ чатов пользователя сообщения, релевантные вопросу
-    (по ключевым словам/именам). Возвращает готовый блок для системного
-    промпта, чтобы ИИ помнил, что обсуждалось раньше (напр. «кто такой Олег»)."""
-    terms = _recall_terms(question)
+    """Поиск сообщений по готовому списку терминов (для keyword- и smart-
+    режимов). Возвращает готовый блок для системного промпта."""
+    terms = [t.strip().lower() for t in terms if t and t.strip()][:10]
     if not terms:
         return ""
     where = " OR ".join(["lower(m.content) LIKE ?"] * len(terms))
-    params: list[Any] = [f"%{t}%" for t in terms]
+    params: list[Any] = [user_id, *[f"%{t}%" for t in terms]]
     sql = (
         "SELECT m.content, m.role, m.created_at, s.title "
         "FROM chat_message m JOIN chat_session s ON s.id = m.session_id "
         f"WHERE s.user_id = ? AND ({where}) "
     )
-    params = [user_id, *params]
     if exclude_session_id is not None:
         sql += "AND m.session_id != ? "
         params.append(exclude_session_id)
@@ -448,6 +449,15 @@ async def recall_relevant(
         title = (r["title"] or "чат")
         out.append(f"• [{(r['created_at'] or '')[:10]} · «{title[:24]}»] {who}: {txt[:280]}")
     return "\n".join(out)
+
+
+async def recall_relevant(
+    user_id: int, question: str, exclude_session_id: int | None = None, limit: int = 6
+) -> str:
+    """Режим «по ключевым словам»: термины из вопроса (имена/длинные слова)."""
+    return await recall_by_terms(
+        user_id, _recall_terms(question), exclude_session_id, limit
+    )
 
 
 async def set_message_pinned(message_id: int, pinned: bool) -> None:
