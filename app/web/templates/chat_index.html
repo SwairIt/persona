@@ -238,6 +238,12 @@
                           title="перегенерировать ответ">
                     🔄
                   </button>
+                  {# озвучить ответ (браузерный синтез речи) #}
+                  <button type="button" x-show="ttsAvailable" @click.stop="speakMsg(mIdx)"
+                          class="opacity-60 hover:opacity-100 hover:bg-ink-800 cursor-pointer select-none inline-flex items-center justify-center w-8 h-8 rounded-lg text-base transition-all"
+                          :title="speaking ? 'остановить озвучку' : 'озвучить ответ'">
+                    <span x-text="speaking ? '⏹' : '🔊'"></span>
+                  </button>
 
                   {# T30 — реакции на ответ: ИИ учитывает их в следующем ответе #}
                   <span class="w-px h-5 bg-ink-700 mx-0.5"></span>
@@ -367,6 +373,14 @@
                        @change="handleImage($event)">
                 📎
               </label>
+
+              {# озвучка ответов (авто) — браузерный синтез речи #}
+              <button type="button" x-show="ttsAvailable" @click="toggleAutoSpeak()"
+                      :class="autoSpeak ? 'text-accent-400' : 'text-zinc-400 hover:text-zinc-200'"
+                      class="p-1.5 rounded-lg hover:bg-ink-700 text-base"
+                      :title="autoSpeak ? 'Авто-озвучка включена' : 'Авто-озвучка выключена'">
+                <span x-text="autoSpeak ? '🔊' : '🔈'"></span>
+              </button>
 
               {% if adv and adv.master %}
               <button type="button" @click="compareModels()"
@@ -586,6 +600,11 @@
       _thinkingTimer: null,
       // T31 E9 — «живой» чат: умный авто-скролл + кнопка «вниз» + черновик
       atBottom: true,
+      // озвучка ответов (браузерный SpeechSynthesis, как в /ask)
+      ttsAvailable: false,
+      autoSpeak: false,
+      speaking: false,
+      _lastSpoken: '',
       // T26 — track active stream so we can abort it on Stop click
       _abortController: null,
       // T26 — queue: messages typed while previous still streaming
@@ -669,6 +688,8 @@
           const el = document.getElementById('chat-scroll');
           if (el) el.addEventListener('scroll', () => this.onScroll(), { passive: true });
         });
+        // озвучка: доступность + сохранённый авто-режим
+        this._initTts();
         // Граф памяти → ?msg=<id>: проскроллить к сообщению и подсветить.
         this.jumpToMessage();
         // T29 — if the answer is still being generated (tab reopened
@@ -739,6 +760,52 @@
             setTimeout(() => { b.textContent = old; }, 1200);
           }
         } catch (e) { /* нет доступа к clipboard — игнор */ }
+      },
+
+      // ── озвучка ответов (браузерный синтез речи, как в /ask) ──
+      _initTts() {
+        this.ttsAvailable = typeof window.speechSynthesis !== 'undefined'
+          && typeof window.SpeechSynthesisUtterance !== 'undefined';
+        try { this.autoSpeak = localStorage.getItem('persona.chat.autoSpeak') === '1'; }
+        catch (e) { this.autoSpeak = false; }
+      },
+      toggleAutoSpeak() {
+        this.autoSpeak = !this.autoSpeak;
+        try { localStorage.setItem('persona.chat.autoSpeak', this.autoSpeak ? '1' : '0'); } catch (e) {}
+        if (!this.autoSpeak && this.speaking) this.stopSpeaking();
+      },
+      // убрать markdown / служебные блоки перед озвучкой
+      _plainForSpeech(text) {
+        let t = String(text || '');
+        t = t.replace(/```persona:choices[\s\S]*?```/g, '');
+        t = t.replace(/🔧[\s\S]*?```[\s\S]*?```/g, '');   // блоки инструментов
+        t = t.replace(/```[\s\S]*?```/g, ' код опущен. ');  // кодовые блоки не читаем
+        t = t.replace(/`([^`]+)`/g, '$1');
+        t = t.replace(/[#>*_~|]/g, '');
+        t = t.replace(/\[(.*?)\]\(.*?\)/g, '$1');           // ссылки → текст
+        return t.replace(/\s+/g, ' ').trim();
+      },
+      speakText(text) {
+        if (!this.ttsAvailable) return;
+        const clean = this._plainForSpeech(text);
+        if (!clean) return;
+        this.stopSpeaking();
+        const u = new SpeechSynthesisUtterance(clean.slice(0, 4000));
+        u.lang = (document.documentElement.lang || 'ru') === 'ru' ? 'ru-RU' : 'en-US';
+        u.rate = 1.0; u.pitch = 1.0;
+        u.onstart = () => { this.speaking = true; };
+        u.onend = () => { this.speaking = false; };
+        u.onerror = () => { this.speaking = false; };
+        window.speechSynthesis.speak(u);
+      },
+      speakMsg(idx) {
+        if (this.speaking) { this.stopSpeaking(); return; }  // повторный клик — стоп
+        const m = this.messages[idx];
+        if (m) this.speakText(m.content);
+      },
+      stopSpeaking() {
+        try { window.speechSynthesis.cancel(); } catch (e) {}
+        this.speaking = false;
       },
 
       // T29 — poll the in-progress assistant message so a reopened tab
@@ -1384,6 +1451,11 @@
                   this.messages[assistantIdx].output_tokens = evt.output_tokens;
                   this.messages[assistantIdx].model_used = evt.model_used;
                   if (evt.assistant_id) this.messages[assistantIdx].id = evt.assistant_id;
+                  // авто-озвучка готового ответа
+                  if (this.autoSpeak) {
+                    const txt = this.messages[assistantIdx].content || '';
+                    if (txt && txt !== this._lastSpoken) { this._lastSpoken = txt; this.speakText(txt); }
+                  }
                 } else if (evt.type === 'error') {
                   this.messages.splice(assistantIdx, 1);
                   this.messages.push({
