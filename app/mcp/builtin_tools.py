@@ -177,6 +177,49 @@ async def write_file(args: dict[str, Any], user_id: int = 0) -> str:
     return f"[ok] записал {len(content)} символов в {p.name} (скачать: /workspace/file/{p.name})"
 
 
+_DELETE_BAD = {"", ".", "..", "~", "/", "*", "."}
+
+
+async def delete_path(args: dict[str, Any], user_id: int = 0) -> str:
+    """Удалить файл ИЛИ папку (рекурсивно) на Mac пользователя (через агента,
+    op=delete) либо в локальном workspace. С защитой от удаления корня/'..'."""
+    path = str(
+        args.get("path") or args.get("dir") or args.get("name") or args.get("file") or ""
+    ).strip()
+    if not path:
+        return "[error] нужен path: что удалить"
+    parts = [seg for seg in path.replace("\\", "/").split("/")]
+    if path.strip().strip("/") in _DELETE_BAD or path in ("/", "~", ".", "..") or any(
+        seg == ".." for seg in parts
+    ):
+        return "[error] небезопасный путь для удаления (корень/.. запрещены)"
+
+    from app.devices.fs_rpc import is_enabled, run_remote  # noqa: PLC0415
+
+    if await is_enabled():
+        return await run_remote(user_id, "delete", path)
+
+    # локальный workspace (когда mac-fs выключен)
+    import shutil  # noqa: PLC0415
+
+    from app.workspace import WorkspaceEscape, resolve_user_path  # noqa: PLC0415
+
+    try:
+        p = resolve_user_path(user_id, path)
+    except WorkspaceEscape as exc:
+        return f"[error] {exc}"
+    try:
+        if not p.exists():
+            return f"[error] не существует: {path}"
+        if p.is_dir():
+            shutil.rmtree(p)
+        else:
+            p.unlink()
+        return f"[ok] удалено: {path}"
+    except Exception as exc:
+        return f"[error] {type(exc).__name__}: {exc}"
+
+
 async def run_shell(args: dict[str, Any]) -> str:
     cmd = str(args.get("command", "")).strip()
     if not cmd:
@@ -527,6 +570,14 @@ _BUILTIN_TOOLS: dict[str, dict[str, Any]] = {
             "description": "что делает (опционально)",
         },
     },
+    "delete_path": {
+        "fn": delete_path,
+        "description": (
+            "Удалить файл ИЛИ папку (рекурсивно) на Mac. Используй, когда просят "
+            "«удали …». Папки удаляются вместе с содержимым."
+        ),
+        "params": {"path": "путь к файлу или папке (относительно рабочей папки)"},
+    },
     "run_mac": {
         "fn": run_mac,
         "description": (
@@ -568,6 +619,10 @@ _TOOL_ALIASES: dict[str, str] = {
     "read": "read_file", "readfile": "read_file", "open_file": "read_file", "cat": "read_file",
     "ls": "list_dir", "dir": "list_dir", "listdir": "list_dir", "list_files": "list_dir",
     "browse": "web_browse", "open_url": "web_browse", "fetch_url": "web_browse",
+    # удаление: модели выдумывают разные имена → ведём на delete_path
+    "rm": "delete_path", "rm_dir": "delete_path", "rmdir": "delete_path",
+    "remove": "delete_path", "delete": "delete_path", "delete_file": "delete_path",
+    "delete_dir": "delete_path", "del": "delete_path", "unlink": "delete_path",
 }
 _MKDIR_NAMES = {"mkdir", "make_dir", "makedir", "create_dir", "createdir", "create_directory"}
 
@@ -641,6 +696,11 @@ def build_tools_prompt(enabled_tool_names: list[str]) -> str:
         "    <tool>install_skill({\"url\": \"<ссылка>\"})</tool>",
         "  «покажи мои файлы» →",
         "    <tool>list_dir({\"path\": \".\"})</tool>",
+        "  «удали папку foo» →",
+        "    <tool>delete_path({\"path\": \"foo\"})</tool>",
+        "",
+        "ЯЗЫК: пиши ТОЛЬКО по-русски. НИ ОДНОГО китайского иероглифа / CJK — "
+        "ни в тексте, ни в комментариях. Это критично.",
         "",
         "ВАЖНО про пути и файлы:",
         "- Ты работаешь на МАКЕ пользователя (через агента). Файлы создаются "
