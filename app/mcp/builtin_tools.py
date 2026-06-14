@@ -133,6 +133,48 @@ async def list_dir(args: dict[str, Any], user_id: int = 0) -> str:
         return f"[error] {type(exc).__name__}: {exc}"
 
 
+# Безрасширенные имена, которые ВСЁ-ТАКИ файлы (а не папки).
+_KNOWN_EXTLESS_FILES = {
+    "makefile", "dockerfile", "license", "readme", "procfile", "gemfile",
+    "rakefile", "caddyfile", ".gitignore", ".gitkeep", ".env", ".dockerignore",
+    ".npmrc", ".editorconfig", ".prettierrc",
+}
+
+
+def _looks_like_dir(path: str) -> bool:
+    """Похоже ли, что path — это ПАПКА (нет расширения и это не известный
+    безрасширенный файл), чтобы не плодить файлы вместо папок."""
+    if path.rstrip().endswith(("/", "\\")):
+        return True
+    seg = path.rstrip("/\\").replace("\\", "/").split("/")[-1]
+    if not seg:
+        return False
+    if seg.lower() in _KNOWN_EXTLESS_FILES:
+        return False
+    return "." not in seg
+
+
+async def _make_dir(path: str, user_id: int = 0) -> str:
+    """Создать папку (на Mac через агента или в workspace)."""
+    path = path.strip().rstrip("/\\")
+    if not path:
+        return "[error] нужен path для папки"
+    remote = await _remote_fs("write", f"{path}/.gitkeep", user_id, "")
+    if remote is not None:
+        return remote if str(remote).startswith("[error]") else f"[ok] создал папку {path}"
+    from app.workspace import WorkspaceEscape, resolve_user_path  # noqa: PLC0415
+
+    try:
+        p = resolve_user_path(user_id, path)
+    except WorkspaceEscape as exc:
+        return f"[error] {exc}"
+    try:
+        p.mkdir(parents=True, exist_ok=True)
+        return f"[ok] создал папку {path}"
+    except Exception as exc:
+        return f"[error] {type(exc).__name__}: {exc}"
+
+
 async def write_file(args: dict[str, Any], user_id: int = 0) -> str:
     """T27 — writes into the user's workspace only. Absolute paths
     pointing outside are refused. Directories are created automatically.
@@ -151,6 +193,10 @@ async def write_file(args: dict[str, Any], user_id: int = 0) -> str:
     content = str(args.get("content", ""))
     if not path:
         return "[error] path required"
+    # Эвристика: пустой контент + путь без расширения = это ПАПКА, а не файл.
+    # Слабые модели зовут write_file вместо mkdir — создаём папку как надо.
+    if not content.strip() and _looks_like_dir(path):
+        return await _make_dir(path, user_id)
     remote = await _remote_fs("write", path, user_id, content)
     if remote is not None:
         return remote
@@ -637,10 +683,8 @@ async def call_tool(name: str, args: dict[str, Any], user_id: int = 0) -> str:
     name = (name or "").strip()
     # mkdir-style → create a folder by writing a .gitkeep inside it.
     if name in _MKDIR_NAMES:
-        path = str(args.get("path") or args.get("dir") or args.get("name") or "").strip().rstrip("/\\")
-        if not path:
-            return "[error] нужен path для создания папки"
-        return await write_file({"path": f"{path}/.gitkeep", "content": ""}, user_id=user_id)
+        path = str(args.get("path") or args.get("dir") or args.get("name") or "").strip()
+        return await _make_dir(path, user_id)
     name = _TOOL_ALIASES.get(name, name)
     entry = _BUILTIN_TOOLS.get(name)
     if entry is None:
