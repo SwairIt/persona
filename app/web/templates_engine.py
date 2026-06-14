@@ -26,7 +26,7 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 # Whitelist for the ``theme`` kv_settings row. Anything outside this set
 # is normalised to ``"dark"`` so a corrupt DB never breaks ``base.html``.
-_THEME_VALUES: frozenset[str] = frozenset({"dark", "light", "auto", "persona", "cosmos"})
+_THEME_VALUES: frozenset[str] = frozenset({"dark", "light", "auto", "persona", "cosmos", "cosmos-dark"})
 _THEME_DEFAULT = "persona"
 
 # Whitelist for the ``compact_mode`` kv_settings row (v0.61). The route

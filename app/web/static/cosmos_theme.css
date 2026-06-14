@@ -1,30 +1,47 @@
 /* ============================================================
-   Тема «cosmos» — космос в кабинете. Активна при <html class="dark
-   theme-cosmos">. Аддитивно поверх dark: живой 3D-фон (cosmos_scene.js)
-   + туманности + звёзды + стеклянные панели. Контент поверх сцены.
+   Космические темы кабинета — ДВЕ штуки:
+     • theme-cosmos       — основная (яркий космос, отличный контраст)
+     • theme-cosmos-dark  — тёмная версия (глубже, приглушённый фон)
+   cosmos-dark получает ОБА класса (theme-cosmos + theme-cosmos-dark),
+   поэтому ниже общие правила на .theme-cosmos, а отличия — на
+   .theme-cosmos-dark. Сцена/звёзды/скрим на отрицательном z-index (за
+   контентом). Главное — читаемость: панели плотные, текст контрастный.
    ============================================================ */
 
-/* глубокий космос-фон (виден сквозь альфу сцены и прозрачные панели) */
+/* ---------- фон ---------- */
 .theme-cosmos body{
   background:
-    radial-gradient(1100px 760px at 12% -6%, rgba(124,58,237,.22), transparent 58%),
-    radial-gradient(1000px 700px at 98% 6%, rgba(34,211,238,.14), transparent 56%),
-    radial-gradient(1150px 880px at 50% 120%, rgba(232,121,249,.16), transparent 60%),
-    radial-gradient(820px 640px at 80% 55%, rgba(80,60,200,.10), transparent 60%),
-    #04040c !important;
+    radial-gradient(1100px 760px at 12% -6%, rgba(124,58,237,.20), transparent 58%),
+    radial-gradient(1000px 700px at 98% 6%, rgba(34,211,238,.12), transparent 56%),
+    radial-gradient(1150px 880px at 50% 120%, rgba(232,121,249,.14), transparent 60%),
+    #06061180 0%, #050510 100% !important;
+  background-color:#050510 !important;
   background-attachment: fixed !important;
 }
-
-/* слои фона — ОТРИЦАТЕЛЬНЫЙ z-index: за контентом, ничего не репозиционируем */
-.theme-cosmos #cosmos-scene{
-  position:fixed;inset:0;width:100vw;height:100vh;z-index:-3;pointer-events:none;
+.theme-cosmos-dark body{
+  background:
+    radial-gradient(1000px 720px at 12% -6%, rgba(99,60,200,.16), transparent 58%),
+    radial-gradient(900px 680px at 98% 8%, rgba(34,211,238,.08), transparent 56%),
+    #020208 !important;
+  background-color:#020208 !important;
 }
+
+/* ---------- слои за контентом ---------- */
+.theme-cosmos #cosmos-scene{
+  position:fixed;inset:0;width:100vw;height:100vh;z-index:-3;pointer-events:none;opacity:.55;
+}
+.theme-cosmos-dark #cosmos-scene{opacity:.38}
+
+/* равномерная тёмная вуаль — текст поверх фона читается ВЕЗДЕ, а звёзды
+   (additive, яркие) всё равно пробиваются → космос сохраняется */
 .theme-cosmos .cosmos-scrim{
   position:fixed;inset:0;z-index:-1;pointer-events:none;
-  background:
-    radial-gradient(130% 90% at 50% 0%, transparent 55%, rgba(5,4,16,.34) 100%),
-    linear-gradient(180deg, rgba(5,4,16,.18), rgba(5,4,16,.34));
+  background:linear-gradient(180deg, rgba(5,4,16,.55), rgba(5,4,16,.66));
 }
+.theme-cosmos-dark .cosmos-scrim{
+  background:linear-gradient(180deg, rgba(2,2,8,.72), rgba(2,2,8,.8));
+}
+
 .theme-cosmos .cosmos-stars{position:fixed;inset:0;z-index:-2;pointer-events:none;overflow:hidden}
 .theme-cosmos .cosmos-stars::before,
 .theme-cosmos .cosmos-stars::after{
@@ -39,37 +56,50 @@
   animation:cosmosTwinkle 6s ease-in-out infinite alternate;
 }
 .theme-cosmos .cosmos-stars::after{background-size:520px 520px;animation-duration:8s;animation-delay:-3s;opacity:.55}
+.theme-cosmos-dark .cosmos-stars{opacity:.6}
 @keyframes cosmosTwinkle{from{opacity:.3}to{opacity:.85}}
 @media (prefers-reduced-motion: reduce){
   .theme-cosmos .cosmos-stars::before,.theme-cosmos .cosmos-stars::after{animation:none}
 }
 
-/* ---------- стеклянные поверхности (плотнее — чтобы не было «тумана») ---------- */
+/* ---------- ПЛОТНЫЕ панели (без «тумана», текст читается) ---------- */
 .theme-cosmos .bg-ink-950{ background-color: transparent !important; }
-.theme-cosmos .bg-ink-900{ background-color: rgba(15,15,32,.86) !important; backdrop-filter: blur(12px) saturate(135%); -webkit-backdrop-filter: blur(12px) saturate(135%); }
-.theme-cosmos .bg-ink-800{ background-color: rgba(24,24,50,.84) !important; }
-.theme-cosmos .bg-white{ background-color: rgba(18,18,40,.84) !important; }
+.theme-cosmos .bg-ink-900{ background-color: rgba(16,16,34,.92) !important; backdrop-filter: blur(12px) saturate(130%); -webkit-backdrop-filter: blur(12px) saturate(130%); }
+.theme-cosmos .bg-ink-800{ background-color: rgba(26,26,52,.92) !important; }
+.theme-cosmos .bg-white{ background-color: rgba(20,20,42,.92) !important; }
 .theme-cosmos .bg-zinc-50{ background-color: transparent !important; }
 .theme-cosmos .bg-ink-800\/60,
 .theme-cosmos .bg-ink-800\/50,
 .theme-cosmos .bg-zinc-800\/60,
-.theme-cosmos .bg-zinc-100{ background-color: rgba(28,28,56,.7) !important; }
+.theme-cosmos .bg-zinc-100{ background-color: rgba(30,30,60,.82) !important; }
+.theme-cosmos-dark .bg-ink-900{ background-color: rgba(9,9,20,.94) !important; }
+.theme-cosmos-dark .bg-ink-800{ background-color: rgba(16,16,34,.94) !important; }
+.theme-cosmos-dark .bg-white{ background-color: rgba(12,12,26,.94) !important; }
 
-/* границы с космо-оттенком */
+/* ---------- КОНТРАСТНЫЙ текст (главная жалоба — текст сливался) ---------- */
+.theme-cosmos .text-zinc-500{ color:#9ea4cc !important; }
+.theme-cosmos .text-zinc-400{ color:#bcc1e2 !important; }
+.theme-cosmos .text-zinc-600{ color:#9095bd !important; }
+.theme-cosmos .dark\:text-zinc-400{ color:#bcc1e2 !important; }
+.theme-cosmos .dark\:text-zinc-500{ color:#9ea4cc !important; }
+.theme-cosmos .text-accent-400{ color:#9db4ff !important; }
+.theme-cosmos-dark .text-zinc-500{ color:#9197c2 !important; }
+
+/* границы */
 .theme-cosmos .border-ink-700,
 .theme-cosmos .border-ink-800,
-.theme-cosmos .border-zinc-200{ border-color: rgba(120,140,255,.18) !important; }
+.theme-cosmos .border-zinc-200{ border-color: rgba(130,150,255,.22) !important; }
 
-/* шапка — космическое стекло */
+/* шапка — плотнее, чтобы пункты меню читались */
 .theme-cosmos header{
-  background: rgba(8,8,22,.5) !important;
-  backdrop-filter: blur(14px) saturate(150%);
-  -webkit-backdrop-filter: blur(14px) saturate(150%);
-  border-bottom: 1px solid rgba(120,140,255,.16) !important;
+  background: rgba(8,8,20,.82) !important;
+  backdrop-filter: blur(16px) saturate(150%);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  border-bottom: 1px solid rgba(130,150,255,.18) !important;
 }
+.theme-cosmos-dark header{ background: rgba(4,4,12,.9) !important; }
 
 /* акценты */
-.theme-cosmos .bg-accent-600\/20{ background-color: rgba(99,102,241,.26) !important; }
-.theme-cosmos .text-accent-400{ color: #8ea2ff !important; }
+.theme-cosmos .bg-accent-600\/20{ background-color: rgba(110,120,255,.28) !important; }
 
 .theme-cosmos body, .theme-cosmos header{ transition: background-color .4s ease; }

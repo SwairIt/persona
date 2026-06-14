@@ -457,12 +457,16 @@ async def get_span_ratings(session_id: int) -> dict[int, list[dict[str, object]]
     Берём последнюю оценку для каждого уникального фрагмента (текст+сообщение)."""
     out: dict[int, list[dict[str, object]]] = {}
     async with get_connection() as conn:
+        # Берём ПОСЛЕДНЮЮ запись для каждого (сообщение+фрагмент). Если последняя
+        # оценка = 0 (снятие) — фрагмент не подсвечиваем. Так toggle/снятие
+        # работают: новая строка rating=0 перекрывает прежний лайк/дизлайк.
         cursor = await conn.execute(
-            "SELECT asst_message_id, selected_text, rating, MAX(id) AS mx "
-            "FROM training_dataset_span_rating "
-            "WHERE session_id = ? AND rating IN (-1, 1) "
-            "GROUP BY asst_message_id, selected_text "
-            "ORDER BY mx ASC",
+            "SELECT asst_message_id, selected_text, rating FROM training_dataset_span_rating "
+            "WHERE id IN ("
+            "  SELECT MAX(id) FROM training_dataset_span_rating "
+            "  WHERE session_id = ? GROUP BY asst_message_id, selected_text"
+            ") AND rating IN (-1, 1) "
+            "ORDER BY id ASC",
             (session_id,),
         )
         for row in await cursor.fetchall():

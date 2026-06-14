@@ -3,7 +3,8 @@
 {% block content %}
 <style>
   /* T31 — стойкая подсветка оценённых фрагментов ответа */
-  .span-rate{border-radius:3px;padding:0 2px;cursor:help}
+  .span-rate{border-radius:3px;padding:0 2px;cursor:pointer}
+  .span-rate:hover{outline:1px dashed rgba(255,255,255,.5);outline-offset:1px}
   .span-rate.span-like{background:rgba(34,197,94,.28);box-shadow:inset 0 -2px 0 rgba(34,197,94,.75)}
   .span-rate.span-dislike{background:rgba(244,63,94,.28);box-shadow:inset 0 -2px 0 rgba(244,63,94,.75)}
 </style>
@@ -170,6 +171,7 @@
                 <template x-if="msg.role === 'assistant'">
                   <div class="text-[15px] text-zinc-100 leading-relaxed prose prose-invert prose-base max-w-none overflow-x-hidden"
                        @mouseup="onAssistantSelect($event, msg.id)"
+                       @click="onSpanClick($event, msg.id)"
                        x-html="renderMsg(msg)"></div>
                 </template>
                 <template x-if="msg.role === 'user'">
@@ -911,16 +913,49 @@
         const spans = (msg && msg.span_ratings) || [];
         if (!spans.length) return html;
         const esc = s => s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+        // 1) дедуп по тексту (последняя оценка побеждает), выкинуть снятые (0)
+        const seen = new Map();
         for (const sp of spans) {
-          const raw = (sp.text || '').trim();
-          if (raw.length < 2) continue;
-          const needle = esc(raw);
-          if (html.indexOf(needle) === -1) continue;
-          const cls = (sp.rating > 0) ? 'span-like' : 'span-dislike';
-          const title = (sp.rating > 0) ? 'лайк фрагмента' : 'дизлайк фрагмента';
-          html = html.split(needle).join('<mark class="span-rate ' + cls + '" title="' + title + '">' + needle + '</mark>');
+          const t = (sp.text || '').trim();
+          if (t.length >= 2) seen.set(t, sp.rating);
         }
+        const uniq = [...seen.entries()]
+          .map(([text, rating]) => ({ text, rating }))
+          .filter(s => s.rating === 1 || s.rating === -1)
+          .sort((a, b) => b.text.length - a.text.length); // длинные первыми — меньше вложений
+        // 2) заменяем через плейсхолдеры, чтобы НЕ оборачивать уже обёрнутое
+        const marks = [];
+        uniq.forEach((sp, i) => {
+          const needle = esc(sp.text);
+          if (html.indexOf(needle) === -1) return;
+          const token = ' SR' + i + ' ';
+          const cls = (sp.rating > 0) ? 'span-like' : 'span-dislike';
+          marks.push({ token, cls, inner: needle });
+          html = html.split(needle).join(token);
+        });
+        marks.forEach(m => {
+          const tag = '<mark class="span-rate ' + m.cls + '" title="клик — снять оценку">' + m.inner + '</mark>';
+          html = html.split(m.token).join(tag);
+        });
         return html;
+      },
+
+      // T31 — клик по подсвеченному фрагменту снимает оценку
+      onSpanClick(e, messageId) {
+        const mark = e.target && e.target.closest && e.target.closest('.span-rate');
+        if (!mark) return;
+        e.preventDefault(); e.stopPropagation();
+        const text = (mark.textContent || '').trim();
+        const idx = this.messages.findIndex(m => m.id === messageId);
+        if (idx >= 0) {
+          const m = this.messages[idx];
+          m.span_ratings = (m.span_ratings || []).filter(x => (x.text || '').trim() !== text);
+          this.messages.splice(idx, 1, m);
+        }
+        fetch(`/api/chat/messages/${messageId}/rate-span`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ selected_text: text, rating: 0, session_id: this.sessionId }),
+        }).catch(() => {});
       },
 
       async rateAt(idx, rating) {
@@ -1117,18 +1152,27 @@
         const s = this.spanSel;
         this.spanSel = { ...s, show: false };
         if (!s.text || !s.messageId) return;
-        // Оптимистично подсвечиваем фрагмент сразу (зелёным/красным).
+        const text = s.text.trim();
         const idx = this.messages.findIndex(m => m.id === s.messageId);
+        let sendRating = rating;
         if (idx >= 0) {
           const m = this.messages[idx];
-          m.span_ratings = (m.span_ratings || []).concat([{ text: s.text, rating }]);
+          const arr = (m.span_ratings || []).slice();
+          const ex = arr.findIndex(x => (x.text || '').trim() === text);
+          if (ex >= 0) {
+            if (arr[ex].rating === rating) { arr.splice(ex, 1); sendRating = 0; }  // повторный клик — снять
+            else { arr[ex] = { text, rating }; }                                   // сменить оценку
+          } else {
+            arr.push({ text, rating });                                            // новая оценка
+          }
+          m.span_ratings = arr;
           this.messages.splice(idx, 1, m);
         }
         try { window.getSelection().removeAllRanges(); } catch (_) {}
         try {
           await fetch(`/api/chat/messages/${s.messageId}/rate-span`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ selected_text: s.text, rating, session_id: this.sessionId }),
+            body: JSON.stringify({ selected_text: text, rating: sendRating, session_id: this.sessionId }),
           });
         } catch (e) { /* подсветка уже показана локально */ }
       },

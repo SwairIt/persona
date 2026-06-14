@@ -3,7 +3,7 @@
 {% set _persona_grayscale = get_grayscale_mode() %}
 {% set _persona_reduce_motion = get_reduce_motion() %}
 <!DOCTYPE html>
-<html lang="{{ get_ui_language() }}"{% if _persona_theme == 'dark' %} class="dark"{% elif _persona_theme == 'persona' %} class="dark theme-persona"{% elif _persona_theme == 'cosmos' %} class="dark theme-cosmos"{% elif _persona_theme == 'light' %} class=""{% endif %}>
+<html lang="{{ get_ui_language() }}"{% if _persona_theme == 'dark' %} class="dark"{% elif _persona_theme == 'persona' %} class="dark theme-persona"{% elif _persona_theme == 'cosmos' %} class="dark theme-cosmos"{% elif _persona_theme == 'cosmos-dark' %} class="dark theme-cosmos theme-cosmos-dark"{% elif _persona_theme == 'light' %} class=""{% endif %}>
 <head>
   <meta charset="UTF-8">
   {# v1.66 — viewport-fit=cover включает safe-area вокруг notch/home-indicator,
@@ -66,7 +66,7 @@
   <script defer src="https://unpkg.com/alpinejs@3.14.7/dist/cdn.min.js"></script>
   <link rel="stylesheet" href="/static/css/app.css">
   <link rel="stylesheet" href="/static/persona_theme.css">
-  {% if _persona_theme == 'cosmos' %}<link rel="stylesheet" href="/static/cosmos_theme.css">{% endif %}
+  {% if _persona_theme in ['cosmos', 'cosmos-dark'] %}<link rel="stylesheet" href="/static/cosmos_theme.css">{% endif %}
   <link rel="stylesheet" href="/static/compact_mode.css">
   <link rel="stylesheet" href="/static/grayscale.css">
   <link rel="stylesheet" href="/static/reduce_motion.css">
@@ -122,7 +122,7 @@
   </script>
 </head>
 <body data-compact="{{ _persona_compact }}" data-grayscale="{{ _persona_grayscale }}" data-reduce-motion="{{ _persona_reduce_motion }}" class="bg-zinc-50 text-zinc-900 dark:bg-ink-950 dark:text-zinc-100 min-h-screen font-sans antialiased transition-colors">
-  {% if _persona_theme == 'cosmos' %}
+  {% if _persona_theme in ['cosmos', 'cosmos-dark'] %}
   {# Космическая тема: живой 3D-фон за всем кабинетом #}
   <canvas id="cosmos-scene" aria-hidden="true"></canvas>
   <div class="cosmos-stars" aria-hidden="true"></div>
@@ -516,7 +516,7 @@
      search filters client-side. Opens a panel with: search field, top
      pages quick-links, a link to /help with the full walkthrough. #}
   {% include "_help_widget.html" ignore missing %}
-  {% if _persona_theme == 'cosmos' %}
+  {% if _persona_theme in ['cosmos', 'cosmos-dark'] %}
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js" defer></script>
   <script src="/static/cosmos_scene.js" defer></script>
   {% endif %}
