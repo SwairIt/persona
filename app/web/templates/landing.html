@@ -52,6 +52,8 @@
   <div class="aurora" aria-hidden="true"></div>
   <div class="depth-glow g1" aria-hidden="true"></div>
   <div class="depth-glow g2" aria-hidden="true"></div>
+  <canvas id="scene3d" aria-hidden="true"></canvas>
+  <div class="scene-scrim" aria-hidden="true"></div>
 
   <header class="nav" id="nav">
     <a class="brand" href="#top"><span class="brand-dot"></span> Persona</a>
@@ -73,7 +75,6 @@
 
     <!-- HERO -->
     <section class="hero" id="hero">
-      <canvas class="hero-3d" id="hero3d" aria-hidden="true"></canvas>
       <div class="floaters" aria-hidden="true">
         <span class="floater" data-float="0.10" style="width:110px;height:110px;top:18%;left:6%"></span>
         <span class="floater f-ring" data-float="0.18" style="width:180px;height:180px;top:54%;left:2%"></span>
@@ -462,7 +463,7 @@
 
   <script src="/static/landing/graph.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js" defer></script>
-  <script src="/static/landing/hero3d.js" defer></script>
+  <script src="/static/landing/scene3d.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js" defer></script>
   <script src="/static/landing/main.js" defer></script>

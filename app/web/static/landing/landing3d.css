@@ -37,28 +37,25 @@ body{font-family:var(--font-body);letter-spacing:-0.011em}
 .hero-sub{font-size:clamp(1.05rem,1.7vw,1.3rem)}
 .section-title{font-size:clamp(2rem,4.2vw,3.3rem);font-weight:700}
 
-/* ---------- 3D hero canvas (фон секции hero) ---------- */
-.hero{position:relative;isolation:isolate}
-.hero-3d{
-  position:absolute;inset:-6% -4% -10% -4%;width:108%;height:116%;
-  z-index:0;pointer-events:none;
-  opacity:.95;
-  -webkit-mask-image:radial-gradient(120% 100% at 60% 35%,#000 55%,transparent 100%);
-  mask-image:radial-gradient(120% 100% at 60% 35%,#000 55%,transparent 100%);
+/* ---------- сквозная 3D-сцена на весь сайт ---------- */
+#scene3d{
+  position:fixed;inset:0;width:100vw;height:100vh;z-index:0;pointer-events:none;
 }
+/* скрим над сценой — держит контраст текста, но сцену видно */
+.scene-scrim{
+  position:fixed;inset:0;z-index:1;pointer-events:none;
+  background:
+    radial-gradient(120% 80% at 50% 0%,transparent 40%,rgba(5,5,16,.45) 100%),
+    linear-gradient(180deg,rgba(5,5,16,.30),rgba(5,5,16,.46));
+}
+/* контент поверх сцены (секции у style.css уже z-index:2; шапка/футер поднимаем) */
+.nav,.footer,.scroll-progress,.skip-link{position:relative;z-index:800}
+.footer{z-index:2}
+.hero{position:relative}
 .hero-grid{position:relative;z-index:2}
 .hero .scroll-hint{position:relative;z-index:2}
-
-/* свечение-подложка под ядром */
-.hero::after{
-  content:"";position:absolute;z-index:1;right:2%;top:14%;
-  width:min(46vw,640px);height:min(46vw,640px);border-radius:50%;
-  background:radial-gradient(circle at 50% 50%,rgba(155,123,255,.30),rgba(54,224,255,.12) 40%,transparent 70%);
-  filter:blur(20px);pointer-events:none;
-}
 @media (max-width:880px){
-  .hero-3d{opacity:.55;inset:-2% -10% 0 -10%;width:120%}
-  .hero::after{right:50%;transform:translateX(50%);top:2%;opacity:.7}
+  #scene3d{opacity:.8}
 }
 
 /* ---------- объёмные плавающие объекты (параллакс) ---------- */
