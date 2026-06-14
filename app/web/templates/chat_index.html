@@ -296,6 +296,15 @@
       </button>
 
       <footer class="px-4 sm:px-8 py-4 border-t border-ink-800 max-w-3xl mx-auto w-full">
+        {# наглядный индикатор режима + быстрые ссылки на настройку #}
+        <div class="flex items-center justify-center gap-2 mb-2 text-[11px] flex-wrap">
+          <a href="/settings/advanced"
+             class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border bg-ink-800/60 hover:border-accent-500 transition
+                    {% if adv and adv.master %}border-accent-600/50 text-accent-300{% else %}border-emerald-600/40 text-emerald-300{% endif %}">
+            {% if adv and adv.master %}🛠 <span>Рабочий режим</span>{% else %}🧑‍🤝‍🧑 <span>Режим друга</span>{% endif %}
+          </a>
+          <a href="/settings/system-prompt" class="text-zinc-500 hover:text-accent-400 px-1">характер ассистента →</a>
+        </div>
         {# T26 — Queue preview when user typed-ahead while AI was busy #}
         <template x-if="queuedPrompts.length > 0">
           <div class="mb-2 space-y-1">
