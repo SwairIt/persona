@@ -303,7 +303,7 @@ async def chat_index(
         "chat_index.html",
         {
             "title": "Чат с памятью",
-            "active_nav": "ask",
+            "active_nav": "chat",
             "sessions": sessions,
             "active_session": None,
             "messages": [],
@@ -335,7 +335,7 @@ async def chat_thread(
         "chat_index.html",
         {
             "title": thread["title"],
-            "active_nav": "ask",
+            "active_nav": "chat",
             "sessions": sessions,
             "active_session": thread,
             "messages": messages,

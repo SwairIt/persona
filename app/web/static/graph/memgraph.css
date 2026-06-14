@@ -26,3 +26,38 @@
 .mg-empty[hidden]{display:none}
 .mg-empty a{color:#a78bfa;text-decoration:underline}
 .mg-note{color:#6f7196;font-size:.82rem;margin-top:12px;max-width:760px}
+
+/* --- панель настроек графа --- */
+.mg-panel-btn{
+  position:absolute;top:12px;right:12px;z-index:6;cursor:pointer;
+  background:rgba(20,18,38,.9);border:1px solid rgba(167,139,250,.4);color:#cdd0ff;
+  border-radius:9px;padding:6px 11px;font-size:.8rem;backdrop-filter:blur(6px);
+}
+.mg-panel-btn:hover{border-color:rgba(167,139,250,.8);color:#fff}
+.mg-panel{
+  position:absolute;top:48px;right:12px;z-index:6;width:268px;max-height:calc(100% - 64px);
+  overflow-y:auto;display:none;flex-direction:column;gap:14px;
+  background:rgba(12,11,24,.96);border:1px solid rgba(167,139,250,.35);border-radius:14px;
+  padding:14px;box-shadow:0 14px 40px rgba(0,0,0,.55);backdrop-filter:blur(8px);
+}
+.mg-panel.open{display:flex}
+.mg-panel-sec{display:flex;flex-direction:column;gap:8px}
+.mg-panel-h{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:#8a8fc0;font-weight:700}
+.mg-presets{display:flex;flex-wrap:wrap;gap:6px}
+.mg-presets button{
+  flex:1;min-width:78px;cursor:pointer;font-size:.74rem;padding:5px 6px;border-radius:7px;
+  background:rgba(124,58,237,.18);border:1px solid rgba(124,58,237,.4);color:#d6d3ff;
+}
+.mg-presets button:hover{background:rgba(124,58,237,.32)}
+.mg-types{display:flex;flex-direction:column;gap:5px}
+.mg-chip{display:flex;align-items:center;gap:7px;font-size:.82rem;color:#c7c9e6;cursor:pointer}
+.mg-chip i{width:9px;height:9px;border-radius:50%;display:inline-block}
+.mg-chip input{accent-color:#a78bfa;cursor:pointer}
+.mg-slider{display:flex;flex-direction:column;gap:3px;font-size:.76rem;color:#aab0d8}
+.mg-slider span{color:#5eead4;font-family:ui-monospace,monospace;font-size:.72rem}
+.mg-slider input[type=range]{width:100%;accent-color:#a78bfa;cursor:pointer}
+.mg-reset{
+  cursor:pointer;font-size:.76rem;padding:5px;border-radius:7px;margin-top:2px;
+  background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.16);color:#cdd0ee;
+}
+.mg-reset:hover{background:rgba(255,255,255,.12)}

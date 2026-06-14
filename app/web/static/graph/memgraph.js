@@ -1,6 +1,7 @@
 /* Граф памяти кабинета — реальные данные из /api/graph.json.
-   canvas-2D force-directed, перетаскивание узлов, наведение → подсказка,
-   подсветка связей. Лёгкий (≈350 узлов max), 30 FPS, пауза на скрытой вкладке. */
+   canvas-2D force-directed: фильтр типов узлов + настраиваемая физика
+   (отталкивание, длина/жёсткость связей, гравитация, трение). Настройки
+   сохраняются в localStorage. Лёгкий, 30 FPS, пауза на скрытой вкладке. */
 (function () {
   'use strict';
   const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -23,149 +24,264 @@
     summary:   { c: '252,165,165', r: 7,   label: 'конспект (сжато)' },
   };
 
+  // --- настройки (с дефолтами) ---
+  const PHYS_DEFAULT = {
+    repulsion: 900,    // сила отталкивания узлов
+    linkDist: 64,      // желаемая длина связи
+    linkStr: 0.03,     // жёсткость связи
+    gravity: 0.012,    // притяжение к центру (держит граф вместе)
+    friction: 0.82,    // трение (затухание скорости)
+  };
+  // по умолчанию включено только «нужное»: чаты, промпты, ответы, конспекты
+  const SHOW_DEFAULT = {
+    prompt: true, answer: true, session: true, summary: true,
+    memory: false, recording: false, day: false,
+  };
+  const LS = 'persona_graph_cfg_v1';
+  let cfg = { phys: { ...PHYS_DEFAULT }, show: { ...SHOW_DEFAULT } };
+  try {
+    const saved = JSON.parse(localStorage.getItem(LS) || 'null');
+    if (saved && saved.phys && saved.show) cfg = { phys: { ...PHYS_DEFAULT, ...saved.phys }, show: { ...SHOW_DEFAULT, ...saved.show } };
+  } catch (e) { /* битый конфиг — дефолты */ }
+  const saveCfg = () => { try { localStorage.setItem(LS, JSON.stringify(cfg)); } catch (e) {} };
+
+  let RAW = null;        // сырые данные с сервера
+  let sim = null;        // текущее состояние симуляции
+
   fetch('/api/graph.json', { headers: { 'Accept': 'application/json' } })
     .then((r) => r.json())
-    .then(init)
+    .then((data) => { RAW = data; setupControls(); build(); })
     .catch(() => { if (statsEl) statsEl.textContent = 'Не удалось загрузить граф.'; });
 
-  function init(data) {
-    const rawNodes = data.nodes || [];
-    if (!rawNodes.length) { if (emptyEl) emptyEl.hidden = false; if (statsEl) statsEl.textContent = 'Память пока пуста.'; return; }
+  // размеры canvas
+  let W = 0, H = 0; const dpr = Math.min(devicePixelRatio || 1, 2);
+  function resize() {
+    W = stage.clientWidth || 800; H = stage.clientHeight || 520;
+    canvas.width = W * dpr; canvas.height = H * dpr;
+    canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  resize();
+  addEventListener('resize', () => { resize(); }, { passive: true });
 
-    // легенда + статистика
-    const counts = data.counts || {};
+  function escapeHtml(s) { return (s || '').replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c])); }
+
+  // --- построение видимого графа из RAW по фильтру типов ---
+  function build() {
+    const rawNodes = (RAW && RAW.nodes) || [];
+    if (!rawNodes.length) {
+      if (emptyEl) emptyEl.hidden = false;
+      if (statsEl) statsEl.textContent = 'Память пока пуста.';
+      sim = null; return;
+    }
+    if (emptyEl) emptyEl.hidden = true;
+
+    const idx = new Map();
+    const nodes = [];
+    rawNodes.forEach((n) => {
+      if (cfg.show[n.type]) { idx.set(n.id, nodes.length); nodes.push(makeNode(n)); }
+    });
+    const links = ((RAW && RAW.links) || [])
+      .filter((l) => idx.has(l.a) && idx.has(l.b))
+      .map((l) => ({ a: idx.get(l.a), b: idx.get(l.b) }));
+
+    // легенда + статистика (по видимым)
+    const counts = {};
+    nodes.forEach((n) => { counts[n.type] = (counts[n.type] || 0) + 1; });
     if (statsEl) {
       const parts = [];
       if (counts.prompt) parts.push(counts.prompt + ' промптов');
       if (counts.answer) parts.push(counts.answer + ' ответов');
-      if (counts.memory || counts.recording) parts.push(((counts.memory || 0) + (counts.recording || 0)) + ' карточек памяти');
       if (counts.session) parts.push(counts.session + ' чатов');
-      statsEl.textContent = parts.join(' · ') + (data.truncated ? ' · показаны недавние' : '');
+      const cards = (counts.memory || 0) + (counts.recording || 0);
+      if (cards) parts.push(cards + ' карточек');
+      if (counts.day) parts.push(counts.day + ' дней');
+      statsEl.textContent = (parts.join(' · ') || 'нет узлов выбранных типов') + (RAW.truncated ? ' · показаны недавние' : '');
     }
     if (legendEl) {
-      legendEl.innerHTML = Object.keys(TYPES)
-        .filter((t) => counts[t])
-        .map((t) => `<span><i style="background:rgb(${TYPES[t].c})"></i>${TYPES[t].label}</span>`)
-        .join('');
+      legendEl.innerHTML = Object.keys(TYPES).filter((t) => counts[t])
+        .map((t) => `<span><i style="background:rgb(${TYPES[t].c})"></i>${TYPES[t].label}</span>`).join('');
     }
 
-    const idx = new Map();
-    const nodes = rawNodes.map((n, i) => {
-      idx.set(n.id, i);
-      const t = TYPES[n.type] || TYPES.prompt;
-      return { ...n, r: t.r, x: 0, y: 0, vx: 0, vy: 0 };
-    });
-    const links = (data.links || []).filter((l) => idx.has(l.a) && idx.has(l.b))
-      .map((l) => ({ a: idx.get(l.a), b: idx.get(l.b) }));
     const neigh = nodes.map(() => new Set());
     links.forEach((l) => { neigh[l.a].add(l.b); neigh[l.b].add(l.a); });
 
-    // размеры
-    let W = 0, H = 0; const dpr = Math.min(devicePixelRatio || 1, 2);
-    function resize() {
-      W = stage.clientWidth; H = stage.clientHeight;
-      canvas.width = W * dpr; canvas.height = H * dpr;
-      canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    }
-    resize();
-    addEventListener('resize', resize, { passive: true });
-
-    // стартовая раскладка
+    // стартовая раскладка по окружности (детерминированная)
     let seed = 9; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    const R = Math.min(W, H) * 0.36;
     nodes.forEach((n, i) => {
       const a = (i / nodes.length) * Math.PI * 2;
-      n.x = W / 2 + Math.cos(a) * Math.min(W, H) * 0.35 + (rnd() - 0.5) * 60;
-      n.y = H / 2 + Math.sin(a) * Math.min(W, H) * 0.35 + (rnd() - 0.5) * 60;
+      n.x = W / 2 + Math.cos(a) * R + (rnd() - 0.5) * 50;
+      n.y = H / 2 + Math.sin(a) * R + (rnd() - 0.5) * 50;
+      n.vx = n.vy = 0;
     });
 
-    // взаимодействие
-    let hover = -1, drag = -1;
-    const at = (e) => { const r = canvas.getBoundingClientRect(); const t = e.touches ? e.touches[0] : e; return { x: t.clientX - r.left, y: t.clientY - r.top, cx: t.clientX, cy: t.clientY }; };
-    const pick = (p) => { let b = -1, bd = 16 * 16; for (let i = 0; i < nodes.length; i++) { const dx = nodes[i].x - p.x, dy = nodes[i].y - p.y, d = dx * dx + dy * dy; if (d < bd) { bd = d; b = i; } } return b; };
-    canvas.style.touchAction = 'none';
-    canvas.addEventListener('pointerdown', (e) => { drag = pick(at(e)); if (drag >= 0) canvas.classList.add('grabbing'); });
-    canvas.addEventListener('pointermove', (e) => {
-      const p = at(e);
-      if (drag >= 0) { nodes[drag].x = p.x; nodes[drag].y = p.y; nodes[drag].vx = nodes[drag].vy = 0; }
-      else {
-        hover = pick(p);
-        canvas.style.cursor = hover >= 0 ? 'grab' : 'default';
-        if (hover >= 0 && tip) {
-          const n = nodes[hover], t = TYPES[n.type] || TYPES.prompt;
-          tip.hidden = false;
-          tip.innerHTML = `<span class="tt-type">${t.label}${n.compressed ? ' · сжато' : ''}</span>${escapeHtml(n.label || '')}`;
-          const sr = stage.getBoundingClientRect();
-          let tx = p.cx - sr.left + 14, ty = p.cy - sr.top + 14;
-          tip.style.left = Math.min(tx, sr.width - 240) + 'px';
-          tip.style.top = Math.min(ty, sr.height - 60) + 'px';
-        } else if (tip) tip.hidden = true;
-      }
-    });
-    addEventListener('pointerup', () => { drag = -1; canvas.classList.remove('grabbing'); });
-    canvas.addEventListener('pointerleave', () => { if (drag < 0) { hover = -1; if (tip) tip.hidden = true; } });
+    sim = { nodes, links, neigh, hover: -1, drag: -1, alpha: 1 };
+    if (reduce) { for (let k = 0; k < 280; k++) step(); draw(); }  // статичная раскладка
+  }
 
-    function escapeHtml(s) { return s.replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c])); }
+  function makeNode(n) {
+    const t = TYPES[n.type] || TYPES.prompt;
+    return { ...n, r: t.r, x: 0, y: 0, vx: 0, vy: 0 };
+  }
 
-    function step() {
-      const cx = W / 2, cy = H / 2;
-      for (let i = 0; i < nodes.length; i++) {
-        const a = nodes[i];
-        for (let j = i + 1; j < nodes.length; j++) {
-          const b = nodes[j];
-          let dx = a.x - b.x, dy = a.y - b.y; let d2 = dx * dx + dy * dy || 0.01;
-          if (d2 > 90000) continue; // дальние не отталкиваем (быстрее)
-          const f = 700 / d2, d = Math.sqrt(d2);
-          const fx = (dx / d) * f, fy = (dy / d) * f;
-          a.vx += fx; a.vy += fy; b.vx -= fx; b.vy -= fy;
-        }
-      }
-      for (const l of links) {
-        const a = nodes[l.a], b = nodes[l.b];
-        let dx = b.x - a.x, dy = b.y - a.y; const d = Math.sqrt(dx * dx + dy * dy) || 0.01;
-        const f = (d - 60) * 0.02, fx = (dx / d) * f, fy = (dy / d) * f;
+  // --- взаимодействие ---
+  const at = (e) => { const r = canvas.getBoundingClientRect(); const t = e.touches ? e.touches[0] : e; return { x: t.clientX - r.left, y: t.clientY - r.top, cx: t.clientX, cy: t.clientY }; };
+  const pick = (p) => { if (!sim) return -1; let b = -1, bd = 18 * 18; for (let i = 0; i < sim.nodes.length; i++) { const dx = sim.nodes[i].x - p.x, dy = sim.nodes[i].y - p.y, d = dx * dx + dy * dy; if (d < bd) { bd = d; b = i; } } return b; };
+  canvas.style.touchAction = 'none';
+  canvas.addEventListener('pointerdown', (e) => { if (!sim) return; sim.drag = pick(at(e)); if (sim.drag >= 0) { canvas.classList.add('grabbing'); sim.alpha = Math.max(sim.alpha, 0.6); } });
+  canvas.addEventListener('pointermove', (e) => {
+    if (!sim) return;
+    const p = at(e);
+    if (sim.drag >= 0) { const n = sim.nodes[sim.drag]; n.x = p.x; n.y = p.y; n.vx = n.vy = 0; sim.alpha = Math.max(sim.alpha, 0.5); }
+    else {
+      sim.hover = pick(p);
+      canvas.style.cursor = sim.hover >= 0 ? 'grab' : 'default';
+      if (sim.hover >= 0 && tip) {
+        const n = sim.nodes[sim.hover], t = TYPES[n.type] || TYPES.prompt;
+        tip.hidden = false;
+        tip.innerHTML = `<span class="tt-type">${t.label}${n.compressed ? ' · сжато' : ''}</span>${escapeHtml(n.label || '')}`;
+        const sr = stage.getBoundingClientRect();
+        const tx = p.cx - sr.left + 14, ty = p.cy - sr.top + 14;
+        tip.style.left = Math.min(tx, sr.width - 240) + 'px';
+        tip.style.top = Math.min(ty, sr.height - 60) + 'px';
+      } else if (tip) tip.hidden = true;
+    }
+  });
+  addEventListener('pointerup', () => { if (sim) sim.drag = -1; canvas.classList.remove('grabbing'); });
+  canvas.addEventListener('pointerleave', () => { if (sim && sim.drag < 0) { sim.hover = -1; if (tip) tip.hidden = true; } });
+
+  // --- физика (по cfg.phys), мягкие границы вместо жёсткого клампа в углы ---
+  function step() {
+    if (!sim) return;
+    const { nodes, links } = sim;
+    const P = cfg.phys;
+    const cx = W / 2, cy = H / 2;
+    const rep = P.repulsion;
+    for (let i = 0; i < nodes.length; i++) {
+      const a = nodes[i];
+      for (let j = i + 1; j < nodes.length; j++) {
+        const b = nodes[j];
+        let dx = a.x - b.x, dy = a.y - b.y; let d2 = dx * dx + dy * dy || 0.01;
+        if (d2 > 160000) continue;            // дальние не считаем (быстро)
+        const d = Math.sqrt(d2); const f = rep / d2;
+        const fx = (dx / d) * f, fy = (dy / d) * f;
         a.vx += fx; a.vy += fy; b.vx -= fx; b.vy -= fy;
       }
-      for (let i = 0; i < nodes.length; i++) {
-        const n = nodes[i]; if (i === drag) continue;
-        n.vx += (cx - n.x) * 0.002; n.vy += (cy - n.y) * 0.002;
-        n.vx *= 0.8; n.vy *= 0.8; n.x += n.vx; n.y += n.vy;
-        n.x = Math.max(n.r + 3, Math.min(W - n.r - 3, n.x));
-        n.y = Math.max(n.r + 3, Math.min(H - n.r - 3, n.y));
-      }
     }
-
-    function draw() {
-      ctx.clearRect(0, 0, W, H);
-      for (const l of links) {
-        const a = nodes[l.a], b = nodes[l.b];
-        const on = hover >= 0 && (l.a === hover || l.b === hover);
-        ctx.strokeStyle = on ? 'rgba(167,139,250,.8)' : 'rgba(255,255,255,.07)';
-        ctx.lineWidth = on ? 1.5 : 0.6;
-        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
-      }
-      for (let i = 0; i < nodes.length; i++) {
-        const n = nodes[i], t = TYPES[n.type] || TYPES.prompt;
-        const active = hover < 0 || i === hover || neigh[hover].has(i);
-        const dim = n.compressed ? 0.45 : 1;
-        const r = n.r * (i === hover ? 1.5 : 1);
-        const g = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, r * 3);
-        g.addColorStop(0, `rgba(${t.c},${(active ? 0.85 : 0.18) * dim})`);
-        g.addColorStop(1, `rgba(${t.c},0)`);
-        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(n.x, n.y, r * 3, 0, 7); ctx.fill();
-        ctx.fillStyle = `rgba(${t.c},${(active ? 1 : 0.35) * dim})`;
-        ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, 7); ctx.fill();
-      }
+    for (const l of links) {
+      const a = nodes[l.a], b = nodes[l.b];
+      let dx = b.x - a.x, dy = b.y - a.y; const d = Math.sqrt(dx * dx + dy * dy) || 0.01;
+      const f = (d - P.linkDist) * P.linkStr, fx = (dx / d) * f, fy = (dy / d) * f;
+      a.vx += fx; a.vy += fy; b.vx -= fx; b.vy -= fy;
     }
-
-    if (reduce) { for (let k = 0; k < 260; k++) step(); draw(); return; }
-    const FR = 1000 / 30; let last = 0;
-    function tick(now) {
-      requestAnimationFrame(tick);
-      if (document.hidden) return;
-      if (now - last < FR) return; last = now;
-      step(); draw();
+    const VMAX = 30;
+    for (let i = 0; i < nodes.length; i++) {
+      const n = nodes[i]; if (i === sim.drag) continue;
+      n.vx += (cx - n.x) * P.gravity; n.vy += (cy - n.y) * P.gravity;
+      n.vx *= P.friction; n.vy *= P.friction;
+      // ограничение скорости — не даёт «выстреливать» в углы
+      if (n.vx > VMAX) n.vx = VMAX; else if (n.vx < -VMAX) n.vx = -VMAX;
+      if (n.vy > VMAX) n.vy = VMAX; else if (n.vy < -VMAX) n.vy = -VMAX;
+      n.x += n.vx; n.y += n.vy;
+      // мягкий отбой от краёв (не липнем в угол, а отражаемся внутрь)
+      const m = n.r + 6;
+      if (n.x < m) { n.x = m; n.vx = Math.abs(n.vx) * 0.5; }
+      else if (n.x > W - m) { n.x = W - m; n.vx = -Math.abs(n.vx) * 0.5; }
+      if (n.y < m) { n.y = m; n.vy = Math.abs(n.vy) * 0.5; }
+      else if (n.y > H - m) { n.y = H - m; n.vy = -Math.abs(n.vy) * 0.5; }
     }
-    requestAnimationFrame(tick);
   }
+
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+    if (!sim) return;
+    const { nodes, links, neigh, hover } = sim;
+    for (const l of links) {
+      const a = nodes[l.a], b = nodes[l.b];
+      const on = hover >= 0 && (l.a === hover || l.b === hover);
+      ctx.strokeStyle = on ? 'rgba(167,139,250,.8)' : 'rgba(255,255,255,.07)';
+      ctx.lineWidth = on ? 1.5 : 0.6;
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+    }
+    for (let i = 0; i < nodes.length; i++) {
+      const n = nodes[i], t = TYPES[n.type] || TYPES.prompt;
+      const active = hover < 0 || i === hover || neigh[hover].has(i);
+      const dim = n.compressed ? 0.45 : 1;
+      const r = n.r * (i === hover ? 1.5 : 1);
+      const g = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, r * 3);
+      g.addColorStop(0, `rgba(${t.c},${(active ? 0.85 : 0.18) * dim})`);
+      g.addColorStop(1, `rgba(${t.c},0)`);
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(n.x, n.y, r * 3, 0, 7); ctx.fill();
+      ctx.fillStyle = `rgba(${t.c},${(active ? 1 : 0.35) * dim})`;
+      ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, 7); ctx.fill();
+    }
+  }
+
+  // --- панель управления ---
+  function setupControls() {
+    // тумблеры типов
+    const toggleBox = document.getElementById('mg-types');
+    if (toggleBox) {
+      toggleBox.innerHTML = Object.keys(TYPES).map((t) =>
+        `<label class="mg-chip"><input type="checkbox" data-type="${t}" ${cfg.show[t] ? 'checked' : ''}>` +
+        `<i style="background:rgb(${TYPES[t].c})"></i>${TYPES[t].label}</label>`).join('');
+      toggleBox.querySelectorAll('input[data-type]').forEach((el) => {
+        el.addEventListener('change', () => { cfg.show[el.dataset.type] = el.checked; saveCfg(); build(); });
+      });
+    }
+    // пресеты
+    const preset = (show) => { cfg.show = { ...show }; saveCfg(); build(); syncControls(); };
+    bind('mg-preset-need', () => preset(SHOW_DEFAULT));
+    bind('mg-preset-all', () => preset({ prompt: true, answer: true, session: true, summary: true, memory: true, recording: true, day: true }));
+    bind('mg-preset-prompts', () => preset({ prompt: true, answer: false, session: false, summary: false, memory: false, recording: false, day: false }));
+
+    // слайдеры физики
+    slider('mg-repulsion', 'repulsion');
+    slider('mg-linkdist', 'linkDist');
+    slider('mg-linkstr', 'linkStr');
+    slider('mg-gravity', 'gravity');
+    slider('mg-friction', 'friction');
+    bind('mg-phys-reset', () => { cfg.phys = { ...PHYS_DEFAULT }; saveCfg(); syncControls(); if (sim) sim.alpha = 1; });
+
+    syncControls();
+  }
+
+  function slider(id, key) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.value = cfg.phys[key];
+    const out = document.getElementById(id + '-val');
+    if (out) out.textContent = cfg.phys[key];
+    el.addEventListener('input', () => {
+      cfg.phys[key] = parseFloat(el.value); saveCfg();
+      if (out) out.textContent = el.value;
+      if (sim) sim.alpha = Math.max(sim.alpha, 0.5); // «подогреть» сим после правки
+    });
+  }
+  function bind(id, fn) { const el = document.getElementById(id); if (el) el.addEventListener('click', fn); }
+  function syncControls() {
+    document.querySelectorAll('#mg-types input[data-type]').forEach((el) => { el.checked = !!cfg.show[el.dataset.type]; });
+    [['mg-repulsion', 'repulsion'], ['mg-linkdist', 'linkDist'], ['mg-linkstr', 'linkStr'], ['mg-gravity', 'gravity'], ['mg-friction', 'friction']]
+      .forEach(([id, key]) => { const el = document.getElementById(id); if (el) { el.value = cfg.phys[key]; const o = document.getElementById(id + '-val'); if (o) o.textContent = cfg.phys[key]; } });
+  }
+
+  // панель свернуть/развернуть
+  bindPanel();
+  function bindPanel() {
+    const btn = document.getElementById('mg-panel-toggle');
+    const panel = document.getElementById('mg-panel');
+    if (btn && panel) btn.addEventListener('click', () => { panel.classList.toggle('open'); });
+  }
+
+  // --- цикл ---
+  if (reduce) return;  // без анимации: build() уже отрисовал статичную раскладку
+  const FR = 1000 / 30; let last = 0;
+  function tick(now) {
+    requestAnimationFrame(tick);
+    if (document.hidden) return;
+    if (now - last < FR) return; last = now;
+    step(); draw();
+  }
+  requestAnimationFrame(tick);
 })();

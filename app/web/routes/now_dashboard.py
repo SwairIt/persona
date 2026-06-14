@@ -54,7 +54,7 @@ async def now_page(
         "now_dashboard.html",
         {
             "title": "Сейчас",
-            "active_nav": "timeline",
+            "active_nav": "now",
             "now": state,
             "agent_update": agent_update,
         },
