@@ -79,6 +79,26 @@ async def list_memory(user_id: int, limit: int = 200) -> list[dict[str, Any]]:
     ]
 
 
+async def set_pinned(user_id: int, mem_id: int, pinned: bool) -> bool:
+    async with get_connection() as conn:
+        cur = await conn.execute(
+            "UPDATE user_memory SET pinned = ?, updated_at = datetime('now') "
+            "WHERE id = ? AND user_id = ?",
+            (1 if pinned else 0, mem_id, user_id),
+        )
+        await conn.commit()
+        return cur.rowcount > 0
+
+
+async def count_memory(user_id: int) -> int:
+    async with get_connection() as conn:
+        cur = await conn.execute(
+            "SELECT COUNT(*) AS n FROM user_memory WHERE user_id = ?", (user_id,)
+        )
+        row = await cur.fetchone()
+    return int(row["n"]) if row else 0
+
+
 async def delete_memory(user_id: int, mem_id: int) -> bool:
     async with get_connection() as conn:
         cur = await conn.execute(

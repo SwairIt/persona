@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto px-4 py-6 space-y-5">
+  <div>
+    <h1 class="text-2xl font-bold mb-1">🧠 Память — что ИИ помнит обо мне</h1>
+    <p class="text-sm text-zinc-400">
+      Это курируемые факты, которые ИИ держит в голове между чатами и подставляет
+      в каждый разговор. Закреплённые (📌) всегда в контексте. Можешь добавлять,
+      удалять и закреплять — ИИ берёт факты о тебе <b>только отсюда</b>, не выдумывает.
+    </p>
+  </div>
+
+  <div class="flex items-center gap-3 text-xs">
+    <div class="flex-1 h-2 rounded-full bg-ink-800 overflow-hidden">
+      <span class="block h-full bg-accent-500"
+            style="width: {{ ((count / budget * 100) if budget else 0) | round(0, 'floor') }}%"></span>
+    </div>
+    <span class="text-zinc-500 whitespace-nowrap">{{ count }} / {{ budget }} фактов</span>
+  </div>
+  {% if count > budget %}
+    <div class="rounded-lg bg-amber-500/10 border border-amber-500/40 px-4 py-2 text-sm text-amber-300">
+      Памяти многовато — почисти старое/неактуальное, чтобы ИИ не путался.
+    </div>
+  {% endif %}
+
+  <form method="post" action="/settings/memory/add" class="flex flex-col gap-2 rounded-xl bg-ink-900 border border-ink-700 p-3">
+    <input name="text" required maxlength="600" placeholder="Новый факт (напр. «Меня зовут Ярослав, делаю Persona»)"
+           class="w-full rounded-lg bg-ink-950 border border-ink-700 focus:border-accent-500 px-3 py-2 text-sm text-zinc-100 focus:outline-none" />
+    <div class="flex items-center gap-3 flex-wrap">
+      <select name="kind" class="rounded-lg bg-ink-950 border border-ink-700 px-2 py-1.5 text-sm text-zinc-200">
+        <option value="fact">факт</option>
+        <option value="preference">предпочтение</option>
+        <option value="person">человек</option>
+        <option value="project">проект</option>
+        <option value="reminder">напоминание</option>
+      </select>
+      <label class="flex items-center gap-1.5 text-sm text-zinc-300">
+        <input type="checkbox" name="pinned" value="1" class="accent-accent-500" /> закрепить 📌
+      </label>
+      <button type="submit" class="ml-auto px-4 py-1.5 rounded-lg bg-accent-600 hover:bg-accent-500 text-white text-sm font-semibold">
+        Запомнить
+      </button>
+    </div>
+  </form>
+
+  {% if items %}
+    <div class="space-y-2">
+      {% for it in items %}
+        <div class="flex items-start gap-2 rounded-lg border px-3 py-2 text-sm
+                    {% if it.pinned %}bg-accent-500/5 border-accent-500/30{% else %}bg-ink-900 border-ink-800{% endif %}">
+          <span class="text-[11px] uppercase tracking-wide text-zinc-500 mt-0.5 w-20 shrink-0">{{ it.kind }}</span>
+          <span class="flex-1 text-zinc-100">{{ it.text }}</span>
+          <form method="post" action="/settings/memory/{{ it.id }}/pin" class="shrink-0">
+            {% if not it.pinned %}<input type="hidden" name="pinned" value="1" />{% endif %}
+            <button type="submit" title="{{ 'открепить' if it.pinned else 'закрепить' }}"
+                    class="text-zinc-400 hover:text-accent-400">{{ '📌' if it.pinned else '📍' }}</button>
+          </form>
+          <form method="post" action="/settings/memory/{{ it.id }}/delete" class="shrink-0">
+            <button type="submit" title="удалить" class="text-zinc-500 hover:text-rose-400">✕</button>
+          </form>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="text-sm text-zinc-500 border-t border-ink-800 pt-3">
+      Память пока пустая. Добавь факты выше, или просто общайся — скоро ИИ начнёт
+      сам подмечать важное (авто-извлечение фактов в работе).
+    </p>
+  {% endif %}
+</div>
+{% endblock %}
