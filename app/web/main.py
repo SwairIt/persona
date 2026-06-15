@@ -1064,6 +1064,13 @@ async def _run_memory_of_day_worker(controller: object) -> None:
     await run_memory_of_day_worker()
 
 
+async def _run_briefing_worker(controller: object) -> None:
+    """Adapter for the proactive morning-briefing worker (MVP 7g)."""
+    from app.workers.briefing_worker import run_briefing_worker  # noqa: PLC0415
+
+    await run_briefing_worker()
+
+
 async def _run_heartbeat_alert_worker(controller: object) -> None:
     """Adapter for the v1.61 worker-heartbeat gap-alert pusher."""
     from app.workers.heartbeat_alert_worker import run_heartbeat_alert_worker  # noqa: PLC0415
@@ -1245,6 +1252,10 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         asyncio.create_task(
             _run_memory_of_day_worker(controller),
             name="memory-of-day-worker",
+        ),
+        asyncio.create_task(
+            _run_briefing_worker(controller),
+            name="briefing-worker",
         ),
         asyncio.create_task(
             _run_heartbeat_alert_worker(controller),
