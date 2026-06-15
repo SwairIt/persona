@@ -220,6 +220,24 @@ async def _set_auto_prompt(on: bool) -> None:
         await conn.commit()
 
 
+# ── Полная остановка генерации (работает между воркерами через kv-флаг) ───
+async def _set_stop(session_id: int, on: bool) -> None:
+    from app.storage.db import get_connection  # noqa: PLC0415
+    from app.storage.repository import set_kv  # noqa: PLC0415
+
+    async with get_connection() as conn:
+        await set_kv(conn, f"chat_stop_{session_id}", "1" if on else "0")
+        await conn.commit()
+
+
+async def _is_stopped(session_id: int) -> bool:
+    from app.storage.db import get_connection  # noqa: PLC0415
+    from app.storage.repository import get_kv  # noqa: PLC0415
+
+    async with get_connection() as conn:
+        return (await get_kv(conn, f"chat_stop_{session_id}") or "0").strip() == "1"
+
+
 # ── Режим памяти по чатам (recall): off / keyword / smart ─────────────────
 _RECALL_MODES = ("off", "keyword", "smart")
 
@@ -992,6 +1010,8 @@ async def api_send_stream(
                 )
 
         t_start = time.perf_counter()
+        await _set_stop(session_id, False)  # сбросить флаг стоп перед началом
+        stopped = False
         chunks: list[str] = []
         # T29 — incremental persistence: the assistant row is created on the
         # first delta and its content is flushed to the DB ~every second, so
@@ -1044,8 +1064,17 @@ async def api_send_stream(
                 await queue.put(("eof", ""))
 
         prod_task = asyncio.create_task(producer())
+        _last_stop_check = time.perf_counter()
         try:
             while True:
+                # Полная остановка по кнопке Stop: проверяем kv-флаг ~раз в 0.4с
+                # (работает даже если Stop пришёл на другой воркер).
+                if time.perf_counter() - _last_stop_check > 0.4:
+                    _last_stop_check = time.perf_counter()
+                    if await _is_stopped(session_id):
+                        stopped = True
+                        prod_task.cancel()
+                        break
                 try:
                     kind, payload = await asyncio.wait_for(queue.get(), timeout=0.5)
                 except asyncio.TimeoutError:
@@ -1115,7 +1144,8 @@ async def api_send_stream(
         # call is re-parsed and re-run each round (the "выполнил 3 раза" bug).
         executed_raws: set[str] = set()
         # T31 E3 — в режимах plan/ask инструменты НЕ выполняются (только план/спрос).
-        for _round in (range(5) if _tools_on else range(0)):
+        # Если пользователь нажал Stop — никаких инструментов/догенерации.
+        for _round in (range(8) if (_tools_on and not stopped) else range(0)):
             tool_calls = [
                 tc for tc in parse_tool_calls(full)
                 if tc.get("raw") not in executed_raws
@@ -1283,6 +1313,27 @@ async def api_send_stream(
             "X-Accel-Buffering": "no",  # tells nginx/proxy not to buffer
         },
     )
+
+
+@router.post("/api/chat/sessions/{session_id}/stop", response_class=JSONResponse)
+async def api_stop_generation(
+    session_id: int,
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+) -> JSONResponse:
+    """Полная остановка генерации: ставит kv-флаг (его видит цикл генерации на
+    любом воркере) + на всякий случай отменяет локальную задачу."""
+    await _set_stop(session_id, True)
+    gen = _LIVE_GENS.get(session_id)
+    if gen and gen.task and not gen.task.done():
+        gen.task.cancel()
+    # подчистить «зависшее» стриминг-сообщение, чтобы не осталось is_streaming
+    try:
+        sm = await get_streaming_message(session_id)
+        if sm and sm.get("id"):
+            await finalize_streaming_message(int(sm["id"]), str(sm.get("content") or ""))
+    except Exception as exc:  # noqa: BLE001
+        log.debug("chat.stop.finalize_failed", error=str(exc))
+    return JSONResponse({"ok": True})
 
 
 @router.post("/api/chat/sessions/{session_id}/model", response_class=JSONResponse)

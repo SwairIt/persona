@@ -1349,10 +1349,20 @@
       },
 
       async stop() {
+        // 1) серверная остановка генерации (фоновая задача реально прекращается,
+        //    в т.ч. при нескольких воркерах — через флаг)
+        if (this.sessionId) {
+          try {
+            await fetch(`/api/chat/sessions/${this.sessionId}/stop`, { method: 'POST' });
+          } catch (e) { /* всё равно оборвём локально ниже */ }
+        }
+        // 2) оборвать локальный поток
         if (this._abortController) {
           this._abortController.abort();
           this._abortController = null;
         }
+        // 3) остановить и озвучку, если шла
+        try { this.stopSpeaking(); } catch (e) {}
         this.thinking = false;
         this._stopThinkingClock();
       },

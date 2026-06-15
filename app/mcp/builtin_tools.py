@@ -60,7 +60,7 @@ async def read_file(args: dict[str, Any], user_id: int = 0) -> str:
     """T27 — resolves path inside the user's workspace (or the Mac in mac-mode)."""
     from app.workspace import WorkspaceEscape, resolve_user_path  # noqa: PLC0415
 
-    path = str(args.get("path", "")).strip()
+    path = _pick(args, ("path", "filepath", "file", "filename", "name")).strip()
     if not path:
         return "[error] path required"
     remote = await _remote_fs("read", path, user_id)
@@ -133,6 +133,16 @@ async def list_dir(args: dict[str, Any], user_id: int = 0) -> str:
         return f"[error] {type(exc).__name__}: {exc}"
 
 
+def _pick(args: dict[str, Any], keys: tuple[str, ...], default: str = "") -> str:
+    """Взять первое присутствующее значение из возможных имён аргумента —
+    слабые модели зовут параметры по-разному (path/filepath/file/name…)."""
+    for k in keys:
+        v = args.get(k)
+        if v is not None:
+            return str(v)
+    return default
+
+
 # Безрасширенные имена, которые ВСЁ-ТАКИ файлы (а не папки).
 _KNOWN_EXTLESS_FILES = {
     "makefile", "dockerfile", "license", "readme", "procfile", "gemfile",
@@ -189,10 +199,10 @@ async def write_file(args: dict[str, Any], user_id: int = 0) -> str:
         resolve_user_path,
     )
 
-    path = str(args.get("path", "")).strip()
-    content = str(args.get("content", ""))
+    path = _pick(args, ("path", "filepath", "file", "filename", "name", "dir")).strip()
+    content = _pick(args, ("content", "text", "data", "body", "code", "value"))
     if not path:
-        return "[error] path required"
+        return "[error] нужен path (имя файла)"
     # Эвристика: пустой контент + путь без расширения = это ПАПКА, а не файл.
     # Слабые модели зовут write_file вместо mkdir — создаём папку как надо.
     if not content.strip() and _looks_like_dir(path):
@@ -229,9 +239,7 @@ _DELETE_BAD = {"", ".", "..", "~", "/", "*", "."}
 async def delete_path(args: dict[str, Any], user_id: int = 0) -> str:
     """Удалить файл ИЛИ папку (рекурсивно) на Mac пользователя (через агента,
     op=delete) либо в локальном workspace. С защитой от удаления корня/'..'."""
-    path = str(
-        args.get("path") or args.get("dir") or args.get("name") or args.get("file") or ""
-    ).strip()
+    path = _pick(args, ("path", "dir", "name", "file", "filepath", "filename", "folder")).strip()
     if not path:
         return "[error] нужен path: что удалить"
     parts = [seg for seg in path.replace("\\", "/").split("/")]
@@ -665,12 +673,19 @@ _TOOL_ALIASES: dict[str, str] = {
     "read": "read_file", "readfile": "read_file", "open_file": "read_file", "cat": "read_file",
     "ls": "list_dir", "dir": "list_dir", "listdir": "list_dir", "list_files": "list_dir",
     "browse": "web_browse", "open_url": "web_browse", "fetch_url": "web_browse",
+    "touch": "write_file", "createfile": "write_file", "appendfile": "write_file",
+    "put_file": "write_file", "savefile": "write_file",
     # удаление: модели выдумывают разные имена → ведём на delete_path
     "rm": "delete_path", "rm_dir": "delete_path", "rmdir": "delete_path",
     "remove": "delete_path", "delete": "delete_path", "delete_file": "delete_path",
     "delete_dir": "delete_path", "del": "delete_path", "unlink": "delete_path",
+    "remove_file": "delete_path", "remove_dir": "delete_path",
 }
-_MKDIR_NAMES = {"mkdir", "make_dir", "makedir", "create_dir", "createdir", "create_directory"}
+_MKDIR_NAMES = {
+    "mkdir", "make_dir", "makedir", "create_dir", "createdir", "create_directory",
+    "folder", "create_folder", "createfolder", "make_folder", "new_dir", "newdir",
+    "new_folder", "newfolder", "mkdirs",
+}
 
 
 async def call_tool(name: str, args: dict[str, Any], user_id: int = 0) -> str:
