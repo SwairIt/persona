@@ -2,10 +2,31 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, TypedDict
 
 from app.logging_setup import get_logger
 from app.storage.db import get_connection
+
+
+def _fts_expr(words: list[str], op: str = "OR") -> str | None:
+    """Build a safe FTS5 MATCH expression from words.
+
+    Quotes each token (so FTS special chars are inert) and joins them
+    with OR (broad recall) or implicit AND (space — precise search).
+    Returns None when nothing usable remains → caller falls back to LIKE.
+    """
+    cleaned: list[str] = []
+    for w in words:
+        # Keep only token-safe chars, then use a PREFIX query (token*) so
+        # Russian word endings still match (лендинг* → лендингом). Barewords
+        # are lowercased so FTS keywords AND/OR/NOT/NEAR aren't triggered.
+        token = re.sub(r'[^0-9A-Za-zА-Яа-яЁё_]', " ", str(w)).strip().lower()
+        if len(token) >= 2:
+            cleaned.append(token + "*")
+    if not cleaned:
+        return None
+    return (" OR ".join(cleaned)) if op == "OR" else (" ".join(cleaned))
 
 log = get_logger("persona.chat")
 
@@ -352,19 +373,42 @@ async def search_messages(
     q = (query or "").strip()
     if len(q) < 2:
         return []
-    # Escape LIKE wildcards so a literal % or _ in the query is matched.
-    like = "%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
-    async with get_connection() as conn:
-        cur = await conn.execute(
-            "SELECT m.id AS message_id, m.session_id, m.role, m.content, "
-            "       m.created_at, s.title AS session_title "
-            "FROM chat_message m "
-            "JOIN chat_session s ON s.id = m.session_id "
-            "WHERE s.user_id = ? AND m.content LIKE ? ESCAPE '\\' "
-            "ORDER BY m.id DESC LIMIT ?",
-            (user_id, like, max(1, min(100, int(limit)))),
-        )
-        rows = await cur.fetchall()
+    lim = max(1, min(100, int(limit)))
+    rows: list[Any] = []
+    # Fast path: FTS5 (bm25-ranked). Falls back to LIKE if the FTS table is
+    # missing (pre-migration) or the MATCH expression is unusable.
+    expr = _fts_expr(re.findall(r"\w+", q, re.UNICODE), op="AND")
+    if expr:
+        try:
+            async with get_connection() as conn:
+                cur = await conn.execute(
+                    "SELECT m.id AS message_id, m.session_id, m.role, m.content, "
+                    "       m.created_at, s.title AS session_title "
+                    "FROM chat_message_fts "
+                    "JOIN chat_message m ON m.id = chat_message_fts.rowid "
+                    "JOIN chat_session s ON s.id = m.session_id "
+                    "WHERE chat_message_fts MATCH ? AND s.user_id = ? "
+                    "ORDER BY bm25(chat_message_fts), m.id DESC LIMIT ?",
+                    (expr, user_id, lim),
+                )
+                rows = await cur.fetchall()
+        except Exception as exc:  # noqa: BLE001 — FTS missing/bad expr → LIKE
+            log.debug("chat_search.fts_fallback", error=str(exc))
+            rows = []
+    if not rows:
+        # Escape LIKE wildcards so a literal % or _ in the query is matched.
+        like = "%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        async with get_connection() as conn:
+            cur = await conn.execute(
+                "SELECT m.id AS message_id, m.session_id, m.role, m.content, "
+                "       m.created_at, s.title AS session_title "
+                "FROM chat_message m "
+                "JOIN chat_session s ON s.id = m.session_id "
+                "WHERE s.user_id = ? AND m.content LIKE ? ESCAPE '\\' "
+                "ORDER BY m.id DESC LIMIT ?",
+                (user_id, like, lim),
+            )
+            rows = await cur.fetchall()
     return [
         {
             "message_id": int(r["message_id"]),
@@ -414,6 +458,44 @@ async def recall_by_terms(
     terms = [t.strip().lower() for t in terms if t and t.strip()][:10]
     if not terms:
         return ""
+    # Fast path: FTS5 (bm25-ranked) over all of the user's messages.
+    expr = _fts_expr(terms, op="OR")
+    if expr:
+        try:
+            fsql = (
+                "SELECT m.content, m.role, m.created_at, s.title "
+                "FROM chat_message_fts "
+                "JOIN chat_message m ON m.id = chat_message_fts.rowid "
+                "JOIN chat_session s ON s.id = m.session_id "
+                "WHERE chat_message_fts MATCH ? AND s.user_id = ? "
+            )
+            fparams: list[Any] = [expr, user_id]
+            if exclude_session_id is not None:
+                fsql += "AND m.session_id != ? "
+                fparams.append(exclude_session_id)
+            fsql += "ORDER BY bm25(chat_message_fts) LIMIT 40"
+            async with get_connection() as conn:
+                fcur = await conn.execute(fsql, fparams)
+                frows = await fcur.fetchall()
+            fout: list[str] = []
+            fseen: set[str] = set()
+            for r in frows:
+                txt = " ".join((r["content"] or "").split())
+                if len(txt) < 3:
+                    continue
+                key = txt[:80]
+                if key in fseen:
+                    continue
+                fseen.add(key)
+                who = "Ты" if r["role"] == "user" else "Persona"
+                title = r["title"] or "чат"
+                fout.append(f"• [{(r['created_at'] or '')[:10]} · «{title[:24]}»] {who}: {txt[:280]}")
+                if len(fout) >= limit:
+                    break
+            if fout:
+                return "\n".join(fout)
+        except Exception as exc:  # noqa: BLE001 — FTS missing/bad expr → LIKE
+            log.debug("recall.fts_fallback", error=str(exc))
     where = " OR ".join(["lower(m.content) LIKE ?"] * len(terms))
     params: list[Any] = [user_id, *[f"%{t}%" for t in terms]]
     sql = (
