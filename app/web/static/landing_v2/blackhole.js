@@ -44,9 +44,10 @@
 
   var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   var small = window.innerWidth < 760;
-  var DPR = Math.min(window.devicePixelRatio || 1, small ? 1.2 : 1.5);
-  var RENDER_SCALE = small ? 0.8 : 1.0;
-  var STEPS = small ? 110 : 190;           // шаги интегрирования геодезики
+  // АДАПТИВНОЕ КАЧЕСТВО: внутренний масштаб рендера снижается, если FPS проседает.
+  var qScale = small ? 0.62 : 0.82;        // стартовый масштаб (апскейл CSS — космос мягкий)
+  var QMIN = 0.42;                          // нижний предел
+  var STEPS = small ? 100 : 150;            // шаги геодезики (марш только у дыры, см. impact-skip)
 
   var renderer;
   try {
@@ -88,14 +89,14 @@
     '                 mix(hash31(i+vec3(0,1,0)),hash31(i+vec3(1,1,0)),f.x),f.y),',
     '             mix(mix(hash31(i+vec3(0,0,1)),hash31(i+vec3(1,0,1)),f.x),',
     '                 mix(hash31(i+vec3(0,1,1)),hash31(i+vec3(1,1,1)),f.x),f.y),f.z);return n;}',
-    'float fbm(vec3 p){float a=0.5,s=0.0;for(int i=0;i<5;i++){s+=a*vnoise(p);p=p*2.02+vec3(11.3,7.1,5.7);a*=0.5;}return s;}',
+    'float fbm(vec3 p){float a=0.5,s=0.0;for(int i=0;i<4;i++){s+=a*vnoise(p);p=p*2.02+vec3(11.3,7.1,5.7);a*=0.5;}return s;}',
     'float fbm3(vec3 p){float a=0.5,s=0.0;for(int i=0;i<3;i++){s+=a*vnoise(p);p=p*2.05+vec3(3.0,7.0,1.0);a*=0.5;}return s;}',
     '',
     // --- многослойное звёздное небо в направлении луча ---
     'vec3 starField(vec3 dir){',
     '  vec3 col=vec3(0.0);',
-    '  for(int L=0;L<4;L++){',
-    '    float sc=20.0+float(L)*40.0;',
+    '  for(int L=0;L<3;L++){',
+    '    float sc=20.0+float(L)*44.0;',
     '    vec3 g=dir*sc; vec3 id=floor(g); vec2 r=vec2(hash31(id),hash31(id+9.13));',
     '    float d=length(fract(g)-0.5);',
     '    float thr=0.978-float(L)*0.004;',
@@ -168,19 +169,24 @@
     '  vec3 dir=normalize(fwd + (luv.x*right + luv.y*up)*uFov);',
     '',
     '  vec3 pos=camPos; vec3 col=vec3(0.0); float transm=1.0; float minR=1e9; bool captured=false;',
-    '  for(int i=0;i<STEPS;i++){',
-    '    float r2=dot(pos,pos); float r=sqrt(r2); minR=min(minR,r);',
-    '    vec3 h=cross(pos,dir);',
-    '    vec3 acc=-1.5*dot(h,h)*pos/pow(r2,2.5);',
-    '    float dt=clamp(r*0.14,0.02,0.5);',
-    '    vec3 prev=pos; dir+=acc*dt; pos+=dir*dt;',
-    '    if(dot(pos,pos)<Rs*Rs){captured=true;break;}',
-    '    if(prev.y*pos.y<0.0){',
-    '      float k=prev.y/(prev.y-pos.y); vec3 hit=mix(prev,pos,k); float rd=length(hit.xz);',
-    '      if(rd>DISK_IN && rd<DISK_OUT){ col+=diskColor(hit,camPos)*transm; transm*=0.6; }',
+    // ОПТИМИЗАЦИЯ: импакт-параметр (наибольшее сближение луча с центром). Если луч
+    // идёт далеко от дыры (b>13) — гнуть/диск ловить нечего, пропускаем весь марш.
+    '  float b=length(cross(camPos,dir));',
+    '  if(b<13.0){',
+    '    for(int i=0;i<STEPS;i++){',
+    '      float r2=dot(pos,pos); float r=sqrt(r2); minR=min(minR,r);',
+    '      vec3 h=cross(pos,dir);',
+    '      vec3 acc=-1.5*dot(h,h)*pos/pow(r2,2.5);',
+    '      float dt=clamp(r*0.14,0.02,0.5);',
+    '      vec3 prev=pos; dir+=acc*dt; pos+=dir*dt;',
+    '      if(dot(pos,pos)<Rs*Rs){captured=true;break;}',
+    '      if(prev.y*pos.y<0.0){',
+    '        float k=prev.y/(prev.y-pos.y); vec3 hit=mix(prev,pos,k); float rd=length(hit.xz);',
+    '        if(rd>DISK_IN && rd<DISK_OUT){ col+=diskColor(hit,camPos)*transm; transm*=0.6; }',
+    '      }',
+    '      if(dot(pos,pos)>ESCAPE*ESCAPE)break;',
     '    }',
-    '    if(dot(pos,pos)>ESCAPE*ESCAPE)break;',
-    '  }',
+    '  } else { minR=b; }',          // далёкий луч: фон по прямому направлению
     '',
     '  if(!captured){',
     '    vec3 nd=normalize(dir);',
@@ -211,15 +217,15 @@
   quad.frustumCulled = false;
   scene.add(quad);
 
-  // --- размеры (DPR/scale пересчёт на ресайз) ------------------------------
+  // --- размеры (DPR-cap × адаптивный qScale; пересчёт на ресайз) -----------
   function size() {
     small = window.innerWidth < 760;
-    DPR = Math.min(window.devicePixelRatio || 1, small ? 1.2 : 1.5);
-    RENDER_SCALE = small ? 0.8 : 1.0;
-    renderer.setPixelRatio(DPR * RENDER_SCALE);
+    var dpr = Math.min(window.devicePixelRatio || 1, small ? 1.0 : 1.25);
+    var pr = dpr * qScale;
+    renderer.setPixelRatio(pr);
     var w = window.innerWidth, h = window.innerHeight;
     renderer.setSize(w, h, false);
-    uniforms.uRes.value.set(w * DPR * RENDER_SCALE, h * DPR * RENDER_SCALE);
+    uniforms.uRes.value.set(w * pr, h * pr);
   }
   window.addEventListener('resize', size, { passive: true });
 
@@ -246,6 +252,18 @@
   }
   window.addEventListener('scroll', onScroll, { passive: true });
 
+  // --- адаптивное качество: если кадр долгий → снижаем внутреннее разрешение -
+  var prevT = 0, accT = 0, accN = 0, warm = 0;
+  function adapt(t) {
+    if (prevT) { accT += (t - prevT); accN++; }
+    prevT = t;
+    if (warm < 40) { warm++; accT = 0; accN = 0; return; }  // прогрев (компиляция/джанк)
+    if (accN >= 50) {
+      var dt = accT / accN; accT = 0; accN = 0;
+      if (dt > 21.0 && qScale > QMIN) { qScale = Math.max(QMIN, qScale * 0.82); size(); } // ~<47fps → даун-скейл
+    }
+  }
+
   // --- цикл ----------------------------------------------------------------
   function frame(t) {
     var time = t * 0.001;
@@ -255,6 +273,7 @@
     uniforms.uMouse.value.set(cmx, cmy);
     uniforms.uScroll.value = scrollC;
     if (uniforms.uFade.value < 1) uniforms.uFade.value = Math.min(1, uniforms.uFade.value + 0.02);
+    adapt(t);
     try { renderer.render(scene, cam); }
     catch (err) { dead = true; cancelAnimationFrame(raf); raf = 0; canvas.style.display = 'none'; }
   }
