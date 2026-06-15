@@ -64,6 +64,34 @@ async def root_page(
     )
 
 
+@router.get("/root/db/integrity", response_class=JSONResponse)
+async def root_db_integrity(
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+) -> JSONResponse:
+    """Read-only проверка целостности БД (owner-only): FK-check + quick_check.
+
+    Никаких мутаций/VACUUM — только диагностика. Безопасно жать сколько угодно.
+    """
+    await _require_owner(session)
+    result: dict = {"fk": None, "quick": None}
+    try:
+        from app.db_integrity import run_foreign_key_check  # noqa: PLC0415
+
+        result["fk"] = await run_foreign_key_check()
+    except Exception as exc:  # noqa: BLE001
+        result["fk"] = {"status": "error", "error": str(exc)}
+    try:
+        from app.storage.db import get_connection  # noqa: PLC0415
+
+        async with get_connection() as conn:
+            cur = await conn.execute("PRAGMA quick_check")
+            rows = await cur.fetchall()
+        result["quick"] = [str(r[0]) for r in rows][:20]
+    except Exception as exc:  # noqa: BLE001
+        result["quick"] = [f"error: {exc}"]
+    return JSONResponse(result)
+
+
 @router.get("/root/logs/recent.json", response_class=JSONResponse)
 async def root_logs_recent(
     session: Annotated[SessionRecord, Depends(current_user_required)],

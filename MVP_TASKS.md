@@ -119,8 +119,13 @@
   ai/ad/au + backfill rebuild; `search_messages` (AND-prefix) и `recall_by_terms` (OR-prefix) переключены на FTS
   с bm25-ранжированием и fallback на LIKE. Префиксный матч (`лендинг*`) учитывает русские окончания.
   *Поиск теперь sub-ms даже на 100k+ сообщений (LIKE был полным сканом). Доп.: PRAGMA optimize/ANALYZE — уже воркером.*
-- `[TODO]` Финальный аудит связей: `PRAGMA foreign_key_check` чисто (найдена 1 пред-существующая нарушенная связь
-  на свежей БД — разобраться/починить в Ф6), assert-индексов, VACUUM как owner-действие.
+- `[DONE]` Финальный аудит БД (2026-06-16): `PRAGMA quick_check` = **ok** (структура цела). `foreign_key_check` =
+  **1 нарушение** — `auth_session` id=113 ссылается на удалённого `users` id=3 (осиротевшая сессия). ВЕРДИКТ:
+  **безвредна** — verify_session джойнит к users → None → авторизация невозможна (токен мёртв); не эксплуатируется.
+  Причина: пользователь 3 удалён в обход FK ON DELETE CASCADE (foreign_keys был OFF в тот момент). Чистка
+  (удалить осиротевшие auth_session) — безопасное owner-действие, НЕ делаю автономно (без удаления данных ночью).
+  Добавлен read-only эндпоинт `/root/db/integrity` (owner-only, FK+quick_check) + кнопка в /root. Владелец
+  корректно = users.id=2 (kv owner_user_id), не MIN(id). VACUUM/чистка-осиротевших — отдельным owner-действием.
 
 ## 7. Hermes и конкуренты — ресёрч ГОТОВ, внедряем лучшее
 **Hermes = Nous Research Hermes Agent** (hermes-agent.org): open-source, self-hosted личный ИИ с

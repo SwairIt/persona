@@ -76,6 +76,36 @@
   </div>
   {% endif %}
 
+  {# Целостность БД (read-only) #}
+  <div class="mb-6" x-data="{ res:null, busy:false, async run(){ this.busy=true; try{ const r=await fetch('/root/db/integrity'); this.res=await r.json(); }catch(e){ this.res={error:String(e)}; } this.busy=false; } }">
+    <h2 class="text-sm font-semibold text-zinc-300 mb-2">Целостность БД</h2>
+    <div class="rounded-xl border border-ink-700 bg-ink-800 p-4">
+      <button @click="run()" :disabled="busy"
+              class="px-3 py-1.5 rounded-lg bg-ink-900 border border-ink-700 text-sm text-zinc-200 hover:bg-ink-950 disabled:opacity-50">
+        <span x-text="busy ? 'Проверяю…' : '🩺 Проверить целостность (FK + quick_check)'"></span>
+      </button>
+      <template x-if="res">
+        <div class="mt-3 text-sm">
+          <div class="flex items-center gap-2">
+            <span class="text-zinc-400">FK-check:</span>
+            <span x-text="res.fk ? res.fk.status : '—'"
+                  :class="res.fk && res.fk.status==='ok' ? 'text-emerald-400' : (res.fk && res.fk.status==='warning' ? 'text-amber-400' : 'text-rose-400')"></span>
+            <span class="text-zinc-500" x-show="res.fk && res.fk.count" x-text="'нарушений: ' + (res.fk.count||0)"></span>
+          </div>
+          <template x-if="res.fk && res.fk.violations && res.fk.violations.length">
+            <pre class="mt-1 text-[11px] text-amber-300 bg-ink-900 rounded p-2 overflow-x-auto" x-text="JSON.stringify(res.fk.violations, null, 1)"></pre>
+          </template>
+          <div class="mt-1.5 flex items-center gap-2">
+            <span class="text-zinc-400">quick_check:</span>
+            <span x-text="res.quick ? res.quick.join(', ') : '—'"
+                  :class="res.quick && res.quick[0]==='ok' ? 'text-emerald-400' : 'text-amber-400'"></span>
+          </div>
+        </div>
+      </template>
+      <p class="text-zinc-600 text-xs mt-2">Только чтение, без изменений данных. Известно: 1 «осиротевшая» сессия удалённого пользователя (безвредна, авторизоваться нельзя).</p>
+    </div>
+  </div>
+
   {# Быстрые ссылки на существующие админ-страницы #}
   <div class="mb-6">
     <h2 class="text-sm font-semibold text-zinc-300 mb-2">Панели и диагностика</h2>
