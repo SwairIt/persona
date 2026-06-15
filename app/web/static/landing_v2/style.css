@@ -43,10 +43,10 @@ a:hover{color:var(--ink)}
 h1,h2,h3{font-family:var(--font-display); font-weight:500; color:var(--ink); letter-spacing:-.02em; margin:0}
 ::selection{background:rgba(147,130,255,.32); color:#fff}
 
-/* читабельность текста поверх сквозного космоса (мягкая тень-подложка) */
+/* читабельность текста поверх сквозного космоса (плотная мягкая тень-подложка) */
 .hero-title,.hero-sub,.section-title,.section-lead,.big-statement,.orbit-title,
 .faq>h2,.cta-inner h2,.cta-inner p,.tech,.steps .step h3,.marquee-row span{
-  text-shadow:0 2px 26px rgba(3,0,20,.6), 0 1px 5px rgba(3,0,20,.55);
+  text-shadow:0 2px 18px rgba(3,0,20,.92), 0 0 40px rgba(3,0,20,.7), 0 1px 4px rgba(3,0,20,.8);
 }
 
 .grad{
@@ -369,10 +369,13 @@ body:not(.js) .big-statement .w{opacity:1}
     conic-gradient(from 0deg, rgba(229,156,255,.0), rgba(186,156,255,.5), rgba(156,178,255,.0), rgba(229,156,255,.5), rgba(229,156,255,0));
   -webkit-mask:radial-gradient(closest-side, transparent 38%, #000 42%, #000 60%, transparent 66%);
           mask:radial-gradient(closest-side, transparent 38%, #000 42%, #000 60%, transparent 66%);
-  filter:blur(14px); opacity:.5; animation:spin 40s linear infinite}
+  filter:blur(14px); opacity:.2; animation:spin 40s linear infinite}
 .cta-bloom::after{content:""; position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
   width:34%; aspect-ratio:1; border-radius:50%; background:#000; box-shadow:0 0 80px 20px rgba(3,0,20,.8)}
 .cta-inner{position:relative; z-index:1; display:flex; flex-direction:column; align-items:center; gap:18px}
+/* тёмная подложка под текстом CTA — гарантирует контраст над космосом/диском */
+.cta-inner::before{content:""; position:absolute; inset:-36px -64px; z-index:-1; border-radius:40px;
+  background:radial-gradient(ellipse 72% 84% at 50% 50%, rgba(3,0,20,.78), rgba(3,0,20,0) 76%)}
 .cta-inner h2{font-size:clamp(30px,5vw,56px); line-height:1.06; max-width:18ch}
 .cta-inner p{margin:0; color:var(--ash)}
 .cta-form{margin-top:4px}

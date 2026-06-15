@@ -139,7 +139,9 @@
     '  float inten=pow(1.0-t,1.7)*1.05 + smoothstep(0.10,0.0,t)*0.6;',
     // очень мягкие края: и внутренний, и внешний растворяются (нет «конца колец»)
     '  float edgefade=smoothstep(0.0,0.07,t)*smoothstep(1.0,0.62,t);',
-    '  return grad*inten*turb*dopp*edgefade*uDiskA;',
+    // диск ярок в hero, приглушается при скролле → не засвечивает текст ниже
+    '  float dim=mix(1.0,0.4,smoothstep(0.05,0.34,uScroll));',
+    '  return grad*inten*turb*dopp*edgefade*uDiskA*dim;',
     '}',
     '',
     'vec3 aces(vec3 x){return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14),0.0,1.0);}',
@@ -147,17 +149,19 @@
     'void main(){',
     '  vec2 uv=(gl_FragCoord.xy-0.5*uRes)/uRes.y;',
     '  float sp=clamp(uScroll,0.0,1.0);',
-    // камера летит сквозь галактику: отъезжает, чуть возвращается к финалу
-    '  float dist=mix(uCamDist, uCamDist*2.3, smoothstep(0.0,0.55,sp));',
-    '  dist=mix(dist, uCamDist*1.3, smoothstep(0.85,1.0,sp));',
-    '  float yaw=uMouse.x*0.32 + sin(uTime*0.025)*0.06;',
-    '  float pitch=uTilt + uMouse.y*0.12 + sp*0.5;',           // при скролле смотрим «сверху»
-    '  vec3 target=vec3(0.0, mix(0.0,-2.6,smoothstep(0.0,0.6,sp)), 0.0);', // дыра уплывает вверх
-    '  vec3 camPos=target + vec3(sin(yaw)*cos(pitch), sin(pitch), cos(yaw)*cos(pitch))*dist;',
-    '  vec3 fwd=normalize(target-camPos);',
+    // дыра всегда РЕБРОМ к нам (драматичный силуэт Гаргантюа), не вид сверху;
+    // дистанция постоянна, чтобы она не «схлопывалась» в плоский круг.
+    '  float dist=uCamDist;',
+    '  float yaw=uMouse.x*0.3 + sin(uTime*0.025)*0.06;',
+    '  float pitch=uTilt + uMouse.y*0.10 + sin(uTime*0.018)*0.03;',
+    '  vec3 camPos=vec3(sin(yaw)*cos(pitch), sin(pitch), cos(yaw)*cos(pitch))*dist;',
+    '  vec3 fwd=normalize(-camPos);',
     '  vec3 right=normalize(cross(vec3(0.0,1.0,0.0),fwd));',
     '  vec3 up=cross(fwd,right);',
-    '  vec3 dir=normalize(fwd + (uv.x*right + uv.y*up)*uFov);',
+    // по скроллу дыра всплывает вверх по экрану (panning) — «в разных местах», но всегда ребром
+    '  float pan=mix(-0.05, 1.2, sp);',
+    '  vec2 luv=vec2(uv.x, uv.y - pan);',
+    '  vec3 dir=normalize(fwd + (luv.x*right + luv.y*up)*uFov);',
     '',
     '  vec3 pos=camPos; vec3 col=vec3(0.0); float transm=1.0; float minR=1e9; bool captured=false;',
     '  for(int i=0;i<STEPS;i++){',
@@ -182,7 +186,7 @@
     '    col+=bg*transm;',
     '  }',
     '  float ringG=smoothstep(1.60,1.5,minR)*smoothstep(1.30,1.49,minR);',
-    '  col+=uRing*ringG*1.0;',
+    '  col+=uRing*ringG*mix(1.0,0.5,smoothstep(0.05,0.34,sp));',
     // мягкая виньетка по краям кадра — фокус к центру + читабельность
     '  float vig=1.0-0.32*dot(uv,uv);',
     '  col*=vig;',
