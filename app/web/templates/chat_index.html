@@ -136,6 +136,10 @@
               сводка
             </button>
           {% endif %}
+          <button type="button" @click="toggleActivity()"
+                  class="hover:text-accent-400"
+                  :class="activityOpen ? 'text-accent-400' : 'text-zinc-500'"
+                  title="что делает ИИ — окно активности">🔭 активность</button>
           <button type="button" @click="renameSession()"
                   class="text-zinc-500 hover:text-accent-400">переим.</button>
           <button type="button" @click="deleteSession()"
@@ -575,6 +579,57 @@
       ✕
     </button>
   </div>
+
+  {# 🔭 Окно активности — выезжающая правая панель: что делает ИИ в этой сессии.
+     Аддитивно (fixed overlay, не трогает grid). Live по SSE /events + replay. #}
+  <div x-show="activityOpen" x-cloak
+       @keydown.escape.window="closeActivity()"
+       class="fixed inset-y-0 right-0 z-40 w-full sm:w-96 bg-ink-900 border-l border-ink-700 shadow-2xl flex flex-col">
+    <div class="px-4 py-3 border-b border-ink-700 flex items-center justify-between gap-2 shrink-0">
+      <div class="min-w-0">
+        <div class="text-sm font-semibold text-zinc-100">🔭 Что делает ИИ</div>
+        <div class="text-[10px] text-zinc-500 flex items-center gap-1.5">
+          <span class="w-1.5 h-1.5 rounded-full" :class="activityConnected ? 'bg-emerald-400' : 'bg-zinc-600'"></span>
+          <span x-text="activityConnected ? 'в эфире' : 'нет связи'"></span>
+          · <a href="/activity" class="hover:text-accent-300">вся история →</a>
+        </div>
+      </div>
+      <button type="button" @click="closeActivity()" class="text-zinc-500 hover:text-zinc-200 text-lg shrink-0">✕</button>
+    </div>
+    <div class="flex-1 overflow-y-auto p-3 space-y-2">
+      <template x-if="activity.length === 0">
+        <p class="text-xs text-zinc-500 text-center py-8">
+          Пока пусто. Когда ИИ использует инструменты (поиск, чтение файлов, веб) — шаги появятся здесь.
+        </p>
+      </template>
+      <template x-for="it in activity" :key="it.id">
+        <div class="rounded-lg border bg-ink-800 p-2.5 text-xs"
+             :class="it.status === 'error' ? 'border-red-500/40' : (it.status === 'running' ? 'border-amber-400/40' : 'border-ink-700')">
+          <div class="flex items-center gap-2">
+            <span x-text="it.kind === 'browser' ? '🌐' : (it.kind === 'mcp' ? '🔌' : '🔧')"></span>
+            <span class="font-mono text-accent-300 truncate" x-text="it.tool"></span>
+            <span class="ml-auto text-[10px] px-1.5 py-0.5 rounded-full shrink-0"
+                  :class="it.status === 'error' ? 'bg-red-500/15 text-red-300' : (it.status === 'running' ? 'bg-amber-400/15 text-amber-300 animate-pulse' : 'bg-emerald-500/15 text-emerald-300')"
+                  x-text="it.status === 'error' ? 'ошибка' : (it.status === 'running' ? '…' : 'ок')"></span>
+          </div>
+          <template x-if="it.args">
+            <pre class="mt-1.5 text-[10px] text-zinc-400 bg-ink-900 rounded px-2 py-1 overflow-x-auto whitespace-pre-wrap break-all" x-text="activityArgs(it.args)"></pre>
+          </template>
+          <template x-if="it.error">
+            <p class="mt-1.5 text-[11px] text-red-300 whitespace-pre-wrap break-words" x-text="activityTrunc(it.error, 400)"></p>
+          </template>
+          <template x-if="it.result && it.status !== 'error'">
+            <div class="mt-1.5" x-data="{ open:false }">
+              <button @click="open=!open" class="text-[10px] text-zinc-500 hover:text-zinc-300"
+                      x-text="open ? '▾ результат' : '▸ результат'"></button>
+              <pre x-show="open" x-cloak class="mt-1 text-[10px] text-zinc-400 bg-ink-900 rounded px-2 py-1 overflow-x-auto whitespace-pre-wrap break-words" x-text="activityTrunc(it.result, 1500)"></pre>
+            </div>
+          </template>
+          <div class="mt-1 text-[10px] text-zinc-600" x-text="(it.elapsed_ms != null ? it.elapsed_ms + ' мс' : '')"></div>
+        </div>
+      </template>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -584,6 +639,11 @@
       effort: initialEffort || 'normal',
       mode: initialMode || 'auto',
       autoPrompt: !!initialAutoPrompt,
+      // 🔭 Окно активности (что делает ИИ) — панель в чате
+      activityOpen: false,
+      activityConnected: false,
+      activity: [],
+      _activityEs: null,
       messages: (initialMessages || []).map(m => ({ ...m, image_data_url: m.image_data_url || null })),
       // T30 — реакции: ключ (ASCII, для сервера/БД) + эмодзи + подсказка
       reactions: [
@@ -730,6 +790,68 @@
         } catch (e) { /* ignore */ }
       },
       clearDraft() { try { localStorage.removeItem(this._draftKey()); } catch (e) {} },
+
+      // ── 🔭 Окно активности (что делает ИИ) ───────────────────────────────
+      toggleActivity() {
+        this.activityOpen = !this.activityOpen;
+        if (this.activityOpen) {
+          this.loadActivity();
+          this.connectActivity();
+        } else {
+          this.disconnectActivity();
+        }
+      },
+      closeActivity() { this.activityOpen = false; this.disconnectActivity(); },
+      async loadActivity() {
+        if (!this.sessionId) { this.activity = []; return; }
+        try {
+          const r = await fetch(`/api/chat/activity/${this.sessionId}`, { headers: { 'Accept': 'application/json' } });
+          if (!r.ok) return;
+          const data = await r.json();
+          // сервер отдаёт старые→новые; в панели показываем новые сверху
+          this.activity = (data.items || []).slice().reverse();
+        } catch (e) { /* best-effort */ }
+      },
+      connectActivity() {
+        if (this._activityEs) return;
+        try {
+          const es = new EventSource('/events');
+          this._activityEs = es;
+          es.onopen = () => { this.activityConnected = true; };
+          es.onerror = () => { this.activityConnected = false; };
+          es.onmessage = (ev) => {
+            let frame;
+            try { frame = JSON.parse(ev.data); } catch (e) { return; }
+            if (!frame || frame.type !== 'activity') return;
+            const p = frame.payload || {};
+            if (this.sessionId && p.session_id != null && p.session_id != this.sessionId) return;
+            this.upsertActivity(p);
+          };
+        } catch (e) { /* SSE unsupported */ }
+      },
+      disconnectActivity() {
+        if (this._activityEs) { try { this._activityEs.close(); } catch (e) {} this._activityEs = null; }
+        this.activityConnected = false;
+      },
+      upsertActivity(p) {
+        const id = p.exec_id;
+        if (id == null) return;
+        const idx = this.activity.findIndex(x => x.id === id);
+        const next = {
+          id: id,
+          kind: p.kind || (idx >= 0 ? this.activity[idx].kind : 'builtin'),
+          tool: p.tool || (idx >= 0 ? this.activity[idx].tool : '?'),
+          args: (typeof p.args === 'string') ? p.args : (p.args != null ? JSON.stringify(p.args) : (idx >= 0 ? this.activity[idx].args : null)),
+          status: p.status || 'running',
+          result: p.result ?? (idx >= 0 ? this.activity[idx].result : null),
+          error: p.error ?? (idx >= 0 ? this.activity[idx].error : null),
+          elapsed_ms: p.elapsed_ms ?? (idx >= 0 ? this.activity[idx].elapsed_ms : null),
+        };
+        if (idx >= 0) this.activity[idx] = { ...this.activity[idx], ...next };
+        else { this.activity.unshift(next); if (this.activity.length > 200) this.activity.pop(); }
+      },
+      activityArgs(a) { try { return JSON.stringify(JSON.parse(a), null, 1); } catch (e) { return String(a); } },
+      activityTrunc(s, n) { s = String(s == null ? '' : s); return s.length > n ? s.slice(0, n) + '…' : s; },
 
       // T31 E9 — внизу ли пользователь (с допуском 80px)
       onScroll() {

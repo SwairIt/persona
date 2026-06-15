@@ -53,7 +53,9 @@
   (best-effort, не ломает ответ) + SSE `publish_activity`, эндпоинты `GET /api/activity/recent` и
   `GET /api/chat/activity/{id}`, живая страница `/activity` (Alpine + EventSource), nav-пункт.
   `tool_artifact` (скрины браузер-агента) — отдельной миграцией вместе с браузер-агентом. (commit ниже)
-- `[TODO]` Панель «🔭 что делает ИИ» прямо в чате (chat_index.html) — replay из `/api/chat/activity/{id}`.
+- `[DONE]` Панель «🔭 что делает ИИ» прямо в чате (chat_index.html) — выезжающий правый drawer,
+  кнопка в шапке, live по SSE `/events` (фильтр по session_id) + replay из `/api/chat/activity/{id}`,
+  апсёрт по exec_id, статусы/аргументы/результат/тайминг. Аддитивно (fixed overlay, grid не тронут).
 - `[TODO]` Встроенный браузер-агент (Playwright подпроцесс на сессию): browser_open/click/type/read/...
   с живыми скриншотами в окне активности. (полезно: ассистент ищет в вебе по задаче пользователя.)
 - `[TODO]` Реальный MCP-рантайм (stdio) + playwright-mcp + переключатель `/settings/automation`
