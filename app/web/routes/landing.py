@@ -29,10 +29,14 @@ router = APIRouter(tags=["landing"])
 log = get_logger("persona.landing")
 
 
-def _render(request: Request, session: SessionRecord | None) -> HTMLResponse:
+def _render(
+    request: Request,
+    session: SessionRecord | None,
+    template: str = "landing.html",
+) -> HTMLResponse:
     return templates.TemplateResponse(
         request,
-        "landing.html",
+        template,
         {
             "title": "Persona",
             "active_nav": "",
@@ -61,3 +65,17 @@ async def landing_page(
 ) -> HTMLResponse:
     """Always render the landing; auth-aware CTA (continue-as-X when signed in)."""
     return _render(request, session)
+
+
+@router.get("/landing/v2", response_class=HTMLResponse, response_model=None)
+async def landing_page_v2(
+    request: Request,
+    session: Annotated[SessionRecord | None, Depends(current_user_optional)],
+) -> HTMLResponse:
+    """Alternate "starlit violet cosmos" landing with a 3D black-hole hero.
+
+    Same content + auth-aware CTAs as ``/landing``, different design. Covered
+    by the ``/landing`` public allow-list prefix, so logged-out visitors reach
+    it. Kept ``noindex`` (in the template) to avoid duplicate-content with v1.
+    """
+    return _render(request, session, template="landing_v2.html")

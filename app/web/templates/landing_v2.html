@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#030014" />
+
+  <title>Persona — твоя память как сингулярность</title>
+  <meta name="description" content="Persona — личный ИИ, который видит твой день, помнит контекст и работает на твоём железе. Живая память в каждом чате, своя модель, файлы прямо на устройстве." />
+  <!-- v2 — альтернативный дизайн; noindex,follow, чтобы не конкурировать с основным
+       /landing (canonical не ставим: на noindex-странице он конфликтует и игнорируется). -->
+  <meta name="robots" content="noindex,follow" />
+  <meta property="og:title" content="Persona — твоя память как сингулярность" />
+  <meta property="og:description" content="Видит, помнит, понимает. Личный ИИ, который знает о тебе всё — и остаётся у тебя." />
+  <meta property="og:type" content="website" />
+  <meta property="og:locale" content="ru_RU" />
+  <meta property="og:image" content="/static/icon-180.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+
+  <link rel="manifest" href="/static/manifest.json" />
+  <link rel="apple-touch-icon" href="/static/icon-180.png" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet" />
+
+  <style>
+    :root{color-scheme:dark}
+    html,body{margin:0;background:#030014;color:#f4f0ff}
+    .preload *{transition:none!important;animation:none!important}
+  </style>
+  <link rel="stylesheet" href="/static/landing_v2/style.css?v={{ app_version }}" />
+</head>
+
+<body class="preload">
+
+  <a href="#top" class="skip-link">Перейти к содержанию</a>
+  <div class="scroll-progress" aria-hidden="true"><span id="progress-bar"></span></div>
+
+  <!-- глобальное звёздное поле (дешёвый CSS-космос за всеми секциями) -->
+  <div class="starfield" aria-hidden="true"></div>
+  <div class="page-glow" aria-hidden="true"></div>
+
+  <header class="nav" id="nav">
+    <a class="brand" href="#top"><span class="brand-dot"></span> Persona</a>
+    <nav class="nav-links">
+      <a href="#features">Возможности</a>
+      <a href="#how">Как работает</a>
+      <a href="#compare">Сравнение</a>
+      <a href="/blog">Блог</a>
+      {% if session %}
+        <a href="/now" class="nav-cta">В кабинет</a>
+      {% else %}
+        <a href="#top" id="nav-login">Войти</a>
+        <a href="#cta" class="nav-cta">Начать</a>
+      {% endif %}
+    </nav>
+  </header>
+
+  <main id="top" tabindex="-1">
+
+    <!-- HERO · ЧЁРНАЯ ДЫРА -->
+    <section class="hero" id="hero">
+      <div class="bh-stage" aria-hidden="true">
+        <div class="bh-fallback"></div>
+        <canvas id="blackhole"></canvas>
+        <div class="bh-scrim"></div>
+      </div>
+
+      <div class="hero-eye">
+        <p class="eyebrow reveal"><span class="dot-live"></span> личный ИИ · локально · приватно</p>
+        <h1 class="hero-title reveal">
+          ИИ, который <span class="grad">знает о тебе всё</span>
+        </h1>
+        <p class="hero-sub reveal">
+          Persona видит твой день, помнит контекст и думает рядом с тобой.
+          Память, файлы и модель — у тебя на устройстве.
+        </p>
+
+        {% if session %}
+          <div class="welcome-back reveal">
+            <span>Вы вошли как <b>{{ session.display_name or session.email }}</b></span>
+            <a href="/now" class="btn btn-primary">В кабинет →</a>
+            <form method="post" action="/auth/logout" class="logout-inline">
+              <button type="submit" class="linklike">выйти</button>
+            </form>
+          </div>
+        {% else %}
+          <form class="hero-cta reveal" method="post" action="/auth/magic" id="magic-form">
+            <input type="email" name="email" id="quick-email" required
+                   placeholder="введи свой email" autocomplete="email" spellcheck="false" />
+            <button type="submit" class="btn btn-primary">Начать →</button>
+          </form>
+          <p class="hero-cta-note reveal">
+            Войдём или создадим аккаунт за секунду · вход по ссылке, без пароля
+            · <a href="#" id="show-pw">войти паролем</a>
+          </p>
+          <p class="quick-hint" id="email-hint" aria-live="polite"></p>
+          <div class="auth-msg" id="auth-msg" role="status" hidden></div>
+        {% endif %}
+
+        <div class="hero-chips reveal">
+          <span class="chip"><svg viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>Локально</span>
+          <span class="chip"><svg viewBox="0 0 24 24"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z"/></svg>Живая память</span>
+          <span class="chip"><svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>Своя модель</span>
+          <span class="chip"><svg viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>Офлайн</span>
+        </div>
+      </div>
+      <div class="scroll-hint reveal" aria-hidden="true"><span>скролл</span><i></i></div>
+    </section>
+
+    <!-- TECH -->
+    <section class="tech-wrap" aria-label="Технологии">
+      <div class="tech reveal">
+        <span class="t-lbl">Построено на</span>
+        <b>Local-first</b><b>Ollama</b><b>FastAPI</b><b>SQLite</b><b>твоём железе</b>
+      </div>
+    </section>
+
+    <!-- STATEMENT -->
+    <section class="statement" id="statement">
+      <p class="big-statement">
+        <span class="w">Обычные</span> <span class="w">ассистенты</span>
+        <span class="w">забывают</span> <span class="w">тебя</span>
+        <span class="w">каждый</span> <span class="w">раз.</span>
+        <span class="w grad">Persona</span> <span class="w grad">—</span> <span class="w grad">нет.</span>
+      </p>
+    </section>
+
+    <!-- STATS -->
+    <section class="stats-wrap" aria-label="Коротко о Persona">
+      <div class="stats">
+        <div class="stat reveal"><div class="num grad">100%</div><div class="lbl">данные локально</div></div>
+        <div class="stat reveal"><div class="num grad">∞</div><div class="lbl">память без лимита</div></div>
+        <div class="stat reveal"><div class="num grad">0</div><div class="lbl">утечек наружу</div></div>
+        <div class="stat reveal"><div class="num grad">1</div><div class="lbl">человек: ты</div></div>
+      </div>
+    </section>
+
+    <!-- FEATURES (bento) -->
+    <section class="features" id="features">
+      <div class="features-head">
+        <h2 class="section-title reveal">Что умеет <span class="grad">Persona</span></h2>
+        <p class="section-lead reveal">Пять опор личного ИИ — каждая работает на то, чтобы он понимал именно тебя.</p>
+      </div>
+      <div class="bento">
+        <a class="card b-wide" data-card data-tilt href="/blog/zapis-ekrana-ii-pamyat">
+          <div class="card-ico"><svg viewBox="0 0 24 24"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2"/></svg></div><h3>Всегда помнит</h3>
+          <p>С твоего разрешения Persona фиксирует экран и звук и превращает это в живую память. Контекст не теряется между сессиями.</p>
+          <span class="card-link">Как это работает →</span>
+        </a>
+        <a class="card b-wide" data-card data-tilt href="/blog/kak-rabotaet-pamyat-ii">
+          <div class="card-ico"><svg viewBox="0 0 24 24"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z"/></svg></div><h3>Знает, кто ты</h3>
+          <p>Профиль «обо мне» и авто-память подключены к каждому чату. Любой новый разговор начинается со знания о тебе, а не с нуля.</p>
+          <span class="card-link">Про память ИИ →</span>
+        </a>
+        <a class="card" data-card data-tilt href="/blog/svoya-model-fine-tune">
+          <div class="card-ico"><svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></div><h3>Твоя модель</h3>
+          <p>Оценки 👍/👎 копятся в датасет → fine-tune модели, которая звучит как нужно тебе.</p>
+          <span class="card-link">Своя модель →</span>
+        </a>
+        <a class="card" data-card data-tilt href="/blog/ii-rabota-s-faylami">
+          <div class="card-ico"><svg viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg></div><h3>Файлы на устройстве</h3>
+          <p>ИИ создаёт и правит файлы в разрешённых папках на Mac или Windows. На сервере ничего лишнего.</p>
+          <span class="card-link">Безопасный доступ →</span>
+        </a>
+        <a class="card" data-card data-tilt href="/blog/privatnyy-ii-lokalno">
+          <div class="card-ico"><svg viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div><h3>Приватность</h3>
+          <p>Локальная модель и твой allowlist. Можно офлайн. Данные не утекают наружу.</p>
+          <span class="card-link">Про приватность →</span>
+        </a>
+      </div>
+    </section>
+
+    <!-- ORBIT: возможности вокруг ядра-сингулярности -->
+    <section class="orbit-sec" id="orbit">
+      <div class="orbit-head">
+        <h2 class="orbit-title reveal">Один <span class="grad">центр</span> — твоя память</h2>
+        <p class="section-lead reveal">Всё вращается вокруг тебя: экран, звук, файлы, профиль и модель сходятся в одном живом ядре — твоей сингулярности.</p>
+      </div>
+      <div class="orbit-stage reveal">
+        <div class="orbit-ring"></div>
+        <div class="orbit-ring r2"></div>
+        <div class="orbit-ring r3"></div>
+        <div class="orbit-core"><span class="orbit-core-disk"></span>YOU</div>
+        <div class="orbit-spin">
+          <span class="orbit-node" style="transform:translate(-50%,-50%) rotate(0deg) translateX(min(300px,42vw)) rotate(0deg)"><span><i></i>экран</span></span>
+          <span class="orbit-node" style="transform:translate(-50%,-50%) rotate(72deg) translateX(min(300px,42vw)) rotate(-72deg)"><span><i></i>звук</span></span>
+          <span class="orbit-node" style="transform:translate(-50%,-50%) rotate(144deg) translateX(min(300px,42vw)) rotate(-144deg)"><span><i></i>файлы</span></span>
+          <span class="orbit-node" style="transform:translate(-50%,-50%) rotate(216deg) translateX(min(300px,42vw)) rotate(-216deg)"><span><i></i>профиль</span></span>
+          <span class="orbit-node" style="transform:translate(-50%,-50%) rotate(288deg) translateX(min(300px,42vw)) rotate(-288deg)"><span><i></i>модель</span></span>
+        </div>
+        <div class="orbit-spin rev">
+          <span class="orbit-node" style="transform:translate(-50%,-50%) rotate(36deg) translateX(min(200px,28vw)) rotate(-36deg)"><span><i></i>память</span></span>
+          <span class="orbit-node" style="transform:translate(-50%,-50%) rotate(180deg) translateX(min(200px,28vw)) rotate(-180deg)"><span><i></i>контекст</span></span>
+          <span class="orbit-node" style="transform:translate(-50%,-50%) rotate(300deg) translateX(min(200px,28vw)) rotate(-300deg)"><span><i></i>день</span></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- MARQUEE -->
+    <div class="marquee" aria-hidden="true">
+      <div class="marquee-row">
+        <span>помнит тебя</span><span>локально</span><span>своя модель</span><span>офлайн</span><span>живая память</span><span>приватно</span>
+        <span>помнит тебя</span><span>локально</span><span>своя модель</span><span>офлайн</span><span>живая память</span><span>приватно</span>
+      </div>
+    </div>
+
+    <!-- HOW -->
+    <section class="how" id="how">
+      <h2 class="section-title reveal">Как это работает</h2>
+      <ol class="steps">
+        <li class="step reveal"><span class="step-n">01</span><h3>Видит</h3><p>Запись экрана и звука (по твоему разрешению) — поток твоего дня.</p></li>
+        <li class="step reveal"><span class="step-n">02</span><h3>Помнит</h3><p>Отдельный процесс превращает поток в карточки памяти. Обработка изолирована.</p></li>
+        <li class="step reveal"><span class="step-n">03</span><h3>Понимает</h3><p>В каждом чате ИИ подтягивает релевантную память и отвечает с учётом контекста.</p></li>
+      </ol>
+    </section>
+
+    <!-- LIVE DEMO -->
+    <section class="demo-sec" id="demo-sec">
+      <div class="demo-inner">
+        <h2 class="section-title reveal">Спроси — <span class="grad">она помнит</span></h2>
+        <p class="section-lead reveal">Маленькое демо. В реальном кабинете Persona подтянет твою настоящую память и файлы.</p>
+        <div class="preview reveal">
+          <div class="preview-bar">
+            <span class="pb-dot"></span><span class="pb-dot"></span><span class="pb-dot"></span>
+            <span class="pb-title">Persona — чат · демо</span>
+          </div>
+          <div class="preview-body" id="demo-body">
+            <div class="msg user">Над чем я работал вчера вечером?</div>
+            <div class="msg ai">
+              <span class="ai-tag">Persona · помнит</span>
+              Ты дорабатывал лендинг Persona: правил hero и наполнял блог.
+              Незакрытым осталось — адаптив таблицы сравнения. Продолжим с него?
+            </div>
+          </div>
+          <form class="preview-input" id="demo-form" autocomplete="off">
+            <input id="demo-input" type="text" placeholder="Спросить Persona…" aria-label="Спросить Persona" maxlength="120" />
+            <button type="submit" aria-label="Отправить"><kbd>⏎</kbd></button>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <!-- ГРАФ ПАМЯТИ -->
+    <section class="graph-sec" id="graph-sec">
+      <div class="graph-inner">
+        <h2 class="section-title reveal">Так Persona <span class="grad">видит твою память</span></h2>
+        <p class="section-lead reveal">Каждый промпт, ответ и день записи — узлы, и все связаны между собой. Наведи на узел — подсветятся связи. Потяни — разложи по-своему. В кабинете это <b>твой настоящий граф</b> из реальных данных.</p>
+        <div class="graph-stage reveal">
+          <canvas id="graph-canvas" aria-label="Граф памяти Persona"></canvas>
+          <span class="core3d-hint">наведи · потяни узлы</span>
+        </div>
+        <div class="graph-legend reveal">
+          <span><i style="background:#9382ff"></i>промпт</span>
+          <span><i style="background:#9cb2ff"></i>ответ</span>
+          <span><i style="background:#e59cff"></i>память</span>
+          <span><i style="background:#cdccd0"></i>день записи</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- COMPARE -->
+    <section class="compare" id="compare">
+      <h2 class="section-title reveal">Чем Persona отличается</h2>
+      <p class="section-lead reveal">Облачные ассистенты умные, но «общие» и забывчивые. Persona — личная и помнящая.</p>
+      <div class="compare-table reveal">
+        <table>
+          <thead>
+            <tr><th>Возможность</th><th class="hi">Persona</th><th>Облачные</th><th>Локальные боты</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Память между сессиями</td><td class="hi">✓ живая</td><td>✗ забывает</td><td>✗ нет</td></tr>
+            <tr><td>Знает о тебе (профиль + активность)</td><td class="hi">✓ в каждом чате</td><td>~ в сессии</td><td>✗</td></tr>
+            <tr><td>Данные остаются у тебя</td><td class="hi">✓ локально</td><td>✗ в облаке</td><td>✓</td></tr>
+            <tr><td>Работает офлайн</td><td class="hi">✓ опц.</td><td>✗</td><td>✓</td></tr>
+            <tr><td>Своя дообученная модель</td><td class="hi">✓ LoRA</td><td>✗</td><td>~ вручную</td></tr>
+            <tr><td>Создаёт файлы на ПК</td><td class="hi">✓ allowlist</td><td>✗</td><td>~</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- PRIVACY -->
+    <section class="privacy" id="privacy">
+      <div class="privacy-card reveal">
+        <h2>Твой ИИ — <span class="grad">твои данные</span></h2>
+        <p>Persona создаётся для тебя. Никакой общей облачной модели «про всех» — память, файлы и собственная модель живут у тебя и работают на тебя.</p>
+        <ul class="check">
+          <li>Локальная модель — можно офлайн</li>
+          <li>Allowlist папок на устройстве</li>
+          <li>Память изолирована и под контролем</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- БЛОГ -->
+    {% if posts %}
+    <section class="home-blog" id="home-blog">
+      <div class="home-blog-head">
+        <div>
+          <h2 class="section-title reveal">Из блога</h2>
+          <p class="section-lead reveal">Разборы про личный ИИ, память, приватность и свою модель.</p>
+        </div>
+        <a href="/blog" class="blog-all reveal">Все статьи →</a>
+      </div>
+      <div class="home-posts">
+        {% for p in posts %}
+        <a class="hpost" data-card data-tilt href="/blog/{{ p.slug }}">
+          <span class="hpost-cover">{{ p.cover }}</span>
+          <span class="hpost-cat">{{ p.category }}</span>
+          <h3>{{ p.title }}</h3>
+          <p>{{ p.excerpt }}</p>
+          <span class="hpost-meta">{{ p.date_human }} · {{ p.read_minutes }} мин</span>
+        </a>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+
+    <!-- FAQ -->
+    <section class="faq" id="faq">
+      <h2 class="reveal">Частые вопросы</h2>
+      <details class="faq-item reveal" open>
+        <summary>Это безопасно? Куда уходят мои данные?</summary>
+        <div class="faq-a">Память, файлы и модель живут на твоём устройстве. Можно работать офлайн. Запись экрана и звука включается только с твоего разрешения, а доступ к файлам ограничен allowlist-папками.</div>
+      </details>
+      <details class="faq-item reveal">
+        <summary>Нужен ли мощный компьютер?</summary>
+        <div class="faq-a">Нет. Persona работает с локальной моделью на обычном железе, а для тяжёлых задач можно подключить облачную модель с большим контекстом. Гибрид — твой выбор.</div>
+      </details>
+      <details class="faq-item reveal">
+        <summary>Что значит «живая память»?</summary>
+        <div class="faq-a">В каждом новом чате Persona подтягивает релевантный контекст: твой профиль, недавнюю активность и карточки памяти. Разговор начинается со знания о тебе, а не с чистого листа.</div>
+      </details>
+      <details class="faq-item reveal">
+        <summary>Как Persona становится «моей» моделью?</summary>
+        <div class="faq-a">Твои оценки 👍/👎 копятся в датасет. На его основе можно дообучить модель (LoRA), которая отвечает в нужном тебе стиле и тоне.</div>
+      </details>
+      <details class="faq-item reveal">
+        <summary>Сколько стоит?</summary>
+        <div class="faq-a">Persona — open-source и работает на твоём железе. Платишь только за облачную модель, если решишь её подключить.</div>
+      </details>
+    </section>
+
+    <!-- CTA -->
+    <section class="cta" id="cta">
+      <div class="cta-bloom" aria-hidden="true"></div>
+      <div class="cta-inner reveal">
+        <h2>Готов к ИИ, который <span class="grad">помнит тебя</span>?</h2>
+        {% if session %}
+          <p>Вы уже с нами, {{ session.display_name or session.email }}.</p>
+          <a href="/now" class="btn btn-primary btn-lg">Открыть кабинет</a>
+        {% else %}
+          <p>Введи email — войдём или создадим аккаунт за секунду.</p>
+          <form class="hero-cta cta-form" method="post" action="/auth/magic">
+            <input type="email" name="email" required placeholder="введи свой email" autocomplete="email" spellcheck="false" />
+            <button type="submit" class="btn btn-primary btn-lg">Начать →</button>
+          </form>
+          <p class="hero-cta-note">вход по ссылке, без пароля · <a href="#" class="open-login">войти паролем</a></p>
+        {% endif %}
+      </div>
+    </section>
+
+  </main>
+
+  {% if not session %}
+  <!-- МОДАЛКА ВХОДА -->
+  <div class="login-modal" id="login-modal" hidden aria-modal="true" role="dialog" aria-labelledby="lm-title">
+    <div class="login-backdrop" data-close></div>
+    <div class="login-dialog" role="document">
+      <button type="button" class="login-x" data-close aria-label="Закрыть">✕</button>
+      <h2 id="lm-title" class="login-title">Вход в <span class="grad">Persona</span></h2>
+      <p class="login-sub">Войди по паролю или получи ссылку на почту — аккаунт создастся сам.</p>
+
+      <form id="lm-pw-form" class="login-form">
+        <label class="login-field">
+          <span>Email</span>
+          <input type="email" id="lm-email" name="email" required placeholder="you@example.com" autocomplete="email" spellcheck="false" />
+        </label>
+        <label class="login-field">
+          <span>Пароль</span>
+          <div class="login-pass-wrap">
+            <input type="password" id="lm-pass" name="password" required placeholder="••••••••" autocomplete="current-password" />
+            <button type="button" class="login-eye" id="lm-eye" aria-label="Показать пароль" aria-pressed="false">
+              <svg class="eye-on" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+              <svg class="eye-off" viewBox="0 0 24 24" hidden><path d="M9.9 4.24A9.1 9.1 0 0 1 12 4c6.5 0 10 7 10 7a13.2 13.2 0 0 1-1.67 2.68"/><path d="M6.6 6.6A13.5 13.5 0 0 0 2 12s3.5 7 10 7a9.1 9.1 0 0 0 5.4-1.6"/><path d="m9.9 9.9a3 3 0 0 0 4.2 4.2"/><line x1="2" y1="2" x2="22" y2="22"/></svg>
+            </button>
+          </div>
+          <span class="login-caps" id="lm-caps" hidden>⇪ включён Caps Lock</span>
+        </label>
+        <button type="submit" class="btn btn-primary btn-lg login-submit" id="lm-submit">
+          <span class="ls-label">Войти</span>
+          <span class="ls-spin" hidden></span>
+        </button>
+      </form>
+
+      <div class="login-msg" id="lm-msg" role="status" hidden></div>
+
+      <div class="login-alt">
+        <button type="button" class="login-ghost" id="lm-magic">✉ Войти по ссылке (без пароля)</button>
+        <button type="button" class="login-link" id="lm-forgot">Забыли пароль?</button>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <footer class="footer">
+    <span>Persona <span style="opacity:.6">v{{ app_version }}</span> · <a href="/landing">классический лендинг</a></span>
+    <span class="footer-links">
+      <a href="/blog">Блог</a> · <a href="/help">Справка</a> ·
+      <a href="https://github.com/SwairIt/persona">Исходник</a>
+    </span>
+  </footer>
+
+  <!-- inline-авторизация: magic-link, пароль, сброс + проверка опечаток email (verbatim из v1) -->
+  <script>
+  (function(){
+    var input=document.getElementById('quick-email');
+    var hint=document.getElementById('email-hint');
+    var magicForm=document.getElementById('magic-form');
+    if(!magicForm) return; // залогинен — формы нет
+
+    var msg=document.getElementById('auth-msg');
+    function showMsg(t, ok){ if(!msg)return; msg.hidden=false; msg.textContent=t; msg.className='auth-msg '+(ok?'ok':'err'); }
+    async function post(url, data){
+      try{
+        var r=await fetch(url,{method:'POST',headers:{'X-Requested-With':'fetch','Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams(data)});
+        var j={}; try{ j=await r.json(); }catch(e){}
+        return Object.assign({status:r.status}, j);
+      }catch(e){ return {status:0, ok:false, error:'Нет связи с сервером.'}; }
+    }
+
+    magicForm.addEventListener('submit', async function(e){
+      e.preventDefault();
+      var email=(input.value||'').trim(); if(!email)return;
+      showMsg('Отправляю…', true);
+      var res=await post('/auth/magic',{email:email});
+      if(res.ok){ showMsg(res.message||'Проверь почту — там ссылка для входа.', true); }
+      else { showMsg((res.error||'Ошибка.')+(res.suggestion?(' Может, '+res.suggestion+'?'):''), false); }
+    });
+
+    // ---- модальное окно входа (пароль / ссылка / сброс) ----
+    var modal=document.getElementById('login-modal');
+    var lmEmail=document.getElementById('lm-email');
+    var lmPass=document.getElementById('lm-pass');
+    var lmMsg=document.getElementById('lm-msg');
+    function lmShow(t, ok){ if(!lmMsg)return; lmMsg.hidden=false; lmMsg.textContent=t; lmMsg.className='login-msg '+(ok?'ok':'err'); }
+    function openModal(){ if(!modal)return; modal.hidden=false; document.body.style.overflow='hidden';
+      if(lmEmail){ if(!lmEmail.value) lmEmail.value=(input&&input.value||'').trim(); setTimeout(function(){lmEmail.focus();},40); } }
+    function closeModal(){ if(!modal)return; modal.hidden=true; document.body.style.overflow=''; if(lmMsg)lmMsg.hidden=true; }
+
+    document.querySelectorAll('.open-login, #show-pw, #nav-login').forEach(function(el){
+      el.addEventListener('click', function(e){ e.preventDefault(); openModal(); });
+    });
+    if(modal){
+      modal.querySelectorAll('[data-close]').forEach(function(el){ el.addEventListener('click', closeModal); });
+      document.addEventListener('keydown', function(e){ if(e.key==='Escape' && !modal.hidden) closeModal(); });
+    }
+
+    // показать/скрыть пароль
+    var lmEye=document.getElementById('lm-eye');
+    if(lmEye&&lmPass){ lmEye.addEventListener('click', function(){
+      var show=lmPass.type==='password'; lmPass.type=show?'text':'password';
+      lmEye.classList.toggle('revealed', show);
+      lmEye.setAttribute('aria-pressed', show?'true':'false');
+      lmEye.setAttribute('aria-label', show?'Скрыть пароль':'Показать пароль');
+      lmPass.focus();
+    }); }
+    // предупреждение Caps Lock
+    var lmCaps=document.getElementById('lm-caps');
+    function capsCheck(e){ if(!lmCaps||!e.getModifierState)return; lmCaps.classList.toggle('show', e.getModifierState('CapsLock')); }
+    if(lmPass){ lmPass.addEventListener('keydown', capsCheck); lmPass.addEventListener('keyup', capsCheck); }
+    // запомнить email
+    try{ var rem=localStorage.getItem('persona_email'); if(rem&&lmEmail&&!lmEmail.value) lmEmail.value=rem; }catch(e){}
+
+    var dialog=modal?modal.querySelector('.login-dialog'):null;
+    var lmSubmit=document.getElementById('lm-submit');
+    function lmBusy(on){ if(!lmSubmit)return; lmSubmit.classList.toggle('loading',on); lmSubmit.disabled=on;
+      var sp=lmSubmit.querySelector('.ls-spin'); if(sp)sp.hidden=!on; }
+    function lmShake(){ if(!dialog)return; dialog.classList.remove('shake'); void dialog.offsetWidth; dialog.classList.add('shake'); }
+
+    var lmPwForm=document.getElementById('lm-pw-form');
+    if(lmPwForm){ lmPwForm.addEventListener('submit', async function(e){
+      e.preventDefault();
+      var email=(lmEmail.value||'').trim(), password=lmPass.value;
+      try{ localStorage.setItem('persona_email', email); }catch(err){}
+      lmBusy(true); lmShow('Вхожу…', true);
+      var res=await post('/auth/login',{email:email,password:password});
+      if(res.ok&&res.redirect){ lmShow('Готово! Открываю кабинет…', true); window.location=res.redirect; }
+      else { lmBusy(false); lmShow(res.error||'Неверный email или пароль.', false); lmShake(); }
+    }); }
+
+    var lmMagic=document.getElementById('lm-magic');
+    if(lmMagic){ lmMagic.addEventListener('click', async function(){
+      var email=(lmEmail.value||'').trim(); if(!email){ lmShow('Введи email.', false); lmEmail.focus(); return; }
+      lmShow('Отправляю ссылку…', true);
+      var res=await post('/auth/magic',{email:email});
+      if(res.ok){ lmShow(res.message||'Проверь почту — там ссылка для входа.', true); }
+      else { lmShow((res.error||'Ошибка.')+(res.suggestion?(' Может, '+res.suggestion+'?'):''), false); }
+    }); }
+
+    var lmForgot=document.getElementById('lm-forgot');
+    if(lmForgot){ lmForgot.addEventListener('click', async function(){
+      var email=(lmEmail.value||'').trim(); if(!email){ lmShow('Введи email.', false); lmEmail.focus(); return; }
+      var res=await post('/auth/forgot',{email:email});
+      lmShow(res.message||'Если аккаунт есть — письмо со ссылкой отправлено.', true);
+    }); }
+
+    // проверка опечаток домена
+    var T={'gmail.ru':'gmail.com','gmail.con':'gmail.com','gmail.co':'gmail.com','gmail.cm':'gmail.com','gmail.om':'gmail.com','gmial.com':'gmail.com','gmai.com':'gmail.com','gmaill.com':'gmail.com','gnail.com':'gmail.com','yandex.com':'yandex.ru','yandx.ru':'yandex.ru','yndex.ru':'yandex.ru','mai.ru':'mail.ru','outlook.con':'outlook.com','hotmail.con':'hotmail.com','hotmial.com':'hotmail.com','icloud.con':'icloud.com','icloud.co':'icloud.com'};
+    function check(){
+      if(!input||!hint)return; var v=input.value.trim().toLowerCase(); hint.textContent='';
+      var at=v.lastIndexOf('@'); if(at<1)return; var dom=v.slice(at+1),loc=v.slice(0,at);
+      if(T[dom]){ var s=loc+'@'+T[dom];
+        hint.innerHTML='Возможно, вы имели в виду <a href="#" id="fix-email">'+s+'</a>?';
+        document.getElementById('fix-email').addEventListener('click',function(e){e.preventDefault();input.value=s;hint.textContent='';input.focus();});
+      } else if(v.indexOf('@')>0&&!/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(v)){ hint.textContent='Проверьте адрес: похоже, он введён не полностью.'; }
+    }
+    if(input){ input.addEventListener('blur',check); input.addEventListener('input',function(){if(hint&&hint.textContent)check();}); }
+  })();
+  </script>
+
+  <script src="/static/landing/graph.js?v={{ app_version }}" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js" defer></script>
+  <script src="/static/landing_v2/blackhole.js?v={{ app_version }}" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js" defer></script>
+  <script src="/static/landing_v2/main.js?v={{ app_version }}" defer></script>
+</body>
+</html>
