@@ -25,16 +25,16 @@
   // --- настройки (фирменная палитра по умолчанию) ---------------------------
   function hex(c) { var v = new THREE.Color(c); return new THREE.Vector3(v.r, v.g, v.b); }
   var defaults = {
-    colInner: '#fbe3ff', // раскалённая внутренняя кромка
-    colMid:   '#ba9cff', // фиолетовое тело диска (cosmic gradient core)
-    colOuter: '#7c93ff', // холодный синий внешний край
-    ring:     '#c9b8ff', // фотонное кольцо
-    nebula:   '#2a1a5e', // подсветка туманности
-    diskA: 1.5,          // яркость диска
-    beam: 0.55,          // сила доплера (асимметрия яркости)
-    camDist: 9.0,        // дистанция камеры
-    tilt: 0.30,          // наклон обзора к плоскости диска (рад)
-    fov: 1.0,            // «зум» (меньше = ближе)
+    colInner: '#e7d2ff', // раскалённая внутренняя кромка (мягче, не бело-неоновая)
+    colMid:   '#9f86f5', // фиолетовое тело диска (cosmic gradient core)
+    colOuter: '#6a7fe0', // холодный синий внешний край
+    ring:     '#b9a6f5', // фотонное кольцо
+    nebula:   '#1e1448', // подсветка туманности (темнее)
+    diskA: 0.8,          // яркость диска (приглушён — дыра видна)
+    beam: 0.5,           // сила доплера (асимметрия яркости)
+    camDist: 13.0,       // дистанция камеры (дальше → дыра меньше)
+    tilt: 0.28,          // наклон обзора к плоскости диска (рад)
+    fov: 0.92,           // «зум» (меньше = ближе)
     spin: 0.16,          // скорость вращения диска
   };
   var CFG = Object.assign({}, defaults, window.PERSONA_BH || {});
@@ -132,7 +132,7 @@
     '  float dopp=1.0+uBeam*dot(tang,toCam);',
     '  dopp=pow(max(dopp,0.0),2.2);',
     // профиль яркости: пик у внутренней кромки, спад наружу
-    '  float inten=pow(1.0-t,1.7)*1.6 + smoothstep(0.12,0.0,t)*1.4;',
+    '  float inten=pow(1.0-t,1.7)*1.05 + smoothstep(0.12,0.0,t)*0.55;',
     '  float edgefade=smoothstep(0.0,0.06,t)*smoothstep(1.0,0.86,t);', // мягкие края
     '  return grad*inten*turb*dopp*edgefade*uDiskA;',
     '}',
@@ -184,15 +184,15 @@
     '    vec3 bg=vec3(0.012,0.0,0.078);',         // void canvas #030014 — бесшовно с фоном страницы
     '    bg+=starField(normalize(dir));',
     '    float neb=fbm(normalize(dir)*2.2+vec3(0.0,0.0,uTime*0.01));',
-    '    bg+=uNebula*pow(neb,2.5)*0.55;',
+    '    bg+=uNebula*pow(neb,2.5)*0.4;',
     '    col+=bg*transm;',
     '  }',
     // горизонт событий: captured-луч без диска даёт col≈0 → чёрная дыра темнее фона
     // фотонное кольцо: чем ближе луч подошёл к фотонной сфере (~1.5Rs), тем ярче
-    '  float ringG=smoothstep(1.62,1.5,minR)*smoothstep(1.2,1.49,minR);',
-    '  col+=uRing*ringG*2.0;',
+    '  float ringG=smoothstep(1.60,1.5,minR)*smoothstep(1.28,1.49,minR);',
+    '  col+=uRing*ringG*0.85;',
     '',
-    '  col=aces(col*1.12);',                    // tone-map (диск ярче, но без неона)
+    '  col=aces(col*0.78);',                    // tone-map, ниже люминанс (тёмная элегантная дыра)
     '  col=pow(col,vec3(0.4545));',             // gamma
     '  gl_FragColor=vec4(col*uFade, 1.0);',     // непрозрачный канвас (void+дыра+диск)
     '}',
