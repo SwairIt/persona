@@ -180,3 +180,31 @@
 - 2026-06-15: Память-пиллар ЗАВЕРШЁН — store+релевантность(7a)+grounding(7c)+редактор(7d)+авто-факты(7e). Коммиты c04e982,29f0fb0,21fd995,dfd599e. Дальше: 7g брифинг, 7h prompt-cache, голос, root+роли, окно активности, настройки.
 
 - 2026-06-15 (loop): 7f бюджет авто-памяти (cap 80, без тихого переполнения) + 7j privacy-промис на /settings. Коммит ниже.
+
+---
+
+## ИТОГ АВТОНОМНОГО ЦИКЛА (2026-06-16, ночь) — релизы v2.19.8 → v2.19.19
+
+Сделано (12 верифицированных срезов, все запушены в master):
+1. Окно активности ИИ — ядро (миграция 181 tool_execution, app/activity, запись в send-stream, SSE) + панель в чате + страница /ai-activity. (05d16d1, 272bd7c)
+2. Слэш-команды — реестр app/chat/commands.py + GET /api/chat/commands + палитра-автокомплит. (5ce2e43)
+3. Поиск по настройкам (/api/settings/search + мгновенный фильтр) + фикс коллизии /activity→/ai-activity. (421a613)
+4. Голос в браузере — диктовка (Web Speech + серверный Whisper fallback /api/voice/web/stt). (fdc9596)
+5. Скиллы — /settings/skills + /api/skills + слэш /skill + delete_skill. (7739c41)
+6. Hands-free /voice — орб-микрофон, STT→send-stream→TTS, барж-ин. (1bf8ea1)
+7. Root-пульт /root + live-логи (app/log_buffer.py ring + structlog-процессор). (04f9080)
+8. Фундамент ролей — миграция 184 (users.role/status + backfill владельца) + app/auth/roles.py + список юзеров в /root. (8f653a0)
+9. Голос по умолчанию — kv voice_default_on + плавающая 🎙 FAB на всех страницах. (27ccd44)
+10. Финальный аудит БД — quick_check=ok, 1 безвредная осиротевшая сессия, /root/db/integrity. (3799cf5)
+
+ОТЛОЖЕНО (риск/девайс — делать при пользователе, не автономно ночью):
+- auth_gate rewrite + мутации ролей (риск локаута) — фундамент готов, нужен только rewrite gate под role/status с fail-open + тесты.
+- Браузер-агент (Playwright Popen) + MCP-рантайм (stdio) + переключатель — тяжёлые подпроцессы, нужен Node/Playwright, не верифицируемо ночью.
+- 7h prompt-prefix cache (горячий путь client.py), 7i sqlite-vec (нужно расширение), агентный голос на устройстве (NEEDS DEVICE CHECK).
+
+### Выводы интернет-ресёрча (Workflow, 12 агентов, web ✓) — приоритеты после MVP
+- Наш моат: контекст «ЧТО ТЫ ДЕЛАЛ» (экран+аудио+чат-память) + local-first. Прямой конкурент мёртв (Rewind sunset 19.12.2025, Limitless куплен Meta) — ниша «локальная цифровая память» осиротела. Окно временное.
+- ГЛАВНАЯ техническая дыра: нет настоящего function-calling (только эвристики) и нет векторной памяти (recall = FTS5/substring, семантика не работает).
+- Топ-приоритеты (ROI): (1) векторная память sqlite-vec + hybrid FTS5+vector через RRF (k=60; ВНИМАНИЕ bm25 отрицательный → rank ASC); эмбеддинги bge-m3/nomic-embed-text через Ollama на CPU; (2) prompt caching (стабильный префикс + cache_control, динамику в конец); (3) настоящий tool-calling в Hermes-формате (<tools>/<tool_call>/<tool_response>) + валидация JSON; (4) reranking (bge-reranker-v2-m3 на CPU) как режим «умный ИИ»; (5) «Ask по всей истории» с ответом-саммари и цитатами (перенять у Rewind); (6) Consent Mode + сжатие как маркетинг; (7) few-shot промпты под маленькие модели.
+- Локальные модели: чат qwen2.5:7b Q4_K_M (8GB) / qwen2.5:3b (4GB); vision qwen2.5vl:3b; эмбеддинги bge-m3 или nomic-embed-text (на CPU); reranker bge-reranker-v2-m3.
+- Риски: sqlite-vec = brute-force KNN (деградирует на 100k+ записей → bit-квантизация/ANN); SQLite single-writer + 40 воркеров (BEGIN IMMEDIATE, wal_checkpoint TRUNCATE); юр.риск захвата чужого экрана/аудио (нужен Consent Mode); маленькие модели = источник «мусорных» выводов (few-shot+защищённый парсинг).
