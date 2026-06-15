@@ -19,6 +19,10 @@ log = get_logger("persona.user_memory")
 
 _KINDS = {"fact", "preference", "person", "project", "reminder", "other"}
 _MAX_LEN = 600
+# Бюджет авто-роста (инсайт Hermes: «без тихого переполнения»). Авто-извлечение
+# фактов останавливается при достижении лимита — память не превращается в свалку;
+# пользователь чистит её в /settings/memory. Ручной /remember не ограничен.
+MEMORY_AUTO_CAP = 80
 
 
 async def add_memory(
@@ -161,6 +165,10 @@ async def extract_and_store(
         make_client,
     )
 
+    # «Без тихого переполнения»: авто-рост памяти ограничен бюджетом.
+    if await count_memory(user_id) >= MEMORY_AUTO_CAP:
+        log.info("user_memory.auto_cap_reached", user_id=user_id, cap=MEMORY_AUTO_CAP)
+        return 0
     try:
         client = make_client(kind="chat_summary")
     except LLMNotConfigured:
