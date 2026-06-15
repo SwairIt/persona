@@ -139,8 +139,10 @@
     '  float inten=pow(1.0-t,1.7)*1.05 + smoothstep(0.10,0.0,t)*0.6;',
     // очень мягкие края: и внутренний, и внешний растворяются (нет «конца колец»)
     '  float edgefade=smoothstep(0.0,0.07,t)*smoothstep(1.0,0.62,t);',
-    // диск ярок в hero, приглушается при скролле → не засвечивает текст ниже
+    // диск ярок в hero, приглушается при скролле → не засвечивает текст ниже,
+    // и снова расцветает на финальном CTA (бук-энд)
     '  float dim=mix(1.0,0.4,smoothstep(0.05,0.34,uScroll));',
+    '  dim=mix(dim,0.8,smoothstep(0.7,0.93,uScroll));',
     '  return grad*inten*turb*dopp*edgefade*uDiskA*dim;',
     '}',
     '',
@@ -158,8 +160,10 @@
     '  vec3 fwd=normalize(-camPos);',
     '  vec3 right=normalize(cross(vec3(0.0,1.0,0.0),fwd));',
     '  vec3 up=cross(fwd,right);',
-    // по скроллу дыра всплывает вверх по экрану (panning) — «в разных местах», но всегда ребром
-    '  float pan=mix(-0.05, 1.2, sp);',
+    // по скроллу дыра всплывает вверх (panning), а к финальному CTA ВОЗВРАЩАЕТСЯ
+    // в центр → полный несрезанный круг как бук-энд. Всегда ребром.
+    '  float pan=mix(-0.05, 0.9, smoothstep(0.0,0.45,sp));',
+    '  pan=mix(pan, -0.05, smoothstep(0.68,0.93,sp));',
     '  vec2 luv=vec2(uv.x, uv.y - pan);',
     '  vec3 dir=normalize(fwd + (luv.x*right + luv.y*up)*uFov);',
     '',
@@ -186,7 +190,9 @@
     '    col+=bg*transm;',
     '  }',
     '  float ringG=smoothstep(1.60,1.5,minR)*smoothstep(1.30,1.49,minR);',
-    '  col+=uRing*ringG*mix(1.0,0.5,smoothstep(0.05,0.34,sp));',
+    '  float ringDim=mix(1.0,0.5,smoothstep(0.05,0.34,sp));',
+    '  ringDim=mix(ringDim,0.85,smoothstep(0.7,0.93,sp));',
+    '  col+=uRing*ringG*ringDim;',
     // мягкая виньетка по краям кадра — фокус к центру + читабельность
     '  float vig=1.0-0.32*dot(uv,uv);',
     '  col*=vig;',
