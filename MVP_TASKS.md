@@ -72,7 +72,11 @@
   (SpeechRecognition, interim-результаты live в поле, ru-RU/locale) с авто-fallback на запись MediaRecorder →
   `POST /api/voice/web/stt` (серверный Whisper `transcribe_segment`, 503 если бэкенд не стоит → подсказка
   «открой в Chrome»). TTS ответов (`speechSynthesis`, auto-озвучка) уже был. micSupported-детект.
-- `[TODO]` Hands-free страница `/voice` (орб-микрофон, живой транскрипт, настройки голоса/скорости).
+- `[DONE]` Hands-free страница `/voice` (voice_chat.py + voice_chat.html): полноэкранный орб-микрофон
+  (idle/listening/thinking/speaking), живой транскрипт диалога, Web Speech STT → send-stream (стрим ответа) →
+  speechSynthesis TTS, барж-ин (тап во время речи прерывает), переключатель hands-free (слушать после ответа),
+  авто-выбор сессии (последняя или создаёт). Очистка markdown перед озвучкой. Nav + хаб + i18n ru/en/de.
+  Слэш `/voice` теперь ведёт сюда.
 - `[TODO]` Hands-free страница `/voice` (орб-микрофон, живой транскрипт, настройки голоса/скорости).
 - `[TODO]` Агентный голос максимум: непрерывное слушание, barge-in, выбор голоса/скорости (`/api/voice/config`,
   `plat.tts_speak(text,voice,rate)`, `tts_stop`). [NEEDS DEVICE CHECK]

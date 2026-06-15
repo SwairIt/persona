@@ -1,0 +1,234 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto" x-data="voiceChat()" x-init="init()">
+  <div class="text-center mb-6">
+    <h1 class="text-2xl font-bold tracking-tight">🎙️ Голосовой разговор</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Нажми на круг и говори — ассистент ответит голосом. Лучше всего работает в Chrome.
+    </p>
+  </div>
+
+  {# Орб-микрофон #}
+  <div class="flex flex-col items-center gap-4 my-8">
+    <button type="button" @click="onOrbTap()"
+            class="relative w-44 h-44 rounded-full flex items-center justify-center transition-all duration-300 focus:outline-none"
+            :class="{
+              'bg-rose-500/20 ring-4 ring-rose-400/50': state==='listening',
+              'bg-amber-500/15 ring-4 ring-amber-400/40': state==='thinking',
+              'bg-accent-500/20 ring-4 ring-accent-400/50': state==='speaking',
+              'bg-ink-800 ring-2 ring-ink-700 hover:ring-accent-500/50': state==='idle'
+            }">
+      <span class="absolute inset-0 rounded-full animate-ping"
+            x-show="state==='listening'" x-cloak
+            style="background: radial-gradient(circle, rgba(244,63,94,0.25), transparent 70%);"></span>
+      <span class="text-6xl leading-none select-none" x-text="orbIcon()"></span>
+    </button>
+    <p class="text-sm font-medium h-5"
+       :class="{
+         'text-rose-300': state==='listening',
+         'text-amber-300': state==='thinking',
+         'text-accent-300': state==='speaking',
+         'text-zinc-500': state==='idle'
+       }"
+       x-text="statusText()"></p>
+
+    <div class="flex items-center gap-4 text-xs">
+      <label class="flex items-center gap-1.5 cursor-pointer text-zinc-400">
+        <input type="checkbox" x-model="handsFree" @change="saveHF()" class="accent-accent-500">
+        Hands-free (слушать после ответа)
+      </label>
+      <button type="button" x-show="state==='speaking'" @click="stopSpeak()"
+              class="px-2 py-1 rounded border border-ink-700 text-zinc-300 hover:bg-ink-800">⏹ стоп</button>
+    </div>
+    <p x-show="!sttSupported" x-cloak class="text-xs text-amber-400 text-center max-w-sm">
+      ⚠ Распознавание речи недоступно в этом браузере. Открой в Chrome,
+      либо пользуйся микрофоном прямо в <a href="/chat" class="underline">чате</a>.
+    </p>
+  </div>
+
+  {# Живой транскрипт диалога #}
+  <div class="space-y-3 mt-8" x-ref="log">
+    <template x-for="(t, i) in turns" :key="i">
+      <div :class="t.role==='user' ? 'text-right' : 'text-left'">
+        <div class="inline-block max-w-[85%] rounded-2xl px-4 py-2 text-sm text-left"
+             :class="t.role==='user' ? 'bg-zinc-800/70 border border-ink-700 text-zinc-100'
+                                     : 'bg-accent-600/10 border border-accent-500/30 text-zinc-100'">
+          <span class="text-[10px] uppercase tracking-wide block mb-0.5"
+                :class="t.role==='user' ? 'text-zinc-500' : 'text-accent-400'"
+                x-text="t.role==='user' ? 'ты' : 'ассистент'"></span>
+          <span class="whitespace-pre-wrap break-words" x-text="t.text"></span>
+        </div>
+      </div>
+    </template>
+    <template x-if="interim">
+      <div class="text-right">
+        <div class="inline-block max-w-[85%] rounded-2xl px-4 py-2 text-sm bg-zinc-800/40 border border-ink-700 text-zinc-400 italic">
+          <span x-text="interim"></span>
+        </div>
+      </div>
+    </template>
+  </div>
+
+  <p class="text-zinc-600 text-xs mt-10 text-center">
+    Разговор идёт в <a href="/chat" class="underline" :href="sessionId ? ('/chat/' + sessionId) : '/chat'">обычном чате</a> —
+    история сохраняется там. Голос ответа — синтез браузера.
+  </p>
+</div>
+
+<script>
+function voiceChat() {
+  return {
+    state: 'idle',           // idle | listening | thinking | speaking
+    sessionId: null,
+    turns: [],
+    interim: '',
+    handsFree: false,
+    sttSupported: false,
+    ttsSupported: false,
+    _rec: null,
+    _voices: [],
+    async init() {
+      this.sttSupported = ('SpeechRecognition' in window) || ('webkitSpeechRecognition' in window);
+      this.ttsSupported = ('speechSynthesis' in window);
+      try { this.handsFree = localStorage.getItem('persona.voice.handsFree') === '1'; } catch (e) {}
+      if (this.ttsSupported) {
+        const load = () => { try { this._voices = window.speechSynthesis.getVoices() || []; } catch (e) {} };
+        load(); try { window.speechSynthesis.onvoiceschanged = load; } catch (e) {}
+      }
+      await this.resolveSession();
+    },
+    saveHF() { try { localStorage.setItem('persona.voice.handsFree', this.handsFree ? '1':'0'); } catch (e) {} },
+    async resolveSession() {
+      try {
+        const r = await fetch('/api/chat/sessions', { headers: { 'Accept':'application/json' } });
+        if (r.ok) {
+          const d = await r.json();
+          const list = Array.isArray(d) ? d : (d.sessions || d.items || []);
+          if (list.length) { this.sessionId = list[0].session_id || list[0].id; return; }
+        }
+      } catch (e) {}
+      // ни одной сессии — создаём
+      try {
+        const r = await fetch('/api/chat/sessions', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ title: 'Голосовой разговор' }) });
+        if (r.ok) { const d = await r.json(); this.sessionId = d.id || d.session_id; }
+      } catch (e) {}
+    },
+    orbIcon() {
+      return this.state==='listening' ? '👂' : this.state==='thinking' ? '…' : this.state==='speaking' ? '🔊' : '🎙️';
+    },
+    statusText() {
+      return this.state==='listening' ? 'Слушаю…' : this.state==='thinking' ? 'Думаю…'
+           : this.state==='speaking' ? 'Отвечаю…' : 'Нажми и говори';
+    },
+    onOrbTap() {
+      if (this.state==='speaking') { this.stopSpeak(); this.startListening(); return; }  // barge-in
+      if (this.state==='listening') { this.stopListening(); return; }
+      if (this.state==='thinking') return;
+      this.startListening();
+    },
+    startListening() {
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SR) { this.sttSupported = false; return; }
+      try {
+        const rec = new SR();
+        this._rec = rec;
+        rec.lang = (navigator.language && navigator.language.startsWith('ru')) ? 'ru-RU' : (navigator.language || 'ru-RU');
+        rec.interimResults = true;
+        rec.continuous = false;
+        let finalText = '';
+        rec.onresult = (ev) => {
+          let interim = '';
+          for (let i = ev.resultIndex; i < ev.results.length; i++) {
+            const t = ev.results[i][0].transcript;
+            if (ev.results[i].isFinal) finalText += t; else interim += t;
+          }
+          this.interim = (finalText + ' ' + interim).trim();
+        };
+        rec.onerror = () => { this.state='idle'; this._rec=null; this.interim=''; };
+        rec.onend = () => {
+          this._rec = null;
+          const said = (finalText || this.interim || '').trim();
+          this.interim = '';
+          if (said) { this.sendTurn(said); }
+          else if (this.state==='listening') { this.state='idle'; }
+        };
+        this.state = 'listening';
+        rec.start();
+      } catch (e) { this.state='idle'; }
+    },
+    stopListening() {
+      if (this._rec) { try { this._rec.stop(); } catch (e) {} }
+      // onend подхватит дальнейшее
+    },
+    async sendTurn(text) {
+      this.turns.push({ role:'user', text });
+      this.scroll();
+      if (!this.sessionId) { await this.resolveSession(); }
+      if (!this.sessionId) { this.turns.push({ role:'assistant', text:'(не удалось открыть чат)' }); return; }
+      this.state = 'thinking';
+      const idx = this.turns.push({ role:'assistant', text:'' }) - 1;
+      try {
+        const r = await fetch(`/api/chat/sessions/${this.sessionId}/send-stream`, {
+          method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ question: text }),
+        });
+        if (!r.ok || !r.body) { this.turns[idx].text = '(ошибка ответа)'; this.state='idle'; return; }
+        const reader = r.body.getReader();
+        const dec = new TextDecoder();
+        let buf = '';
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream:true });
+          const parts = buf.split('\n\n');
+          buf = parts.pop();
+          for (const p of parts) {
+            const line = p.replace(/^data:\s?/, '').trim();
+            if (!line) continue;
+            let frame; try { frame = JSON.parse(line); } catch (e) { continue; }
+            if (frame.type === 'delta' && frame.text) { this.turns[idx].text += frame.text; this.scroll(); }
+            else if (frame.type === 'error') { this.turns[idx].text += '\n[ошибка: ' + (frame.detail||'') + ']'; }
+          }
+        }
+      } catch (e) {
+        this.turns[idx].text = this.turns[idx].text || ('(ошибка: ' + (e && e.message ? e.message : e) + ')');
+      }
+      const answer = (this.turns[idx].text || '').trim();
+      if (answer && this.ttsSupported) { this.speak(answer); }
+      else { this.state = 'idle'; if (this.handsFree && this.sttSupported) this._delayListen(); }
+    },
+    speak(text) {
+      try {
+        window.speechSynthesis.cancel();
+        const u = new SpeechSynthesisUtterance(this._forTts(text));
+        const lang = /[а-яё]/i.test(text) ? 'ru-RU' : 'en-US';
+        u.lang = lang;
+        const v = this._pickVoice(lang); if (v) u.voice = v;
+        u.onend = () => { this.state='idle'; if (this.handsFree && this.sttSupported) this._delayListen(); };
+        u.onerror = () => { this.state='idle'; };
+        this.state = 'speaking';
+        window.speechSynthesis.speak(u);
+      } catch (e) { this.state='idle'; }
+    },
+    stopSpeak() { try { window.speechSynthesis.cancel(); } catch (e) {} this.state='idle'; },
+    _delayListen() { setTimeout(() => { if (this.state==='idle') this.startListening(); }, 600); },
+    _pickVoice(lang) {
+      const vs = this._voices && this._voices.length ? this._voices : (window.speechSynthesis.getVoices()||[]);
+      const want = lang.slice(0,2);
+      const cand = vs.filter(v => (v.lang||'').toLowerCase().startsWith(want));
+      const rank = (n) => /natural|neural/i.test(n) ? 3 : /online|premium|enhanced/i.test(n) ? 2 : 1;
+      cand.sort((a,b) => rank(b.name) - rank(a.name));
+      return cand[0] || null;
+    },
+    _forTts(text) {
+      // убрать markdown-разметку и код-блоки для чистой озвучки
+      return text.replace(/```[\s\S]*?```/g, ' код опущен ')
+                 .replace(/[*_`#>]/g, '')
+                 .replace(/\[(.*?)\]\(.*?\)/g, '$1')
+                 .slice(0, 4000);
+    },
+    scroll() { this.$nextTick(() => { try { window.scrollTo(0, document.body.scrollHeight); } catch (e) {} }); },
+  };
+}
+</script>
+{% endblock %}

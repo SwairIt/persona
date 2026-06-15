@@ -974,7 +974,7 @@
           case 'skill': window.location.href = '/settings/skills'; return true;
           case 'persona': this.question = ''; try { this.setSystemPrompt(); } catch (e) {} return true;
           case 'activity': this.question = ''; this.toggleActivity(); return true;
-          case 'voice': window.location.href = '/settings/voice'; return true;
+          case 'voice': window.location.href = '/voice'; return true;
           case 'theme': window.location.href = '/settings/theme'; return true;
           case 'help': case 'commands': this.question = ''; this._showHelp(); return true;
           default: return false;
