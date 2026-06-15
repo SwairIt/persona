@@ -136,6 +136,15 @@ async def set_skill_enabled(user_id: int, skill_id: int, enabled: bool) -> None:
         await conn.commit()
 
 
+async def delete_skill(user_id: int, skill_id: int) -> bool:
+    async with get_connection() as conn:
+        cur = await conn.execute(
+            "DELETE FROM skill WHERE id = ? AND user_id = ?", (skill_id, user_id)
+        )
+        await conn.commit()
+        return cur.rowcount > 0
+
+
 async def list_skills(user_id: int) -> list[dict[str, object]]:
     async with get_connection() as conn:
         cur = await conn.execute(

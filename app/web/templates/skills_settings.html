@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto">
+  <div class="mb-6">
+    <h1 class="text-2xl font-bold tracking-tight">🧩 Навыки</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Навык — это набор инструкций (из GitHub: <span class="font-mono">SKILL.md</span> или
+      <span class="font-mono">README.md</span>), которые ассистент применяет в чате.
+      Скачивается <b>только текст</b> — код не выполняется, ставить из любого репозитория безопасно.
+      Включённые навыки подмешиваются в системный промпт.
+    </p>
+  </div>
+
+  {% if error %}
+    <div class="mb-4 rounded-lg border border-rose-500/40 bg-rose-500/10 px-4 py-2.5 text-sm text-rose-300">
+      ⚠ {{ error }}
+    </div>
+  {% endif %}
+
+  {# Установка из GitHub #}
+  <form method="post" action="/settings/skills/install"
+        class="mb-6 rounded-xl border border-ink-700 bg-ink-800 p-4">
+    <label class="block text-xs text-zinc-400 mb-1.5">Установить навык из GitHub</label>
+    <div class="flex gap-2">
+      <input type="text" name="url" required
+             placeholder="github.com/пользователь/репозиторий"
+             class="flex-1 bg-ink-900 border border-ink-700 focus:border-accent-500 rounded-lg
+                    px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none">
+      <button type="submit"
+              class="px-4 py-2 rounded-lg bg-accent-600 hover:bg-accent-500 text-white text-sm font-semibold whitespace-nowrap">
+        Установить
+      </button>
+    </div>
+    <p class="text-[11px] text-zinc-600 mt-1.5">
+      Напр.: <span class="font-mono">github.com/anthropics/skills</span> — берётся SKILL.md или README.md.
+    </p>
+  </form>
+
+  <div class="flex items-baseline justify-between mb-2">
+    <h2 class="text-sm font-semibold text-zinc-300">Мои навыки</h2>
+    <span class="text-xs text-zinc-500">{{ count }} шт.</span>
+  </div>
+
+  {% if not items %}
+    <div class="rounded-xl border border-ink-700 bg-ink-800 p-8 text-center text-zinc-500 text-sm">
+      Навыков пока нет. Установи первый по ссылке выше.
+    </div>
+  {% else %}
+    <ul class="space-y-2">
+      {% for s in items %}
+        <li class="rounded-xl border bg-ink-800 p-3 flex items-center gap-3
+                   {{ 'border-emerald-500/30' if s.enabled else 'border-ink-700' }}">
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-2">
+              <span class="text-sm font-medium text-zinc-100 truncate">{{ s.name }}</span>
+              {% if s.enabled %}
+                <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300">вкл</span>
+              {% else %}
+                <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-zinc-700/40 text-zinc-400">выкл</span>
+              {% endif %}
+            </div>
+            {% if s.source_url %}
+              <a href="{{ s.source_url }}" target="_blank" rel="noopener"
+                 class="text-[11px] text-zinc-500 hover:text-accent-300 font-mono truncate block">{{ s.source_url }}</a>
+            {% endif %}
+          </div>
+          <form method="post" action="/settings/skills/{{ s.id }}/toggle">
+            <input type="hidden" name="enabled" value="{{ '' if s.enabled else '1' }}">
+            <button type="submit"
+                    class="px-2.5 py-1 rounded-md text-xs border border-ink-700 text-zinc-300 hover:bg-ink-900">
+              {{ 'Выключить' if s.enabled else 'Включить' }}
+            </button>
+          </form>
+          <form method="post" action="/settings/skills/{{ s.id }}/delete"
+                onsubmit="return confirm('Удалить навык «{{ s.name }}»?');">
+            <button type="submit" class="px-2.5 py-1 rounded-md text-xs text-zinc-500 hover:text-rose-400">
+              Удалить
+            </button>
+          </form>
+        </li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+</div>
+{% endblock %}

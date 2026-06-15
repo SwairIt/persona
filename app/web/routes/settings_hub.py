@@ -43,6 +43,7 @@ _KEYWORDS: Final[dict[str, str]] = {
     "/chat": "чат беседа ассистент диалог chat",
     "/ai-activity": "активность инструменты что делает ии прозрачность",
     "/graph": "граф связи память узлы graph",
+    "/settings/skills": "навыки skills инструкции github умения skill",
 }
 
 
@@ -91,6 +92,7 @@ _CATEGORIES: Final[list[dict[str, object]]] = [
         "pages": [
             ("/chat", "Чат с памятью (беседы, модель-пикер, vision)"),
             ("/ai-activity", "🔭 Что делает ИИ — окно активности (инструменты live)"),
+            ("/settings/skills", "🧩 Навыки — наборы инструкций из GitHub (SKILL.md)"),
             ("/settings/advanced", "⚙️ Расширенные функции (мастер-выключатель: друг ⇄ рабочий)"),
             ("/settings/system-prompt", "Системный промпт / характер ассистента (пресеты + редактор)"),
             ("/settings/profile", "Профиль — что ИИ знает обо мне"),

@@ -59,6 +59,8 @@ COMMAND_SPECS: list[dict[str, Any]] = [
      "args": "", "desc": "Что ИИ обо мне помнит (редактор)"},
     {"name": "persona", "aliases": ["role"], "type": "client", "group": "Память",
      "args": "", "desc": "Задать роль (system prompt)"},
+    {"name": "skill", "aliases": ["skills"], "type": "client", "group": "Память",
+     "args": "", "desc": "Навыки (установить/вкл/выкл)"},
     # ── Окна / навигация (client) ────────────────────────────────────────
     {"name": "activity", "aliases": ["acts"], "type": "client", "group": "Окна",
      "args": "", "desc": "Окно «что делает ИИ»"},
