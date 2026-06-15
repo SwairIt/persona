@@ -18,9 +18,20 @@
 from __future__ import annotations
 
 import re
+import tempfile
+from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request
+from fastapi import (
+    APIRouter,
+    Body,
+    Depends,
+    File,
+    Header,
+    HTTPException,
+    Request,
+    UploadFile,
+)
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from app.auth import current_user_required
@@ -273,3 +284,70 @@ async def voice_tts_ack(
         )
         await conn.commit()
     return JSONResponse({"ok": True})
+
+
+# ---------------------------------------------------------------------------
+# Браузерный STT — серверный fallback к Web Speech API
+# ---------------------------------------------------------------------------
+_STT_MAX_BYTES = 12 * 1024 * 1024  # ~12 МБ хватает на длинную фразу
+
+
+@router.post("/api/voice/web/stt")
+async def voice_web_stt(
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+    file: Annotated[UploadFile, File(...)],
+    locale: str = "",
+) -> JSONResponse:
+    """Распознать аудио-блоб из браузера (микрофон чата) → текст.
+
+    Fallback для браузеров без Web Speech API (или когда он недоступен):
+    клиент пишет звук через MediaRecorder и шлёт сюда. Транскрипция —
+    тем же серверным Whisper, что и для голосовых заметок
+    (``app.audio.transcribe.transcribe_segment``). Если бэкенд Whisper не
+    установлен — 503 (клиент тогда подсказывает «используй Chrome»).
+    """
+    from app.audio.transcribe import transcribe_segment  # noqa: PLC0415
+
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="пустой аудио-блоб")
+    if len(raw) > _STT_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="слишком большой аудио-блоб")
+
+    # MediaRecorder отдаёт webm/ogg/mp4 — Whisper (ffmpeg) понимает их по
+    # расширению. Берём суффикс из mime, дефолт webm.
+    mime = (file.content_type or "").lower()
+    suffix = ".webm"
+    if "ogg" in mime:
+        suffix = ".ogg"
+    elif "mp4" in mime or "m4a" in mime:
+        suffix = ".m4a"
+    elif "wav" in mime:
+        suffix = ".wav"
+
+    tmp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp.write(raw)
+            tmp_path = Path(tmp.name)
+        text = await transcribe_segment(tmp_path, locale_hint=(locale or None))
+    except Exception as exc:  # noqa: BLE001 — best-effort
+        log.warning("voice.web_stt.failed", error=str(exc))
+        return JSONResponse(
+            {"ok": False, "error": "transcribe_failed"}, status_code=500
+        )
+    finally:
+        if tmp_path is not None:
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    if text is None:
+        # Бэкенд Whisper не установлен на сервере.
+        return JSONResponse(
+            {"ok": False, "error": "no_backend",
+             "hint": "Whisper не установлен на сервере — используй Chrome (Web Speech) для голосового ввода"},
+            status_code=503,
+        )
+    return JSONResponse({"ok": True, "text": text})

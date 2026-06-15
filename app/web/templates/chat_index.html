@@ -411,6 +411,14 @@
                 📎
               </label>
 
+              {# 🎙 голосовой ввод — диктовка в поле (Web Speech API или запись→сервер) #}
+              <button type="button" x-show="micSupported" @click="toggleDictation()"
+                      :class="micActive ? 'text-rose-400 animate-pulse' : 'text-zinc-400 hover:text-zinc-200'"
+                      class="p-1.5 rounded-lg hover:bg-ink-700 text-base"
+                      :title="micActive ? 'Слушаю… (нажми чтобы остановить)' : 'Голосовой ввод (диктовка)'">
+                <span x-text="micActive ? '⏺' : '🎙'"></span>
+              </button>
+
               {# озвучка ответов (авто) — браузерный синтез речи #}
               <button type="button" x-show="ttsAvailable" @click="toggleAutoSpeak()"
                       :class="autoSpeak ? 'text-accent-400' : 'text-zinc-400 hover:text-zinc-200'"
@@ -703,6 +711,13 @@
       autoSpeak: false,
       speaking: false,
       _lastSpoken: '',
+      // 🎙 голосовой ввод (диктовка): Web Speech API или запись→сервер
+      micSupported: false,
+      micActive: false,
+      _recognition: null,
+      _mediaRecorder: null,
+      _recChunks: [],
+      _micBase: '',
       // T26 — track active stream so we can abort it on Stop click
       _abortController: null,
       // T26 — queue: messages typed while previous still streaming
@@ -1064,6 +1079,87 @@
           load();
           try { window.speechSynthesis.onvoiceschanged = load; } catch (e) {}
         }
+        // 🎙 микрофон доступен, если есть Web Speech ИЛИ MediaRecorder+getUserMedia
+        const hasWebSpeech = ('SpeechRecognition' in window) || ('webkitSpeechRecognition' in window);
+        const hasRecorder = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia
+                               && typeof window.MediaRecorder !== 'undefined');
+        this.micSupported = hasWebSpeech || hasRecorder;
+      },
+
+      // ── 🎙 Голосовой ввод (диктовка в композер) ─────────────────────────
+      toggleDictation() {
+        if (this.micActive) { this.stopDictation(); return; }
+        const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        this._micBase = this.question ? (this.question.replace(/\s+$/,'') + ' ') : '';
+        if (SR) { this._startWebSpeech(SR); }
+        else { this._startRecording(); }
+      },
+      _startWebSpeech(SR) {
+        try {
+          const rec = new SR();
+          this._recognition = rec;
+          rec.lang = (navigator.language && navigator.language.startsWith('ru')) ? 'ru-RU'
+                     : (navigator.language || 'ru-RU');
+          rec.interimResults = true;
+          rec.continuous = true;
+          rec.onresult = (ev) => {
+            let finalTx = '', interim = '';
+            for (let i = ev.resultIndex; i < ev.results.length; i++) {
+              const t = ev.results[i][0].transcript;
+              if (ev.results[i].isFinal) finalTx += t; else interim += t;
+            }
+            if (finalTx) this._micBase = (this._micBase + finalTx).replace(/\s+/g,' ') + ' ';
+            this.question = (this._micBase + interim).trimStart();
+            this.$nextTick(() => this.autosize());
+          };
+          rec.onerror = () => { this.micActive = false; };
+          rec.onend = () => { this.micActive = false; this._recognition = null; this.saveDraft(); };
+          rec.start();
+          this.micActive = true;
+        } catch (e) { this.micActive = false; this._startRecording(); }
+      },
+      async _startRecording() {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          const mr = new MediaRecorder(stream);
+          this._mediaRecorder = mr;
+          this._recChunks = [];
+          mr.ondataavailable = (e) => { if (e.data && e.data.size) this._recChunks.push(e.data); };
+          mr.onstop = async () => {
+            try { stream.getTracks().forEach(t => t.stop()); } catch (e) {}
+            const blob = new Blob(this._recChunks, { type: mr.mimeType || 'audio/webm' });
+            this._mediaRecorder = null;
+            await this._uploadStt(blob);
+          };
+          mr.start();
+          this.micActive = true;
+        } catch (e) {
+          this.micActive = false;
+          this._sysNote('🎙 Не удалось включить микрофон: ' + (e && e.message ? e.message : e));
+        }
+      },
+      stopDictation() {
+        this.micActive = false;
+        if (this._recognition) { try { this._recognition.stop(); } catch (e) {} this._recognition = null; }
+        if (this._mediaRecorder && this._mediaRecorder.state !== 'inactive') {
+          try { this._mediaRecorder.stop(); } catch (e) {}
+        }
+      },
+      async _uploadStt(blob) {
+        try {
+          const ext = (blob.type.indexOf('ogg') >= 0) ? 'ogg' : (blob.type.indexOf('mp4') >= 0 ? 'm4a' : 'webm');
+          const fd = new FormData();
+          fd.append('file', blob, 'speech.' + ext);
+          const r = await fetch('/api/voice/web/stt', { method: 'POST', body: fd });
+          if (r.status === 503) { this._sysNote('🎙 Распознавание на сервере недоступно — открой чат в Chrome для голосового ввода.'); return; }
+          const d = await r.json().catch(() => ({}));
+          if (d && d.ok && d.text) {
+            this.question = (this._micBase + d.text).trimStart();
+            this.saveDraft(); this.$nextTick(() => { this.autosize(); try { this.$refs.composer.focus(); } catch (e) {} });
+          } else {
+            this._sysNote('🎙 Не удалось распознать речь.');
+          }
+        } catch (e) { this._sysNote('🎙 Ошибка распознавания: ' + (e && e.message ? e.message : e)); }
       },
       // выбрать ЛУЧШИЙ голос: нейронные Natural/Online сильно качественнее
       _pickVoice(lang) {

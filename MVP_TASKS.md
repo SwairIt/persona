@@ -65,8 +65,11 @@
   (`browser_backend = builtin|mcp|both`). Оба варианта + переключатель.
 
 ## 3. Голос (ядро ассистента, по максимуму + по умолчанию)
-- `[TODO]` Голос в браузере: микрофон в чате (Web Speech API + серверный Whisper fallback), TTS в браузере
-  (`speechSynthesis`), push-to-talk + hands-free, barge-in.
+- `[DONE]` Голос в браузере: 🎙 кнопка-микрофон в композере чата — диктовка через Web Speech API
+  (SpeechRecognition, interim-результаты live в поле, ru-RU/locale) с авто-fallback на запись MediaRecorder →
+  `POST /api/voice/web/stt` (серверный Whisper `transcribe_segment`, 503 если бэкенд не стоит → подсказка
+  «открой в Chrome»). TTS ответов (`speechSynthesis`, auto-озвучка) уже был. micSupported-детект.
+- `[TODO]` Hands-free страница `/voice` (орб-микрофон, живой транскрипт, настройки голоса/скорости).
 - `[TODO]` Hands-free страница `/voice` (орб-микрофон, живой транскрипт, настройки голоса/скорости).
 - `[TODO]` Агентный голос максимум: непрерывное слушание, barge-in, выбор голоса/скорости (`/api/voice/config`,
   `plat.tts_speak(text,voice,rate)`, `tts_stop`). [NEEDS DEVICE CHECK]
