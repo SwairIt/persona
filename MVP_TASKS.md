@@ -91,8 +91,13 @@
   пульт — live-логи (фильтр уровня/текста, пауза, autoscroll, /root/logs/recent.json), сводка здоровья
   (воркеры/БД/счётчики из build_health_state), быстрые ссылки на health/audit/doctor/stats/devices/mcp/storage.
   Nav-пункт 🛡️ Root (owner-gate уже песочит не-владельцев на /pending). DB-query/backup/danger-zone — позже.
-- `[TODO]` Пользователи и роли (миграция 184): `users.role(owner/admin/member/viewer)`+`status(pending/active/suspended)`,
-  `app/auth/roles.py`, `/root/users` (create/approve/suspend/role/delete), переписать `auth_gate.py` под роли.
+- `[DONE]` Роли — ФУНДАМЕНТ (аддитивно): миграция 184 (`users.role` def 'member', `users.status` def 'active';
+  backfill владельца → owner/active; +индексы; идемпотентно). `app/auth/roles.py` (get_role/has_permission/
+  list_users, ROLE_RANK viewer<member<admin<owner, fail-open). Read-only таблица пользователей в /root.
+  `is_owner` НЕ менялся. Проверено: миграция 2× чисто, backfill корректен.
+- `[TODO]` Роли — МУТАЦИИ + auth_gate rewrite (ОТЛОЖЕНО, высокий риск локаута ночью): /root/users
+  approve/suspend/role/delete (гард: нельзя снести последнего owner), переписать `auth_gate.py` под
+  role/status. Делать при пользователе, не автономно.
 - `[TODO]` Пользователи и роли (миграция 184): `users.role(owner/admin/member/viewer)`+`status(pending/active/suspended)`,
   `app/auth/roles.py`, `/root/users` (create/approve/suspend/role/delete), переписать `auth_gate.py` под роли.
 

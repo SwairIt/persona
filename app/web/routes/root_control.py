@@ -45,10 +45,22 @@ async def root_page(
         health = dict(await build_health_state())
     except Exception as exc:  # noqa: BLE001
         log.warning("root.health_failed", error=str(exc))
+    users: list = []
+    try:
+        from app.auth.roles import list_users  # noqa: PLC0415
+
+        users = await list_users()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("root.users_failed", error=str(exc))
     return templates.TemplateResponse(
         request,
         "root.html",
-        {"title": "Root — пульт владельца", "active_nav": "root", "health": health},
+        {
+            "title": "Root — пульт владельца",
+            "active_nav": "root",
+            "health": health,
+            "users": users,
+        },
     )
 
 

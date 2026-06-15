@@ -37,6 +37,45 @@
   </div>
   {% endif %}
 
+  {# Пользователи и роли (read-only). Управление — позже. #}
+  {% if users %}
+  <div class="mb-6">
+    <h2 class="text-sm font-semibold text-zinc-300 mb-2">Пользователи и роли <span class="text-zinc-600">({{ users|length }})</span></h2>
+    <div class="rounded-xl border border-ink-700 bg-ink-800 overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="text-[11px] uppercase tracking-wide text-zinc-500 border-b border-ink-700">
+          <tr>
+            <th class="text-left px-3 py-2">id</th>
+            <th class="text-left px-3 py-2">email</th>
+            <th class="text-left px-3 py-2">роль</th>
+            <th class="text-left px-3 py-2">статус</th>
+            <th class="text-left px-3 py-2">создан</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for u in users %}
+          <tr class="border-b border-ink-900/60 last:border-0">
+            <td class="px-3 py-2 text-zinc-500 font-mono">{{ u.id }}</td>
+            <td class="px-3 py-2 text-zinc-200">{{ u.email }}{% if u.display_name %} <span class="text-zinc-500">({{ u.display_name }})</span>{% endif %}</td>
+            <td class="px-3 py-2">
+              <span class="text-[11px] px-1.5 py-0.5 rounded-full
+                {{ 'bg-accent-500/15 text-accent-300' if u.role == 'owner' else ('bg-emerald-500/15 text-emerald-300' if u.role == 'admin' else 'bg-zinc-700/40 text-zinc-300') }}">
+                {{ u.role }}
+              </span>
+            </td>
+            <td class="px-3 py-2">
+              <span class="text-[11px] {{ 'text-emerald-400' if u.status == 'active' else ('text-amber-400' if u.status == 'pending' else 'text-rose-400') }}">{{ u.status }}</span>
+            </td>
+            <td class="px-3 py-2 text-zinc-500 text-xs">{{ (u.created_at or '')[:10] }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="text-zinc-600 text-xs mt-1.5">Управление (одобрить/заморозить/сменить роль) появится отдельным шагом. Сейчас приватность держит owner-gate.</p>
+  </div>
+  {% endif %}
+
   {# Быстрые ссылки на существующие админ-страницы #}
   <div class="mb-6">
     <h2 class="text-sm font-semibold text-zinc-300 mb-2">Панели и диагностика</h2>
