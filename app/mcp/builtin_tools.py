@@ -879,17 +879,28 @@ async def run_tests(args: dict[str, Any], user_id: int = 0) -> str:
 
 
 async def query_memory(args: dict[str, Any], user_id: int = 0) -> str:
-    """Осознанно вспомнить релевантное из всех чатов пользователя."""
+    """Осознанно вспомнить: личные факты (user_memory) + релевантное из чатов."""
     query = _pick(args, ("query", "q", "text", "about")).strip()
     if not query:
         return "[error] нужен query"
+    parts: list[str] = []
+    try:
+        from app.chat.user_memory import search_memory  # noqa: PLC0415
+
+        facts = await search_memory(user_id, query, limit=8)
+        if facts:
+            parts.append("Факты о пользователе:\n" + "\n".join(f"• {f['text']}" for f in facts))
+    except Exception as exc:  # noqa: BLE001
+        log.debug("query_memory.facts_failed", error=str(exc))
     try:
         from app.chat.sessions import recall_relevant  # noqa: PLC0415
 
         block = await recall_relevant(user_id, query, exclude_session_id=None)
-        return f"[ok] из памяти:\n{block}" if block else "[ok] ничего релевантного не нашёл"
+        if block:
+            parts.append("Из прошлых чатов:\n" + block)
     except Exception as exc:  # noqa: BLE001
-        return f"[error] {type(exc).__name__}: {exc}"
+        log.debug("query_memory.recall_failed", error=str(exc))
+    return "[ok] из памяти:\n" + "\n\n".join(parts) if parts else "[ok] ничего релевантного не нашёл"
 
 
 # Tool registry — name → (function, description-for-LLM, params-schema)

@@ -497,6 +497,52 @@ async def api_chat_search(
     return JSONResponse({"results": results})
 
 
+@router.get("/api/chat/memory", response_class=JSONResponse)
+async def api_chat_memory_list(
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+) -> JSONResponse:
+    """Список личных фактов о пользователе (для /memory и панели памяти)."""
+    from app.chat.user_memory import list_memory  # noqa: PLC0415
+
+    return JSONResponse({"items": await list_memory(session["user_id"], limit=200)})
+
+
+@router.post("/api/chat/remember", response_class=JSONResponse)
+async def api_chat_remember(
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+    body: Annotated[dict[str, Any], Body(default_factory=dict)],
+) -> JSONResponse:
+    """Сохранить факт о пользователе (команда /remember)."""
+    from app.chat.user_memory import add_memory  # noqa: PLC0415
+
+    text = str(body.get("text", "")).strip()
+    if not text:
+        return JSONResponse({"ok": False, "error": "пустой факт"}, status_code=400)
+    kind = str(body.get("kind", "fact"))
+    pinned = bool(body.get("pinned", False))
+    sid = body.get("session_id")
+    mem_id = await add_memory(
+        session["user_id"], text, kind=kind,
+        source_session_id=int(sid) if sid else None, pinned=pinned,
+    )
+    return JSONResponse({"ok": True, "id": mem_id})
+
+
+@router.post("/api/chat/forget", response_class=JSONResponse)
+async def api_chat_forget(
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+    body: Annotated[dict[str, Any], Body(default_factory=dict)],
+) -> JSONResponse:
+    """Забыть факт по id или подстроке (команда /forget)."""
+    from app.chat.user_memory import forget  # noqa: PLC0415
+
+    query = str(body.get("query", body.get("text", ""))).strip()
+    if not query:
+        return JSONResponse({"ok": False, "error": "нечего забывать"}, status_code=400)
+    removed = await forget(session["user_id"], query)
+    return JSONResponse({"ok": True, "removed": removed})
+
+
 _BUILD_FILES_SCHEMA: dict[str, object] = {
     "type": "object",
     "properties": {
@@ -852,6 +898,17 @@ async def api_send_stream(
         from app.chat.auto_prompts import detect_overlay  # noqa: PLC0415
 
         base_prompt = base_prompt + detect_overlay(question)
+
+    # ЛИЧНАЯ ПАМЯТЬ (курируемые факты «кто ты»): всегда подмешиваем, чтобы
+    # ассистент помнил пользователя между чатами. /remember пополняет её.
+    try:
+        from app.chat.user_memory import build_memory_block  # noqa: PLC0415
+
+        mem_block = await build_memory_block(session["user_id"])
+        if mem_block:
+            base_prompt = base_prompt + "\n\n" + mem_block
+    except Exception as exc:  # noqa: BLE001
+        log.debug("chat.user_memory_failed", error=str(exc))
 
     # ПАМЯТЬ ПО ВСЕМ ЧАТАМ: перед ответом подтянуть релевантные прошлые
     # сообщения (по именам/ключевым словам), чтобы ИИ помнил, что обсуждали

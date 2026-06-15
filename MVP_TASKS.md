@@ -33,9 +33,12 @@
 ---
 
 ## 1. Ассистент-ядро (пере-приоритизировано на ассистента, не на код)
-- `[TODO]` **Личная память `user_memory`** (миграция 179): факты о пользователе (kind/text/pinned/source),
-  команды `/remember`,`/forget`, инжект pinned+топ в системный промпт рядом с recall; `query_memory` → читает и её.
-  *Ядро личного ассистента: «помнит кто ты». Самое важное после Hermes-ресёрча.*
+- `[WIP]` **Личная память `user_memory`** (миграция 180): backend ГОТОВ — таблица (kind/text/pinned/source),
+  `app/chat/user_memory.py` (add/list/forget/search/build_block, дедуп, casefold-поиск для кириллицы),
+  эндпоинты `POST /api/chat/remember|forget`, `GET /api/chat/memory`, инжект блока «что я помню о тебе» в
+  системный промпт, `query_memory` читает факты+чаты. ОСТАЛОСЬ: слэш-команды /remember,/forget в палитре чата
+  (зависит от системы команд) + авто-извлечение фактов из диалога (по итогам Hermes/mem0-ресёрча).
+  *Готча: SQLite lower()/NOCASE — только ASCII; кириллицу матчим в Python casefold.*
 - `[TODO]` **Слэш-команды (ассистентские)**: реестр client+server, палитра-автокомплит. Набор под ассистента:
   `/remember /forget /memory /persona /model /effort /search /voice /new /clear /title /help /retry /compact /export`.
   (Код-команды /edit /run /git — НЕ сейчас.)
