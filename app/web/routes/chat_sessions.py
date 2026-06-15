@@ -507,6 +507,32 @@ async def api_chat_memory_list(
     return JSONResponse({"items": await list_memory(session["user_id"], limit=200)})
 
 
+@router.get("/api/chat/activity/{session_id}", response_class=JSONResponse)
+async def api_chat_activity(
+    session_id: int,
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+) -> JSONResponse:
+    """Журнал активности ИИ в этой сессии (окно «что делает ИИ», replay)."""
+    from app.activity import list_session_activity  # noqa: PLC0415
+
+    thread = await get_session(session["user_id"], session_id)
+    if thread is None:
+        raise HTTPException(status_code=404)
+    items = await list_session_activity(session["user_id"], session_id, limit=200)
+    return JSONResponse({"items": items})
+
+
+@router.get("/api/activity/recent", response_class=JSONResponse)
+async def api_activity_recent(
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+) -> JSONResponse:
+    """Глобальная лента активности пользователя (страница /activity)."""
+    from app.activity import list_recent_activity  # noqa: PLC0415
+
+    items = await list_recent_activity(session["user_id"], limit=150)
+    return JSONResponse({"items": items})
+
+
 @router.post("/api/chat/remember", response_class=JSONResponse)
 async def api_chat_remember(
     session: Annotated[SessionRecord, Depends(current_user_required)],
@@ -1202,6 +1228,7 @@ async def api_send_stream(
         executed_raws: set[str] = set()
         # T31 E3 — в режимах plan/ask инструменты НЕ выполняются (только план/спрос).
         # Если пользователь нажал Stop — никаких инструментов/догенерации.
+        _act_seq = 0  # порядковый номер вызова инструмента в этом ходе (окно активности)
         for _round in (range(8) if (_tools_on and not stopped) else range(0)):
             tool_calls = [
                 tc for tc in parse_tool_calls(full)
@@ -1217,7 +1244,38 @@ async def api_send_stream(
                 yield (
                     f"data: {json.dumps({'type': 'delta', 'text': chr(10) + chr(10) + '🔧 ' + tc['name'] + '...' + chr(10)})}\n\n"
                 )
-                result = await call_tool(tc["name"], tc["args"], user_id=session["user_id"])
+                # Окно активности: фиксируем вызов инструмента (best-effort —
+                # запись активности НИКОГДА не должна ломать ответ ассистента).
+                _exec_id = None
+                try:
+                    from app.activity import finish_execution, start_execution  # noqa: PLC0415
+                    from app.web.routes.live_sse import publish_activity  # noqa: PLC0415
+                    _act_seq += 1
+                    _exec_id = await start_execution(
+                        session["user_id"], tc["name"], tc.get("args"),
+                        session_id=session_id, message_id=streaming_msg_id, seq=_act_seq,
+                    )
+                    await publish_activity({
+                        "session_id": session_id, "exec_id": _exec_id,
+                        "tool": tc["name"], "status": "running",
+                        "args": tc.get("args"), "seq": _act_seq,
+                    })
+                except Exception:  # noqa: BLE001
+                    pass
+                result = await call_tool(
+                    tc["name"], tc["args"],
+                    user_id=session["user_id"], session_id=session_id,
+                )
+                try:
+                    _st = "error" if str(result).lstrip().startswith("[error]") else "done"
+                    await finish_execution(_exec_id, _st, result_text=str(result))
+                    await publish_activity({
+                        "session_id": session_id, "exec_id": _exec_id,
+                        "tool": tc["name"], "status": _st,
+                        "result": str(result)[:500], "seq": _act_seq,
+                    })
+                except Exception:  # noqa: BLE001
+                    pass
                 tool_results.append(
                     f"<tool_result name=\"{tc['name']}\">\n{result}\n</tool_result>"
                 )

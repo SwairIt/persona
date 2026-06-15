@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto" x-data="activityFeed()" x-init="init()">
+  <div class="mb-6 flex items-end justify-between gap-4">
+    <div>
+      <h1 class="text-2xl font-bold tracking-tight">🔭 Что делает ИИ</h1>
+      <p class="text-zinc-500 text-sm mt-1">
+        Живая лента вызовов инструментов ассистента — какой инструмент, с чем,
+        результат и сколько занял. Обновляется в реальном времени.
+      </p>
+    </div>
+    <div class="flex items-center gap-2 text-xs whitespace-nowrap">
+      <span class="inline-flex items-center gap-1.5">
+        <span class="w-2 h-2 rounded-full"
+              :class="connected ? 'bg-emerald-400' : 'bg-zinc-600'"></span>
+        <span class="text-zinc-400" x-text="connected ? 'в эфире' : 'нет связи'"></span>
+      </span>
+      <button @click="reload()"
+              class="px-2.5 py-1 rounded-md border border-ink-700 text-zinc-300 hover:bg-ink-800 transition">
+        ↻ Обновить
+      </button>
+    </div>
+  </div>
+
+  <template x-if="items.length === 0">
+    <div class="rounded-xl border border-ink-700 bg-ink-800 p-8 text-center text-zinc-500 text-sm">
+      Пока пусто. Когда ассистент использует инструменты (поиск, чтение файлов,
+      веб) — шаги появятся здесь.
+    </div>
+  </template>
+
+  <div class="space-y-2">
+    <template x-for="it in items" :key="it.id">
+      <div class="rounded-xl border bg-ink-800 p-4 transition"
+           :class="it.status === 'error' ? 'border-red-500/40'
+                   : (it.status === 'running' ? 'border-amber-400/40' : 'border-ink-700')">
+        <div class="flex items-center gap-3">
+          <span class="text-lg leading-none" x-text="kindIcon(it.kind)"></span>
+          <span class="font-mono text-sm text-accent-300 font-medium" x-text="it.tool"></span>
+          <span class="text-[11px] px-2 py-0.5 rounded-full font-medium"
+                :class="badgeClass(it.status)"
+                x-text="statusLabel(it.status)"></span>
+          <span class="ml-auto text-[11px] text-zinc-500"
+                x-text="(it.elapsed_ms != null ? it.elapsed_ms + ' мс · ' : '') + fmtTime(it.started_at)"></span>
+        </div>
+
+        <template x-if="it.args">
+          <div class="mt-2">
+            <pre class="text-[11px] text-zinc-400 bg-ink-900 rounded-md px-2.5 py-1.5 overflow-x-auto whitespace-pre-wrap break-all" x-text="prettyArgs(it.args)"></pre>
+          </div>
+        </template>
+
+        <template x-if="it.error">
+          <p class="mt-2 text-xs text-red-300 whitespace-pre-wrap break-words" x-text="truncate(it.error, 600)"></p>
+        </template>
+
+        <template x-if="it.result && it.status !== 'error'">
+          <div class="mt-2" x-data="{ open:false }">
+            <button @click="open=!open" class="text-[11px] text-zinc-500 hover:text-zinc-300">
+              <span x-text="open ? '▾ результат' : '▸ результат'"></span>
+            </button>
+            <pre x-show="open" x-cloak class="mt-1 text-[11px] text-zinc-400 bg-ink-900 rounded-md px-2.5 py-1.5 overflow-x-auto whitespace-pre-wrap break-words" x-text="truncate(it.result, 2000)"></pre>
+          </div>
+        </template>
+
+        <template x-if="it.session_id">
+          <a :href="'/chat?session=' + it.session_id"
+             class="mt-2 inline-block text-[11px] text-zinc-600 hover:text-accent-300">
+            → к чату #<span x-text="it.session_id"></span>
+          </a>
+        </template>
+      </div>
+    </template>
+  </div>
+</div>
+
+<script>
+function activityFeed() {
+  return {
+    items: [],
+    connected: false,
+    _es: null,
+    async init() {
+      await this.reload();
+      this.connect();
+    },
+    async reload() {
+      try {
+        const r = await fetch('/api/activity/recent', { headers: { 'Accept': 'application/json' } });
+        if (!r.ok) return;
+        const data = await r.json();
+        this.items = (data.items || []);
+      } catch (e) { /* best-effort */ }
+    },
+    connect() {
+      try {
+        this._es = new EventSource('/events');
+        this._es.onopen = () => { this.connected = true; };
+        this._es.onerror = () => { this.connected = false; };
+        this._es.onmessage = (ev) => {
+          let frame;
+          try { frame = JSON.parse(ev.data); } catch (e) { return; }
+          if (!frame || frame.type !== 'activity') return;
+          this.upsert(frame.payload || {});
+        };
+      } catch (e) { /* SSE unsupported */ }
+    },
+    upsert(p) {
+      const id = p.exec_id;
+      if (id == null) return;
+      const idx = this.items.findIndex(x => x.id === id);
+      const next = {
+        id: id,
+        session_id: p.session_id ?? null,
+        kind: p.kind || 'builtin',
+        tool: p.tool || '?',
+        args: (typeof p.args === 'string') ? p.args : (p.args != null ? JSON.stringify(p.args) : null),
+        status: p.status || 'running',
+        result: p.result ?? (idx >= 0 ? this.items[idx].result : null),
+        error: p.error ?? (idx >= 0 ? this.items[idx].error : null),
+        elapsed_ms: p.elapsed_ms ?? (idx >= 0 ? this.items[idx].elapsed_ms : null),
+        started_at: (idx >= 0 ? this.items[idx].started_at : null),
+      };
+      if (idx >= 0) {
+        // сохраняем уже известные поля, обновляем статус/результат
+        this.items[idx] = { ...this.items[idx], ...next };
+      } else {
+        this.items.unshift(next);
+        if (this.items.length > 200) this.items.pop();
+      }
+    },
+    kindIcon(k) { return k === 'browser' ? '🌐' : (k === 'mcp' ? '🔌' : '🔧'); },
+    statusLabel(s) { return s === 'error' ? 'ошибка' : (s === 'running' ? 'выполняется…' : 'готово'); },
+    badgeClass(s) {
+      if (s === 'error') return 'bg-red-500/15 text-red-300';
+      if (s === 'running') return 'bg-amber-400/15 text-amber-300 animate-pulse';
+      return 'bg-emerald-500/15 text-emerald-300';
+    },
+    prettyArgs(a) {
+      try { return JSON.stringify(JSON.parse(a), null, 1); } catch (e) { return String(a); }
+    },
+    truncate(s, n) { s = String(s == null ? '' : s); return s.length > n ? s.slice(0, n) + '…' : s; },
+    fmtTime(t) {
+      if (!t) return '';
+      try { return new Date(t.replace(' ', 'T') + 'Z').toLocaleTimeString(); } catch (e) { return t; }
+    },
+  };
+}
+</script>
+{% endblock %}

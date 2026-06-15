@@ -48,8 +48,12 @@
 - `[HOLD]` Код-фишки (edit/diff/scaffold UI, code-planning) — заморожено по решению пользователя.
 
 ## 2. «Видно, что делает ИИ» (полезно ассистенту для веб-задач)
-- `[TODO]` Окно активности: таблицы 182 (tool_execution + tool_artifact), запись из send-stream,
-  SSE `activity`, панель в чате + страница `/activity`.
+- `[DONE]` Окно активности (ядро): миграция 181 (`tool_execution`), `app/activity/{__init__,store}.py`
+  (start/finish_execution, list_session/recent), запись из send-stream вокруг каждого `call_tool`
+  (best-effort, не ломает ответ) + SSE `publish_activity`, эндпоинты `GET /api/activity/recent` и
+  `GET /api/chat/activity/{id}`, живая страница `/activity` (Alpine + EventSource), nav-пункт.
+  `tool_artifact` (скрины браузер-агента) — отдельной миграцией вместе с браузер-агентом. (commit ниже)
+- `[TODO]` Панель «🔭 что делает ИИ» прямо в чате (chat_index.html) — replay из `/api/chat/activity/{id}`.
 - `[TODO]` Встроенный браузер-агент (Playwright подпроцесс на сессию): browser_open/click/type/read/...
   с живыми скриншотами в окне активности. (полезно: ассистент ищет в вебе по задаче пользователя.)
 - `[TODO]` Реальный MCP-рантайм (stdio) + playwright-mcp + переключатель `/settings/automation`
