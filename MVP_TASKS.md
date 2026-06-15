@@ -80,7 +80,9 @@
 - `[TODO]` Hands-free страница `/voice` (орб-микрофон, живой транскрипт, настройки голоса/скорости).
 - `[TODO]` Агентный голос максимум: непрерывное слушание, barge-in, выбор голоса/скорости (`/api/voice/config`,
   `plat.tts_speak(text,voice,rate)`, `tts_stop`). [NEEDS DEVICE CHECK]
-- `[TODO]` Голос по умолчанию: kv `voice_web_enabled/voice_default_on`, кнопка в base.html.
+- `[DONE]` Голос по умолчанию: kv `voice_default_on` (деф. вкл, Jinja-глобал `get_voice_default_on` в
+  templates_engine) + плавающая кнопка-микрофон 🎙 на всех страницах (base.html, слева снизу, ведёт на /voice;
+  скрыта на самой /voice). Отключается kv `voice_default_on=0` (через /settings advanced). Аддитивно.
 - `[TODO]` БД голоса (миграция 183): `voice_tts += device_id/source/rate/error`, `voice_transcription`, `voice_turn`.
 
 ## 4. Root-панель + пользователи/роли + все логи

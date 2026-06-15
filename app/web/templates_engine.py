@@ -560,6 +560,31 @@ def _jinja_translate(key: str) -> str:
     return _translate(key, _get_ui_language())
 
 
+def _read_kv_flag(key: str, default: str = "1") -> str:
+    """Синхронное чтение «1»/«0» kv-флага из ``kv_settings`` (для Jinja-глобалов).
+
+    Тот же безопасный паттерн, что ``_read_compact_from_db`` — короткое stdlib
+    ``sqlite3`` чтение в WAL-режиме, любой сбой → ``default``.
+    """
+    db_path = get_settings().db_path
+    try:
+        with sqlite3.connect(str(db_path)) as conn:
+            cursor = conn.execute("SELECT value FROM kv_settings WHERE key = ?", (key,))
+            row = cursor.fetchone()
+    except sqlite3.Error:
+        return default
+    if row is None:
+        return default
+    value = str(row[0]).strip()
+    return value if value in ("0", "1") else default
+
+
+def get_voice_default_on() -> str:
+    """«1», если плавающая голосовая кнопка включена (деф. вкл). Голос по умолчанию."""
+    return _read_kv_flag("voice_default_on", "1")
+
+
+templates.env.globals["get_voice_default_on"] = get_voice_default_on
 templates.env.globals["get_theme"] = get_theme
 templates.env.globals["get_compact_mode"] = get_compact_mode
 templates.env.globals["get_grayscale_mode"] = get_grayscale_mode
