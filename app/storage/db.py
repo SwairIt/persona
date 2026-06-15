@@ -133,5 +133,15 @@ async def get_connection(
         # reports the site freezes. 5000ms gives writers time to queue
         # politely instead of throwing.
         await conn.execute("PRAGMA busy_timeout = 5000")
+        # Read-speed pragmas (cheap, per-connection) — help FTS5 bm25 sorts,
+        # vector KNN temp sorts, and large scans. mmap 256MB, 64MB page cache,
+        # temp tables/indexes in RAM. Best-effort: a build that rejects a
+        # pragma must never break the connection.
+        try:
+            await conn.execute("PRAGMA mmap_size = 268435456")
+            await conn.execute("PRAGMA cache_size = -65536")
+            await conn.execute("PRAGMA temp_store = MEMORY")
+        except Exception:  # noqa: BLE001, S110
+            pass
         conn.row_factory = aiosqlite.Row
         yield conn
