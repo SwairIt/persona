@@ -152,6 +152,42 @@ async def run_analyze() -> IntegrityResult:
     )
 
 
+async def run_foreign_key_check() -> dict[str, object]:
+    """Run ``PRAGMA foreign_key_check`` and return any relation violations.
+
+    Surfaced in the /root DB tab and the nightly worker. Returns
+    ``{status, violations:[{table, rowid, parent, fkid}], count, duration_ms}``.
+    ``status`` is ``ok`` when there are zero violations, ``warning`` when
+    rows are returned, ``error`` when the PRAGMA itself raises.
+    """
+    started_at = time.monotonic()
+    violations: list[dict[str, object]] = []
+    status = "ok"
+    try:
+        async with get_connection() as conn:
+            cursor = await conn.execute("PRAGMA foreign_key_check")
+            rows = await cursor.fetchall()
+        for r in rows:
+            # PRAGMA returns (table, rowid, parent, fkid)
+            violations.append(
+                {"table": r[0], "rowid": r[1], "parent": r[2], "fkid": r[3]}
+            )
+        if violations:
+            status = "warning"
+    except (aiosqlite.Error, OSError) as exc:
+        status = "error"
+        violations = [{"error": str(exc)}]
+        log.exception("db_integrity.fk_check.failed", error=str(exc))
+    duration_ms = int((time.monotonic() - started_at) * 1000)
+    log.info("db_integrity.fk_check.done", status=status, count=len(violations))
+    return {
+        "status": status,
+        "violations": violations,
+        "count": len(violations),
+        "duration_ms": duration_ms,
+    }
+
+
 async def list_recent_runs(limit: int = _DEFAULT_HISTORY_LIMIT) -> list[dict[str, object]]:
     """Return the N most recent ``db_integrity_run`` rows newest-first.
 

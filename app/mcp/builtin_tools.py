@@ -713,12 +713,19 @@ _MKDIR_NAMES = {
 }
 
 
-async def call_tool(name: str, args: dict[str, Any], user_id: int = 0) -> str:
+async def call_tool(
+    name: str, args: dict[str, Any], user_id: int = 0, session_id: int | None = None
+) -> str:
     """Dispatch a tool by name. Returns stringified result for the LLM.
 
     T27 — accepts user_id so workspace-aware tools resolve into the
     correct per-user directory. Tools that don't care (run_shell,
     git_status) ignore the parameter.
+
+    Phase 2 — accepts session_id so session-scoped tools (the persistent
+    browser agent, MCP routing, activity logging) can bind to the right
+    live session. Tools opt in by declaring a ``session_id`` parameter;
+    the dispatcher only passes kwargs a tool actually accepts.
     """
     name = (name or "").strip()
     # mkdir-style → create a folder by writing a .gitkeep inside it.
@@ -735,12 +742,15 @@ async def call_tool(name: str, args: dict[str, Any], user_id: int = 0) -> str:
         )
     try:
         fn = entry["fn"]
-        # Inspect: workspace-aware tools accept user_id, legacy ones don't.
+        # Inspect: pass only the kwargs each tool declares (user_id / session_id).
         import inspect  # noqa: PLC0415
-        sig = inspect.signature(fn)
-        if "user_id" in sig.parameters:
-            return await fn(args, user_id=user_id)
-        return await fn(args)
+        params = inspect.signature(fn).parameters
+        kwargs: dict[str, Any] = {}
+        if "user_id" in params:
+            kwargs["user_id"] = user_id
+        if "session_id" in params:
+            kwargs["session_id"] = session_id
+        return await fn(args, **kwargs)
     except Exception as exc:
         log.exception("builtin_tool.failed", tool=name, args=args)
         return f"[error] tool crashed: {type(exc).__name__}: {exc}"

@@ -96,28 +96,51 @@ async def _subscribe() -> AsyncIterator[MemoryObjectReceiveStream[dict[str, Any]
         await receive.aclose()
 
 
-async def publish_heartbeat(worker_name: str, last_run_at: datetime) -> None:
-    """Broadcast a worker heartbeat to every active SSE connection.
+async def publish_event(event_type: str, payload: dict[str, Any]) -> None:
+    """Broadcast an arbitrary typed event to every active SSE connection.
 
-    Safe to call from any task. Subscribers whose queue is full are
-    silently skipped — we never block a worker on a slow client.
+    The shared fan-out used by all publishers (heartbeats, tool/browser
+    activity, live system logs). Safe to call from any task; subscribers
+    whose queue is full are silently dropped so a publisher never blocks
+    on a slow client. New ``type`` values are ignored by old consumers
+    (the status pill only reads ``status``/``heartbeat``).
     """
-    payload = {
-        "type": "heartbeat",
-        "payload": {
-            "worker_name": worker_name,
-            "last_run_at": iso(last_run_at),
-        },
-    }
+    frame = {"type": event_type, "payload": payload}
     async with _subscribers_lock:
         targets = list(_subscribers)
     for stream in targets:
         try:
-            stream.send_nowait(payload)
+            stream.send_nowait(frame)
         except anyio.WouldBlock:
-            log.debug("sse.drop_slow_subscriber", worker=worker_name)
+            log.debug("sse.drop_slow_subscriber", event=event_type)
         except anyio.BrokenResourceError:
-            log.debug("sse.broken_subscriber", worker=worker_name)
+            log.debug("sse.broken_subscriber", event=event_type)
+
+
+async def publish_heartbeat(worker_name: str, last_run_at: datetime) -> None:
+    """Broadcast a worker heartbeat to every active SSE connection."""
+    await publish_event(
+        "heartbeat", {"worker_name": worker_name, "last_run_at": iso(last_run_at)}
+    )
+
+
+async def publish_activity(payload: dict[str, Any]) -> None:
+    """Broadcast a tool/browser/MCP activity event (Phase 2 activity window).
+
+    Consumers filter by ``payload['session_id']``. Best-effort, never raises.
+    """
+    try:
+        await publish_event("activity", payload)
+    except Exception as exc:  # pragma: no cover — fire-and-forget
+        log.debug("sse.activity_publish_failed", error=str(exc))
+
+
+async def publish_log(payload: dict[str, Any]) -> None:
+    """Broadcast a live system-log line (Phase 4 root logs). Best-effort."""
+    try:
+        await publish_event("log", payload)
+    except Exception as exc:  # pragma: no cover — fire-and-forget
+        log.debug("sse.log_publish_failed", error=str(exc))
 
 
 # --- status snapshot ---------------------------------------------------------
@@ -351,7 +374,10 @@ async def stream_events(request: Request, max_events: int | None = None) -> Stre
 
 __all__ = [
     "STATUS_TICK_SECONDS",
+    "publish_activity",
+    "publish_event",
     "publish_heartbeat",
+    "publish_log",
     "router",
     "stream_events",
 ]
