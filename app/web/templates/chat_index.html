@@ -360,13 +360,37 @@
         {# T22.1: composer in Claude-like layout — textarea has model picker
            and attach button INSIDE it as floating controls. #}
         <form @submit.prevent="send()"
-              class="rounded-2xl bg-ink-800/60 border border-ink-700 focus-within:border-ink-600 transition">
+              class="relative rounded-2xl bg-ink-800/60 border border-ink-700 focus-within:border-ink-600 transition">
+          {# Палитра слэш-команд — всплывает над композером при вводе «/». #}
+          <div x-show="cmdOpen && cmdMatches.length" x-cloak
+               class="absolute bottom-full left-0 right-0 mb-2 max-h-72 overflow-y-auto rounded-xl border border-ink-600 bg-ink-900 shadow-2xl py-1 z-30">
+            <template x-for="(c, i) in cmdMatches" :key="c.name">
+              <button type="button"
+                      @click="pickCommand(i)"
+                      @mouseenter="cmdIndex = i"
+                      class="w-full text-left px-3 py-1.5 flex items-center gap-2"
+                      :class="i === cmdIndex ? 'bg-accent-600/20' : 'hover:bg-ink-800'">
+                <span class="font-mono text-sm" :class="i === cmdIndex ? 'text-accent-300' : 'text-zinc-300'"
+                      x-text="'/' + c.name"></span>
+                <span class="text-[11px] text-zinc-500 font-mono" x-text="c.args"></span>
+                <span class="ml-auto text-[11px] text-zinc-500 truncate" x-text="c.desc"></span>
+              </button>
+            </template>
+            <div class="px-3 pt-1 pb-0.5 text-[10px] text-zinc-600 border-t border-ink-800 mt-1">
+              ↑↓ выбрать · Tab/Enter подставить · Esc закрыть
+            </div>
+          </div>
           {# T26 — type while AI is thinking. Enter — send. Shift+Enter —
              new line. Ctrl/Cmd+Enter — queue. #}
           <textarea x-model="question" x-ref="composer"
-                 :placeholder="thinking ? 'Напиши и Ctrl+Enter — в очередь…' : 'Напиши сообщение…'"
+                 :placeholder="thinking ? 'Напиши и Ctrl+Enter — в очередь…' : 'Напиши сообщение… (/ — команды)'"
+                 @keydown.arrow-down="cmdOpen && cmdMatches.length ? ($event.preventDefault(), cmdIndex = (cmdIndex + 1) % cmdMatches.length) : null"
+                 @keydown.arrow-up="cmdOpen && cmdMatches.length ? ($event.preventDefault(), cmdIndex = (cmdIndex - 1 + cmdMatches.length) % cmdMatches.length) : null"
+                 @keydown.tab="cmdOpen && cmdMatches.length ? ($event.preventDefault(), pickCommand(cmdIndex)) : null"
+                 @keydown.escape="cmdOpen ? ($event.stopPropagation(), cmdOpen = false) : null"
                  @keydown.enter="(() => {
                    if ($event.shiftKey) return;  // newline
+                   if (cmdOpen && cmdMatches.length) { $event.preventDefault(); pickCommand(cmdIndex); return; }
                    $event.preventDefault();
                    if ($event.ctrlKey || $event.metaKey) {
                      enqueue();
@@ -374,7 +398,7 @@
                      send();
                    }
                  })()"
-                 @input="autosize(); saveDraft()"
+                 @input="autosize(); saveDraft(); onComposerInput()"
                  rows="1"
                  class="w-full px-4 pt-3 pb-1 bg-transparent focus:outline-none text-[15px] resize-none max-h-40 placeholder-zinc-500"></textarea>
 
@@ -644,6 +668,11 @@
       activityConnected: false,
       activity: [],
       _activityEs: null,
+      // ⌘ Палитра слэш-команд
+      commands: [],
+      cmdOpen: false,
+      cmdMatches: [],
+      cmdIndex: 0,
       messages: (initialMessages || []).map(m => ({ ...m, image_data_url: m.image_data_url || null })),
       // T30 — реакции: ключ (ASCII, для сервера/БД) + эмодзи + подсказка
       reactions: [
@@ -764,6 +793,8 @@
         // T29 — if the answer is still being generated (tab reopened
         // mid-stream), attach and show it growing in real time.
         this.resumeLive();
+        // ⌘ слэш-команды: загрузить реестр для палитры
+        this.loadCommands();
       },
 
       // Переход к конкретному сообщению (из графа памяти ?msg=ID)
@@ -852,6 +883,134 @@
       },
       activityArgs(a) { try { return JSON.stringify(JSON.parse(a), null, 1); } catch (e) { return String(a); } },
       activityTrunc(s, n) { s = String(s == null ? '' : s); return s.length > n ? s.slice(0, n) + '…' : s; },
+
+      // ── ⌘ Палитра слэш-команд ────────────────────────────────────────────
+      async loadCommands() {
+        try {
+          const r = await fetch('/api/chat/commands', { headers: { 'Accept': 'application/json' } });
+          if (r.ok) { const d = await r.json(); this.commands = d.commands || []; }
+        } catch (e) { /* best-effort */ }
+      },
+      onComposerInput() {
+        const q = this.question || '';
+        // Палитра активна, только пока печатается первый токен «/имя» (без пробела).
+        const m = q.match(/^\/([a-zA-Z?\-]*)$/);
+        if (!m) { this.cmdOpen = false; return; }
+        const frag = m[1].toLowerCase();
+        this.cmdMatches = this.commands.filter(c =>
+          c.name.startsWith(frag) || (c.aliases || []).some(a => a.startsWith(frag))
+        ).slice(0, 12);
+        this.cmdIndex = 0;
+        this.cmdOpen = this.cmdMatches.length > 0;
+      },
+      pickCommand(i) {
+        const c = this.cmdMatches[i];
+        if (!c) return;
+        this.cmdOpen = false;
+        // Команды без аргумента — выполняем сразу; с аргументом — подставляем «/имя ».
+        if (c.args && c.args.length) {
+          this.question = '/' + c.name + ' ';
+          this.$nextTick(() => { try { this.$refs.composer.focus(); this.autosize(); } catch (e) {} });
+        } else {
+          this.runSlashCommand('/' + c.name);
+          this.question = '';
+          this.$nextTick(() => { try { this.autosize(); } catch (e) {} });
+        }
+      },
+      // Выполнить команду. → true если обработана (не слать модели), иначе false.
+      async runSlashCommand(text) {
+        const t = (text || '').trim();
+        const sp = t.indexOf(' ');
+        const name = (sp === -1 ? t.slice(1) : t.slice(1, sp)).toLowerCase();
+        const arg = sp === -1 ? '' : t.slice(sp + 1).trim();
+        const spec = this.commands.find(c => c.name === name || (c.aliases || []).includes(name));
+        if (!spec) return false;  // неизвестная — не съедаем, уйдёт как обычный текст
+        const real = spec.name;
+        // turn-команды: меняем режим/эффорт и шлём оставшийся текст
+        if (spec.type === 'turn') {
+          if (['plan', 'ask', 'auto', 'bypass'].includes(real)) {
+            this.mode = real; try { await this.setMode(real); } catch (e) {}
+            this.question = arg; await this._sendIfText(); return true;
+          }
+          if (['fast', 'normal', 'deep'].includes(real)) {
+            this.effort = real; try { await this.setEffort(real); } catch (e) {}
+            this.question = arg; await this._sendIfText(); return true;
+          }
+          if (real === 'web') {
+            this.question = arg ? ('Найди в интернете актуальную информацию и ответь: ' + arg) : '';
+            await this._sendIfText(); return true;
+          }
+        }
+        // client-команды
+        switch (real) {
+          case 'new': this.question = ''; await this.newChat(); return true;
+          case 'title': this.question = ''; await this.renameSession(arg || null); return true;
+          case 'clear': this.question = ''; this.clearDraft(); this.$nextTick(() => this.autosize()); return true;
+          case 'search': this.searchQuery = arg; this.question = ''; if (arg) { try { await this.doSearch(); } catch (e) {} } return true;
+          case 'stop': this.question = ''; try { await this.stop(); } catch (e) {} return true;
+          case 'retry': this.question = ''; await this._retryLast(); return true;
+          case 'remember':
+            if (!arg) { this.question = '/remember '; return true; }
+            await this._postRemember(arg); this.question = ''; return true;
+          case 'forget':
+            if (!arg) { this.question = '/forget '; return true; }
+            await this._postForget(arg); this.question = ''; return true;
+          case 'memory': window.location.href = '/settings/memory'; return true;
+          case 'persona': this.question = ''; try { this.setSystemPrompt(); } catch (e) {} return true;
+          case 'activity': this.question = ''; this.toggleActivity(); return true;
+          case 'voice': window.location.href = '/settings/voice'; return true;
+          case 'theme': window.location.href = '/settings/theme'; return true;
+          case 'help': case 'commands': this.question = ''; this._showHelp(); return true;
+          default: return false;
+        }
+      },
+      async _sendIfText() {
+        if ((this.question || '').trim()) { await this.send(); }
+        else { this.$nextTick(() => { try { this.$refs.composer.focus(); } catch (e) {} }); }
+      },
+      async _retryLast() {
+        for (let i = this.messages.length - 1; i >= 0; i--) {
+          if (this.messages[i].role === 'user' && (this.messages[i].content || '').trim()) {
+            this.question = this.messages[i].content; await this.send(); return;
+          }
+        }
+      },
+      async _postRemember(fact) {
+        try {
+          await fetch('/api/chat/remember', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: fact, session_id: this.sessionId }),
+          });
+          this._sysNote('🧠 Запомнил: ' + fact);
+        } catch (e) { /* best-effort */ }
+      },
+      async _postForget(q) {
+        try {
+          const r = await fetch('/api/chat/forget', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query: q }),
+          });
+          const d = await r.json().catch(() => ({}));
+          this._sysNote('🗑 Забыл записей: ' + (d.removed != null ? d.removed : '?'));
+        } catch (e) { /* best-effort */ }
+      },
+      _showHelp() {
+        const groups = {};
+        for (const c of this.commands) { (groups[c.group] = groups[c.group] || []).push(c); }
+        let lines = ['Доступные команды:'];
+        for (const g of Object.keys(groups)) {
+          lines.push(g + ': ' + groups[g].map(c => '/' + c.name).join(', '));
+        }
+        this._sysNote(lines.join('\n'));
+      },
+      _sysNote(text) {
+        this.messages.push({
+          id: Date.now() + Math.floor(Math.random() * 1000),
+          session_id: this.sessionId, role: 'system', content: text,
+          model_used: null, created_at: new Date().toISOString(),
+        });
+        this.$nextTick(() => this.scrollToBottom());
+      },
 
       // T31 E9 — внизу ли пользователь (с допуском 80px)
       onScroll() {
@@ -1512,9 +1671,17 @@
       },
 
       async send() {
-        const text = this.question.trim();
+        let text = this.question.trim();
         const image = this.attachedImage;
         if (!text && !image) return;
+        // Слэш-команды: если это команда — выполнить её, а не слать модели.
+        if (text && text[0] === '/' && text[1] !== '/' && !text.slice(1, 2).match(/\s/)) {
+          this.cmdOpen = false;
+          const handled = await this.runSlashCommand(text);
+          if (handled) return;
+        }
+        // «//текст» — литерал: убираем escape-слэш и шлём как обычное сообщение.
+        if (text.startsWith('//')) { text = text.slice(1); this.question = text; }
         // T26 — if already thinking and user submits → queue it instead
         if (this.thinking) {
           this.enqueue();
@@ -1656,8 +1823,8 @@
         }
       },
 
-      async renameSession() {
-        const next = prompt('Новое название:', '');
+      async renameSession(preset) {
+        const next = (preset && preset.trim()) ? preset : prompt('Новое название:', '');
         if (!next || !next.trim()) return;
         try {
           const r = await fetch(`/api/chat/sessions/${this.sessionId}/rename`, {

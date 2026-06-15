@@ -39,9 +39,12 @@
   системный промпт, `query_memory` читает факты+чаты. ОСТАЛОСЬ: слэш-команды /remember,/forget в палитре чата
   (зависит от системы команд) + авто-извлечение фактов из диалога (по итогам Hermes/mem0-ресёрча).
   *Готча: SQLite lower()/NOCASE — только ASCII; кириллицу матчим в Python casefold.*
-- `[TODO]` **Слэш-команды (ассистентские)**: реестр client+server, палитра-автокомплит. Набор под ассистента:
-  `/remember /forget /memory /persona /model /effort /search /voice /new /clear /title /help /retry /compact /export`.
-  (Код-команды /edit /run /git — НЕ сейчас.)
+- `[DONE]` **Слэш-команды (ассистентские)**: реестр-источник правды `app/chat/commands.py` (COMMAND_SPECS,
+  commands_json, split_command, expand_command) + `GET /api/chat/commands`. Палитра-автокомплит в композере
+  (chat_index.html): фильтр по имени/алиасу при вводе «/», навигация ↑↓ Tab/Enter Esc, подстановка/исполнение.
+  Типы client (UI: /new /title /clear /search /stop /retry /memory /persona /activity /voice /theme /help) и
+  turn (директива на ход: /plan /ask /auto /bypass /fast /normal /deep /web). `//текст` — литерал. Перехват в
+  send(): неизвестная команда не съедается. (Код-команды /edit /run /git — `[HOLD]`.)
 - `[TODO]` **Агентный цикл — мягкий upgrade**: структурные SSE-фреймы (tool_call/tool_result) для окна активности,
   но без тяжёлого код-планировщика. Лимит раундов, дедуп, stop. (план-фаза — опционально/позже.)
 - `[TODO]` **Скиллы**: /skill list/run/enable/disable, страница /settings/skills. (ассистент-навыки, не код.)

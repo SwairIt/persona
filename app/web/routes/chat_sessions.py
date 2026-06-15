@@ -507,6 +507,16 @@ async def api_chat_memory_list(
     return JSONResponse({"items": await list_memory(session["user_id"], limit=200)})
 
 
+@router.get("/api/chat/commands", response_class=JSONResponse)
+async def api_chat_commands(
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+) -> JSONResponse:
+    """Реестр слэш-команд (для палитры-автокомплита и /help)."""
+    from app.chat.commands import commands_json  # noqa: PLC0415
+
+    return JSONResponse({"commands": commands_json()})
+
+
 @router.get("/api/chat/activity/{session_id}", response_class=JSONResponse)
 async def api_chat_activity(
     session_id: int,
