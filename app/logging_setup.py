@@ -21,6 +21,11 @@ def configure_logging() -> None:
         level=level,
     )
 
+    # Кольцевой буфер логов для live-вьювера в /root. Стоит ПЕРЕД
+    # ConsoleRenderer (которому нужен dict, а не строка) и возвращает
+    # event_dict без изменений — stdout-вывод не меняется. Fail-safe.
+    from app.log_buffer import ring_processor  # noqa: PLC0415
+
     structlog.configure(
         processors=[
             structlog.contextvars.merge_contextvars,
@@ -28,6 +33,7 @@ def configure_logging() -> None:
             structlog.processors.TimeStamper(fmt="iso"),
             structlog.processors.StackInfoRenderer(),
             structlog.dev.set_exc_info,
+            ring_processor,
             structlog.dev.ConsoleRenderer(colors=True),
         ],
         wrapper_class=structlog.make_filtering_bound_logger(level),

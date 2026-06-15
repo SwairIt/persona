@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto" x-data="rootPanel()" x-init="init()">
+  <div class="mb-5 flex items-end justify-between gap-3">
+    <div>
+      <h1 class="text-2xl font-bold tracking-tight">🛡️ Root — пульт владельца</h1>
+      <p class="text-zinc-500 text-sm mt-1">Живые логи, здоровье системы и быстрые ссылки. Только для владельца.</p>
+    </div>
+  </div>
+
+  {# Сводка здоровья #}
+  {% if health %}
+  <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+    <div class="rounded-xl border border-ink-700 bg-ink-800 p-4">
+      <div class="text-xs text-zinc-500">Воркеры</div>
+      <div class="mt-1 flex items-center gap-2 text-sm">
+        <span class="text-emerald-400">●{{ health.workers_summary.green if health.workers_summary else 0 }}</span>
+        <span class="text-amber-400">●{{ health.workers_summary.yellow if health.workers_summary else 0 }}</span>
+        <span class="text-rose-400">●{{ health.workers_summary.red if health.workers_summary else 0 }}</span>
+      </div>
+    </div>
+    <div class="rounded-xl border border-ink-700 bg-ink-800 p-4">
+      <div class="text-xs text-zinc-500">Размер БД</div>
+      <div class="mt-1 text-sm text-zinc-200">
+        {{ '%.1f'|format((health.db_stats.db_size_bytes or 0) / 1048576) if health.db_stats else '—' }} МБ
+      </div>
+    </div>
+    <div class="rounded-xl border border-ink-700 bg-ink-800 p-4">
+      <div class="text-xs text-zinc-500">Скриншоты</div>
+      <div class="mt-1 text-sm text-zinc-200">{{ health.db_stats.total_screenshots if health.db_stats else '—' }}</div>
+    </div>
+    <div class="rounded-xl border border-ink-700 bg-ink-800 p-4">
+      <div class="text-xs text-zinc-500">Заметки</div>
+      <div class="mt-1 text-sm text-zinc-200">{{ health.db_stats.total_notes if health.db_stats else '—' }}</div>
+    </div>
+  </div>
+  {% endif %}
+
+  {# Быстрые ссылки на существующие админ-страницы #}
+  <div class="mb-6">
+    <h2 class="text-sm font-semibold text-zinc-300 mb-2">Панели и диагностика</h2>
+    <div class="flex flex-wrap gap-2 text-sm">
+      {% for href, label in [
+        ('/health', '❤️ Health'),
+        ('/audit', '📋 Аудит'),
+        ('/doctor', '🩺 Доктор'),
+        ('/stats', '📊 Статистика'),
+        ('/devices', '📱 Устройства'),
+        ('/admin/agents', '🔑 Агенты'),
+        ('/admin/mcp', '🔌 MCP'),
+        ('/storage', '💾 Хранилище'),
+        ('/settings/hub', '⚙️ Настройки'),
+        ('/ai-activity', '🔭 Активность ИИ'),
+      ] %}
+        <a href="{{ href }}" class="px-3 py-1.5 rounded-lg border border-ink-700 bg-ink-800 text-zinc-300 hover:bg-ink-900 hover:text-accent-300 transition">{{ label }}</a>
+      {% endfor %}
+    </div>
+  </div>
+
+  {# Live-логи #}
+  <div class="rounded-xl border border-ink-700 bg-ink-900 overflow-hidden">
+    <div class="px-4 py-2.5 border-b border-ink-700 flex items-center gap-3 flex-wrap">
+      <span class="text-sm font-semibold text-zinc-200">📜 Live-логи</span>
+      <span class="inline-flex items-center gap-1.5 text-xs">
+        <span class="w-2 h-2 rounded-full" :class="connected ? 'bg-emerald-400' : 'bg-zinc-600'"></span>
+        <span class="text-zinc-400" x-text="connected ? 'в эфире' : 'нет связи'"></span>
+      </span>
+      <select x-model="level" @change="reload()"
+              class="ml-auto px-2 py-1 rounded-md bg-ink-800 border border-ink-700 text-xs text-zinc-300 focus:outline-none">
+        <option value="">все уровни</option>
+        <option value="info">info+</option>
+        <option value="warning">warning+</option>
+        <option value="error">error+</option>
+      </select>
+      <input type="text" x-model="filter" placeholder="фильтр…"
+             class="px-2 py-1 rounded-md bg-ink-800 border border-ink-700 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none w-32">
+      <label class="flex items-center gap-1 text-xs text-zinc-400 cursor-pointer">
+        <input type="checkbox" x-model="autoscroll" class="accent-accent-500"> auto
+      </label>
+      <button @click="paused=!paused" class="px-2 py-1 rounded-md border border-ink-700 text-xs text-zinc-300 hover:bg-ink-800"
+              x-text="paused ? '▶ продолжить' : '⏸ пауза'"></button>
+      <button @click="rows=[]" class="px-2 py-1 rounded-md border border-ink-700 text-xs text-zinc-500 hover:text-zinc-300">очистить</button>
+    </div>
+    <div x-ref="logbox" class="h-[28rem] overflow-y-auto font-mono text-[11px] leading-relaxed p-3 space-y-0.5">
+      <template x-for="(r, i) in visibleRows()" :key="i">
+        <div class="flex gap-2 whitespace-pre-wrap break-all">
+          <span class="text-zinc-600 shrink-0" x-text="(r.ts || '').slice(11,19)"></span>
+          <span class="shrink-0 w-12" :class="levelClass(r.level)" x-text="r.level"></span>
+          <span class="text-zinc-500 shrink-0" x-text="r.logger"></span>
+          <span class="text-zinc-200" x-text="r.event + extraStr(r.extra)"></span>
+        </div>
+      </template>
+      <p x-show="!rows.length" class="text-zinc-600 text-center py-8">Логи появятся здесь по мере работы системы…</p>
+    </div>
+  </div>
+  <p class="text-zinc-600 text-xs mt-3">
+    При нескольких воркерах (--workers) показываются логи обслужившего запрос воркера. Durable system_log — позже.
+  </p>
+</div>
+
+<script>
+function rootPanel() {
+  return {
+    rows: [],
+    connected: false,
+    level: '',
+    filter: '',
+    autoscroll: true,
+    paused: false,
+    _es: null,
+    _levels: { debug:10, info:20, warning:30, warn:30, error:40, critical:50 },
+    async init() { await this.reload(); this.connect(); },
+    async reload() {
+      try {
+        const r = await fetch('/root/logs/recent.json?limit=400' + (this.level ? '&level='+this.level : ''));
+        if (r.ok) { const d = await r.json(); this.rows = d.logs || []; this.scrollDown(); }
+      } catch (e) {}
+    },
+    connect() {
+      try {
+        this._es = new EventSource('/events');
+        this._es.onopen = () => { this.connected = true; };
+        this._es.onerror = () => { this.connected = false; };
+        this._es.onmessage = (ev) => {
+          if (this.paused) return;
+          let f; try { f = JSON.parse(ev.data); } catch (e) { return; }
+          if (!f || f.type !== 'log' || !f.payload) return;
+          this.rows.push(f.payload);
+          if (this.rows.length > 2000) this.rows.splice(0, this.rows.length - 2000);
+          this.scrollDown();
+        };
+      } catch (e) {}
+    },
+    visibleRows() {
+      const floor = this._levels[this.level] || 0;
+      const q = (this.filter || '').toLowerCase();
+      return this.rows.filter(r => {
+        if (floor && (this._levels[r.level]||20) < floor) return false;
+        if (q) {
+          const hay = ((r.event||'') + ' ' + (r.logger||'') + ' ' + JSON.stringify(r.extra||{})).toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+        return true;
+      });
+    },
+    levelClass(l) {
+      return l==='error'||l==='critical' ? 'text-rose-400' : l==='warning'||l==='warn' ? 'text-amber-400'
+           : l==='debug' ? 'text-zinc-600' : 'text-emerald-400';
+    },
+    extraStr(extra) {
+      if (!extra) return '';
+      const parts = Object.entries(extra).map(([k,v]) => ' ' + k + '=' + v);
+      return parts.length ? '  ' + parts.join('') : '';
+    },
+    scrollDown() {
+      if (!this.autoscroll) return;
+      this.$nextTick(() => { try { const el = this.$refs.logbox; el.scrollTop = el.scrollHeight; } catch (e) {} });
+    },
+  };
+}
+</script>
+{% endblock %}

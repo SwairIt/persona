@@ -84,9 +84,15 @@
 - `[TODO]` БД голоса (миграция 183): `voice_tts += device_id/source/rate/error`, `voice_transcription`, `voice_turn`.
 
 ## 4. Root-панель + пользователи/роли + все логи
-- `[TODO]` Live системные логи: `app/log_buffer.py` (ring buffer + structlog-процессор) → SSE `log` → `/root/logs`.
-- `[TODO]` `/root` (owner-only): логи, аудит, воркеры, БД (таблицы+integrity+FK-check+backup+SELECT-only query),
-  агенты/токены/MCP, все настройки, danger zone, фич-флаги.
+- `[DONE]` Live системные логи: `app/log_buffer.py` (кольцевой буфер 2000 + structlog-процессор перед
+  ConsoleRenderer, возвращает event_dict без изменений, фильтрует секреты, best-effort SSE publish_log) →
+  SSE `log` → live-вьювер в /root. (ограничение: per-worker буфер; durable system_log — позже.)
+- `[DONE]` `/root` (owner-only, app/web/routes/root_control.py, каждый хендлер re-assert is_owner): read-only
+  пульт — live-логи (фильтр уровня/текста, пауза, autoscroll, /root/logs/recent.json), сводка здоровья
+  (воркеры/БД/счётчики из build_health_state), быстрые ссылки на health/audit/doctor/stats/devices/mcp/storage.
+  Nav-пункт 🛡️ Root (owner-gate уже песочит не-владельцев на /pending). DB-query/backup/danger-zone — позже.
+- `[TODO]` Пользователи и роли (миграция 184): `users.role(owner/admin/member/viewer)`+`status(pending/active/suspended)`,
+  `app/auth/roles.py`, `/root/users` (create/approve/suspend/role/delete), переписать `auth_gate.py` под роли.
 - `[TODO]` Пользователи и роли (миграция 184): `users.role(owner/admin/member/viewer)`+`status(pending/active/suspended)`,
   `app/auth/roles.py`, `/root/users` (create/approve/suspend/role/delete), переписать `auth_gate.py` под роли.
 
