@@ -17,7 +17,7 @@
   --ash:#a8a6b7;           /* body-текст */
   --mercury:#cdccd0;       /* вторичные подписи, чипы */
   --steel:#54525f;
-  --g1:#e59cff; --g2:#ba9cff; --g3:#9cb2ff;   /* cosmic gradient */
+  --g1:#f6c9ff; --g2:#cdbcff; --g3:#b6d0ff;   /* cosmic gradient (светлее, люминесцентнее) */
   --grad:linear-gradient(100deg,var(--g1),var(--g2),var(--g3));
   --rim:inset 0 1px 0 rgba(244,240,255,.06), inset 0 0 0 1px rgba(147,130,255,.12);
   --rim-hi:inset 0 1px 0 rgba(244,240,255,.10), inset 0 0 0 1px rgba(147,130,255,.30);
@@ -52,6 +52,8 @@ h1,h2,h3{font-family:var(--font-display); font-weight:500; color:var(--ink); let
 .grad{
   background:var(--grad); -webkit-background-clip:text; background-clip:text;
   -webkit-text-fill-color:transparent; color:transparent;
+  /* люминесцентное свечение вместо мрачной тёмной тени — слова-акценты сияют */
+  text-shadow:0 0 28px rgba(206,184,255,.5), 0 0 64px rgba(154,90,208,.28), 0 2px 8px rgba(3,0,20,.4);
 }
 
 /* ---- утилиты ---- */
