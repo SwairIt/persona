@@ -569,6 +569,329 @@ async def run_mac(args: dict[str, Any], user_id: int = 0) -> str:
     return await run_remote(user_id, "exec", shell, command)
 
 
+# ============================================================================
+# Phase 1.2 — расширенный каталог инструментов (точечная правка, поиск, сеть).
+# Переиспользуют resolve_user_path / _remote_fs / write_file / _pick.
+# ============================================================================
+
+import re as _re  # noqa: E402
+
+
+async def _read_raw(path: str, user_id: int) -> tuple[str | None, str | None]:
+    """Прочитать СЫРОЙ текст файла (workspace или Mac). → (content, error)."""
+    from app.devices.fs_rpc import is_enabled, run_remote  # noqa: PLC0415
+
+    if await is_enabled():
+        res = await run_remote(user_id, "read", path)
+        if res.startswith("[error]"):
+            return None, res
+        m = _re.search(r"```\n(.*)\n```\s*$", res, _re.DOTALL)
+        return (m.group(1) if m else res), None
+    from app.workspace import WorkspaceEscape, resolve_user_path  # noqa: PLC0415
+
+    try:
+        p = resolve_user_path(user_id, path)
+    except WorkspaceEscape as exc:
+        return None, f"[error] {exc}"
+    if not p.exists():
+        return None, f"[error] не существует: {path}"
+    if p.is_dir():
+        return None, f"[error] это директория: {path}"
+    try:
+        return p.read_text(encoding="utf-8", errors="replace"), None
+    except Exception as exc:  # noqa: BLE001
+        return None, f"[error] {type(exc).__name__}: {exc}"
+
+
+async def edit_file(args: dict[str, Any], user_id: int = 0) -> str:
+    """Точечная замена old→new в существующем файле (не перезаписывает целиком)."""
+    path = _pick(args, ("path", "file", "filepath", "filename", "name")).strip()
+    old = _pick(args, ("old", "old_string", "old_str", "find", "search", "from"))
+    new = _pick(args, ("new", "new_string", "new_str", "replace", "to", "with"))
+    if not path:
+        return "[error] нужен path"
+    if not old:
+        return "[error] нужен old (точный фрагмент, который заменить)"
+    content, err = await _read_raw(path, user_id)
+    if err:
+        return err
+    n = content.count(old)
+    if n == 0:
+        return (
+            f"[error] фрагмент не найден в {path}. Сначала прочитай файл (read_file) "
+            "и скопируй точный текст с отступами."
+        )
+    count_raw = args.get("count")
+    if n > 1 and not count_raw:
+        return (
+            f"[error] фрагмент встречается {n} раз — неоднозначно. Добавь контекст "
+            "в old или передай count=N."
+        )
+    count = int(count_raw) if count_raw else 1
+    updated = content.replace(old, new, count)
+    res = await write_file({"path": path, "content": updated}, user_id=user_id)
+    if str(res).startswith("[error]"):
+        return res
+    return f"[ok] изменён {path}: заменено {min(n, count)} вхожд. (было {len(content)}→{len(updated)} симв.)"
+
+
+async def multi_edit(args: dict[str, Any], user_id: int = 0) -> str:
+    """Несколько точечных замен в одном файле за один проход/запись.
+
+    edits: [{"old": "...", "new": "..."}] — применяются по порядку.
+    """
+    path = _pick(args, ("path", "file", "filepath", "filename", "name")).strip()
+    edits = args.get("edits") or args.get("changes") or []
+    if not path:
+        return "[error] нужен path"
+    if not isinstance(edits, list) or not edits:
+        return '[error] нужен edits: [{"old":..., "new":...}]'
+    content, err = await _read_raw(path, user_id)
+    if err:
+        return err
+    applied = 0
+    for i, e in enumerate(edits):
+        old = str(e.get("old", e.get("old_string", "")))
+        new = str(e.get("new", e.get("new_string", "")))
+        if not old:
+            return f"[error] правка #{i + 1}: пустой old"
+        if old not in content:
+            return f"[error] правка #{i + 1}: фрагмент не найден — прочитай файл и уточни"
+        content = content.replace(old, new, 1)
+        applied += 1
+    res = await write_file({"path": path, "content": content}, user_id=user_id)
+    if str(res).startswith("[error]"):
+        return res
+    return f"[ok] {path}: применено {applied} правок"
+
+
+async def read_many(args: dict[str, Any], user_id: int = 0) -> str:
+    """Прочитать несколько файлов за один вызов (paths: [...]). Экономит раунды."""
+    paths = args.get("paths") or args.get("files") or []
+    if isinstance(paths, str):
+        paths = [p.strip() for p in paths.replace(",", "\n").splitlines() if p.strip()]
+    if not paths:
+        return '[error] нужен paths: ["a.py","b.py"]'
+    out: list[str] = []
+    total = 0
+    for path in paths[:20]:
+        content, err = await _read_raw(str(path), user_id)
+        if err:
+            out.append(f"### {path}\n{err}")
+            continue
+        if total + len(content) > 120_000:
+            out.append(f"### {path}\n[обрезано: достигнут лимит суммарного объёма]")
+            break
+        total += len(content)
+        out.append(f"### {path}\n```\n{content}\n```")
+    return "\n\n".join(out)
+
+
+async def find_files(args: dict[str, Any], user_id: int = 0) -> str:
+    """Найти файлы по glob-маске в workspace (например '**/*.py')."""
+    import fnmatch  # noqa: PLC2701, PLC0415
+
+    from app.workspace import (  # noqa: PLC0415
+        WorkspaceEscape,
+        ensure_user_workspace,
+        resolve_user_path,
+    )
+
+    glob = _pick(args, ("glob", "pattern", "mask", "query", "name")).strip() or "*"
+    base = str(args.get("path", "")).strip()
+    try:
+        root = resolve_user_path(user_id, base) if base and base != "." else ensure_user_workspace(user_id)
+        ws = ensure_user_workspace(user_id)
+    except WorkspaceEscape as exc:
+        return f"[error] {exc}"
+    if not root.exists():
+        return f"[error] нет такой папки: {base}"
+    matches: list[str] = []
+    pat = glob if ("/" in glob or "*" in glob) else f"**/*{glob}*"
+    for p in root.rglob("*"):
+        if p.is_file():
+            rel = p.relative_to(ws).as_posix()
+            if fnmatch.fnmatch(rel, pat) or fnmatch.fnmatch(p.name, glob):
+                matches.append(rel)
+        if len(matches) >= 300:
+            break
+    if not matches:
+        return f"[ok] ничего не найдено по '{glob}'"
+    return f"[ok] найдено {len(matches)}:\n" + "\n".join(sorted(matches))
+
+
+async def search_code(args: dict[str, Any], user_id: int = 0) -> str:
+    """Поиск текста/regex по файлам workspace (grep). query[, glob][, regex]."""
+    import fnmatch  # noqa: PLC2701, PLC0415
+
+    from app.workspace import ensure_user_workspace  # noqa: PLC0415
+
+    query = _pick(args, ("query", "q", "pattern", "text", "search")).strip()
+    if not query:
+        return "[error] нужен query"
+    glob = str(args.get("glob", "")).strip()
+    use_regex = bool(args.get("regex"))
+    ws = ensure_user_workspace(user_id)
+    try:
+        rx = _re.compile(query if use_regex else _re.escape(query), _re.IGNORECASE)
+    except _re.error as exc:
+        return f"[error] плохой regex: {exc}"
+    hits: list[str] = []
+    scanned = 0
+    for p in ws.rglob("*"):
+        if not p.is_file():
+            continue
+        rel = p.relative_to(ws).as_posix()
+        if glob and not (fnmatch.fnmatch(rel, glob) or fnmatch.fnmatch(p.name, glob)):
+            continue
+        if p.stat().st_size > 1_000_000:
+            continue
+        scanned += 1
+        if scanned > 2000:
+            break
+        try:
+            for i, line in enumerate(p.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+                if rx.search(line):
+                    hits.append(f"{rel}:{i}: {line.strip()[:200]}")
+                    if len(hits) >= 100:
+                        break
+        except Exception:  # noqa: BLE001, S112
+            continue
+        if len(hits) >= 100:
+            break
+    if not hits:
+        return f"[ok] совпадений нет: '{query}'"
+    return f"[ok] {len(hits)} совпадений:\n" + "\n".join(hits)
+
+
+def _url_is_safe(url: str) -> tuple[bool, str]:
+    """Allowlist http(s) + запрет localhost/частных сетей (SSRF-защита)."""
+    import ipaddress  # noqa: PLC0415
+    import socket  # noqa: PLC0415
+    from urllib.parse import urlparse  # noqa: PLC0415
+
+    try:
+        u = urlparse(url)
+    except Exception:  # noqa: BLE001
+        return False, "плохой URL"
+    if u.scheme not in ("http", "https"):
+        return False, "только http/https"
+    host = u.hostname or ""
+    if not host:
+        return False, "нет хоста"
+    if host.lower() in ("localhost", "0.0.0.0", "::1"):  # noqa: S104
+        return False, "localhost запрещён"
+    try:
+        for fam, _, _, _, sockaddr in socket.getaddrinfo(host, None):
+            ip = ipaddress.ip_address(sockaddr[0])
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                return False, "частная сеть запрещена"
+    except Exception:  # noqa: BLE001 — DNS fail → let httpx report it
+        pass
+    return True, ""
+
+
+async def fetch_json(args: dict[str, Any], user_id: int = 0) -> str:
+    """HTTP-запрос (GET/POST). url[, method][, headers][, body]. До 1 МБ / 20с."""
+    import httpx  # noqa: PLC0415
+
+    url = _pick(args, ("url", "endpoint", "uri")).strip()
+    if not url:
+        return "[error] нужен url"
+    ok, why = _url_is_safe(url)
+    if not ok:
+        return f"[error] {why}"
+    method = (str(args.get("method", "GET")) or "GET").upper()
+    headers = args.get("headers") if isinstance(args.get("headers"), dict) else {}
+    body = args.get("body") or args.get("json") or args.get("data")
+    try:
+        async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as cli:
+            kw: dict[str, Any] = {"headers": headers}
+            if body is not None and method in ("POST", "PUT", "PATCH"):
+                if isinstance(body, (dict, list)):
+                    kw["json"] = body
+                else:
+                    kw["content"] = str(body)
+            resp = await cli.request(method, url, **kw)
+            text = resp.text[:1_000_000]
+        return f"[ok] {method} {url} → {resp.status_code}\n{text}"
+    except Exception as exc:  # noqa: BLE001
+        return f"[error] {type(exc).__name__}: {exc}"
+
+
+async def web_search(args: dict[str, Any], user_id: int = 0) -> str:
+    """Поиск в интернете (Brave API). query[, n]. Возвращает title/url/snippet."""
+    import httpx  # noqa: PLC0415
+
+    from app.storage.db import get_connection  # noqa: PLC0415
+
+    query = _pick(args, ("query", "q", "text", "search")).strip()
+    if not query:
+        return "[error] нужен query"
+    n = int(args.get("n", 5) or 5)
+    key = (os.getenv("BRAVE_API_KEY") or os.getenv("PERSONA_BRAVE_API_KEY") or "").strip()
+    if not key:
+        try:
+            async with get_connection() as conn:
+                cur = await conn.execute(
+                    "SELECT value FROM kv_settings WHERE key IN ('byo_api_key_brave','brave_api_key') LIMIT 1"
+                )
+                row = await cur.fetchone()
+                if row:
+                    key = str(row[0]).strip()
+        except Exception:  # noqa: BLE001
+            key = ""
+    if not key:
+        return (
+            "[error] нет ключа поиска. Добавь Brave API-ключ (kv 'brave_api_key' или "
+            "env BRAVE_API_KEY), либо используй web_browse/browser_open для конкретного URL."
+        )
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as cli:
+            resp = await cli.get(
+                "https://api.search.brave.com/res/v1/web/search",
+                params={"q": query, "count": min(n, 10)},
+                headers={"Accept": "application/json", "X-Subscription-Token": key},
+            )
+            data = resp.json()
+        results = (data.get("web") or {}).get("results") or []
+        if not results:
+            return f"[ok] ничего не найдено: {query}"
+        out = [f"[ok] поиск «{query}»:"]
+        for r in results[:n]:
+            out.append(f"- {r.get('title', '')}\n  {r.get('url', '')}\n  {r.get('description', '')[:200]}")
+        return "\n".join(out)
+    except Exception as exc:  # noqa: BLE001
+        return f"[error] поиск не удался: {type(exc).__name__}: {exc}"
+
+
+async def run_tests(args: dict[str, Any], user_id: int = 0) -> str:
+    """Запустить тесты на устройстве (pytest/npm test через run_mac) или на сервере."""
+    cmd = _pick(args, ("cmd", "command")).strip()
+    path = _pick(args, ("path", "dir")).strip()
+    if not cmd:
+        cmd = "pytest -q" + (f" {path}" if path else "")
+    from app.devices.fs_rpc import is_enabled  # noqa: PLC0415
+
+    if await is_enabled():
+        return await run_mac({"command": cmd, "shell": "auto"}, user_id=user_id)
+    return await run_shell({"command": cmd})
+
+
+async def query_memory(args: dict[str, Any], user_id: int = 0) -> str:
+    """Осознанно вспомнить релевантное из всех чатов пользователя."""
+    query = _pick(args, ("query", "q", "text", "about")).strip()
+    if not query:
+        return "[error] нужен query"
+    try:
+        from app.chat.sessions import recall_relevant  # noqa: PLC0415
+
+        block = await recall_relevant(user_id, query, exclude_session_id=None)
+        return f"[ok] из памяти:\n{block}" if block else "[ok] ничего релевантного не нашёл"
+    except Exception as exc:  # noqa: BLE001
+        return f"[error] {type(exc).__name__}: {exc}"
+
+
 # Tool registry — name → (function, description-for-LLM, params-schema)
 _BUILTIN_TOOLS: dict[str, dict[str, Any]] = {
     "read_file": {
@@ -663,6 +986,58 @@ _BUILTIN_TOOLS: dict[str, dict[str, Any]] = {
             ),
         },
     },
+    # --- Phase 1.2: расширенный каталог ---
+    "edit_file": {
+        "fn": edit_file,
+        "description": (
+            "Точечно изменить существующий файл: заменить ТОЧНЫЙ фрагмент old на new "
+            "(не перезаписывает весь файл). Сначала прочитай файл (read_file) и скопируй "
+            "точный текст. Если фрагмент встречается несколько раз — уточни контекст или count."
+        ),
+        "params": {"path": "путь к файлу", "old": "точный фрагмент (что заменить)",
+                   "new": "на что заменить", "count": "необяз.: сколько вхождений"},
+    },
+    "multi_edit": {
+        "fn": multi_edit,
+        "description": "Несколько точечных замен в одном файле за раз (edits: [{old,new}]).",
+        "params": {"path": "путь к файлу", "edits": '[{"old":"...","new":"..."}]'},
+    },
+    "read_many": {
+        "fn": read_many,
+        "description": "Прочитать несколько файлов сразу (экономит раунды).",
+        "params": {"paths": '["a.py","b.py"]'},
+    },
+    "find_files": {
+        "fn": find_files,
+        "description": "Найти файлы по glob-маске в workspace ('**/*.py', 'main', и т.п.).",
+        "params": {"glob": "маска или подстрока имени", "path": "необяз.: подпапка"},
+    },
+    "search_code": {
+        "fn": search_code,
+        "description": "Поиск текста/regex по файлам workspace (grep). Вернёт file:line.",
+        "params": {"query": "что искать", "glob": "необяз.: маска файлов",
+                   "regex": "необяз.: true для regex"},
+    },
+    "fetch_json": {
+        "fn": fetch_json,
+        "description": "HTTP-запрос к API (GET/POST). Только http(s), без локальной сети. До 1 МБ.",
+        "params": {"url": "адрес", "method": "GET|POST|...", "headers": "{}", "body": "тело/JSON"},
+    },
+    "web_search": {
+        "fn": web_search,
+        "description": "Поиск в интернете (нужен Brave API-ключ). Вернёт title/url/описание.",
+        "params": {"query": "запрос", "n": "сколько результатов"},
+    },
+    "run_tests": {
+        "fn": run_tests,
+        "description": "Запустить тесты (pytest/npm) на устройстве (через mac-fs) или на сервере.",
+        "params": {"cmd": "необяз.: команда (деф. pytest -q)", "path": "необяз.: путь"},
+    },
+    "query_memory": {
+        "fn": query_memory,
+        "description": "Осознанно вспомнить релевантное из всех прошлых чатов пользователя.",
+        "params": {"query": "о чём вспомнить"},
+    },
 }
 
 
@@ -687,7 +1062,7 @@ def builtin_command_to_tool_name(command: str) -> str | None:
 _TOOL_ALIASES: dict[str, str] = {
     "write_dir": "write_file", "create_file": "write_file", "createfile": "write_file",
     "new_file": "write_file", "make_file": "write_file", "save_file": "write_file",
-    "writefile": "write_file", "create": "write_file", "edit_file": "write_file",
+    "writefile": "write_file", "create": "write_file",
     "read": "read_file", "readfile": "read_file", "open_file": "read_file", "cat": "read_file",
     "ls": "list_dir", "dir": "list_dir", "listdir": "list_dir", "list_files": "list_dir",
     "browse": "web_browse", "open_url": "web_browse", "fetch_url": "web_browse",
@@ -705,6 +1080,17 @@ _TOOL_ALIASES: dict[str, str] = {
     "run_powershell": "run_mac", "powershell": "run_mac", "run_command": "run_mac",
     "exec": "run_mac", "exec_command": "run_mac", "run_on_device": "run_mac",
     "shell_exec": "run_mac", "run_bash": "run_mac",
+    # Phase 1.2 — новые инструменты: частые синонимы от моделей
+    "patch_file": "edit_file", "replace_in_file": "edit_file", "str_replace": "edit_file",
+    "apply_edit": "edit_file", "edit": "edit_file",
+    "grep": "search_code", "search_files": "search_code", "find_in_files": "search_code",
+    "glob": "find_files", "find": "find_files", "find_file": "find_files",
+    "read_files": "read_many", "cat_many": "read_many",
+    "fetch": "fetch_json", "http_request": "fetch_json", "http_get": "fetch_json",
+    "curl": "fetch_json", "request": "fetch_json", "api_call": "fetch_json",
+    "search": "web_search", "google": "web_search", "search_web": "web_search",
+    "test": "run_tests", "pytest": "run_tests", "npm_test": "run_tests",
+    "recall": "query_memory", "remember_search": "query_memory", "search_memory": "query_memory",
 }
 _MKDIR_NAMES = {
     "mkdir", "make_dir", "makedir", "create_dir", "createdir", "create_directory",
