@@ -81,8 +81,15 @@
   `app/auth/roles.py`, `/root/users` (create/approve/suspend/role/delete), переписать `auth_gate.py` под роли.
 
 ## 5. Настройки удобнее
-- `[TODO]` Единый settings-shell + поиск (`app/settings/registry.py`), 8 секций, слияние дублей (убрать дубль /settings/llm),
-  инлайн-тогглы (`POST /api/settings/set`). Старые kv/POST не ломать.
+- `[DONE]` **Поиск по настройкам**: мгновенный фильтр в /settings/hub (Alpine, по названию/пути/категории +
+  синонимы _KEYWORDS: «пароль»→api-tokens, «тема»→theme и т.п., подсветка совпадений) + серверный
+  `GET /api/settings/search` (search_settings, источник правды — _CATEGORIES → _categories_json).
+  Добавил /ai-activity в хаб. Чинит discoverability ~30 страниц. Старые роуты не тронуты.
+- `[DONE]` **Фикс коллизии /activity**: окно «что делает ИИ» переехало на `/ai-activity` — путь `/activity`
+  уже занят тепловой картой за 365 дней (activity_heatmap.py); мой роут регистрировался раньше и затенял её.
+  Обновил nav (base.html) и ссылку в чат-панели.
+- `[TODO]` (опц., позже) Единый settings-shell с 8 секциями + инлайн-тогглы (`POST /api/settings/set`),
+  слияние дублей. Сейчас не критично: хаб с поиском уже даёт нужную навигацию.
 
 ## 6. Производительность БД и поиск (НОВОЕ — решение принято)
 - `[DONE]` **FTS5 для поиска по чатам/памяти** (миграция 179): `chat_message_fts` (external-content) + триггеры

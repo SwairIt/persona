@@ -24,16 +24,18 @@ from app.web.templates_engine import templates
 router = APIRouter(tags=["activity"])
 
 
-@router.get("/activity", response_class=HTMLResponse)
+@router.get("/ai-activity", response_class=HTMLResponse)
 async def activity_page(
     request: Request,
     session: Annotated[SessionRecord, Depends(current_user_required)],
 ) -> HTMLResponse:
+    # NB: путь именно /ai-activity, а НЕ /activity — последний уже занят
+    # тепловой картой активности за 365 дней (activity_heatmap.py).
     return templates.TemplateResponse(
         request,
         "activity.html",
         {
             "title": "Что делает ИИ — окно активности",
-            "active_nav": "activity",
+            "active_nav": "ai-activity",
         },
     )

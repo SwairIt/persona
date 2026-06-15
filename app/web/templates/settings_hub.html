@@ -1,8 +1,9 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="max-w-5xl mx-auto">
-  <div class="mb-8">
+<div class="max-w-5xl mx-auto"
+     x-data="settingsHub({{ categories_json | tojson }})">
+  <div class="mb-5">
     <h1 class="text-2xl font-bold tracking-tight">Настройки</h1>
     <p class="text-zinc-500 text-sm mt-1">
       Все настройки сгруппированы по категориям. Для одной длинной таблицы со
@@ -10,7 +11,19 @@
     </p>
   </div>
 
-  <div class="mb-6 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 flex items-start gap-3">
+  {# 🔎 Поиск по настройкам — мгновенный фильтр по названию/пути/синонимам. #}
+  <div class="mb-6 relative">
+    <input type="search" x-model="q" @input="filter()"
+           @keydown.escape="q=''; filter()"
+           placeholder="🔎 Поиск по настройкам… (напр. «пароль», «тема», «голос»)"
+           class="w-full bg-ink-800 border border-ink-700 focus:border-accent-500
+                  rounded-xl px-4 py-2.5 text-sm text-zinc-100 placeholder-zinc-500
+                  focus:outline-none">
+    <span x-show="q" @click="q=''; filter()"
+          class="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 cursor-pointer">×</span>
+  </div>
+
+  <div x-show="!q" class="mb-6 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 flex items-start gap-3">
     <span class="text-xl leading-none">🔒</span>
     <div>
       <p class="text-sm text-emerald-200 font-medium">Твои данные не покидают эту машину.</p>
@@ -22,27 +35,33 @@
     </div>
   </div>
 
+  <p x-show="q && visibleCount === 0" x-cloak class="text-zinc-500 text-sm text-center py-10">
+    Ничего не найдено по «<span x-text="q"></span>». Попробуй другое слово или
+    <a href="/features" class="underline">полный feature-index</a>.
+  </p>
+
   <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-    {% for cat in categories %}
-      <section class="rounded-xl border border-ink-700 bg-ink-800 p-5">
+    <template x-for="cat in cats" :key="cat.title">
+      <section x-show="cat._pages.length" x-cloak
+               class="rounded-xl border border-ink-700 bg-ink-800 p-5">
         <div class="flex items-baseline gap-2 mb-2">
-          <span class="text-2xl leading-none">{{ cat.icon }}</span>
-          <h2 class="text-lg font-semibold text-zinc-100">{{ cat.title }}</h2>
+          <span class="text-2xl leading-none" x-text="cat.icon"></span>
+          <h2 class="text-lg font-semibold text-zinc-100" x-text="cat.title"></h2>
         </div>
-        <p class="text-zinc-500 text-xs mb-3">{{ cat.description }}</p>
+        <p class="text-zinc-500 text-xs mb-3" x-text="cat.description"></p>
         <ul class="space-y-1">
-          {% for href, label in cat.pages %}
+          <template x-for="p in cat._pages" :key="p.href">
             <li>
-              <a href="{{ href }}"
+              <a :href="p.href"
                  class="block px-3 py-2 rounded-md text-sm text-zinc-300 hover:bg-ink-900 hover:text-accent-300 transition">
-                <span class="text-zinc-500 text-xs font-mono mr-2">{{ href }}</span>
-                {{ label }}
+                <span class="text-zinc-500 text-xs font-mono mr-2" x-text="p.href"></span>
+                <span x-html="p._label"></span>
               </a>
             </li>
-          {% endfor %}
+          </template>
         </ul>
       </section>
-    {% endfor %}
+    </template>
   </div>
 
   <p class="text-zinc-600 text-xs mt-8 text-center">
@@ -50,4 +69,45 @@
     или <a href="/settings" class="underline">список всех kv-настроек</a>.
   </p>
 </div>
+
+<script>
+function settingsHub(categories) {
+  return {
+    q: '',
+    cats: [],
+    visibleCount: 0,
+    init() { this.cats = categories || []; this.filter(); },
+    filter() {
+      const q = (this.q || '').trim().toLowerCase();
+      const toks = q.split(/\s+/).filter(Boolean);
+      let visible = 0;
+      for (const cat of this.cats) {
+        const matched = [];
+        for (const p of cat.pages) {
+          const hay = (p.label + ' ' + p.href + ' ' + cat.title + ' ' + (p.keywords || '')).toLowerCase();
+          if (toks.length === 0 || toks.every(t => hay.includes(t))) {
+            p._label = q ? this._hl(p.label, toks) : p.label;
+            matched.push(p);
+          }
+        }
+        cat._pages = matched;
+        visible += matched.length;
+      }
+      this.visibleCount = visible;
+    },
+    _hl(label, toks) {
+      // подсветка совпадения (экранируем html, потом оборачиваем токены)
+      let s = label.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      for (const t of toks) {
+        if (!t) continue;
+        try {
+          const re = new RegExp('(' + t.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + ')', 'ig');
+          s = s.replace(re, '<mark class="bg-accent-500/30 text-accent-200 rounded px-0.5">$1</mark>');
+        } catch (e) { /* ignore */ }
+      }
+      return s;
+    },
+  };
+}
+</script>
 {% endblock %}

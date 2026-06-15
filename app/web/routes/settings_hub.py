@@ -14,14 +14,36 @@ just an edit to the ``_CATEGORIES`` list when a new sub-page lands.
 
 from __future__ import annotations
 
-from typing import Final
+from typing import Annotated, Final
 
-from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 
+from app.auth import current_user_required
+from app.auth.sessions import SessionRecord
 from app.web.templates_engine import templates
 
 router = APIRouter(tags=["settings-hub"])
+
+# Синонимы для поиска: пользователь печатает «пароль» — находим api-tokens и т.п.
+# Маппинг href → доп. ключевые слова (рус+eng), по которым тоже матчим.
+_KEYWORDS: Final[dict[str, str]] = {
+    "/settings/api-tokens": "пароль ключ доступ token api безопасность",
+    "/settings/theme": "тема оформление цвет dark light внешний вид appearance",
+    "/settings/voice": "голос микрофон озвучка tts stt voice речь",
+    "/settings/memory": "память факты помнит memory знает обо мне",
+    "/settings/system-prompt": "характер роль личность промпт persona system prompt",
+    "/settings/llm": "модель провайдер ключ api llm gpt ollama claude",
+    "/settings/smtp": "почта email письмо уведомления smtp",
+    "/vault": "секреты пароли заметки шифрование vault",
+    "/settings/backup/manage": "бэкап резерв копия восстановление backup",
+    "/audit": "аудит лог история действий audit log",
+    "/settings/capture": "захват скриншоты экран запись частота",
+    "/settings/redaction": "секреты скрытие приватность redaction маскирование",
+    "/chat": "чат беседа ассистент диалог chat",
+    "/ai-activity": "активность инструменты что делает ии прозрачность",
+    "/graph": "граф связи память узлы graph",
+}
 
 
 _CATEGORIES: Final[list[dict[str, object]]] = [
@@ -68,6 +90,7 @@ _CATEGORIES: Final[list[dict[str, object]]] = [
         "description": "Чат с памятью, MCP-инструменты, workspace, датасет для своей модели.",
         "pages": [
             ("/chat", "Чат с памятью (беседы, модель-пикер, vision)"),
+            ("/ai-activity", "🔭 Что делает ИИ — окно активности (инструменты live)"),
             ("/settings/advanced", "⚙️ Расширенные функции (мастер-выключатель: друг ⇄ рабочий)"),
             ("/settings/system-prompt", "Системный промпт / характер ассистента (пресеты + редактор)"),
             ("/settings/profile", "Профиль — что ИИ знает обо мне"),
@@ -159,6 +182,55 @@ _CATEGORIES: Final[list[dict[str, object]]] = [
 ]
 
 
+def _categories_json() -> list[dict[str, object]]:
+    """JS-friendly зеркало _CATEGORIES (кортежи pages → dict + keywords).
+
+    Используется и для клиентского инстант-поиска (палитра в шапке), и для
+    серверного ``/api/settings/search``. Один источник правды — _CATEGORIES.
+    """
+    out: list[dict[str, object]] = []
+    for cat in _CATEGORIES:
+        pages = []
+        for href, label in cat["pages"]:  # type: ignore[union-attr]
+            pages.append(
+                {"href": href, "label": label, "keywords": _KEYWORDS.get(href, "")}
+            )
+        out.append(
+            {
+                "title": cat["title"],
+                "icon": cat["icon"],
+                "description": cat["description"],
+                "pages": pages,
+            }
+        )
+    return out
+
+
+def search_settings(query: str, limit: int = 30) -> list[dict[str, str]]:
+    """Плоский поиск по всем страницам настроек (label/href/категория/синонимы)."""
+    q = (query or "").strip().casefold()
+    results: list[dict[str, str]] = []
+    if not q:
+        return results
+    for cat in _categories_json():
+        for p in cat["pages"]:  # type: ignore[index]
+            hay = " ".join(
+                [str(p["label"]), str(p["href"]), str(cat["title"]), str(p["keywords"])]
+            ).casefold()
+            if all(tok in hay for tok in q.split()):
+                results.append(
+                    {
+                        "href": str(p["href"]),
+                        "label": str(p["label"]),
+                        "category": str(cat["title"]),
+                        "icon": str(cat["icon"]),
+                    }
+                )
+            if len(results) >= limit:
+                return results
+    return results
+
+
 @router.get("/settings/hub", response_class=HTMLResponse)
 async def settings_hub_page(request: Request) -> HTMLResponse:
     """Render the category catalogue."""
@@ -169,8 +241,18 @@ async def settings_hub_page(request: Request) -> HTMLResponse:
             "title": "Настройки — категории",
             "active_nav": "settings",
             "categories": _CATEGORIES,
+            "categories_json": _categories_json(),
         },
     )
 
 
-__all__ = ["router"]
+@router.get("/api/settings/search", response_class=JSONResponse)
+async def api_settings_search(
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+    q: str = "",
+) -> JSONResponse:
+    """Поиск по настройкам (для палитры/глобального поиска). Источник — _CATEGORIES."""
+    return JSONResponse({"results": search_settings(q)})
+
+
+__all__ = ["router", "search_settings"]
