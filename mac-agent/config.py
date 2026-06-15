@@ -30,13 +30,15 @@ from typing import Any
 
 from pydantic import BaseModel, Field, HttpUrl, SecretStr, field_validator
 
+import platform_support as plat
+
 # --------------------------------------------------------------------------- #
-# Defaults
+# Defaults (per-OS via platform_support: mac ~/.config, Windows %APPDATA%)
 # --------------------------------------------------------------------------- #
 
 
-DEFAULT_CONFIG_PATH = Path.home() / ".config" / "persona-agent.toml"
-DEFAULT_PAUSE_FILE = Path.home() / ".persona-agent.paused"
+DEFAULT_CONFIG_PATH = plat.config_path()
+DEFAULT_PAUSE_FILE = plat.pause_file()
 ENV_CONFIG_PATH = "PERSONA_AGENT_CONFIG"
 ENV_SERVER_URL = "PERSONA_SERVER_URL"
 ENV_AGENT_TOKEN = "PERSONA_AGENT_TOKEN"
@@ -103,6 +105,10 @@ class CaptureSettings(BaseModel):
     """Number of recent pHashes kept in memory for the local dedup check."""
 
     # Audio.
+    audio_input_device: int | str | None = None
+    """Optional input device index/name passed to sounddevice.InputStream.
+    None = system default. Windows default-device selection can be flaky;
+    run ``python -m sounddevice`` to list indices."""
     audio_sample_rate: int = 16_000
     audio_buffer_seconds: float = 30.0
     audio_vad_threshold: float = 0.5

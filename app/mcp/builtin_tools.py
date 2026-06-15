@@ -518,31 +518,44 @@ async def install_mcp(args: dict[str, Any], user_id: int = 0) -> str:
     )
 
 
-# T31 E4 — опасные паттерны, которые не выполняем на Mac ни при каких условиях.
+# T31 E4 — опасные паттерны, которые не выполняем на устройстве ни при каких
+# условиях. Список покрывает и Mac/Linux (bash), и Windows (PowerShell/cmd):
+# агент сам выбирает shell по ОС, поэтому блок-лист общий.
 _MAC_BLOCKED = (
+    # unix
     "rm -rf /", "rm -rf ~", "mkfs", ":(){:|:&};:", "shutdown", "reboot",
     "diskutil erase", "> /dev/", "dd if=", "sudo rm",
+    # windows
+    "format ", "del /s", "del /f /s", "rmdir /s", "rd /s",
+    "remove-item -recurse", "remove-item -force -recurse", "format-volume",
+    "stop-computer", "restart-computer", "cipher /w",
 )
-_MAC_SHELLS = ("bash", "zsh", "sh", "powershell", "pwsh")
+_MAC_SHELLS = ("bash", "zsh", "sh", "powershell", "pwsh", "cmd")
 
 
 async def run_mac(args: dict[str, Any], user_id: int = 0) -> str:
-    """T31 E4 — выполнить команду на Mac пользователя через агента.
+    """T31 E4 — выполнить команду на устройстве пользователя через агента.
 
-    Ставит команду в очередь (op=exec) для выбранного code-target устройства;
-    Mac-агент выполняет её в разрешённой папке (allowlist) и возвращает
-    stdout/stderr/код. Требует включённого mac-fs и онлайн-агента — иначе
-    возвращает [error] (не падает). Поддержку op=exec на стороне агента нужно
-    проверить на Mac.
+    Кроссплатформенно: на Mac/Linux агент исполняет команду в bash, на Windows
+    — в PowerShell. Ставит команду в очередь (op=exec) для выбранного
+    code-target устройства; агент выполняет её в разрешённой папке (allowlist)
+    и возвращает stdout/stderr/код. Требует включённого mac-fs и онлайн-агента —
+    иначе возвращает [error] (не падает).
+
+    shell: если не указан, агент берёт нативный для своей ОС (bash на Mac,
+    powershell на Windows). Передавай shell только когда это важно.
     """
     from app.devices.fs_rpc import is_enabled, run_remote  # noqa: PLC0415
 
     command = str(args.get("command", "")).strip()
     if not command:
         return "[error] нужна команда (command)"
-    shell = str(args.get("shell", "bash")).strip().lower() or "bash"
-    if shell not in _MAC_SHELLS:
-        shell = "bash"
+    # Пустой shell → "auto": агент сам подберёт нативный shell под свою ОС.
+    shell = str(args.get("shell", "")).strip().lower()
+    if shell and shell not in _MAC_SHELLS:
+        shell = "auto"
+    if not shell:
+        shell = "auto"
     lowered = command.lower()
     for b in _MAC_BLOCKED:
         if b in lowered:
@@ -635,14 +648,19 @@ _BUILTIN_TOOLS: dict[str, dict[str, Any]] = {
     "run_mac": {
         "fn": run_mac,
         "description": (
-            "Выполнить команду НА MAC пользователя (bash/zsh/powershell) через "
-            "агента, в разрешённой папке. Используй для реальных действий на "
-            "Mac: запустить скрипт, собрать проект, git, установить пакет. "
-            "Возвращает stdout/stderr/код. Требует включённого mac-fs."
+            "Выполнить команду НА УСТРОЙСТВЕ пользователя через агента, в "
+            "разрешённой папке. Кроссплатформенно: на Mac/Linux — bash, на "
+            "Windows — PowerShell (агент сам выберёт по своей ОС). Используй "
+            "для реальных действий: запустить скрипт, собрать проект, git, "
+            "установить пакет. Возвращает stdout/stderr/код. Требует "
+            "включённого mac-fs и онлайн-агента."
         ),
         "params": {
-            "command": "команда для выполнения на Mac",
-            "shell": "bash | zsh | sh | powershell (по умолчанию bash)",
+            "command": "команда для выполнения на устройстве",
+            "shell": (
+                "необязательно: bash | zsh | sh | powershell | pwsh | cmd. "
+                "Без него агент берёт нативный shell своей ОС."
+            ),
         },
     },
 }
@@ -680,6 +698,13 @@ _TOOL_ALIASES: dict[str, str] = {
     "remove": "delete_path", "delete": "delete_path", "delete_file": "delete_path",
     "delete_dir": "delete_path", "del": "delete_path", "unlink": "delete_path",
     "remove_file": "delete_path", "remove_dir": "delete_path",
+    # выполнение команд на устройстве: run_mac теперь кроссплатформенный —
+    # модели зовут его по-разному (особенно на Windows) → ведём всё на run_mac.
+    "run_pc": "run_mac", "run_windows": "run_mac", "run_win": "run_mac",
+    "run_device": "run_mac", "run_remote": "run_mac", "run_shell_remote": "run_mac",
+    "run_powershell": "run_mac", "powershell": "run_mac", "run_command": "run_mac",
+    "exec": "run_mac", "exec_command": "run_mac", "run_on_device": "run_mac",
+    "shell_exec": "run_mac", "run_bash": "run_mac",
 }
 _MKDIR_NAMES = {
     "mkdir", "make_dir", "makedir", "create_dir", "createdir", "create_directory",

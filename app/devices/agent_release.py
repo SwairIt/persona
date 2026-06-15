@@ -24,7 +24,7 @@ from app.storage.db import get_connection
 # field name), fixed without an agent change, so 1.13 is fine and we DON'T
 # nag those users. 1.14 (X-Agent-Token + opt-in audio) is an optional
 # improvement new installs get; bump this only when an update is required.
-LATEST_AGENT_VERSION = "1.18"
+LATEST_AGENT_VERSION = "1.19"
 
 # Matches both ``persona-agent/1.13`` and ``persona-mac-agent/1.13``.
 _VERSION_RE = re.compile(r"persona-(?:mac-)?agent/(\d+)\.(\d+)")

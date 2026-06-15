@@ -43,6 +43,7 @@ from typing import TYPE_CHECKING, Any
 import httpx
 import structlog
 
+import platform_support as plat
 from config import AgentConfig, load_config
 
 if TYPE_CHECKING:
@@ -56,7 +57,9 @@ logger = structlog.get_logger("persona_agent")
 # in sync with ``LATEST_AGENT_VERSION`` in app/devices/agent_release.py.
 # 1.13 = T28 workspace sync loop (sync_workspace_loop + device_token).
 # 1.14 = T29 X-Agent-Token header (tunnel strips Authorization) + opt-in audio.
-AGENT_VERSION = "1.18"
+# 1.19 = cross-platform (Windows + macOS): platform_support layer, fs op
+#        exec+delete, TTS via SAPI/say, per-OS config/log/pause paths.
+AGENT_VERSION = "1.19"
 
 
 # --------------------------------------------------------------------------- #
@@ -77,10 +80,9 @@ def _configure_logging(level_name: str) -> None:
     """
     import logging
     from logging.handlers import RotatingFileHandler
-    from pathlib import Path as _Path
 
     level = getattr(logging, level_name.upper(), logging.INFO)
-    log_dir = _Path.home() / "Library" / "Logs"
+    log_dir = plat.log_dir()  # per-OS: ~/Library/Logs (mac) | %LOCALAPPDATA%\Persona\Logs (win)
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / "persona-agent.log"
 
@@ -113,33 +115,12 @@ def _configure_logging(level_name: str) -> None:
 
 
 def _notify_user(title: str, message: str) -> None:
-    """Best-effort macOS user notification via osascript.
+    """Best-effort desktop notification (macOS osascript / Windows balloon).
 
-    Surfaces the message in Notification Center so the user sees that
-    something happened (crash, auth failure, upload stalled) without
-    having to grep logs. Silently no-ops on non-macOS or when osascript
-    is unavailable — this is a UX nicety, never load-bearing.
+    Advisory only — surfaces crashes/auth failures without grepping logs.
+    Delegates to the platform layer; never load-bearing.
     """
-    import subprocess
-
-    try:
-        # Escape both fields for AppleScript by stripping quotes/newlines.
-        safe_title = title.replace('"', "").replace("\n", " ")[:80]
-        safe_msg = message.replace('"', "").replace("\n", " ")[:200]
-        script = (
-            f'display notification "{safe_msg}" '
-            f'with title "Persona Agent" '
-            f'subtitle "{safe_title}"'
-        )
-        subprocess.run(
-            ["osascript", "-e", script],
-            timeout=3,
-            check=False,
-            capture_output=True,
-        )
-    except Exception:  # noqa: BLE001
-        # Notifications are advisory — never let them break the agent.
-        pass
+    plat.notify(title, message)
 
 
 # Module-level latch so we only notify the user about auth failure
@@ -990,8 +971,28 @@ def _fs_ensure_roots(roots: list[Path]) -> None:
 
 
 def _fs_exec(cmd: dict[str, Any], roots: list[Path]) -> tuple[str, str]:
-    """Execute one fs command on the Mac. Returns (status, result_text)."""
+    """Execute one fs command on this device. Returns (status, result_text).
+
+    Ops: list/read/write/delete (path-based) + exec (shell command).
+    Cross-platform via platform_support (Windows PowerShell / macOS sh).
+    """
     op = str(cmd.get("op", ""))
+
+    # exec: ``path`` carries the shell hint, ``content`` carries the command.
+    # It is NOT a filesystem path, so it bypasses the path sandbox by design.
+    if op == "exec":
+        command = str(cmd.get("content") or "").strip()
+        if not command:
+            return ("error", "[error] пустая команда")
+        shell_hint = str(cmd.get("path") or "").strip().lower()
+        low = command.lower()
+        # `say "..."` from the voice assistant → TTS on any OS (SAPI/say).
+        if low == "say" or low.startswith("say "):
+            spoken = command[3:].strip().strip('"').strip("'")
+            return plat.tts_speak(spoken)
+        cwd = roots[0] if roots else None
+        return plat.exec_shell(shell_hint, command, cwd=cwd)
+
     raw = str(cmd.get("path", "")).strip()
     if not raw:
         return ("error", "[error] пустой путь")
@@ -1034,6 +1035,16 @@ def _fs_exec(cmd: dict[str, Any], roots: list[Path]) -> tuple[str, str]:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(str(content or ""), encoding="utf-8")
             return ("done", f"[ok] записал {len(str(content or ''))} символов в {target}")
+        if op == "delete":
+            import shutil  # noqa: PLC0415
+
+            if not target.exists():
+                return ("done", f"[error] не существует: {target}")
+            if target.is_dir():
+                shutil.rmtree(target)
+            else:
+                target.unlink()
+            return ("done", f"[ok] удалено: {target}")
     except OSError as exc:
         return ("error", f"[error] {type(exc).__name__}: {exc}")
     return ("error", f"[error] неизвестная операция: {op}")
@@ -1070,7 +1081,9 @@ async def fs_rpc_loop(state: RuntimeState) -> None:
             for cmd in resp.get("commands") or []:
                 if not isinstance(cmd, dict):
                     continue
-                status, result = _fs_exec(cmd, roots)
+                # exec can block up to 30s — run off the event loop so
+                # screen/audio loops keep ticking.
+                status, result = await asyncio.to_thread(_fs_exec, cmd, roots)
                 try:
                     await client.fs_result(int(cmd["id"]), status, result)
                 except Exception as exc:  # noqa: BLE001
@@ -1160,6 +1173,7 @@ async def audio_loop(state: RuntimeState) -> None:
                 dtype="float32",
                 blocksize=block_size,
                 callback=_callback,
+                device=state.config.capture.audio_input_device,
             )
         except Exception as exc:  # sounddevice raises platform-specific errors
             logger.error("agent.audio.stream_open_failed", error=str(exc))
@@ -1539,7 +1553,7 @@ def signal_pause_toggle() -> bool:
     Returns the new state (``True`` if the daemon is now paused).
     The daemon itself watches the file each loop iteration.
     """
-    flag = Path.home() / ".persona-agent.paused"
+    flag = plat.pause_file()
     if flag.exists():
         flag.unlink(missing_ok=True)
         return False

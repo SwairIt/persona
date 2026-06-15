@@ -96,25 +96,27 @@ async def _load_pending(install_id: str) -> tuple[str, str, str] | None:
     return (str(d.get("a", "")), str(d.get("d", "")), str(d.get("u", "")))
 
 
-async def _ensure_mac_device(user_id: int) -> str:
-    """Return a fresh ``device_token`` for the user's Mac, provisioning the
-    sync identity the one-click install previously skipped.
+async def _ensure_device(user_id: int, kind: str, name: str) -> str:
+    """Return a fresh ``device_token`` for the user's device of ``kind``
+    (mac/windows/…), provisioning the sync identity the one-click install
+    needs (heartbeat + workspace/fs sync + code-write-target).
 
-    Without this the installed agent only had the ingest ``token`` and the
-    T28 sync loops (heartbeat + workspace pull) self-disabled — the Mac
-    never showed on /devices and could not be a code-write-target. We
-    reuse the user's existing ``mac`` device row (rotating its token) so
-    the code-target selection survives a reinstall; otherwise we create
-    one.
+    Reuses an existing device row of that kind (rotating its token) so the
+    code-target selection survives a reinstall; otherwise creates one.
     """
     devices = await list_devices(user_id)
-    mac = next((d for d in devices if d["kind"] == "mac"), None)
-    if mac is not None:
-        rotated = await rotate_token(user_id, mac["id"])
+    existing = next((d for d in devices if d["kind"] == kind), None)
+    if existing is not None:
+        rotated = await rotate_token(user_id, existing["id"])
         if rotated is not None:
             return rotated["device_token"]
-    created = await register_device(user_id, name="Mac", kind="mac")
+    created = await register_device(user_id, name=name, kind=kind)
     return created["device_token"]
+
+
+async def _ensure_mac_device(user_id: int) -> str:
+    """Back-compat wrapper — Mac device provisioning."""
+    return await _ensure_device(user_id, "mac", "Mac")
 
 
 def _detect_public_url(request: Request) -> tuple[str, bool]:
@@ -408,6 +410,151 @@ echo "   Open Settings → Privacy & Security → Screen Recording, allow Termin
             "Content-Type": "text/x-shellscript; charset=utf-8",
             # Prevent caching — each token is single-use anyway, but
             # be explicit so corporate proxies don't store it.
+            "Cache-Control": "no-store, max-age=0",
+        },
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Windows agent — mirror of the Mac flow (same cross-platform agent)
+# --------------------------------------------------------------------------- #
+
+
+@router.get("/welcome/install/windows", response_class=HTMLResponse, response_model=None)
+async def install_windows_page(
+    request: Request,
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+    install_id: str = Query(default=""),
+) -> HTMLResponse:
+    """Show the PowerShell one-liner (after minting) for the Windows agent."""
+    server_url, is_local = _detect_public_url(request)
+    ready_command = ""
+    if await _load_pending(install_id):
+        ready_command = (
+            "powershell -NoProfile -ExecutionPolicy Bypass -Command "
+            f"\"irm '{server_url}/api/install/windows.ps1?t={install_id}' | iex\""
+        )
+    return templates.TemplateResponse(
+        request,
+        "install_windows.html",
+        {
+            "title": "Установка на Windows",
+            "active_nav": "",
+            "server_url": server_url,
+            "is_local_only": is_local,
+            "install_id": install_id,
+            "ready_command": ready_command,
+        },
+    )
+
+
+@router.post("/welcome/install/windows/mint", response_model=None)
+async def install_windows_mint(
+    request: Request,
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+) -> RedirectResponse:
+    """Mint a Windows agent_token + device_token, stash under an install_id."""
+    _purge_expired()
+    user_id = session.get("user_id") if isinstance(session, dict) else None
+    name = f"Windows (user {user_id})" if user_id else "Windows"
+    try:
+        _agent_id, raw_token = await create_agent(name, platform="windows")
+    except Exception as exc:
+        log.exception("install.windows.mint_failed", error=str(exc))
+        raise HTTPException(status_code=500, detail="failed to create agent") from exc
+
+    device_token = ""
+    if user_id:
+        try:
+            device_token = await _ensure_device(int(user_id), "windows", "Windows")
+        except Exception as exc:  # noqa: BLE001
+            log.warning("install.windows.device_provision_failed", error=str(exc))
+
+    install_id = secrets.token_urlsafe(24)
+    server_url, _is_local = _detect_public_url(request)
+    await _store_pending(install_id, raw_token, device_token, server_url)
+    log.info(
+        "install.windows.minted",
+        install_id_prefix=install_id[:6],
+        user_id=user_id,
+        device_provisioned=bool(device_token),
+    )
+    return RedirectResponse(
+        url=f"/welcome/install/windows?install_id={install_id}",
+        status_code=303,
+    )
+
+
+_WINDOWS_PS1_TEMPLATE = r"""# Persona Windows agent installer — auto-generated on the server.
+# Run in PowerShell:
+#   powershell -NoProfile -ExecutionPolicy Bypass -Command "irm '<url>?t=...' | iex"
+#
+# Clones/updates the Persona repo, then runs the cross-platform agent
+# installer (venv, deps, %APPDATA%\Persona\config.toml, Scheduled Task
+# auto-start). Re-running = updater. Set $env:PERSONA_AGENT_VOICE='1'
+# before running to include screen+audio voice capture.
+
+$ErrorActionPreference = 'Stop'
+$ServerUrl   = '__SERVER__'
+$AgentToken  = '__TOKEN__'
+$DeviceToken = '__DEVICE__'
+$RepoDir     = Join-Path $env:USERPROFILE 'persona'
+
+Write-Host "==> Persona Windows installer"
+Write-Host "    Server: $ServerUrl"
+Write-Host "    Repo:   $RepoDir"
+
+# git present? (try winget if missing)
+if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+    Write-Host "--> git не найден — ставлю через winget…"
+    try {
+        winget install --silent --accept-source-agreements --accept-package-agreements Git.Git
+    } catch {
+        Write-Host "[!] Не удалось поставить git. Установи Git for Windows и повтори." -ForegroundColor Red
+        exit 1
+    }
+}
+
+# clone or update
+if (Test-Path (Join-Path $RepoDir '.git')) {
+    Write-Host "--> Репозиторий есть — обновляю (git pull)…"
+    git -C $RepoDir pull --ff-only
+} else {
+    Write-Host "--> Клонирую репозиторий…"
+    git clone https://github.com/SwairIt/persona.git $RepoDir
+}
+
+# voice toggle via env
+$extra = @{}
+if ($env:PERSONA_AGENT_VOICE -eq '1') { $extra['Voice'] = $true }
+
+# delegate to the repo installer (venv, deps, config, Scheduled Task, start)
+$installer = Join-Path $RepoDir 'mac-agent\install\install.ps1'
+& $installer -Server $ServerUrl -Token $AgentToken -DeviceToken $DeviceToken -NonInteractive @extra
+"""
+
+
+@router.get(
+    "/api/install/windows.ps1", response_class=PlainTextResponse, response_model=None
+)
+async def install_windows_script(t: str = Query(...)) -> PlainTextResponse:
+    """Serve the personalized PowerShell installer (public — install_id is the auth)."""
+    record = await _load_pending(t)
+    if record is None:
+        return PlainTextResponse(
+            "# Install link expired. Refresh /welcome/install/windows to mint a new one.\n",
+            status_code=410,
+        )
+    agent_token, device_token, server_url = record
+    script = (
+        _WINDOWS_PS1_TEMPLATE.replace("__SERVER__", server_url.replace("'", "''"))
+        .replace("__TOKEN__", agent_token.replace("'", "''"))
+        .replace("__DEVICE__", device_token.replace("'", "''"))
+    )
+    return PlainTextResponse(
+        script,
+        headers={
+            "Content-Type": "text/plain; charset=utf-8",
             "Cache-Control": "no-store, max-age=0",
         },
     )

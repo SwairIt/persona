@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto px-4 sm:px-6 py-8">
+  <div class="text-xs text-zinc-500 mb-2">
+    <a href="/welcome" class="hover:text-accent-400">← к приветствию</a>
+  </div>
+  <h1 class="text-2xl sm:text-3xl font-bold tracking-tight mb-2">
+    🪟 Установка / обновление Windows-агента за один шаг
+  </h1>
+  <p class="text-zinc-400 text-sm mb-2">
+    Откроет на твоём ПК: <code>git clone</code> + venv + установка зависимостей + автозапуск через <strong>Планировщик задач</strong>. Через ~30 секунд скрины начнут появляться в ленте.
+  </p>
+  <p class="text-zinc-500 text-xs mb-4">
+    🔄 Это же действие <strong>обновляет</strong> установленный агент: повторный запуск делает <code>git pull</code>, переписывает конфиг и перезапускает задачу. Запускай его всякий раз, когда видишь баннер «Доступно обновление».
+  </p>
+
+  <details class="mb-6 rounded-lg border border-purple-500/30 bg-purple-500/5 p-3 text-xs">
+    <summary class="cursor-pointer text-purple-300 font-semibold">🎙 Запись речи (всё что говоришь) — как включить</summary>
+    <div class="mt-2 space-y-2 text-zinc-300">
+      <p>
+        Поставь галочку <strong>«Записывать речь»</strong> у команды ниже — команда сама обновится (добавит <code>$env:PERSONA_AGENT_VOICE='1'</code>). Зависимости лёгкие (пара МБ, <strong>без 2 ГБ</strong>), расшифровка в текст — на сервере.
+      </p>
+      <ul class="list-disc list-inside text-zinc-400">
+        <li>Нужен <code>ffmpeg</code> (кодирование звука) — установщик попробует поставить через <code>winget install Gyan.FFmpeg</code>.</li>
+        <li>Параметры → Конфиденциальность → <strong>Микрофон</strong> → разрешить классическим приложениям доступ.</li>
+      </ul>
+    </div>
+  </details>
+
+  {% if is_local_only %}
+    <div class="mb-6 rounded-xl border border-rose-500/40 bg-rose-500/10 p-4">
+      <h2 class="font-semibold text-rose-300 mb-1">⚠️ Ты открыл это через <code>localhost</code></h2>
+      <p class="text-xs text-zinc-300">
+        Сейчас сервер URL — <code>{{ server_url }}</code>. С другого ПК этот URL <strong>не достучится</strong> до сервера. Если агент ставишь на эту же машину, где сервер — localhost норм. Иначе открой страницу по <strong>публичному URL</strong>.
+      </p>
+    </div>
+  {% endif %}
+
+  {% if ready_command %}
+    <div class="rounded-xl border border-emerald-500/40 bg-emerald-500/5 p-5 mb-6">
+      <h2 class="font-semibold text-emerald-300 mb-3">✅ Команда готова</h2>
+      <ol class="text-sm text-zinc-300 mb-3 space-y-1 list-decimal list-inside">
+        <li>Открой <strong>PowerShell</strong>: <kbd class="px-1 rounded bg-ink-800 border border-ink-700">Win</kbd>+<kbd class="px-1 rounded bg-ink-800 border border-ink-700">X</kbd> → «Windows PowerShell» (или Win+R → <code>powershell</code>).</li>
+        <li>Нажми <strong>«Скопировать»</strong> ниже.</li>
+        <li>Вставь (<kbd class="px-1 rounded bg-ink-800 border border-ink-700">Ctrl</kbd>+<kbd class="px-1 rounded bg-ink-800 border border-ink-700">V</kbd>) и нажми Enter.</li>
+      </ol>
+
+      <label class="flex items-center gap-2 text-sm text-zinc-200 mb-2 cursor-pointer select-none">
+        <input type="checkbox" id="voicechk" class="w-4 h-4 accent-purple-500">
+        🎙 Записывать речь с микрофона <span class="text-xs text-zinc-500">(+пара МБ, без 2 ГБ)</span>
+      </label>
+
+      <div id="cmdbox" data-cmd="{{ ready_command }}">
+        <pre id="cmdpre" class="bg-ink-950 border border-ink-700 rounded p-3 text-xs font-mono select-all overflow-x-auto whitespace-pre-wrap break-all">{{ ready_command }}</pre>
+        <button id="cmdcopy" type="button"
+                class="mt-3 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm rounded font-semibold">
+          📋 Скопировать
+        </button>
+      </div>
+      <p class="text-[10px] text-zinc-500 mt-3">
+        ⚠️ Ссылка одноразовая и работает 10 минут. Если протухла — нажми «Сгенерировать новую команду» ниже.
+      </p>
+    </div>
+
+    <script>
+      // Voice checkbox: prepend the env var INSIDE the -Command "..." so it
+      // reaches the piped installer (which checks $env:PERSONA_AGENT_VOICE).
+      (function () {
+        var box = document.getElementById('cmdbox');
+        if (!box) return;
+        var base = box.getAttribute('data-cmd');
+        var chk = document.getElementById('voicechk');
+        var pre = document.getElementById('cmdpre');
+        var btn = document.getElementById('cmdcopy');
+        function build() {
+          return chk.checked
+            ? base.replace('-Command "', '-Command "$env:PERSONA_AGENT_VOICE=\'1\'; ')
+            : base;
+        }
+        function refresh() { pre.textContent = build(); btn.textContent = '📋 Скопировать'; }
+        chk.addEventListener('change', refresh);
+        btn.addEventListener('click', function () {
+          navigator.clipboard.writeText(build());
+          btn.textContent = 'Скопировано ✓';
+        });
+      })();
+    </script>
+
+    <div class="rounded-xl border border-zinc-700 bg-ink-900 p-4 mb-6">
+      <h3 class="text-sm font-semibold mb-3">Дальше — что делать после команды</h3>
+      <div class="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-2.5 text-xs text-emerald-200 mb-3">
+        ✅ Токен вставлять <strong>никуда не надо</strong> — он уже внутри команды. Она пишет конфиг <code>%APPDATA%\Persona\config.toml</code> и регистрирует автозапуск.
+      </div>
+      <ol class="text-sm space-y-1.5 text-zinc-300 list-decimal list-inside">
+        <li>Если просили — разреши <strong>Микрофон</strong>: Параметры → Конфиденциальность и защита → Микрофон → «классические приложения».</li>
+        <li>Проверь задачу автозапуска: <code class="text-[11px] select-all">Get-ScheduledTask PersonaAgent</code> (или Планировщик задач → PersonaAgent).</li>
+        <li>Через ~30 сек проверь <a href="/devices" class="text-accent-400 underline">/devices</a> — Windows покажет «был только что».</li>
+        <li>Скрины появятся в <a href="/timeline" class="text-accent-400 underline">/timeline</a>.</li>
+      </ol>
+      <details class="mt-3 text-xs text-zinc-500">
+        <summary class="cursor-pointer text-zinc-300 font-semibold">Ничего не появилось / агент не подключается</summary>
+        <ul class="mt-2 space-y-1 list-disc list-inside">
+          <li>Лог: <code>Get-Content "$env:LOCALAPPDATA\Persona\Logs\persona-agent.log" -Tail 40 -Wait</code></li>
+          <li>Адрес сервера в команде должен быть достижим с этого ПК (если агент на другой машине — нужен публичный URL).</li>
+          <li>Перезапуск задачи: <code>Restart-ScheduledTask PersonaAgent</code> (или Stop/Start).</li>
+          <li>Перегенерируй команду кнопкой ниже и запусти ещё раз — это безопасно (обновление на месте).</li>
+        </ul>
+      </details>
+    </div>
+
+    <form method="post" action="/welcome/install/windows/mint" class="text-center">
+      <button type="submit" class="text-sm text-zinc-400 hover:text-accent-400 underline">
+        Сгенерировать новую команду
+      </button>
+    </form>
+  {% else %}
+    <div class="rounded-xl border border-zinc-700 bg-ink-900 p-5 mb-6">
+      <h2 class="font-semibold mb-2">Что произойдёт</h2>
+      <ol class="text-sm space-y-1.5 text-zinc-300 list-decimal list-inside">
+        <li>Сервер создаст <strong>агент-токен</strong> (можно отозвать в <a href="/admin/agents" class="text-accent-400 underline">/admin/agents</a>).</li>
+        <li>Я подготовлю одну команду PowerShell (<code>irm ... | iex</code>).</li>
+        <li>Ты копируешь её, открываешь PowerShell, вставляешь.</li>
+        <li>Скрипт делает <code>git clone</code>, ставит зависимости, прописывает автозапуск (Планировщик задач).</li>
+      </ol>
+    </div>
+
+    <form method="post" action="/welcome/install/windows/mint" class="text-center">
+      <button type="submit"
+              class="px-6 py-3 bg-accent-600 hover:bg-accent-500 text-white font-semibold rounded-lg shadow-lg">
+        Сгенерировать команду →
+      </button>
+    </form>
+
+    <details class="mt-6 text-xs text-zinc-500">
+      <summary class="cursor-pointer text-zinc-300 font-semibold">Не доверяю <code>irm ... | iex</code></summary>
+      <p class="mt-2">
+        Скрипт можно посмотреть: после генерации открой URL <code>{{ server_url }}/api/install/windows.ps1?t=...</code> в браузере — увидишь весь PowerShell. Или вручную: <code>git clone https://github.com/SwairIt/persona.git</code>, затем <code>powershell -ExecutionPolicy Bypass -File persona\mac-agent\install\install.ps1 -Server {{ server_url }} -Token &lt;token&gt;</code>.
+      </p>
+    </details>
+  {% endif %}
+</div>
+{% endblock %}

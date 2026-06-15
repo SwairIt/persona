@@ -35,6 +35,7 @@ from typing import TYPE_CHECKING
 import click
 import httpx
 
+import platform_support as plat
 from config import (
     DEFAULT_CONFIG_PATH,
     DEFAULT_PAUSE_FILE,
@@ -42,7 +43,7 @@ from config import (
     load_config,
     write_config,
 )
-from persona_agent import run as run_daemon
+from persona_agent import AGENT_VERSION, run as run_daemon
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -72,7 +73,7 @@ def _load_or_die(config_path: Path | None) -> AgentConfig:
 
 def _server_pid_file() -> Path:
     """Where ``run`` drops its PID for ``pause``/``resume`` SIGUSR1 fast-path."""
-    return Path.home() / ".persona-agent.pid"
+    return plat.pid_file()
 
 
 # --------------------------------------------------------------------------- #
@@ -195,7 +196,7 @@ def status(config_path: Path | None, as_json: bool) -> None:
     url = str(config.server.url).rstrip("/") + "/api/agent/stats"
     headers = {
         "Authorization": f"Bearer {config.server.token.get_secret_value()}",
-        "User-Agent": "persona-agent/1.18 (cli status)",
+        "User-Agent": f"persona-agent/{AGENT_VERSION} (cli status)",
     }
     try:
         response = httpx.get(url, headers=headers, timeout=10.0)

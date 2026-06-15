@@ -88,10 +88,19 @@
           {# === WINDOWS === #}
           {% elif device_kind == 'windows' %}
             <p class="text-sm text-zinc-300 mt-1">
-              Windows-агент пока в плане. Сейчас Persona захватывает только с Mac. На Windows можно использовать сервер для хранения, а захват — с Mac (если есть).
+              Полноценный Windows-агент: скрины, запись звука, чтение/запись диска для ИИ, выполнение команд (PowerShell) и голос — всё как на Mac. Ставится одной командой и сам стартует при входе в систему.
             </p>
-            <p class="text-xs text-zinc-500 mt-2">
-              Запросы на Windows-агент: <a href="https://github.com/SwairIt/persona/issues" class="text-accent-400 underline" target="_blank">github issues</a>.
+            <ol class="text-sm text-zinc-300 mt-3 space-y-1 list-decimal list-inside">
+              <li>Нажми кнопку ниже — сервер выдаст готовую команду PowerShell.</li>
+              <li>Открой PowerShell (<kbd class="px-1 rounded bg-ink-800 border border-ink-700">Win</kbd>+<kbd class="px-1 rounded bg-ink-800 border border-ink-700">X</kbd>) и вставь её.</li>
+              <li>Через ~30 сек скрины пойдут в ленту.</li>
+            </ol>
+            <a href="/welcome/install/windows"
+               class="inline-block mt-4 px-5 py-2.5 bg-accent-600 hover:bg-accent-500 text-white font-semibold rounded-lg shadow-lg">
+              🪟 Установить Windows-агент за один шаг →
+            </a>
+            <p class="text-xs text-zinc-500 mt-3">
+              Тот же шаг <strong>обновляет</strong> уже установленный агент. Голос/запись речи включается галочкой на странице установки.
             </p>
 
           {# === GENERIC === #}

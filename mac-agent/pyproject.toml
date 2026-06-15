@@ -1,13 +1,15 @@
 [project]
 name = "persona-agent"
-version = "1.12.0"
-description = "Persona Mac capture agent — local screen + microphone capture daemon that uploads to a Persona server."
+version = "1.19.0"
+description = "Persona capture agent (Windows + macOS) — local screen + microphone capture daemon that uploads to a Persona server."
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [
     { name = "SwairIt", email = "112168281+SwairIt@users.noreply.github.com" },
 ]
 license = { text = "AGPL-3.0-or-later" }
+# Light core — works on Windows + macOS without torch (~2GB). Audio VAD and
+# local Whisper transcription are opt-in extras so the default install stays small.
 dependencies = [
     "httpx>=0.28",
     "mss>=10.0",
@@ -16,8 +18,6 @@ dependencies = [
     "sounddevice>=0.5",
     "numpy>=1.26",
     "scipy>=1.13",
-    "silero-vad>=5.1",
-    "openai-whisper>=20240930",
     "tomli>=2.0;python_version<'3.11'",
     "click>=8.1",
     "structlog>=24.4",
@@ -26,6 +26,17 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Speech detection without torch. webrtcvad-wheels ships prebuilt Windows +
+# macOS wheels (plain webrtcvad needs a C toolchain on Windows).
+audio = [
+    "webrtcvad-wheels>=2.0",
+]
+# Optional on-device transcription (heavy — pulls torch). When absent the
+# agent uploads audio without a transcript and the server transcribes.
+transcribe = [
+    "silero-vad>=5.1",
+    "openai-whisper>=20240930",
+]
 encodec = [
     "encodec>=0.1",
     "torch>=2.2",
@@ -39,8 +50,8 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-# Distribute the three top-level modules — this is a flat package, not a tree.
-only-include = ["persona_agent.py", "cli.py", "config.py"]
+# Distribute the top-level modules — this is a flat package, not a tree.
+only-include = ["persona_agent.py", "cli.py", "config.py", "platform_support.py", "sync_client.py"]
 
 [tool.ruff]
 line-length = 100

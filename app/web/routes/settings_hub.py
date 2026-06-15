@@ -86,6 +86,7 @@ _CATEGORIES: Final[list[dict[str, object]]] = [
         "pages": [
             ("/devices", "Устройства (пауза, интервал, ★ код-таргет)"),
             ("/welcome/install/mac", "Установить / обновить Mac-агент"),
+            ("/welcome/install/windows", "Установить / обновить Windows-агент"),
             ("/welcome", "Онбординг — подключить новое устройство"),
             ("/sync", "Синхронизация — статус и watermark'и"),
             ("/storage", "Хранилище — квоты, retention, очистка"),
