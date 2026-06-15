@@ -37,9 +37,10 @@
   <a href="#top" class="skip-link">Перейти к содержанию</a>
   <div class="scroll-progress" aria-hidden="true"><span id="progress-bar"></span></div>
 
-  <!-- глобальное звёздное поле (дешёвый CSS-космос за всеми секциями) -->
-  <div class="starfield" aria-hidden="true"></div>
-  <div class="page-glow" aria-hidden="true"></div>
+  <!-- СКВОЗНОЙ КОСМОС: один фиксированный WebGL-canvas-галактика за всем сайтом
+       (+ CSS-постер-фолбэк под ним, если WebGL недоступен) -->
+  <div class="bh-fallback" aria-hidden="true"></div>
+  <canvas id="blackhole" aria-hidden="true"></canvas>
 
   <header class="nav" id="nav">
     <a class="brand" href="#top"><span class="brand-dot"></span> Persona</a>
@@ -61,11 +62,7 @@
 
     <!-- HERO · ЧЁРНАЯ ДЫРА -->
     <section class="hero" id="hero">
-      <div class="bh-stage" aria-hidden="true">
-        <div class="bh-fallback"></div>
-        <canvas id="blackhole"></canvas>
-        <div class="bh-scrim"></div>
-      </div>
+      <div class="bh-scrim" aria-hidden="true"></div>
 
       <div class="hero-eye">
         <p class="eyebrow reveal"><span class="dot-live"></span> личный ИИ · локально · приватно</p>
