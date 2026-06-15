@@ -1327,8 +1327,39 @@ async def api_send_stream(
             except Exception as exc:  # noqa: BLE001
                 log.warning("chat.summary.dispatch_failed", error=str(exc))
 
+        # 7e — авто-извлечение долговременных фактов о пользователе (mem0-стиль).
+        # Best-effort, в фоне, только когда сообщение «про себя» (экономим вызовы).
+        async def _bg_extract_memory(uid: int, q: str, a: str, sid: int) -> None:
+            try:
+                from app.storage.db import get_connection as _gc  # noqa: PLC0415
+
+                async with _gc() as _c:
+                    _cur = await _c.execute(
+                        "SELECT value FROM kv_settings WHERE key='auto_memory'"
+                    )
+                    _row = await _cur.fetchone()
+                if _row is not None and str(_row[0]).strip() == "0":
+                    return  # выключено пользователем
+                ql = (q or "").lower()
+                self_markers = (
+                    "я ", " я", "мне", "меня", "мой", "моя", "мои", "моё", "моё",
+                    "зовут", "у меня", "люблю", "нравит", "ненавиж", "предпочит",
+                    "работаю", "проект", "живу", "учусь", "хочу", "планиру", "буду",
+                    "my ", "i'm", "i am", "i like", "i prefer", "call me",
+                )
+                if len(ql) < 12 or not any(m in ql for m in self_markers):
+                    return
+                from app.chat.user_memory import extract_and_store  # noqa: PLC0415
+
+                await extract_and_store(uid, q, a, session_id=sid)
+            except Exception as exc:  # noqa: BLE001
+                log.debug("chat.auto_memory.dispatch_failed", error=str(exc))
+
         import asyncio as _asyncio  # noqa: PLC0415
         _asyncio.create_task(_bg_summarise(session_id))
+        _asyncio.create_task(
+            _bg_extract_memory(session["user_id"], question, full, session_id)
+        )
 
     # T29 — run the generation in a DETACHED task so it survives the user
     # closing the page. `event_stream()` (unchanged) is driven by `_pump`,

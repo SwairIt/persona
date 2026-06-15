@@ -145,6 +145,61 @@ async def search_memory(user_id: int, query: str, limit: int = 8) -> list[dict[s
     ]
 
 
+async def extract_and_store(
+    user_id: int, user_msg: str, assistant_msg: str, session_id: int | None = None
+) -> int:
+    """mem0-стиль: после обмена вытащить новые ДОЛГОВРЕМЕННЫЕ факты о пользователе
+    и сохранить. Best-effort, дёшево (1 короткий LLM-вызов), не для каждого сообщения
+    (вызывающий гейтит). Возвращает число добавленных фактов.
+    """
+    user_msg = (user_msg or "").strip()
+    if len(user_msg) < 8:
+        return 0
+    from app.llm.client import (  # noqa: PLC0415 — избегаем цикла импорта
+        CompletionRequest,
+        LLMNotConfigured,
+        make_client,
+    )
+
+    try:
+        client = make_client(kind="chat_summary")
+    except LLMNotConfigured:
+        return 0
+    existing = await list_memory(user_id, limit=60)
+    known = "\n".join("- " + e["text"] for e in existing) or "(пусто)"
+    system = (
+        "Ты ведёшь долговременную память личного ассистента. Из последнего обмена "
+        "выпиши ТОЛЬКО новые, СТАБИЛЬНЫЕ факты о пользователе (имя/кто он, "
+        "предпочтения, проекты, важные люди, постоянные задачи, цели, важные детали "
+        "жизни). НЕ включай: сиюминутное, вопросы, общие знания и то, что уже известно. "
+        "Кратко, от 3-го лица. Максимум 3 факта. Если новых фактов нет — ответь ровно: НЕТ."
+    )
+    user = (
+        f"Уже известно:\n{known}\n\nПоследний обмен:\n"
+        f"Пользователь: {user_msg[:1500]}\nАссистент: {(assistant_msg or '')[:1200]}\n\n"
+        "Новые факты (каждый с новой строки, начиная с «- »):"
+    )
+    try:
+        out = await client.complete(
+            CompletionRequest(system=system, user=user, max_tokens=200, temperature=0.1)
+        )
+    except Exception as exc:  # noqa: BLE001 — best-effort
+        log.debug("user_memory.extract_failed", error=str(exc))
+        return 0
+    added = 0
+    for raw in (out or "").splitlines():
+        line = raw.strip().lstrip("-•*").strip()
+        if not line or line.upper() == "НЕТ" or line.upper() == "NONE" or len(line) < 6:
+            continue
+        if await add_memory(user_id, line, kind="fact", source_session_id=session_id):
+            added += 1
+        if added >= 3:
+            break
+    if added:
+        log.info("user_memory.auto_added", user_id=user_id, count=added)
+    return added
+
+
 async def build_memory_block(user_id: int, max_items: int = 14) -> str:
     """Блок для системного промпта: закреплённые + недавние факты о пользователе."""
     items = await list_memory(user_id, limit=max_items)
