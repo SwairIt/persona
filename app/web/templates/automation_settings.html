@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Автоматизация — браузер и MCP</h1>
+  <p class="text-zinc-500 text-sm mt-1 max-w-3xl">
+    Управление двумя системами автоматизации чата: интерактивным
+    <strong>браузер-агентом</strong> (постоянный Chromium на сессию — кликает,
+    вводит текст, читает, делает скрины между ходами) и
+    <strong>MCP-рантаймом</strong> (запуск внешних MCP-серверов по stdio и
+    подключение их инструментов как <code class="text-zinc-300">mcp__сервер__инструмент</code>).
+    Локальная сеть (localhost / 127.0.0.1 / RFC1918) для браузера запрещена всегда.
+  </p>
+</div>
+
+<section class="rounded-lg border border-ink-700 bg-ink-800 p-5 max-w-3xl space-y-6">
+
+  <!-- Browser backend -->
+  <div>
+    <h2 class="text-sm font-semibold text-zinc-200">Бэкенд браузера</h2>
+    <p class="text-xs text-zinc-500 mt-0.5 mb-3">
+      Чем обслуживать инструменты <code>browser_open / click / type / read /
+      screenshot</code> в чате.
+    </p>
+    <div class="space-y-2">
+      {% set descriptions = {
+        "builtin": "Встроенный Playwright-воркер Persona (по умолчанию, ничего ставить не нужно).",
+        "mcp": "Только внешний Playwright MCP-сервер (встроенные browser_* скрыты).",
+        "both": "Оба — встроенный агент И инструменты внешнего MCP-сервера."
+      } %}
+      {% for b in backends %}
+      <label class="flex items-start gap-3 p-2.5 rounded border border-ink-700 hover:border-ink-600 cursor-pointer">
+        <input type="radio" name="browser_backend" value="{{ b }}"
+               class="mt-0.5 accent-accent-500"
+               {% if state.browser_backend == b %}checked{% endif %}>
+        <span>
+          <span class="text-zinc-200 text-sm font-medium">{{ b }}</span>
+          <span class="block text-xs text-zinc-500">{{ descriptions[b] }}</span>
+        </span>
+      </label>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Domain allow/deny -->
+  <div class="pt-4 border-t border-ink-700">
+    <h2 class="text-sm font-semibold text-zinc-200">Домены браузера (allow / deny)</h2>
+    <p class="text-xs text-zinc-500 mt-0.5 mb-3">
+      По одному домену на строку (или через запятую). <strong>Allow</strong>
+      пустой = разрешены любые публичные сайты. <strong>Deny</strong> важнее
+      allow. <code>example.com</code> покрывает и <code>www.example.com</code>.
+    </p>
+    <div class="grid sm:grid-cols-2 gap-3">
+      <div>
+        <label class="block text-xs text-zinc-400 mb-1">Белый список (allow)</label>
+        <textarea id="allow" rows="4"
+          class="w-full px-2 py-1.5 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:border-accent-500 focus:outline-none"
+          placeholder="github.com&#10;docs.python.org">{{ state.browser_allow_domains }}</textarea>
+      </div>
+      <div>
+        <label class="block text-xs text-zinc-400 mb-1">Чёрный список (deny)</label>
+        <textarea id="deny" rows="4"
+          class="w-full px-2 py-1.5 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:border-accent-500 focus:outline-none"
+          placeholder="ads.example&#10;tracker.net">{{ state.browser_deny_domains }}</textarea>
+      </div>
+    </div>
+  </div>
+
+  <!-- MCP runtime -->
+  <div class="pt-4 border-t border-ink-700">
+    <h2 class="text-sm font-semibold text-zinc-200">MCP-рантайм (stdio)</h2>
+    <p class="text-xs text-zinc-500 mt-0.5 mb-3">
+      Запускать внешние MCP-серверы из <a href="/admin/mcp" class="text-accent-400 underline">/admin/mcp</a>
+      (включённые, не-builtin, с разрешённой командой запуска: npx / node / uvx /
+      python / deno / bun) и подключать их инструменты в чат.
+    </p>
+    <label class="flex items-center gap-3 cursor-pointer">
+      <input type="checkbox" id="mcp_runtime_enabled" class="accent-accent-500 w-4 h-4"
+             {% if state.mcp_runtime_enabled == "1" %}checked{% endif %}>
+      <span class="text-sm text-zinc-200">Включить MCP-рантайм</span>
+    </label>
+
+    {% if discovered %}
+    <div class="mt-3 text-xs text-zinc-400">
+      Сейчас обнаружено инструментов: {{ discovered|length }}
+      <ul class="mt-1 font-mono text-[11px] text-zinc-500 space-y-0.5">
+        {% for t in discovered[:30] %}<li>{{ t }}</li>{% endfor %}
+      </ul>
+    </div>
+    {% else %}
+    <p class="mt-2 text-[11px] text-zinc-600">Внешние MCP-инструменты пока не обнаружены.</p>
+    {% endif %}
+  </div>
+
+  <div class="flex items-center justify-between pt-4 border-t border-ink-700">
+    <p id="automation-status" class="text-xs text-zinc-500 min-h-[1em]" aria-live="polite"></p>
+    <button type="button" id="automation-save"
+            class="px-4 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium">
+      Сохранить
+    </button>
+  </div>
+</section>
+
+<script>
+  (function () {
+    'use strict';
+    const status = document.getElementById('automation-status');
+    function flash(msg, isError) {
+      if (!status) return;
+      status.textContent = msg;
+      status.style.color = isError ? '#fb7185' : '#a3e635';
+      setTimeout(function () {
+        if (status.textContent === msg) status.textContent = '';
+      }, 3000);
+    }
+
+    const btn = document.getElementById('automation-save');
+    if (btn) {
+      btn.addEventListener('click', async function () {
+        const backendEl = document.querySelector('input[name="browser_backend"]:checked');
+        const payload = {
+          browser_backend: backendEl ? backendEl.value : 'builtin',
+          mcp_runtime_enabled: document.getElementById('mcp_runtime_enabled').checked,
+          browser_allow_domains: document.getElementById('allow').value,
+          browser_deny_domains: document.getElementById('deny').value,
+        };
+        try {
+          const res = await fetch('/settings/automation', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          if (!res.ok) {
+            const detail = await res.text();
+            flash('Не сохранилось: ' + res.status + ' ' + detail, true);
+            return;
+          }
+          flash('Сохранено', false);
+        } catch (err) {
+          flash('Сетевая ошибка: ' + String(err), true);
+        }
+      });
+    }
+  })();
+</script>
+{% endblock %}

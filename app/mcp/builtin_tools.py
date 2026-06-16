@@ -1052,6 +1052,19 @@ _BUILTIN_TOOLS: dict[str, dict[str, Any]] = {
 }
 
 
+# Phase 2 — merge the interactive browser-agent tools (persistent Playwright
+# worker per session) into the registry. Imported here, not at module top, to
+# keep the import graph shallow (the agent package pulls in workspace + SSE
+# lazily). A failure to import must not take down the whole tool registry.
+try:
+    from app.browse.agent import BROWSER_AGENT_ALIASES, BROWSER_AGENT_TOOLS  # noqa: E402
+
+    _BUILTIN_TOOLS.update(BROWSER_AGENT_TOOLS)
+except Exception as _exc:  # noqa: BLE001
+    log.warning("builtin_tools.browser_agent_import_failed", error=str(_exc))
+    BROWSER_AGENT_ALIASES = {}
+
+
 def get_builtin_tool(name: str) -> dict[str, Any] | None:
     """Return registry entry for built-in tool, or None if unknown."""
     return _BUILTIN_TOOLS.get(name)
@@ -1109,6 +1122,12 @@ _MKDIR_NAMES = {
     "new_folder", "newfolder", "mkdirs",
 }
 
+# Phase 2 — fold the browser-agent hallucination aliases into the main map
+# (only those whose real target isn't already a registered builtin name, so a
+# real tool name is never shadowed).
+for _alias, _target in (BROWSER_AGENT_ALIASES or {}).items():
+    _TOOL_ALIASES.setdefault(_alias, _target)
+
 
 async def call_tool(
     name: str, args: dict[str, Any], user_id: int = 0, session_id: int | None = None
@@ -1125,6 +1144,13 @@ async def call_tool(
     the dispatcher only passes kwargs a tool actually accepts.
     """
     name = (name or "").strip()
+    # Phase 2 — external MCP tools live under the ``mcp__server__tool``
+    # namespace; route them to the stdio MCP runtime (no user/session
+    # binding — the MCP server has its own scope/allowlist).
+    if name.startswith("mcp__"):
+        from app.mcp.runtime import call_mcp_tool  # noqa: PLC0415
+
+        return await call_mcp_tool(name, args)
     # mkdir-style → create a folder by writing a .gitkeep inside it.
     if name in _MKDIR_NAMES:
         path = str(args.get("path") or args.get("dir") or args.get("name") or "").strip()
@@ -1219,7 +1245,13 @@ def build_tools_prompt(enabled_tool_names: list[str]) -> str:
         "",
         "Доступные инструменты:",
     ]
+    mcp_names: list[str] = []
     for name in enabled_tool_names:
+        # External MCP tools (mcp__server__tool) have no local spec — list
+        # them separately with a generic hint so the model still calls them.
+        if name.startswith("mcp__"):
+            mcp_names.append(name)
+            continue
         entry = _BUILTIN_TOOLS.get(name)
         if not entry:
             continue
@@ -1227,6 +1259,14 @@ def build_tools_prompt(enabled_tool_names: list[str]) -> str:
             f"{k}: {v}" for k, v in (entry.get("params") or {}).items()
         )
         lines.append(f"  • {name} — {entry['description']} ({param_doc})")
+    if mcp_names:
+        lines.append("")
+        lines.append(
+            "Внешние MCP-инструменты (вызывай так же, аргументы — как требует "
+            "сервер; имя содержит сервер и инструмент):"
+        )
+        for name in mcp_names:
+            lines.append(f"  • {name}")
     return "\n".join(lines)
 
 

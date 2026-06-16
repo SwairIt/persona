@@ -44,6 +44,7 @@ _KEYWORDS: Final[dict[str, str]] = {
     "/ai-activity": "активность инструменты что делает ии прозрачность",
     "/graph": "граф связи память узлы graph",
     "/settings/skills": "навыки skills инструкции github умения skill",
+    "/settings/automation": "браузер browser mcp автоматизация playwright инструменты агент домены allowlist",
 }
 
 
@@ -94,6 +95,7 @@ _CATEGORIES: Final[list[dict[str, object]]] = [
             ("/ai-activity", "🔭 Что делает ИИ — окно активности (инструменты live)"),
             ("/voice", "🎙️ Голосовой разговор (hands-free, орб-микрофон)"),
             ("/settings/skills", "🧩 Навыки — наборы инструкций из GitHub (SKILL.md)"),
+            ("/settings/automation", "🌐 Автоматизация — браузер-агент + MCP-рантайм (бэкенд, домены)"),
             ("/settings/advanced", "⚙️ Расширенные функции (мастер-выключатель: друг ⇄ рабочий)"),
             ("/settings/system-prompt", "Системный промпт / характер ассистента (пресеты + редактор)"),
             ("/settings/profile", "Профиль — что ИИ знает обо мне"),

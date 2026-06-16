@@ -981,12 +981,14 @@ async def api_send_stream(
     # in /admin/mcp. LLM sees them in system prompt; uses <tool>...</tool>
     # syntax to call. We parse, execute, feed back as another user msg.
     from app.mcp import (  # noqa: PLC0415
+        all_enabled_tool_names,
         build_tools_prompt,
-        enabled_builtin_tool_names,
     )
     # T31 E3 — режим: инструменты доступны только в auto/bypass И если фичи вкл.
+    # Phase 2 — all_enabled_tool_names = builtin (browser-agent gated by
+    # browser_backend) + discovered external MCP tools (mcp__server__tool).
     _mode = await _get_mode(session_id) if adv["modes"] else "auto"
-    enabled_tools = await enabled_builtin_tool_names()
+    enabled_tools = await all_enabled_tool_names()
     _tools_on = adv["tools"] and (not adv["modes"] or _mode in ("auto", "bypass"))
     if _tools_on:
         tools_fragment = build_tools_prompt(enabled_tools)

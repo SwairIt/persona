@@ -36,3 +36,5 @@ help.txt
 # loadmon
 loadmon/loadmon.db
 loadmon/loadmon.db-*
+
+.agent_designs/

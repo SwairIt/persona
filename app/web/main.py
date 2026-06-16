@@ -744,6 +744,9 @@ def create_app() -> FastAPI:
     # qa_stream is nested inside qa_routes (app/web/routes/qa.py uses
     # router.include_router(qa_stream_router)) — registering here too duped routes.
     app.include_router(settings_hub_routes.router)
+    # Phase 2 — браузер-агент + MCP-рантайм переключатель (/settings/automation).
+    from app.web.routes import automation_settings as automation_settings_routes  # noqa: PLC0415
+    app.include_router(automation_settings_routes.router)
     app.include_router(shot_alt_text_settings_routes.router)
     app.include_router(auto_pin_admin_routes.router)
     app.include_router(today_vs_average_routes.router)
@@ -1344,6 +1347,16 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+        # Phase 2 — terminate any per-session browser workers and stdio MCP
+        # subprocesses so we don't leave orphaned Chromium / node processes.
+        try:
+            from app.browse.agent.manager import close_all as _close_browsers
+            from app.mcp.runtime import shutdown_mcp_runtime as _close_mcp
+
+            await _close_browsers()
+            await _close_mcp()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("persona.automation_shutdown_failed", error=str(exc))
         log.info("persona.stopped")
 
 
