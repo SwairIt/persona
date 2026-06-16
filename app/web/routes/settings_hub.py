@@ -44,6 +44,8 @@ _KEYWORDS: Final[dict[str, str]] = {
     "/chat": "чат беседа ассистент диалог chat",
     "/ai-activity": "активность инструменты что делает ии прозрачность",
     "/graph": "граф связи память узлы graph",
+    "/analytics": "аналитика статистика тренды графики использование ии токены покрытие analytics",
+    "/day": "день обзор дня скриншоты звук спросить про день day",
     "/briefing": "брифинг сводка дня проактивно карточки утро итоги briefing digest",
     "/settings/skills": "навыки skills инструкции github умения skill",
     "/settings/automation": "браузер browser mcp автоматизация playwright инструменты агент домены allowlist",
@@ -181,6 +183,8 @@ _CATEGORIES: Final[list[dict[str, object]]] = [
         "icon": "📊",
         "description": "Статистика, бюджет, lab-замеры, фокус.",
         "pages": [
+            ("/analytics", "📊 Аналитика — тренды активности и ИИ за 7/30/90 дней"),
+            ("/day", "📅 День — обзор одного дня (скрины, звук, ИИ, спросить)"),
             ("/stats", "Общая статистика"),
             ("/stats/llm-cost", "Стоимость LLM"),
             ("/stats/quality-lab", "Качество захвата"),

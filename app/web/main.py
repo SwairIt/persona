@@ -91,6 +91,7 @@ from app.web.routes import (
     day_collage as day_collage_routes,
     day_json as day_json_routes,
     day_overview_page as day_overview_page_routes,
+    analytics_page as analytics_page_routes,
     day_kanban as day_kanban_routes,
     day_ocr_diff as day_ocr_diff_routes,
     day_scrubber as day_scrubber_routes,
@@ -618,6 +619,7 @@ def create_app() -> FastAPI:
     app.include_router(ocr_retry_routes.router)
     app.include_router(day_collage_routes.router)
     app.include_router(day_overview_page_routes.router)
+    app.include_router(analytics_page_routes.router)
     app.include_router(shot_share_routes.router)
     app.include_router(shot_share_ui_routes.router)
     app.include_router(ocr_near_dup_routes.router)

@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto px-4 py-6 space-y-6">
+
+  <header class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-2xl font-bold text-zinc-100">📊 Аналитика</h1>
+      <div class="text-xs text-zinc-500 mt-0.5">{{ a.start }} — {{ a.end }} · {{ a.days }} дней</div>
+    </div>
+    <div class="flex items-center gap-1 text-sm">
+      {% for d in [7, 30, 90] %}
+        <a href="/analytics?days={{ d }}"
+           class="px-3 py-1.5 rounded-lg border {{ 'bg-accent-600 border-accent-500 text-white' if a.days == d else 'bg-ink-800 border-ink-700 hover:bg-ink-700 text-zinc-300' }}">{{ d }}д</a>
+      {% endfor %}
+    </div>
+  </header>
+
+  {# KPI #}
+  <div class="grid grid-cols-2 sm:grid-cols-5 gap-3">
+    <div class="rounded-xl border border-ink-700 bg-ink-800 p-4">
+      <div class="text-xs text-zinc-500">Скриншоты</div>
+      <div class="text-2xl font-bold text-zinc-100 mt-1">{{ '{:,}'.format(a.totals.screenshots).replace(',', ' ') }}</div>
+    </div>
+    <div class="rounded-xl border border-ink-700 bg-ink-800 p-4">
+      <div class="text-xs text-zinc-500">Звук, мин</div>
+      <div class="text-2xl font-bold text-zinc-100 mt-1">{{ a.totals.audio_min }}</div>
+    </div>
+    <div class="rounded-xl border border-ink-700 bg-ink-800 p-4">
+      <div class="text-xs text-zinc-500">Использований ИИ</div>
+      <div class="text-2xl font-bold text-zinc-100 mt-1">{{ a.totals.ai_uses }}</div>
+    </div>
+    <div class="rounded-xl border border-ink-700 bg-ink-800 p-4">
+      <div class="text-xs text-zinc-500">Токены ИИ</div>
+      <div class="text-2xl font-bold text-zinc-100 mt-1">{{ '{:,}'.format(a.totals.tokens).replace(',', ' ') }}</div>
+    </div>
+    <div class="rounded-xl border border-ink-700 bg-ink-800 p-4">
+      <div class="text-xs text-zinc-500">Покрытие захвата</div>
+      <div class="text-2xl font-bold text-zinc-100 mt-1">{{ a.totals.coverage_pct }}%</div>
+      <div class="text-[11px] text-zinc-600 mt-0.5">{{ a.totals.capture_days }} из {{ a.days }} дней</div>
+    </div>
+  </div>
+
+  {# Посуточная активность (скриншоты) #}
+  <section class="rounded-xl border border-ink-700 bg-ink-900 p-4">
+    <h2 class="text-sm font-semibold text-zinc-300 mb-3">Скриншоты по дням</h2>
+    <div class="flex items-end gap-0.5 h-32">
+      {% for s in a.series %}
+        {% set h = (s.screenshots / a.max_screens * 100) if a.max_screens > 0 else 0 %}
+        <a href="/day/{{ s.day }}" class="flex-1 group relative flex items-end" title="{{ s.day }}: {{ s.screenshots }} скр., {{ s.ai_uses }} ИИ, {{ s.audio_min }} мин звука">
+          <div class="w-full rounded-t bg-accent-500/60 group-hover:bg-accent-400 transition-all" style="height: {{ '%.1f' % h }}%; min-height: {{ '2px' if s.screenshots > 0 else '0' }};"></div>
+        </a>
+      {% endfor %}
+    </div>
+    <div class="flex justify-between text-[10px] text-zinc-600 mt-1">
+      <span>{{ a.start[5:] }}</span><span>{{ a.end[5:] }}</span>
+    </div>
+  </section>
+
+  {# Посуточно: использование ИИ #}
+  <section class="rounded-xl border border-ink-700 bg-ink-900 p-4">
+    <h2 class="text-sm font-semibold text-zinc-300 mb-3">Использование ИИ по дням</h2>
+    <div class="flex items-end gap-0.5 h-24">
+      {% for s in a.series %}
+        {% set h = (s.ai_uses / a.max_ai * 100) if a.max_ai > 0 else 0 %}
+        <a href="/day/{{ s.day }}" class="flex-1 group flex items-end" title="{{ s.day }}: {{ s.ai_uses }} использований ИИ, {{ s.tokens }} токенов">
+          <div class="w-full rounded-t bg-emerald-500/50 group-hover:bg-emerald-400 transition-all" style="height: {{ '%.1f' % h }}%; min-height: {{ '2px' if s.ai_uses > 0 else '0' }};"></div>
+        </a>
+      {% endfor %}
+    </div>
+  </section>
+
+  <div class="grid md:grid-cols-2 gap-4">
+    {# Топ-приложения #}
+    <section class="rounded-xl border border-ink-700 bg-ink-900 p-4">
+      <h2 class="text-sm font-semibold text-zinc-300 mb-3">Топ приложений за период</h2>
+      {% if a.top_apps %}
+        {% set app_max = a.top_apps[0].count %}
+        <div class="space-y-1.5">
+          {% for ap in a.top_apps %}
+            <div class="flex items-center gap-2">
+              <img src="/app-icon/{{ ap.app | urlencode }}.png" class="w-4 h-4 rounded-sm flex-shrink-0" alt="" loading="lazy">
+              <span class="text-xs text-zinc-300 w-32 truncate">{{ ap.app }}</span>
+              <div class="flex-1 bg-ink-800 rounded-full h-2 overflow-hidden">
+                <div class="bg-accent-500 h-full rounded-full" style="width: {{ (ap.count / app_max * 100) | round }}%"></div>
+              </div>
+              <span class="text-xs text-zinc-500 w-12 text-right">{{ ap.count }}</span>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="text-sm text-zinc-500">Нет данных за период.</p>
+      {% endif %}
+    </section>
+
+    {# Использование ИИ по типам #}
+    <section class="rounded-xl border border-ink-700 bg-ink-900 p-4">
+      <h2 class="text-sm font-semibold text-zinc-300 mb-3">ИИ: по типам задач</h2>
+      {% if a.llm_by_kind %}
+        <div class="space-y-1.5">
+          {% for k in a.llm_by_kind %}
+            <div class="flex items-center justify-between text-xs">
+              <span class="text-zinc-300">{{ k.kind }}</span>
+              <span class="text-zinc-500">{{ k.calls }} выз. · {{ '{:,}'.format(k.input + k.output).replace(',', ' ') }} ток.</span>
+            </div>
+          {% endfor %}
+        </div>
+        {% if a.llm_by_provider %}
+          <div class="mt-3 pt-3 border-t border-ink-800 text-xs text-zinc-500">
+            Провайдеры: {% for p in a.llm_by_provider %}{{ p.provider }} ({{ p.calls }}){% if not loop.last %} · {% endif %}{% endfor %}
+          </div>
+        {% endif %}
+      {% else %}
+        <p class="text-sm text-zinc-500">ИИ за период не использовался (или llm_usage пуст).</p>
+      {% endif %}
+    </section>
+  </div>
+
+  <p class="text-[11px] text-zinc-600">
+    Клик по столбцу — открыть этот <a href="/day/{{ a.end }}" class="underline">день</a>.
+    Подробнее по дню — на странице <a href="/day/{{ a.end }}" class="underline">/day</a>.
+  </p>
+</div>
+{% endblock %}
