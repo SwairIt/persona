@@ -67,6 +67,19 @@ async def landing_page(
     return _render(request, session)
 
 
+@router.get("/features", response_class=HTMLResponse, response_model=None)
+async def features_page(
+    request: Request,
+    session: Annotated[SessionRecord | None, Depends(current_user_optional)],
+) -> HTMLResponse:
+    """Публичная страница возможностей (12 преимуществ, local-first акцент)."""
+    return templates.TemplateResponse(
+        request,
+        "features.html",
+        {"title": "Возможности Persona", "app_version": __version__, "session": session},
+    )
+
+
 @router.get("/landing/v2", response_class=HTMLResponse, response_model=None)
 async def landing_page_v2(
     request: Request,

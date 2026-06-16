@@ -51,6 +51,15 @@ _PUBLIC_PREFIXES: tuple[str, ...] = (
     # Public marketing surface — blog + SEO files must be crawlable and
     # readable without a session (huge-SEO content lives under /blog).
     "/blog",
+    # BUILD_PLAN Фаза C — публичные маркетинговые страницы (без сессии, для SEO).
+    "/features",
+    "/compare",
+    "/pricing",
+    "/security",
+    "/privacy-policy",
+    "/terms",
+    "/roadmap",
+    "/changelog",
     "/sitemap.xml",
     "/robots.txt",
     "/auth/",

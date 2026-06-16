@@ -46,7 +46,7 @@
 ## ФАЗА C — Лендинг: блоки + страницы (по данным ресёрча конкурентов)
 - [x] C1. Обновить блок сравнения на лендинге реальными данными (Persona vs Rewind/Limitless vs
   Microsoft Recall vs open-source) — из artifacts/competitors (ресёрч).
-- [ ] C2. `/features` — глубокая страница всех фич с разбивкой (захват, память, чат, граф, голос,
+- [x] C2. `/features` — глубокая страница всех фич с разбивкой (захват, память, чат, граф, голос,
   брифинги, напоминания, приватность, своя модель).
 - [ ] C3. `/compare/rewind` (+ др. при наличии данных) — детальное сравнение по фичам.
 - [ ] C4. `/pricing` — честно: open-source/локально бесплатно; облачные модели = по ключу пользователя.
@@ -119,3 +119,8 @@
 - C1 ✅ (v2.20.37): блок сравнения на landing.html обновлён реальными данными (Persona vs Rewind/Limitless vs
   Microsoft Recall vs open-source, 9 строк, колонка Persona .hi) + «крючок» «Декабрь 2025: Rewind отключён,
   Limitless у Meta, EU/UK отрезаны». landing.html рендерится. Фаза C старт.
+- C2 ✅ (v2.20.38): публичная /features (landing.py route + features.html, standalone+_public_nav+landing/style.css) —
+  12 преимуществ из брифа (local-first/нельзя купить, приватность, память «что реально делал», вторая копия, чат+
+  bi-temporal, граф, проактивность, кроссплатформа, без NPU, без подписки, голос, цельный продукт) + крючок дек.2025 +
+  CTA. Добавлены публичные префиксы Фазы C в auth_gate allow-list (/features,/compare,/pricing,/security,/privacy-policy,
+  /terms,/roadmap,/changelog). «Возможности» в _public_nav → /features. Открывается без логина.
