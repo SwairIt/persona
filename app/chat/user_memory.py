@@ -130,6 +130,20 @@ async def invalidate_memory(
         return cur.rowcount > 0
 
 
+async def edit_memory(user_id: int, mem_id: int, text: str) -> bool:
+    """Отредактировать текст факта (ручная правка из инспектора памяти)."""
+    text = " ".join((text or "").split())[:_MAX_LEN]
+    if not text:
+        return False
+    async with write_transaction() as conn:
+        cur = await conn.execute(
+            "UPDATE user_memory SET text = ?, updated_at = datetime('now') "
+            "WHERE id = ? AND user_id = ?",
+            (text, mem_id, user_id),
+        )
+        return cur.rowcount > 0
+
+
 async def restore_memory(user_id: int, mem_id: int) -> bool:
     """Откат soft-invalidate: вернуть факт в актуальные (valid_until=NULL)."""
     async with write_transaction() as conn:

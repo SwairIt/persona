@@ -45,28 +45,69 @@
   </form>
 
   {% if items %}
-    <div class="space-y-2">
+    <div class="space-y-2" x-data="{ edit: null }">
       {% for it in items %}
-        <div class="flex items-start gap-2 rounded-lg border px-3 py-2 text-sm
+        <div class="rounded-lg border px-3 py-2 text-sm
                     {% if it.pinned %}bg-accent-500/5 border-accent-500/30{% else %}bg-ink-900 border-ink-800{% endif %}">
-          <span class="text-[11px] uppercase tracking-wide text-zinc-500 mt-0.5 w-20 shrink-0">{{ it.kind }}</span>
-          <span class="flex-1 text-zinc-100">{{ it.text }}</span>
-          <form method="post" action="/settings/memory/{{ it.id }}/pin" class="shrink-0">
-            {% if not it.pinned %}<input type="hidden" name="pinned" value="1" />{% endif %}
-            <button type="submit" title="{{ 'открепить' if it.pinned else 'закрепить' }}"
-                    class="text-zinc-400 hover:text-accent-400">{{ '📌' if it.pinned else '📍' }}</button>
-          </form>
-          <form method="post" action="/settings/memory/{{ it.id }}/delete" class="shrink-0">
-            <button type="submit" title="удалить" class="text-zinc-500 hover:text-rose-400">✕</button>
-          </form>
+          <div class="flex items-start gap-2">
+            <span class="text-[11px] uppercase tracking-wide text-zinc-500 mt-0.5 w-20 shrink-0">{{ it.kind }}</span>
+            <span class="flex-1 text-zinc-100" x-show="edit !== {{ it.id }}">{{ it.text }}</span>
+            <form method="post" action="/settings/memory/{{ it.id }}/edit" class="flex-1 flex gap-1" x-show="edit === {{ it.id }}" x-cloak>
+              <input name="text" value="{{ it.text }}" maxlength="600"
+                     class="flex-1 rounded bg-ink-950 border border-ink-700 px-2 py-1 text-zinc-100 focus:outline-none focus:border-accent-500" />
+              <button type="submit" class="px-2 rounded bg-accent-600 hover:bg-accent-500 text-white text-xs">ок</button>
+            </form>
+            <button @click="edit = (edit === {{ it.id }} ? null : {{ it.id }})" title="изменить"
+                    class="shrink-0 text-zinc-500 hover:text-accent-400">✎</button>
+            <form method="post" action="/settings/memory/{{ it.id }}/pin" class="shrink-0">
+              {% if not it.pinned %}<input type="hidden" name="pinned" value="1" />{% endif %}
+              <button type="submit" title="{{ 'открепить' if it.pinned else 'закрепить' }}"
+                      class="text-zinc-400 hover:text-accent-400">{{ '📌' if it.pinned else '📍' }}</button>
+            </form>
+            <form method="post" action="/settings/memory/{{ it.id }}/delete" class="shrink-0">
+              <button type="submit" title="удалить" class="text-zinc-500 hover:text-rose-400">✕</button>
+            </form>
+          </div>
+          {% if it.source_session_id %}
+            <a href="/chat/{{ it.source_session_id }}" class="ml-[5.5rem] mt-0.5 inline-block text-[11px] text-zinc-600 hover:text-accent-300">
+              ↳ из чата #{{ it.source_session_id }}
+            </a>
+          {% endif %}
         </div>
       {% endfor %}
     </div>
   {% else %}
     <p class="text-sm text-zinc-500 border-t border-ink-800 pt-3">
-      Память пока пустая. Добавь факты выше, или просто общайся — скоро ИИ начнёт
-      сам подмечать важное (авто-извлечение фактов в работе).
+      Память пока пустая. Добавь факты выше, или просто общайся — ИИ сам подмечает
+      важное (авто-извлечение фактов).
     </p>
+  {% endif %}
+
+  {% if history %}
+    <details class="rounded-xl border border-ink-800 bg-ink-900/50 p-3">
+      <summary class="cursor-pointer text-sm text-zinc-400 select-none">
+        🕰 История памяти ({{ history|length }}) — устаревшее/опровергнутое (можно вернуть)
+      </summary>
+      <div class="space-y-2 mt-3">
+        {% for h in history %}
+          <div class="flex items-start gap-2 rounded-lg border border-ink-800 bg-ink-950/40 px-3 py-2 text-sm">
+            <span class="text-[11px] uppercase tracking-wide text-zinc-600 mt-0.5 w-20 shrink-0">{{ h.kind }}</span>
+            <div class="flex-1">
+              <span class="text-zinc-500 line-through">{{ h.text }}</span>
+              {% if h.superseded_text %}
+                <div class="text-[11px] text-zinc-600 mt-0.5">→ заменено на: «{{ h.superseded_text }}»</div>
+              {% endif %}
+            </div>
+            <form method="post" action="/settings/memory/{{ h.id }}/restore" class="shrink-0">
+              <button type="submit" title="вернуть в актуальные" class="text-[11px] text-zinc-500 hover:text-emerald-400">↩ вернуть</button>
+            </form>
+            <form method="post" action="/settings/memory/{{ h.id }}/delete" class="shrink-0">
+              <button type="submit" title="удалить навсегда" class="text-zinc-600 hover:text-rose-400">✕</button>
+            </form>
+          </div>
+        {% endfor %}
+      </div>
+    </details>
   {% endif %}
 </div>
 {% endblock %}

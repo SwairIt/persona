@@ -200,3 +200,9 @@ agent-driven память Letta на слабой модели (мусор за�
   bge-reranker, выключен по умолчанию, не ломает recall). 4 pytest + golden-eval не упал. v2.20.9.
   ОСТАЛОСЬ (активируется только с sqlite-vec, не тестируемо здесь): индексация-на-запись новых сообщений
   + расписание backfill в воркере — допилить при включённом sqlite-vec на машине пользователя.
+- ✅ S2a: memory-inspector /settings/memory — источник факта (source_session_id → ссылка на чат),
+  inline-edit (edit_memory), bi-temporal ИСТОРИЯ (раскрывающийся блок: устаревшее зачёркнуто +
+  «→ заменено на …» через superseded_by) с кнопкой RESTORE (restore_memory) и удалением навсегда.
+  Эндпоинты /settings/memory/{id}/edit|restore. 2 pytest + golden-eval. v2.20.10.
+  ОСТАЛОСЬ (мелочь, follow-up): «🧠 запомнил: …» в чате — нужен post-turn SSE-фрейм (авто-извлечение
+  идёт фоном после ответа). /remember уже подтверждает явно.

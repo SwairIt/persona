@@ -18,7 +18,9 @@ from app.chat.user_memory import (
     add_memory,
     count_memory,
     delete_memory,
+    edit_memory,
     list_memory,
+    restore_memory,
     set_pinned,
 )
 from app.logging_setup import get_logger
@@ -32,15 +34,24 @@ _BUDGET = 60
 
 
 async def _render(request: Request, user_id: int, *, saved: str = "") -> HTMLResponse:
-    items = await list_memory(user_id, limit=500)
+    # bi-temporal: активные факты + история (устаревшие/опровергнутые) отдельно.
+    all_items = await list_memory(user_id, limit=500, include_invalidated=True)
+    active = [i for i in all_items if i["valid_until"] is None]
+    history = [i for i in all_items if i["valid_until"] is not None]
+    # карта id→text для подписи «заменено на …» (superseded_by → актуальный факт)
+    by_id = {i["id"]: i["text"] for i in all_items}
+    for h in history:
+        sb = h.get("superseded_by")
+        h["superseded_text"] = by_id.get(sb) if sb else None
     return templates.TemplateResponse(
         request,
         "memory_settings.html",
         {
             "title": "Память — что ИИ помнит обо мне",
             "active_nav": "settings",
-            "items": items,
-            "count": len(items),
+            "items": active,
+            "history": history,
+            "count": len(active),
             "budget": _BUDGET,
             "saved": saved,
         },
@@ -85,4 +96,25 @@ async def memory_pin(
     pinned: str = Form(default=""),
 ) -> RedirectResponse:
     await set_pinned(session["user_id"], mem_id, bool(pinned))
+    return RedirectResponse("/settings/memory", status_code=303)
+
+
+@router.post("/settings/memory/{mem_id}/edit", response_model=None)
+async def memory_edit(
+    mem_id: int,
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+    text: str = Form(default=""),
+) -> RedirectResponse:
+    if text.strip():
+        await edit_memory(session["user_id"], mem_id, text)
+    return RedirectResponse("/settings/memory", status_code=303)
+
+
+@router.post("/settings/memory/{mem_id}/restore", response_model=None)
+async def memory_restore(
+    mem_id: int,
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+) -> RedirectResponse:
+    """Откат soft-invalidate: вернуть устаревший/опровергнутый факт в актуальные."""
+    await restore_memory(session["user_id"], mem_id)
     return RedirectResponse("/settings/memory", status_code=303)
