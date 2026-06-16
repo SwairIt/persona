@@ -186,3 +186,8 @@ agent-driven память Letta на слабой модели (мусор за�
 - ✅ S0: SQLite `write_transaction()` (BEGIN IMMEDIATE) в db.py + применён к user_memory
   (add/set_pinned/delete/forget). 4 pytest зелёные (коммит/откат/20 конкурентных записей/roundtrip).
   Горячий append_message — следующим (изолированно, чтобы не рисковать ядром чата). v2.20.6.
+- ✅ S1a: bi-temporal память + mem0-разрешение противоречий (миграция 187: valid_until/superseded_by;
+  частичный индекс активных). list/search/count/build_memory_block берут valid_until IS NULL;
+  invalidate_memory/restore_memory (soft-invalidate, откат); reconcile_and_add (ADD/UPDATE/DELETE/NOOP
+  через GBNF на Ollama, fallback на ADD без LLM); extract_and_store → reconcile. 5 pytest + golden-eval
+  не упал. «Москва»→«Берлин» больше не сосуществуют. v2.20.7.

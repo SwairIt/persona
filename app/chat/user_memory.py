@@ -40,7 +40,8 @@ async def add_memory(
         kind = "fact"
     async with write_transaction() as conn:
         cur = await conn.execute(
-            "SELECT id FROM user_memory WHERE user_id = ? AND lower(text) = lower(?) LIMIT 1",
+            "SELECT id FROM user_memory WHERE user_id = ? AND lower(text) = lower(?) "
+            "AND valid_until IS NULL LIMIT 1",
             (user_id, text),
         )
         existing = await cur.fetchone()
@@ -59,12 +60,21 @@ async def add_memory(
         return int(cur.lastrowid)
 
 
-async def list_memory(user_id: int, limit: int = 200) -> list[dict[str, Any]]:
-    """Все факты пользователя: закреплённые сверху, потом новые."""
+async def list_memory(
+    user_id: int, limit: int = 200, include_invalidated: bool = False
+) -> list[dict[str, Any]]:
+    """Факты пользователя: закреплённые сверху, потом новые.
+
+    По умолчанию — только АКТУАЛЬНЫЕ (``valid_until IS NULL``). bi-temporal
+    история (устаревшие/опровергнутые факты) доступна через
+    ``include_invalidated=True`` (для UI-инспектора памяти).
+    """
+    where = "user_id = ?" + ("" if include_invalidated else " AND valid_until IS NULL")
     async with get_connection() as conn:
         cur = await conn.execute(
-            "SELECT id, kind, text, pinned, source_session_id, created_at "
-            "FROM user_memory WHERE user_id = ? "
+            "SELECT id, kind, text, pinned, source_session_id, created_at, "
+            "       valid_until, superseded_by "
+            f"FROM user_memory WHERE {where} "
             "ORDER BY pinned DESC, id DESC LIMIT ?",
             (user_id, max(1, min(1000, int(limit)))),
         )
@@ -76,6 +86,8 @@ async def list_memory(user_id: int, limit: int = 200) -> list[dict[str, Any]]:
             "text": str(r["text"]),
             "pinned": bool(r["pinned"]),
             "created_at": str(r["created_at"]),
+            "valid_until": r["valid_until"],
+            "superseded_by": r["superseded_by"],
         }
         for r in rows
     ]
@@ -92,12 +104,41 @@ async def set_pinned(user_id: int, mem_id: int, pinned: bool) -> bool:
 
 
 async def count_memory(user_id: int) -> int:
+    """Число АКТУАЛЬНЫХ фактов (для бюджета авто-роста)."""
     async with get_connection() as conn:
         cur = await conn.execute(
-            "SELECT COUNT(*) AS n FROM user_memory WHERE user_id = ?", (user_id,)
+            "SELECT COUNT(*) AS n FROM user_memory "
+            "WHERE user_id = ? AND valid_until IS NULL",
+            (user_id,),
         )
         row = await cur.fetchone()
     return int(row["n"]) if row else 0
+
+
+async def invalidate_memory(
+    user_id: int, mem_id: int, superseded_by: int | None = None
+) -> bool:
+    """Soft-invalidate факта: valid_until=now (+superseded_by). НЕ удаляет —
+    факт уходит из recall/list, но остаётся в истории и откатывается."""
+    async with write_transaction() as conn:
+        cur = await conn.execute(
+            "UPDATE user_memory SET valid_until = datetime('now'), superseded_by = ?, "
+            "updated_at = datetime('now') "
+            "WHERE id = ? AND user_id = ? AND valid_until IS NULL",
+            (superseded_by, mem_id, user_id),
+        )
+        return cur.rowcount > 0
+
+
+async def restore_memory(user_id: int, mem_id: int) -> bool:
+    """Откат soft-invalidate: вернуть факт в актуальные (valid_until=NULL)."""
+    async with write_transaction() as conn:
+        cur = await conn.execute(
+            "UPDATE user_memory SET valid_until = NULL, superseded_by = NULL, "
+            "updated_at = datetime('now') WHERE id = ? AND user_id = ?",
+            (mem_id, user_id),
+        )
+        return cur.rowcount > 0
 
 
 async def delete_memory(user_id: int, mem_id: int) -> bool:
@@ -142,6 +183,106 @@ async def search_memory(user_id: int, query: str, limit: int = 8) -> list[dict[s
         {"id": r["id"], "kind": r["kind"], "text": r["text"], "pinned": r["pinned"]}
         for r in rows[: max(1, min(50, int(limit)))]
     ]
+
+
+# mem0-стиль решение по новому факту относительно похожих существующих.
+_DECISION_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "action": {"type": "string", "enum": ["add", "update", "delete", "noop"]},
+        "target_id": {"type": ["integer", "null"]},
+    },
+    "required": ["action"],
+}
+
+
+def _key_tokens(text: str) -> set[str]:
+    return {w for w in text.casefold().split() if len(w) >= 4}
+
+
+async def _candidates(user_id: int, text: str, kind: str, top_k: int = 12) -> list[dict[str, Any]]:
+    """Похожие АКТУАЛЬНЫЕ факты (по пересечению ключевых токенов; того же вида приоритетнее)."""
+    toks = _key_tokens(text)
+    rows = await list_memory(user_id, limit=500)
+    scored: list[tuple[int, dict[str, Any]]] = []
+    for r in rows:
+        overlap = len(toks & _key_tokens(r["text"]))
+        if overlap or r["kind"] == kind:
+            scored.append((overlap + (1 if r["kind"] == kind else 0), r))
+    scored.sort(key=lambda x: -x[0])
+    return [r for _s, r in scored[:top_k]]
+
+
+async def _llm_decide(new_text: str, candidates: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Решение ADD/UPDATE/DELETE/NOOP через GBNF (только Ollama). None если LLM нет."""
+    if not candidates:
+        return None
+    try:
+        from app.llm.client import CompletionRequest, make_client  # noqa: PLC0415
+
+        client = make_client(kind="chat_summary")
+    except Exception:  # noqa: BLE001
+        return None
+    if not hasattr(client, "complete_json"):  # GBNF-схема — только Ollama
+        return None
+    listing = "\n".join(f"id={c['id']}: {c['text']}" for c in candidates)
+    system = (
+        "Ты ведёшь долговременную память. Дан НОВЫЙ факт о пользователе и список "
+        "СУЩЕСТВУЮЩИХ фактов. Реши ОДНО действие:\n"
+        "- noop: новый факт уже есть/неинформативен;\n"
+        "- add: новый факт независим (target_id=null);\n"
+        "- update: новый факт уточняет/заменяет существующий → укажи target_id;\n"
+        "- delete: новый факт ПРОТИВОРЕЧИТ существующему (старое больше не верно) → target_id.\n"
+        "Верни строго JSON {action, target_id}."
+    )
+    user = f"СУЩЕСТВУЮЩИЕ:\n{listing}\n\nНОВЫЙ ФАКТ: {new_text}"
+    try:
+        out = await client.complete_json(
+            CompletionRequest(system=system, user=user, max_tokens=80, temperature=0.0),
+            _DECISION_SCHEMA,
+        )
+        return out if isinstance(out, dict) else None
+    except Exception as exc:  # noqa: BLE001
+        log.debug("user_memory.decide_failed", error=str(exc))
+        return None
+
+
+async def reconcile_and_add(
+    user_id: int, text: str, kind: str = "fact", source_session_id: int | None = None,
+    decider: Any = None,
+) -> dict[str, Any]:
+    """mem0-стиль добавление с разрешением противоречий (bi-temporal soft-invalidate).
+
+    Возвращает {action, id, invalidated?}. Без LLM (или для облачных провайдеров) —
+    тихий fallback на обычный add (дедуп по точному тексту). ``decider`` — для тестов
+    (async callable (new_text, candidates) -> {action,target_id}).
+    """
+    text = " ".join((text or "").split())[:_MAX_LEN]
+    if not text:
+        return {"action": "noop", "id": None}
+    if kind not in _KINDS:
+        kind = "fact"
+    cands = await _candidates(user_id, text, kind)
+    # точный дубль среди актуальных → noop
+    for c in cands:
+        if c["text"].casefold() == text.casefold():
+            return {"action": "noop", "id": c["id"]}
+    decide = decider or _llm_decide
+    decision = await decide(text, cands)
+    action = str((decision or {}).get("action") or "add").lower()
+    target = (decision or {}).get("target_id")
+    valid_targets = {c["id"] for c in cands}
+    if action == "noop":
+        return {"action": "noop", "id": None}
+    if action in ("update", "delete") and target in valid_targets:
+        # и update, и delete: добавляем новый факт + soft-invalidate старый
+        # (delete = старое опровергнуто, но новое утверждение всё равно помним).
+        new_id = await add_memory(user_id, text, kind=kind, source_session_id=source_session_id)
+        await invalidate_memory(user_id, int(target), superseded_by=new_id)
+        log.info("user_memory.reconcile", action=action, target=target, new_id=new_id)
+        return {"action": action, "id": new_id, "invalidated": int(target)}
+    new_id = await add_memory(user_id, text, kind=kind, source_session_id=source_session_id)
+    return {"action": "add", "id": new_id}
 
 
 async def extract_and_store(
@@ -194,7 +335,10 @@ async def extract_and_store(
         line = raw.strip().lstrip("-•*").strip()
         if not line or line.upper() == "НЕТ" or line.upper() == "NONE" or len(line) < 6:
             continue
-        if await add_memory(user_id, line, kind="fact", source_session_id=session_id):
+        # mem0-стиль: разрешаем противоречия (update/delete) вместо тупого ADD,
+        # чтобы новые факты не сосуществовали со старыми устаревшими.
+        res = await reconcile_and_add(user_id, line, kind="fact", source_session_id=session_id)
+        if res.get("action") in ("add", "update"):
             added += 1
         if added >= 3:
             break
