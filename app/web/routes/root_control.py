@@ -92,6 +92,56 @@ async def root_db_integrity(
     return JSONResponse(result)
 
 
+@router.post("/root/users/{uid}/{op}", response_model=None)
+async def root_user_mutate(
+    uid: int,
+    op: str,
+    request: Request,
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+):
+    """Управление пользователями (owner-only, re-assert). op: approve|suspend|delete|role.
+
+    Гарды (в app/auth/roles): нельзя suspend/demote/delete последнего owner.
+    suspend дополнительно ревокает сессии пользователя (мгновенный выход).
+    Всё пишется в audit.log_action.
+    """
+    from fastapi.responses import RedirectResponse  # noqa: PLC0415
+
+    owner_id = await _require_owner(session)
+    from app.auth.roles import delete_user, set_role, set_status  # noqa: PLC0415
+
+    ok = False
+    detail = op
+    try:
+        if op == "approve":
+            ok = await set_status(uid, "active")
+        elif op == "suspend":
+            ok = await set_status(uid, "suspended")
+        elif op == "delete":
+            ok = await delete_user(uid)
+        elif op == "role":
+            form = await request.form()
+            new_role = str(form.get("role") or "").strip()
+            detail = f"role={new_role}"
+            ok = await set_role(uid, new_role)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("root.user_mutate_failed", uid=uid, op=op, error=str(exc))
+        ok = False
+    try:
+        from app.audit import log_action  # noqa: PLC0415
+
+        await log_action(
+            action=f"root.user.{op}",
+            actor=str(owner_id),
+            target=str(uid),
+            detail=detail,
+            success=ok,
+        )
+    except Exception:  # noqa: BLE001, S110
+        pass
+    return RedirectResponse(url="/root", status_code=303)
+
+
 @router.get("/root/logs/recent.json", response_class=JSONResponse)
 async def root_logs_recent(
     session: Annotated[SessionRecord, Depends(current_user_required)],

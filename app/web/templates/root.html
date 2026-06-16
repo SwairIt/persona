@@ -37,7 +37,7 @@
   </div>
   {% endif %}
 
-  {# Пользователи и роли (read-only). Управление — позже. #}
+  {# Пользователи и роли — управление (owner-only). Suspend ревокает сессии. #}
   {% if users %}
   <div class="mb-6">
     <h2 class="text-sm font-semibold text-zinc-300 mb-2">Пользователи и роли <span class="text-zinc-600">({{ users|length }})</span></h2>
@@ -49,7 +49,7 @@
             <th class="text-left px-3 py-2">email</th>
             <th class="text-left px-3 py-2">роль</th>
             <th class="text-left px-3 py-2">статус</th>
-            <th class="text-left px-3 py-2">создан</th>
+            <th class="text-left px-3 py-2">действия</th>
           </tr>
         </thead>
         <tbody>
@@ -58,21 +58,43 @@
             <td class="px-3 py-2 text-zinc-500 font-mono">{{ u.id }}</td>
             <td class="px-3 py-2 text-zinc-200">{{ u.email }}{% if u.display_name %} <span class="text-zinc-500">({{ u.display_name }})</span>{% endif %}</td>
             <td class="px-3 py-2">
-              <span class="text-[11px] px-1.5 py-0.5 rounded-full
-                {{ 'bg-accent-500/15 text-accent-300' if u.role == 'owner' else ('bg-emerald-500/15 text-emerald-300' if u.role == 'admin' else 'bg-zinc-700/40 text-zinc-300') }}">
-                {{ u.role }}
-              </span>
+              <form method="post" action="/root/users/{{ u.id }}/role" class="inline">
+                <select name="role" onchange="this.form.submit()"
+                        class="bg-ink-900 border border-ink-700 rounded px-1.5 py-0.5 text-[11px] text-zinc-200">
+                  {% for r in ['owner','admin','member','viewer'] %}
+                    <option value="{{ r }}" {{ 'selected' if u.role == r else '' }}>{{ r }}</option>
+                  {% endfor %}
+                </select>
+              </form>
             </td>
             <td class="px-3 py-2">
               <span class="text-[11px] {{ 'text-emerald-400' if u.status == 'active' else ('text-amber-400' if u.status == 'pending' else 'text-rose-400') }}">{{ u.status }}</span>
             </td>
-            <td class="px-3 py-2 text-zinc-500 text-xs">{{ (u.created_at or '')[:10] }}</td>
+            <td class="px-3 py-2">
+              <div class="flex items-center gap-1.5">
+                {% if u.status != 'active' %}
+                <form method="post" action="/root/users/{{ u.id }}/approve" class="inline">
+                  <button class="text-[11px] px-2 py-0.5 rounded border border-ink-700 text-emerald-300 hover:bg-ink-900">одобрить</button>
+                </form>
+                {% endif %}
+                {% if u.status != 'suspended' %}
+                <form method="post" action="/root/users/{{ u.id }}/suspend" class="inline"
+                      onsubmit="return confirm('Заморозить {{ u.email }}? Его сессии завершатся.');">
+                  <button class="text-[11px] px-2 py-0.5 rounded border border-ink-700 text-amber-300 hover:bg-ink-900">заморозить</button>
+                </form>
+                {% endif %}
+                <form method="post" action="/root/users/{{ u.id }}/delete" class="inline"
+                      onsubmit="return confirm('Удалить {{ u.email }}? Необратимо.');">
+                  <button class="text-[11px] px-2 py-0.5 rounded text-rose-400 hover:bg-ink-900">удалить</button>
+                </form>
+              </div>
+            </td>
           </tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
-    <p class="text-zinc-600 text-xs mt-1.5">Управление (одобрить/заморозить/сменить роль) появится отдельным шагом. Сейчас приватность держит owner-gate.</p>
+    <p class="text-zinc-600 text-xs mt-1.5">Гард: последнего owner нельзя заморозить/понизить/удалить. «Заморозить» завершает сессии. Приватность по-прежнему держит owner-gate (доступ к данным — только у владельца; ролевые тиры доступа — отдельный шаг).</p>
   </div>
   {% endif %}
 

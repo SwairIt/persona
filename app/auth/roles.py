@@ -50,6 +50,82 @@ async def has_permission(user_id: int | None, min_role: str = "member") -> bool:
     return have >= need
 
 
+async def owner_count() -> int:
+    """Сколько аккаунтов с ролью owner. Гард «нельзя снести последнего owner»."""
+    try:
+        async with get_connection() as conn:
+            cur = await conn.execute("SELECT COUNT(*) AS n FROM users WHERE role = 'owner'")
+            row = await cur.fetchone()
+        return int(row["n"]) if row else 0
+    except Exception as exc:  # noqa: BLE001
+        log.debug("roles.owner_count_failed", error=str(exc))
+        return 0
+
+
+async def _is_owner_row(user_id: int) -> bool:
+    return (await get_role(user_id)) == "owner"
+
+
+async def set_status(user_id: int, status: str) -> bool:
+    """Сменить статус (active/suspended/pending). При suspend — ревок сессий.
+
+    Гард: нельзя suspend последнего owner (иначе можно остаться без доступа).
+    """
+    if status not in VALID_STATUS:
+        return False
+    if status != "active" and await _is_owner_row(user_id) and await owner_count() <= 1:
+        log.warning("roles.refuse_suspend_last_owner", user_id=user_id)
+        return False
+    try:
+        async with get_connection() as conn:
+            await conn.execute("UPDATE users SET status = ? WHERE id = ?", (status, user_id))
+            if status == "suspended":
+                # Немедленно выкидываем: ревок всех сессий → verify_session вернёт
+                # None → обычный auth-gate отправит на /landing (без правок gate).
+                await conn.execute(
+                    "UPDATE auth_session SET revoked_at = datetime('now') "
+                    "WHERE user_id = ? AND revoked_at IS NULL",
+                    (user_id,),
+                )
+            await conn.commit()
+        return True
+    except Exception as exc:  # noqa: BLE001
+        log.warning("roles.set_status_failed", user_id=user_id, error=str(exc))
+        return False
+
+
+async def set_role(user_id: int, role: str) -> bool:
+    """Сменить роль. Гард: нельзя снять роль owner у последнего owner."""
+    if role not in VALID_ROLES:
+        return False
+    if role != "owner" and await _is_owner_row(user_id) and await owner_count() <= 1:
+        log.warning("roles.refuse_demote_last_owner", user_id=user_id)
+        return False
+    try:
+        async with get_connection() as conn:
+            await conn.execute("UPDATE users SET role = ? WHERE id = ?", (role, user_id))
+            await conn.commit()
+        return True
+    except Exception as exc:  # noqa: BLE001
+        log.warning("roles.set_role_failed", user_id=user_id, error=str(exc))
+        return False
+
+
+async def delete_user(user_id: int) -> bool:
+    """Удалить пользователя. Гард: нельзя удалить последнего owner."""
+    if await _is_owner_row(user_id) and await owner_count() <= 1:
+        log.warning("roles.refuse_delete_last_owner", user_id=user_id)
+        return False
+    try:
+        async with get_connection() as conn:
+            await conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+            await conn.commit()
+        return True
+    except Exception as exc:  # noqa: BLE001
+        log.warning("roles.delete_user_failed", user_id=user_id, error=str(exc))
+        return False
+
+
 async def list_users() -> list[dict[str, Any]]:
     """Все пользователи (для read-only списка в /root). Best-effort."""
     try:
@@ -75,4 +151,8 @@ async def list_users() -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
-__all__ = ["ROLE_RANK", "VALID_ROLES", "VALID_STATUS", "get_role", "has_permission", "list_users"]
+__all__ = [
+    "ROLE_RANK", "VALID_ROLES", "VALID_STATUS",
+    "get_role", "has_permission", "list_users",
+    "owner_count", "set_status", "set_role", "delete_user",
+]

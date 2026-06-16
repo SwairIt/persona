@@ -231,3 +231,15 @@
 - ⚠ Инфра: на этой машине `uvicorn --workers 3` периодически падает на Windows multiprocessing spawn
   (WinError 87 «параметр неверен», воркеры умирают). Обход: запуск через PowerShell Start-Process
   (detached) с одним воркером (`--factory --host 127.0.0.1 --port 8000`, без --workers). См. dev-server-restart.
+
+- `[DONE]` Управление пользователями/ролями (БЕЗОПАСНАЯ часть): app/auth/roles.py (+set_status/set_role/
+  delete_user/owner_count, гард «нельзя снять/заморозить/удалить последнего owner»; suspend ревокает все
+  сессии юзера → мгновенный выход через ЕГО же логику, без правки auth_gate). /root/users/{id}/{approve|
+  suspend|role|delete} (owner-only, re-assert, audit.log_action) + кнопки в /root. 7 pytest зелёные
+  (tests/test_roles_mutations.py). v2.20.4.
+- `[TODO/ОТЛОЖЕНО — нужен заход с пользователем]` auth_gate РОЛЕВЫЕ ТИРЫ ДОСТУПА (member/admin/viewer пускать
+  в приложение) НЕ делал автономно: create_user даёт новым юзерам status=active/role=member по умолчанию →
+  если gate начнёт пускать member, ЛЮБОЙ зарегавшийся увидит данные владельца (регрессия приватности).
+  Безопасно это включать ТОЛЬКО вместе с: (1) новый signup → status=pending, (2) решение владельца по
+  модели доступа, (3) тесты входа владельцем на живом сервере. Сейчас приватность держит owner-gate
+  (не-владельцы → /pending), suspend реально выкидывает — этого достаточно для MVP.
