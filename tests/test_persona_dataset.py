@@ -11,6 +11,23 @@ import json
 from app.finetune.dataset import build_dataset, write_jsonl
 
 
+def test_identity_baked_into_every_example() -> None:
+    ds = build_dataset(real_pairs=[("q", "a")], facts=[], target_synthetic=30,
+                       owner_name="Ярослав", seed=1)
+    rows = ds["train"] + ds["val"]
+    # идентичность (имя Persona + авторство + имя владельца) в КАЖДОМ примере
+    for e in rows:
+        sysmsg = e["messages"][0]["content"]
+        assert "Тебя зовут Persona" in sysmsg
+        assert "Твой автор и хозяин" in sysmsg
+        assert "Его зовут Ярослав" in sysmsg
+        assert "Тебя зовут Ярослав" not in sysmsg  # модель ≠ владелец
+    # есть обучающие Q&A про имя/автора/принадлежность
+    users = [e["messages"][1]["content"] for e in rows]
+    assert "кто тебя создал" in users
+    assert "как меня зовут" in users
+
+
 def test_build_dataset_chat_format() -> None:
     ds = build_dataset(real_pairs=[("привет", "здаров")], facts=["любит кофе"],
                        target_synthetic=20, val_split=0.1, seed=1)

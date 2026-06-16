@@ -34,6 +34,7 @@ async def _main() -> None:
     ap.add_argument("--size", type=int, default=300, help="сколько синтетических примеров")
     ap.add_argument("--include-history", action="store_true", help="добавить реальные пары из чатов")
     ap.add_argument("--user-id", type=int, default=0, help="id пользователя для истории/фактов")
+    ap.add_argument("--owner-name", default="", help="твоё имя — зашить в идентичность модели")
     ap.add_argument("--val-split", type=float, default=0.05)
     ap.add_argument("--seed", type=int, default=7)
     args = ap.parse_args()
@@ -56,6 +57,7 @@ async def _main() -> None:
     ds = build_dataset(
         real_pairs=real, facts=facts,
         target_synthetic=args.size, val_split=args.val_split, seed=args.seed,
+        owner_name=(args.owner_name.strip() or None),
     )
     out = Path(args.out)
     n_train = write_jsonl(ds["train"], out)
