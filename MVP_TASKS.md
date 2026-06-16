@@ -208,3 +208,10 @@
 - Топ-приоритеты (ROI): (1) векторная память sqlite-vec + hybrid FTS5+vector через RRF (k=60; ВНИМАНИЕ bm25 отрицательный → rank ASC); эмбеддинги bge-m3/nomic-embed-text через Ollama на CPU; (2) prompt caching (стабильный префикс + cache_control, динамику в конец); (3) настоящий tool-calling в Hermes-формате (<tools>/<tool_call>/<tool_response>) + валидация JSON; (4) reranking (bge-reranker-v2-m3 на CPU) как режим «умный ИИ»; (5) «Ask по всей истории» с ответом-саммари и цитатами (перенять у Rewind); (6) Consent Mode + сжатие как маркетинг; (7) few-shot промпты под маленькие модели.
 - Локальные модели: чат qwen2.5:7b Q4_K_M (8GB) / qwen2.5:3b (4GB); vision qwen2.5vl:3b; эмбеддинги bge-m3 или nomic-embed-text (на CPU); reranker bge-reranker-v2-m3.
 - Риски: sqlite-vec = brute-force KNN (деградирует на 100k+ записей → bit-квантизация/ANN); SQLite single-writer + 40 воркеров (BEGIN IMMEDIATE, wal_checkpoint TRUNCATE); юр.риск захвата чужого экрана/аудио (нужен Consent Mode); маленькие модели = источник «мусорных» выводов (few-shot+защищённый парсинг).
+
+- `[DONE]` «Вторая копия» (персональная модель, QLoRA на 1050 Ti) — пайплайн: app/finetune/dataset.py
+  (синтетика тона FRIEND_PROMPT + реальные пары из истории чатов + факты из памяти → messages-JSONL,
+  дедуп, train/val), scripts/build_persona_dataset.py (CLI), finetune/train_qlora.py (PEFT+bitsandbytes
+  4-bit NF4, fp16, gradient_checkpointing, БЕЗ flash-attn, Qwen2.5-0.5/1.5B, paged_adamw_8bit),
+  finetune/{export_gguf.md→Ollama, README.md, requirements.txt}. Проверено: dataset/CLI без torch.
+  ЧЕСТНО: 4ГБ тянет 0.5–1.5B = клон СТИЛЯ, не интеллекта; если мало — Colab T4, запуск локально.

@@ -1,0 +1,14 @@
+# Зависимости для дообучения «второй копии» (QLoRA). Ставить ОТДЕЛЬНО от Persona —
+# это тяжёлые ML-пакеты, в основном приложении не нужны.
+#
+# CUDA-сборка torch под твою версию драйвера ставится отдельно, напр.:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu121
+# (на Pascal/1050 Ti подойдёт cu121/cu118; bf16 нет, fp16 — да.)
+transformers>=4.44
+peft>=0.12
+trl>=0.9
+datasets>=2.20
+bitsandbytes>=0.43   # 4-bit; на Windows может понадобиться bitsandbytes-windows
+accelerate>=0.33
+sentencepiece
+# llama.cpp для конвертации в GGUF — отдельно (см. export_gguf.md)
