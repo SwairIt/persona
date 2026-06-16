@@ -50,7 +50,20 @@ from app.chat.sessions import (
     update_streaming_message,
 )
 
+# Векторная / гибридная память (ОПЦИОНАЛЬНО, зависит от sqlite-vec + Ollama).
+# Импорт обёрнут — если что-то не так со средой, чат-пакет всё равно грузится,
+# а hybrid_recall тихо деградирует в пустую строку (вызывающий сам фолбэкнет).
+try:
+    from app.memory_vec import hybrid_recall
+except Exception:  # noqa: BLE001 — векторная память не критична
+    async def hybrid_recall(  # type: ignore[misc]
+        user_id: int, question: str,
+        exclude_session_id: int | None = None, limit: int = 6,
+    ) -> str:
+        return ""
+
 __all__ = [
+    "hybrid_recall",
     "DEFAULT_SYSTEM_PROMPT",
     "PRESETS",
     "add_span_rating",

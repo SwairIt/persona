@@ -220,3 +220,14 @@
   _anthropic_system), парс+лог cache_read/creation. Аддитивно, контент промпта не тронут, др. провайдеры —
   без изменений. v2.20.2. ОПЦ.ПОЗЖЕ (не делал — риск на горячем пути): пере-упорядочить сборку промпта в
   chat_sessions.py (стабильный префикс→динамика в конец) для более сильного кэш-хита и Ollama KV-reuse.
+
+- `[DONE]` Векторная память sqlite-vec + hybrid RRF (ОПЦИОНАЛЬНО, тихий fallback): app/memory_vec.py
+  (Ollama-эмбеддинги nomic-embed-text на CPU; hybrid_recall = FTS5 bm25 [rank ASC!] + векторный KNN через
+  RRF k=60; при любой проблеме → recall_relevant), загрузка sqlite-vec в db.py (graceful, 'no such module'
+  идемпотентно), миграция 186 (vec0 chat_message_vec + vec_message_meta — пропускается без расширения),
+  режимы recall 'hybrid'/'vector' (kv recall_mode, деф. keyword не тронут). Проверено БЕЗ расширения:
+  миграция 2×, create_app, fallback recall цел. АКТИВАЦИЯ у пользователя: `pip install sqlite-vec` +
+  `ollama pull nomic-embed-text` + recall_mode=hybrid + индексация истории (index_message). v2.20.3.
+- ⚠ Инфра: на этой машине `uvicorn --workers 3` периодически падает на Windows multiprocessing spawn
+  (WinError 87 «параметр неверен», воркеры умирают). Обход: запуск через PowerShell Start-Process
+  (detached) с одним воркером (`--factory --host 127.0.0.1 --port 8000`, без --workers). См. dev-server-restart.

@@ -29,9 +29,65 @@ _IDEMPOTENT_ALTER_ERRORS: tuple[str, ...] = (
     # uvicorn запускался один раз и init_database выполнялся один раз
     # за сессию.
     "already exists",
+    # v186 — миграция vec0-таблиц (sqlite-vec) ОПЦИОНАЛЬНА. Без расширения
+    # ``CREATE VIRTUAL TABLE ... USING vec0`` падает с этой ошибкой — трактуем
+    # как no-op: построчный replay пропустит только vec0-строки.
+    "no such module",
 )
 
 log = get_logger("persona.storage.db")
+
+# ── sqlite-vec (векторный KNN) — ОПЦИОНАЛЬНО, с тихим fallback ────────────────
+# Расширения SQLite — per-connection. Пробу пакета делаем один раз (кэш), саму
+# загрузку — на каждом соединении. Если пакета/бинарника нет — векторный путь
+# тихо отключается, FTS5/LIKE recall продолжают работать как раньше.
+_VEC_PATH: str | None = None
+_VEC_PROBED: bool = False
+_VEC_USABLE: bool | None = None
+
+
+def sqlite_vec_available() -> bool:
+    """True, если sqlite-vec хоть раз успешно загрузилось (дешёвый гейт)."""
+    return _VEC_USABLE is True
+
+
+def _vec_loadable_path() -> str | None:
+    global _VEC_PATH, _VEC_PROBED
+    if _VEC_PROBED:
+        return _VEC_PATH
+    _VEC_PROBED = True
+    try:
+        import sqlite_vec  # noqa: PLC0415 — опциональная зависимость
+
+        _VEC_PATH = sqlite_vec.loadable_path()
+    except Exception as exc:  # noqa: BLE001 — пакет не установлен / нет бинарника
+        log.info("sqlite_vec.unavailable", reason=str(exc))
+        _VEC_PATH = None
+    return _VEC_PATH
+
+
+async def _load_sqlite_vec(conn: aiosqlite.Connection) -> bool:
+    """Загрузить sqlite-vec на соединение. Любая ошибка → False, соединение цело."""
+    global _VEC_USABLE
+    path = _vec_loadable_path()
+    if not path:
+        _VEC_USABLE = False
+        return False
+    try:
+        await conn.enable_load_extension(True)
+        await conn.load_extension(path)
+        await conn.enable_load_extension(False)
+        _VEC_USABLE = True
+        return True
+    except Exception as exc:  # noqa: BLE001 — сборка без load_extension / ABI
+        if _VEC_USABLE is None:
+            log.info("sqlite_vec.load_failed", reason=str(exc))
+        _VEC_USABLE = False
+        try:
+            await conn.enable_load_extension(False)
+        except Exception:  # noqa: BLE001, S110
+            pass
+        return False
 
 
 async def init_database(db_path: Path | None = None) -> None:
@@ -40,6 +96,10 @@ async def init_database(db_path: Path | None = None) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     schema_sql = _SCHEMA_PATH.read_text(encoding="utf-8")
     async with aiosqlite.connect(target) as conn:
+        # Грузим sqlite-vec ДО миграций: миграция 186 создаёт vec0-таблицы;
+        # без расширения CREATE VIRTUAL TABLE USING vec0 ловится как
+        # идемпотентная 'no such module' и пропускается.
+        await _load_sqlite_vec(conn)
         await conn.executescript(schema_sql)
         if _MIGRATIONS_DIR.exists():
             for migration in sorted(_MIGRATIONS_DIR.glob("*.sql")):
@@ -143,5 +203,10 @@ async def get_connection(
             await conn.execute("PRAGMA temp_store = MEMORY")
         except Exception:  # noqa: BLE001, S110
             pass
+        # sqlite-vec per-connection (best-effort). Если расширения нет —
+        # _VEC_USABLE станет False и больше не пробуем; векторный путь тихо
+        # отключён, FTS/LIKE recall работают.
+        if _VEC_USABLE is not False:
+            await _load_sqlite_vec(conn)
         conn.row_factory = aiosqlite.Row
         yield conn
