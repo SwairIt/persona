@@ -903,6 +903,52 @@ async def query_memory(args: dict[str, Any], user_id: int = 0) -> str:
     return "[ok] из памяти:\n" + "\n\n".join(parts) if parts else "[ok] ничего релевантного не нашёл"
 
 
+async def schedule_reminder(args: dict[str, Any], user_id: int = 0) -> str:
+    """Создать напоминание из естественного языка («напомни завтра …»).
+
+    Принимает либо ``text`` (фраза целиком — распарсим дату), либо явные
+    ``body`` + ``when`` (when: 'сегодня'/'завтра'/'через 3 дня'/'20.06'/...).
+    Пишет в таблицу reminders. Возвращает человекочитаемое подтверждение.
+    """
+    from datetime import date  # noqa: PLC0415
+
+    from app.chat.reminder_nl import parse_reminder  # noqa: PLC0415
+    from app.storage.db import get_connection  # noqa: PLC0415
+    from app.storage.reminders import create_reminder  # noqa: PLC0415
+
+    text = _pick(args, ("text", "phrase", "query", "input")).strip()
+    body_in = _pick(args, ("body", "task", "title", "what", "message")).strip()
+    when_in = _pick(args, ("when", "date", "due", "due_date")).strip()
+
+    if body_in:
+        # явные поля: дату берём из when (если задан), тело — как есть
+        parsed = parse_reminder(f"{when_in} {body_in}".strip())
+        body = body_in
+        due_iso = parsed["due_date"]
+    elif text:
+        parsed = parse_reminder(text)
+        body = parsed["body"]
+        due_iso = parsed["due_date"]
+    else:
+        return "[error] нужен text (фраза) или body+when"
+
+    if not body:
+        return "[error] не понял, о чём напомнить"
+
+    try:
+        due = date.fromisoformat(due_iso)
+        async with get_connection() as conn:
+            rid = await create_reminder(conn, body=body, due_date=due)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("schedule_reminder.failed", error=str(exc))
+        return f"[error] не удалось сохранить напоминание: {exc}"
+
+    return (
+        f"[ok] напоминание #{rid} на {due_iso}: «{body}». "
+        "Покажется в списке дел на эту дату (/reminders)."
+    )
+
+
 # Tool registry — name → (function, description-for-LLM, params-schema)
 _BUILTIN_TOOLS: dict[str, dict[str, Any]] = {
     "read_file": {
@@ -1049,6 +1095,19 @@ _BUILTIN_TOOLS: dict[str, dict[str, Any]] = {
         "description": "Осознанно вспомнить релевантное из всех прошлых чатов пользователя.",
         "params": {"query": "о чём вспомнить"},
     },
+    "schedule_reminder": {
+        "fn": schedule_reminder,
+        "description": (
+            "Создать напоминание/задачу из естественного языка. Вызывай, когда "
+            "пользователь просит «напомни …», «через час/завтра/в пятницу …», "
+            "«поставь задачу …». Передай фразу целиком в text — дату распознаю сам."
+        ),
+        "params": {
+            "text": "фраза целиком, напр. 'напомни завтра оплатить хостинг'",
+            "body": "необяз.: только суть задачи (если дата отдельно во when)",
+            "when": "необяз.: дата словами — сегодня/завтра/через 3 дня/20.06",
+        },
+    },
 }
 
 
@@ -1115,6 +1174,12 @@ _TOOL_ALIASES: dict[str, str] = {
     "search": "web_search", "google": "web_search", "search_web": "web_search",
     "test": "run_tests", "pytest": "run_tests", "npm_test": "run_tests",
     "recall": "query_memory", "remember_search": "query_memory", "search_memory": "query_memory",
+    # NL-планирование: модели зовут по-разному → ведём на schedule_reminder
+    "remind": "schedule_reminder", "remind_me": "schedule_reminder",
+    "add_reminder": "schedule_reminder", "create_reminder": "schedule_reminder",
+    "set_reminder": "schedule_reminder", "schedule_task": "schedule_reminder",
+    "add_task": "schedule_reminder", "create_task": "schedule_reminder",
+    "reminder": "schedule_reminder", "remindme": "schedule_reminder",
 }
 _MKDIR_NAMES = {
     "mkdir", "make_dir", "makedir", "create_dir", "createdir", "create_directory",
