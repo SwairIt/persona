@@ -123,7 +123,7 @@
             } else {
               const ratio = d.v / maxVal;
               const alpha = d.v > 0 ? Math.max(0.08, ratio) : 0;
-              html += `<a href="/?date=${d.key}" title="${d.key}: ${Math.round(d.v/60)}min"
+              html += `<a href="/day/${d.key}" title="${d.key}: ${Math.round(d.v/60)}min"
                           class="w-3 h-3 rounded-sm"
                           style="background-color: rgba(139,92,246,${alpha})"></a>`;
             }

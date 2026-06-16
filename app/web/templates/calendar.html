@@ -34,7 +34,7 @@
         {% set key = "%04d-%02d-%02d" | format(year, month, day) %}
         {% set n = counts.get(key, 0) %}
         {% set intensity = (n / max_count.value) if max_count.value > 0 else 0 %}
-        <a href="/?date={{ key }}"
+        <a href="/day/{{ key }}"
            class="aspect-square rounded-lg border border-ink-700 hover:border-accent-500 p-2 flex flex-col justify-between
                   {% if today_iso == key %}ring-2 ring-accent-500{% endif %}"
            style="background-color: rgba(139, 92, 246, {{ (intensity * 0.4 + 0.05) if n > 0 else 0 }});">

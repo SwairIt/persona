@@ -159,7 +159,7 @@
         title: count > 0 ? `${iso} — ${count} shot${count === 1 ? '' : 's'}` : iso,
       }, [String(day)]);
       cell.addEventListener('click', () => {
-        window.location.assign(`/timeline/${iso}`);
+        window.location.assign(`/day/${iso}`);
       });
       grid.appendChild(cell);
     }
@@ -254,7 +254,7 @@
     });
 
     todayBtn.addEventListener('click', () => {
-      window.location.assign(`/timeline/${ymd(new Date())}`);
+      window.location.assign(`/day/${ymd(new Date())}`);
     });
 
     // Esc closes; click-outside closes too.

@@ -32,7 +32,7 @@
   memgraph.js.
 - [x] A5. `/memory`: часовые карточки и строки daily pins сделать кликабельными → `/day/{date}`
   (+ «View day» ссылка). memory.html.
-- [ ] A6. Унификация навигации к дню: cal_nav.js, /calendar, /stats heatmap, screenshot «jump to day»
+- [x] A6. Унификация навигации к дню: cal_nav.js, /calendar, /stats heatmap, screenshot «jump to day»
   → ведут на `/day/{date}` (canonical). Старые /timeline?date= оставить рабочими.
 - [ ] A7. Дашборд/навбар: плитка/кнопка «📅 День» → `/day/сегодня` + поле выбора даты.
 
@@ -101,3 +101,6 @@
   memgraph.js + memory_graph.html (+ ?v= cache-busting на memgraph.js). JS-синтаксис node --check OK.
 - A5 ✅ (v2.20.32): /memory — часовые карточки (hour_start[:10]) и строки daily pins (p.day) теперь ссылки
   на /day/{date} («день →» у карточек, кликабельная дата у pins). memory.html. jinja OK.
+- A6 ✅ (v2.20.33): навигация к дню унифицирована на /day/{date}. cal_nav.js (клик по дню + «сегодня»:
+  /timeline/{date} → /day/{date}, + ?v= cache-busting в base.html), calendar.html (клетки /?date= → /day/),
+  stats.html year-heatmap (/?date= → /day/). node --check + jinja OK; старые /?date|/timeline/ ссылки убраны.
