@@ -21,7 +21,7 @@
   screenshot_count + разбивка ocr_status, audio_seconds (=«был ли/сколько записан звук»),
   hourly_card list, chat msgs + input/output токены, tool_execution разбивка, llm_usage по kind,
   voice_tts done, day_tldr, daily_budget_state. Один объект DayOverview. + pytest на scratch-БД.
-- [ ] A2. Роут+шаблон `/day/{date}` (`day_overview.py` route, `day_overview.html`): шапка (дата,
+- [x] A2. Роут+шаблон `/day/{date}` (`day_overview.py` route, `day_overview.html`): шапка (дата,
   ← →, «сегодня», TL;DR), KPI-плитки (скрины / звук N мин / ИИ: вызовов+токенов / активных часов),
   скрины по часам (reuse timeline-группировку, ссылки на /screenshot/{id}), часовые карточки,
   быстрые ссылки на существующие виды дня (scrubber/collage/kanban/pdf/markdown/tldr). В settings_hub + nav i18n.
@@ -87,3 +87,8 @@
   карточки/tldr/бюджет/топ-приложения), устойчив (try/except на блок), datetime()-нормализация времени
   для chat/tools/voice. Поймал и починил: audio_segment реально captured_at/duration_seconds (инвентаризация
   дала устаревшие started_at/duration_s). 3 pytest.
+- A2 ✅ (v2.20.29): страница /day/{date} (day_overview_page.py + day_overview.html) — шапка с навигацией
+  по дням, TL;DR, KPI-плитки (скрины/звук «записан да-нет»/ИИ использований+токены/часы), топ-приложения,
+  блок «спросить про день» (форма готова, обработчик в A3), часовые карточки, галерея скринов по часам
+  (reuse _screenshot_card + _group_by_hour), быстрые ссылки на scrubber/collage/kanban/pdf/таймлайн.
+  Роут зарегистрирован, не затирает /day/{day}/collage|kanban|md|pdf.

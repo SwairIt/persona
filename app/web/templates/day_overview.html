@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto px-4 py-6 space-y-6">
+
+  {# Шапка: дата + навигация по дням #}
+  <header class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <div class="text-xs text-zinc-500 uppercase tracking-widest">Обзор дня</div>
+      <h1 class="text-2xl font-bold text-zinc-100">
+        {{ day_iso }}{% if ov.is_today %} <span class="text-sm text-emerald-400 align-middle">· сегодня</span>{% endif %}
+      </h1>
+      {% if ov.first_capture and ov.last_capture %}
+        <div class="text-xs text-zinc-500 mt-0.5">активность {{ ov.first_capture }}–{{ ov.last_capture }}</div>
+      {% endif %}
+    </div>
+    <div class="flex items-center gap-1.5 text-sm">
+      <a href="/day/{{ ov.prev_day }}" class="px-3 py-1.5 rounded-lg bg-ink-800 border border-ink-700 hover:bg-ink-700">← {{ ov.prev_day[5:] }}</a>
+      <a href="/day/{{ ov.next_day }}" class="px-3 py-1.5 rounded-lg bg-ink-800 border border-ink-700 hover:bg-ink-700">{{ ov.next_day[5:] }} →</a>
+      <a href="/calendar" class="px-3 py-1.5 rounded-lg bg-ink-800 border border-ink-700 hover:bg-ink-700" title="календарь">▦</a>
+    </div>
+  </header>
+
+  {# TL;DR #}
+  {% if ov.tldr %}
+    <div class="rounded-xl border border-accent-500/30 bg-accent-500/5 p-4 text-sm text-zinc-200">
+      <span class="text-accent-300 font-medium">TL;DR:</span> {{ ov.tldr }}
+    </div>
+  {% endif %}
+
+  {# KPI-плитки #}
+  <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+    <div class="rounded-xl border border-ink-700 bg-ink-800 p-4">
+      <div class="text-xs text-zinc-500">Скриншоты</div>
+      <div class="text-2xl font-bold text-zinc-100 mt-1">{{ ov.screenshots }}</div>
+      <div class="text-[11px] text-zinc-600 mt-0.5">{{ ov.ocr_done }} с OCR · {{ ov.active_hours }} ч активности</div>
+    </div>
+    <div class="rounded-xl border p-4 {{ 'border-emerald-500/40 bg-emerald-500/5' if ov.audio_seconds > 0 else 'border-ink-700 bg-ink-800' }}">
+      <div class="text-xs text-zinc-500">Звук записан</div>
+      <div class="text-2xl font-bold text-zinc-100 mt-1">
+        {{ ov.audio_minutes }} <span class="text-sm text-zinc-500">мин</span>
+      </div>
+      <div class="text-[11px] text-zinc-600 mt-0.5">{{ 'да, ' ~ ov.audio_segments ~ ' фрагм.' if ov.audio_seconds > 0 else 'не записан' }}</div>
+    </div>
+    <div class="rounded-xl border border-ink-700 bg-ink-800 p-4">
+      <div class="text-xs text-zinc-500">ИИ использован</div>
+      <div class="text-2xl font-bold text-zinc-100 mt-1">{{ ov.ai_uses }} <span class="text-sm text-zinc-500">раз</span></div>
+      <div class="text-[11px] text-zinc-600 mt-0.5">{{ ov.ai_replies }} чат · {{ ov.voice_replies }} голос · {{ ov.tool_calls }} инстр.</div>
+    </div>
+    <div class="rounded-xl border border-ink-700 bg-ink-800 p-4">
+      <div class="text-xs text-zinc-500">Токены ИИ</div>
+      <div class="text-2xl font-bold text-zinc-100 mt-1">{{ '{:,}'.format(ov.total_tokens).replace(',', ' ') }}</div>
+      <div class="text-[11px] text-zinc-600 mt-0.5">{{ ov.input_tokens }} вход · {{ ov.output_tokens }} выход</div>
+    </div>
+  </div>
+
+  {% if not ov.recorded %}
+    <div class="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 text-sm text-amber-200">
+      За этот день нет ни скриншотов, ни звука — захват был выключен или данные удалены.
+    </div>
+  {% endif %}
+
+  {# Топ-приложения #}
+  {% if ov.top_apps %}
+    <div class="flex flex-wrap items-center gap-2">
+      <span class="text-xs text-zinc-500">Топ приложений:</span>
+      {% for a in ov.top_apps %}
+        <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-ink-800 border border-ink-700 text-xs text-zinc-300">
+          <img src="/app-icon/{{ a.app | urlencode }}.png" class="w-3.5 h-3.5 rounded-sm" alt="" loading="lazy">
+          {{ a.app }} <span class="text-zinc-600">{{ a.count }}</span>
+        </span>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  {# Быстрые действия / другие виды дня #}
+  <div class="flex flex-wrap gap-2 text-sm">
+    <a href="#ask" class="px-3 py-2 rounded-lg bg-accent-600 hover:bg-accent-500 text-white">💬 Спросить про день</a>
+    <a href="/scrubber/{{ day_iso }}" class="px-3 py-2 rounded-lg bg-ink-800 border border-ink-700 hover:bg-ink-700">🎞 Скраббер</a>
+    <a href="/day/{{ day_iso }}/collage" class="px-3 py-2 rounded-lg bg-ink-800 border border-ink-700 hover:bg-ink-700">🖼 Коллаж</a>
+    <a href="/day/{{ day_iso }}/kanban" class="px-3 py-2 rounded-lg bg-ink-800 border border-ink-700 hover:bg-ink-700">📋 Канбан</a>
+    <a href="/export/day/{{ day_iso }}.pdf" class="px-3 py-2 rounded-lg bg-ink-800 border border-ink-700 hover:bg-ink-700">📄 PDF</a>
+    <a href="/timeline?date={{ day_iso }}" class="px-3 py-2 rounded-lg bg-ink-800 border border-ink-700 hover:bg-ink-700">📅 Таймлайн</a>
+  </div>
+
+  {# Спросить про день — заглушка-форма (живой обработчик добавит A3) #}
+  <div id="ask" class="rounded-xl border border-ink-700 bg-ink-900 p-4"
+       x-data="{ q:'', a:'', loading:false, async ask(){ if(!this.q.trim())return; this.loading=true; this.a='';
+         try{ const r=await fetch('/api/day/{{ day_iso }}/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:this.q})});
+              const d=await r.json(); this.a=d.answer||d.detail||'(пустой ответ)'; }catch(e){ this.a='Ошибка: '+e; } finally{ this.loading=false; } } }">
+    <p class="text-sm font-medium text-zinc-200 mb-2">💬 Спросить про этот день</p>
+    <div class="flex gap-2">
+      <input x-model="q" @keydown.enter="ask()" placeholder="Например: над чем я работал? с кем общался? что осталось?"
+             class="flex-1 rounded-lg bg-ink-950 border border-ink-700 px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-accent-500">
+      <button @click="ask()" :disabled="loading"
+              class="px-4 py-2 rounded-lg bg-accent-600 hover:bg-accent-500 text-white text-sm disabled:opacity-50">
+        <span x-show="!loading">Спросить</span><span x-show="loading">…</span>
+      </button>
+    </div>
+    <div x-show="a" x-cloak class="mt-3 text-sm text-zinc-200 whitespace-pre-wrap leading-relaxed" x-text="a"></div>
+  </div>
+
+  {# Часовые карточки памяти #}
+  {% if ov.hourly_cards %}
+    <section>
+      <h2 class="text-sm font-semibold text-zinc-300 mb-2">🧠 Память по часам</h2>
+      <div class="space-y-2">
+        {% for c in ov.hourly_cards %}
+          <div class="rounded-lg border border-ink-700 bg-ink-800 p-3">
+            <div class="text-[11px] text-zinc-500 mb-1">{{ c.hour_start[11:16] }} · {{ c.screen_count }} скр.{% if c.audio_seconds %} · {{ (c.audio_seconds // 60) }} мин звука{% endif %}</div>
+            <div class="text-sm text-zinc-300 whitespace-pre-wrap leading-snug">{{ c.summary[:600] }}</div>
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+
+  {# Скрины по часам #}
+  <section>
+    <h2 class="text-sm font-semibold text-zinc-300 mb-2">
+      🖥 Скриншоты {% if shots_capped %}<span class="text-[11px] text-zinc-500">(первые {{ shots_shown }})</span>{% endif %}
+    </h2>
+    {% if not groups %}
+      <p class="text-sm text-zinc-500">Скриншотов за день нет.</p>
+    {% else %}
+      <div class="space-y-6">
+        {% for hour, shots in groups.items() %}
+          <div>
+            <h3 class="text-xs font-mono text-zinc-500 uppercase tracking-widest mb-2">{{ hour }} · {{ shots | length }}</h3>
+            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
+              {% for shot in shots %}
+                {% include "_screenshot_card.html" %}
+              {% endfor %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </section>
+
+</div>
+{% endblock %}
