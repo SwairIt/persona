@@ -57,7 +57,7 @@ def main() -> None:
     # простом --help или импорте окружением.
     import torch  # noqa: PLC0415
     from datasets import Dataset  # noqa: PLC0415
-    from peft import LoraConfig  # noqa: PLC0415
+    from peft import LoraConfig, prepare_model_for_kbit_training  # noqa: PLC0415
     from transformers import (  # noqa: PLC0415
         AutoModelForCausalLM,
         AutoTokenizer,
@@ -81,10 +81,13 @@ def main() -> None:
         tok.pad_token = tok.eos_token
     model = AutoModelForCausalLM.from_pretrained(
         args.model, quantization_config=bnb, device_map="auto",
-        attn_implementation="eager",  # НЕ flash-attn — Pascal не поддерживает
+        torch_dtype=torch.float16,     # без bf16 — T4/Pascal его не тянут аппаратно
+        attn_implementation="eager",   # НЕ flash-attn — Pascal не поддерживает
     )
     model.config.use_cache = False
-    model.gradient_checkpointing_enable()
+    # Канонический шаг QLoRA: приводит обучаемые параметры к fp32 (иначе на T4
+    # градиенты в bf16 → fp16-скейлер падает _amp_..._unscale not implemented).
+    model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
 
     lora = LoraConfig(
         r=args.lora_r, lora_alpha=args.lora_r * 2, lora_dropout=0.05,

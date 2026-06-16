@@ -304,3 +304,7 @@ recall и vec0-поиска (pip install sqlite-vec + ollama pull nomic-embed-te
   (и иногда убирает dataset_text_field). И ноутбук (finetune/persona_colab.ipynb), и локальный train_qlora.py
   теперь собирают kwargs SFTConfig по реальной сигнатуре (inspect) — не падают на свежем TRL. (Поймано вживую
   при первом запуске обучения пользователем на Colab.) v2.20.24.
+- ✅ Фикс QLoRA на T4 (bf16): на Tesla T4/Pascal нет аппаратного bf16 → при обучении градиенты съезжали в
+  bfloat16 и fp16-GradScaler падал (_amp_foreach_non_finite_check_and_unscale not implemented for BFloat16).
+  Добавлены torch_dtype=float16 при загрузке + prepare_model_for_kbit_training (обучаемые параметры → fp32) —
+  и в ноутбук, и в train_qlora.py. (Поймано вживую на втором запуске обучения.) v2.20.25.
