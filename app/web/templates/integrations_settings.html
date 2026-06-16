@@ -10,6 +10,13 @@
     </p>
   </div>
 
+  {% if imported is not none %}
+    <div class="rounded-xl border border-emerald-500/40 bg-emerald-500/5 p-3 text-sm text-emerald-200">
+      ✅ Импорт завершён: добавлено <b>{{ imported }}</b> фактов из <b>{{ parsed }}</b> найденных
+      (дубли пропущены). Загляни в <a href="/settings/memory" class="underline">память</a>.
+    </div>
+  {% endif %}
+
   {# Напоминания → .ics #}
   <div class="rounded-xl border border-ink-700 bg-ink-800 p-4 space-y-3">
     <div class="flex items-center justify-between gap-3">
@@ -45,9 +52,35 @@
     </ul>
   </div>
 
+  {# Импорт Markdown → память #}
+  <div class="rounded-xl border border-ink-700 bg-ink-800 p-4 space-y-3">
+    <div>
+      <p class="text-sm font-medium text-zinc-200">📥 Импорт заметок (Markdown → память)</p>
+      <p class="text-xs text-zinc-500 mt-0.5">
+        Вставь свои .md-заметки или загрузи файл — разберу на факты и положу в память
+        (пункты списков, чекбоксы, абзацы; заголовки станут контекстом). Дубли пропускаются.
+      </p>
+    </div>
+    <form method="post" action="/settings/integrations/import-markdown"
+          enctype="multipart/form-data" class="space-y-2">
+      <textarea name="text" rows="6" placeholder="# Обо мне&#10;- люблю кофе без сахара&#10;- работаю над Persona"
+                class="w-full rounded-lg bg-ink-950 border border-ink-700 px-3 py-2 text-sm text-zinc-100
+                       focus:outline-none focus:border-accent-500 font-mono"></textarea>
+      <div class="flex flex-wrap items-center gap-2">
+        <input type="file" name="file" accept=".md,.markdown,.txt,text/markdown,text/plain"
+               class="text-xs text-zinc-400 file:mr-2 file:px-2 file:py-1 file:rounded file:border-0
+                      file:bg-ink-700 file:text-zinc-200 file:text-xs" />
+        <button type="submit"
+                class="ml-auto px-3 py-2 rounded-lg bg-accent-600 hover:bg-accent-500 text-white text-sm">
+          Импортировать
+        </button>
+      </div>
+    </form>
+  </div>
+
   <p class="text-[11px] text-zinc-600">
-    Импорт Markdown-заметок в память — на подходе. Управление напоминаниями —
-    <a href="/reminders" class="underline">/reminders</a>.
+    Управление напоминаниями — <a href="/reminders" class="underline">/reminders</a>,
+    памятью — <a href="/settings/memory" class="underline">/settings/memory</a>.
   </p>
 </div>
 {% endblock %}
