@@ -174,6 +174,66 @@ def _fmt(rows: list[dict[str, Any]], limit: int) -> str:
     return "\n".join(out)
 
 
+async def backfill_index(limit: int = 500, user_id: int | None = None) -> int:
+    """Проиндексировать ещё не проиндексированные chat_message (идемпотентно).
+
+    Маркер «уже проиндексировано» — наличие строки в vec_message_meta. No-op без
+    sqlite-vec. Возвращает число проиндексированных. Звать батчами в простое.
+    """
+    if not sqlite_vec_available():
+        return 0
+    try:
+        async with get_connection() as conn:
+            sql = (
+                "SELECT m.id, m.content, m.session_id, m.created_at, s.user_id "
+                "FROM chat_message m JOIN chat_session s ON s.id = m.session_id "
+                "LEFT JOIN vec_message_meta v ON v.message_id = m.id "
+                "WHERE v.message_id IS NULL AND m.is_streaming = 0 "
+                "AND length(m.content) >= 3 "
+            )
+            params: list[Any] = []
+            if user_id is not None:
+                sql += "AND s.user_id = ? "
+                params.append(user_id)
+            sql += "ORDER BY m.id DESC LIMIT ?"
+            params.append(max(1, min(2000, int(limit))))
+            cur = await conn.execute(sql, params)
+            rows = await cur.fetchall()
+    except Exception as exc:  # noqa: BLE001
+        log.debug("memory_vec.backfill_query_failed", error=str(exc))
+        return 0
+    done = 0
+    for r in rows:
+        if await index_message(int(r["id"]), int(r["user_id"]), str(r["content"]),
+                               session_id=r["session_id"], created_at=r["created_at"]):
+            done += 1
+    if done:
+        log.info("memory_vec.backfill", indexed=done)
+    return done
+
+
+async def _rerank(question: str, rows: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
+    """Опц. cross-encoder реранк top-N (kv reranker_enabled). Без модели — как есть."""
+    if len(rows) <= limit:
+        return rows
+    try:
+        async with get_connection() as conn:
+            on = (await get_kv(conn, "reranker_enabled") or "").strip() == "1"
+        if not on:
+            return rows
+        from fastembed.rerank.cross_encoder import TextCrossEncoder  # noqa: PLC0415
+
+        model_name = "Xenova/bge-reranker-base"  # мультиязычный, CPU
+        enc = TextCrossEncoder(model_name=model_name)
+        docs = [r.get("content", "") for r in rows]
+        scores = list(enc.rerank(question, docs))
+        order = sorted(range(len(rows)), key=lambda i: -scores[i])
+        return [rows[i] for i in order]
+    except Exception as exc:  # noqa: BLE001 — реранк опционален, не ломаем recall
+        log.debug("memory_vec.rerank_skipped", error=str(exc))
+        return rows
+
+
 async def hybrid_recall(user_id: int, question: str,
                         exclude_session_id: int | None = None, limit: int = 6) -> str:
     """FTS5 bm25 + векторный KNN через RRF. Fallback на recall_relevant при любой
@@ -200,6 +260,8 @@ async def hybrid_recall(user_id: int, question: str,
             rowmap.setdefault(mid, r)
         ranked = sorted(scores.items(), key=lambda kv: -kv[1])
         merged = [rowmap[mid] for mid, _ in ranked]
+        # Опц. финальный cross-encoder реранк top-N → точнее, чем RRF-порядок.
+        merged = await _rerank(question, merged, limit)
         block = _fmt(merged, limit)
         return block or await recall_relevant(user_id, question, exclude_session_id, limit)
     except Exception as exc:  # noqa: BLE001 — векторный путь не должен ломать чат
@@ -207,4 +269,4 @@ async def hybrid_recall(user_id: int, question: str,
         return await recall_relevant(user_id, question, exclude_session_id, limit)
 
 
-__all__ = ["embed", "hybrid_recall", "index_message", "sqlite_vec_available"]
+__all__ = ["backfill_index", "embed", "hybrid_recall", "index_message", "sqlite_vec_available"]

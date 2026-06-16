@@ -246,12 +246,16 @@ _RECALL_MODES = ("off", "keyword", "smart", "hybrid", "vector")
 
 
 async def _get_recall_mode() -> str:
-    from app.storage.db import get_connection  # noqa: PLC0415
+    from app.storage.db import get_connection, sqlite_vec_available  # noqa: PLC0415
     from app.storage.repository import get_kv  # noqa: PLC0415
 
     async with get_connection() as conn:
-        v = (await get_kv(conn, "recall_mode") or "keyword").strip()
-    return v if v in _RECALL_MODES else "keyword"
+        v = (await get_kv(conn, "recall_mode") or "").strip()
+    if v in _RECALL_MODES:
+        return v  # явный выбор пользователя побеждает
+    # Дефолт: hybrid, если sqlite-vec доступен (hybrid_recall сам тихо
+    # откатывается на keyword, если эмбеддинги/Ollama недоступны). Иначе keyword.
+    return "hybrid" if sqlite_vec_available() else "keyword"
 
 
 async def _smart_recall_terms(question: str) -> list[str]:

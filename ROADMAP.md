@@ -194,3 +194,9 @@ agent-driven память Letta на слабой модели (мусор за�
 - ✅ S1b: extract_and_store → GBNF-извлечение фактов. _extract_facts: complete_json со схемой
   {facts:[{text,kind}]} для Ollama (корень анти-CJK — format режет мусор), строковый парсер —
   fallback для облачных/сбоя. Каждый факт через reconcile_and_add. 3 pytest (GBNF/fallback/битый-JSON→fallback). v2.20.8.
+- ✅ S1c: hybrid recall активируется по умолчанию при sqlite_vec_available() (иначе keyword; явный
+  kv побеждает); memory_vec.backfill_index() (идемпотентный бэкфилл истории по vec_message_meta-маркеру,
+  no-op без sqlite-vec); опц. cross-encoder reranker в hybrid_recall (kv reranker_enabled, fastembed
+  bge-reranker, выключен по умолчанию, не ломает recall). 4 pytest + golden-eval не упал. v2.20.9.
+  ОСТАЛОСЬ (активируется только с sqlite-vec, не тестируемо здесь): индексация-на-запись новых сообщений
+  + расписание backfill в воркере — допилить при включённом sqlite-vec на машине пользователя.
