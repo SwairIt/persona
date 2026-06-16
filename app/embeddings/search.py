@@ -55,8 +55,21 @@ async def semantic_search(
 
     query_vec = embed_query(query)
 
+    # S4b — если доступен sqlite-vec, сначала сужаем до KNN-кандидатов (быстро,
+    # в SQL), а cosine считаем уже только по ним. Без расширения / при ошибке —
+    # vec_candidate_ids вернёт None и мы перебираем все строки как раньше.
+    from app.embeddings.vec_store import vec_candidate_ids  # noqa: PLC0415
+
+    candidate_ids = await vec_candidate_ids(query_vec, k=max(200, limit * 5))
+
     where: list[str] = []
     params: list[Any] = []
+    if candidate_ids is not None:
+        if not candidate_ids:
+            return []  # vec0 есть, но индекс пуст для этого запроса
+        placeholders = ",".join("?" * len(candidate_ids))
+        where.append(f"s.id IN ({placeholders})")
+        params.extend(candidate_ids)
     if since is not None:
         where.append("s.captured_at >= ?")
         params.append(iso(since))

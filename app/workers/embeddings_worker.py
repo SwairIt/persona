@@ -88,4 +88,13 @@ async def _drain_once() -> None:
                 text=item["text"],
             )
 
+    # S4b — best-effort зеркалирование в vec0 (no-op без sqlite-vec).
+    try:
+        from app.embeddings.vec_store import index_screenshot  # noqa: PLC0415
+
+        for item, vec in zip(pending, vectors, strict=True):
+            await index_screenshot(item["id"], vec)
+    except Exception as exc:  # noqa: BLE001 — vec-зеркало не должно ломать индексацию
+        log.debug("embeddings_worker.vec_mirror_failed", error=str(exc))
+
     log.info("embeddings_worker.indexed", count=len(pending))
