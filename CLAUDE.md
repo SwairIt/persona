@@ -27,5 +27,12 @@
 - Характер задаётся в `/settings/system-prompt` (kv `chat_system_prompt`,
   пресеты в `app/chat/prompts.py`). Простой режим использует сохранённый промпт
   если он кастомный, иначе `FRIEND_PROMPT`.
-- Перед ответом подтягивается память по всем чатам: `recall_relevant()` в
-  `app/chat/sessions.py` (поиск по именам/ключевым словам).
+- Перед ответом подтягивается память по всем чатам. Режим — kv `recall_mode`
+  (`get_recall_mode()` в `chat_sessions.py`): **по умолчанию `keyword`** →
+  `recall_relevant()`/`recall_by_terms()` в `app/chat/sessions.py` (FTS5 bm25 +
+  LIKE-fallback, поиск по именам/ключевым словам). Режимы `hybrid`/`vector`
+  (FTS5 bm25 + векторный KNN через RRF, `app/memory_vec.py`) — **опциональны и
+  по умолчанию ВЫКЛ**: требуют `pip install sqlite-vec` + Ollama-embed-модель
+  (`embed_model`, деф. `nomic-embed-text`) + бэкфилл индекса (`index_message`);
+  без них тихий fallback на keyword. Личные факты о пользователе — `user_memory`
+  (`app/chat/user_memory.py`), подмешиваются отдельным блоком.

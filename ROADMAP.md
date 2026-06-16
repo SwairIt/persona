@@ -175,3 +175,11 @@ agent-driven память Letta на слабой модели (мусор за�
 
 > Принцип: каждый спринт — сначала ДОВОДИТЬ существующее (memory_vec, briefing, complete_json,
 > /settings/* уже есть), а не строить заново. И никаких изменений recall/памяти без golden-eval.
+
+---
+## Прогресс исполнения
+- ✅ S0: Ollama keep_alive + адаптивный num_ctx (v2.20.5, `bf7edc8`)
+- ✅ S0: CLAUDE.md приведён в соответствие (recall по умолчанию keyword; hybrid opt-in)
+- ✅ S0: golden-eval harness `tests/eval/` (keyword baseline hit_rate=0.67; hybrid-fallback не хуже).
+  Запуск на своих данных: PERSONA_DB_PATH=боевая → measure(recall_relevant, user_id). Морфология
+  (деплоем→деплой, бег→бегать) — известный gap, цель S1 hybrid+reranker.
