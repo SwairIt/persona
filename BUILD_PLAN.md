@@ -17,7 +17,7 @@
 Цель пользователя: клик по вершине графа → страница этого дня со всеми скринами, можно сразу
 спросить про день, видно был ли захват, сколько использовался ИИ и т.д. И быстрый переход туда без графа.
 
-- [ ] A1. `app/day_overview.py` — агрегатор дня (reuse `_day_bounds_utc`): за дату вернуть
+- [x] A1. `app/day_overview.py` — агрегатор дня (reuse `_day_bounds_utc`): за дату вернуть
   screenshot_count + разбивка ocr_status, audio_seconds (=«был ли/сколько записан звук»),
   hourly_card list, chat msgs + input/output токены, tool_execution разбивка, llm_usage по kind,
   voice_tts done, day_tldr, daily_budget_state. Один объект DayOverview. + pytest на scratch-БД.
@@ -83,3 +83,7 @@
   КЛЮЧЕВОЙ КРЮЧОК: Rewind/Limitless куплен Meta (5.12.25), Mac-запись off с 19.12.25, EU/UK отрезаны →
   Persona local-first/open «нельзя купить и слить». «Hermes» = open-source локальный агент (не носимое).
   Готовы: таблица сравнения, 12 преимуществ, 20 заголовков, 9 возражений, 15 тем статей.
+- A1 ✅ (v2.20.28): app/day_overview.py — агрегатор дня (скрины/OCR/звук/ИИ-использование/часы/часовые
+  карточки/tldr/бюджет/топ-приложения), устойчив (try/except на блок), datetime()-нормализация времени
+  для chat/tools/voice. Поймал и починил: audio_segment реально captured_at/duration_seconds (инвентаризация
+  дала устаревшие started_at/duration_s). 3 pytest.
