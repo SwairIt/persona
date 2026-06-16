@@ -302,6 +302,39 @@
       </div>
     </section>
 
+    <!-- USE CASES -->
+    <section class="usecases" id="usecases">
+      <h2 class="section-title reveal">Когда Persona выручает</h2>
+      <p class="section-lead reveal">Не «ещё одни заметки руками», а ретро-поиск по тому, что ты реально видел и делал.</p>
+      <div class="reveal" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:1rem;max-width:1000px;margin:1.5rem auto 0;">
+        <div class="glass" style="padding:1.3rem;border-radius:16px;">
+          <div style="font-size:1.6rem;">🔎</div>
+          <h3 style="margin:.4rem 0;font-size:1.05rem;">«Что мне писал клиент 3 недели назад?»</h3>
+          <p style="margin:0;color:#9aa;font-size:.92rem;line-height:1.5;">Найди тот разговор, письмо или экран — по смыслу, а не по точным словам, даже если приложение давно закрыто.</p>
+        </div>
+        <div class="glass" style="padding:1.3rem;border-radius:16px;">
+          <div style="font-size:1.6rem;">🧵</div>
+          <h3 style="margin:.4rem 0;font-size:1.05rem;">Вернуть контекст после переключения</h3>
+          <p style="margin:0;color:#9aa;font-size:.92rem;line-height:1.5;">Перескочил на другую задачу и забыл, на чём остановился? Persona напомнит, что ты делал час назад и что осталось.</p>
+        </div>
+        <div class="glass" style="padding:1.3rem;border-radius:16px;">
+          <div style="font-size:1.6rem;">🗣️</div>
+          <h3 style="margin:.4rem 0;font-size:1.05rem;">Саммари встречи без бота</h3>
+          <p style="margin:0;color:#9aa;font-size:.92rem;line-height:1.5;">Звук пишется и распознаётся на твоём устройстве — получи краткое содержание созвона, не пуская в комнату чужого бота.</p>
+        </div>
+        <div class="glass" style="padding:1.3rem;border-radius:16px;">
+          <div style="font-size:1.6rem;">🌅</div>
+          <h3 style="margin:.4rem 0;font-size:1.05rem;">Утренний бриф «что не закрыл вчера»</h3>
+          <p style="margin:0;color:#9aa;font-size:.92rem;line-height:1.5;">Проактивные карточки из реального контекста дня — а не из календаря, который ты ведёшь руками.</p>
+        </div>
+        <div class="glass" style="padding:1.3rem;border-radius:16px;">
+          <div style="font-size:1.6rem;">🖼️</div>
+          <h3 style="margin:.4rem 0;font-size:1.05rem;">Найти мельком виденное</h3>
+          <p style="margin:0;color:#9aa;font-size:.92rem;line-height:1.5;">Тот слайд, ссылка или цифра, что промелькнули на экране и пропали — Persona помнит их по OCR.</p>
+        </div>
+      </div>
+    </section>
+
     <!-- PRIVACY -->
     <section class="privacy" id="privacy">
       <div class="privacy-card glass reveal">
@@ -360,7 +393,31 @@
       </details>
       <details class="faq-item reveal">
         <summary>Сколько стоит?</summary>
-        <div class="faq-a">Persona — open-source и работает на твоём железе. Платишь только за облачную модель, если решишь её подключить.</div>
+        <div class="faq-a">Persona — open-source и работает на твоём железе. Платишь только за облачную модель, если решишь её подключить. Никакой вечной подписки за облако. <a href="/pricing">Подробнее о цене →</a></div>
+      </details>
+      <details class="faq-item reveal">
+        <summary>А вдруг вы уйдёте в облако или вас купят, как Rewind?</summary>
+        <div class="faq-a">Архитектурно это невозможно повторить: Persona local-first и открытая. Нет облачного бэкенда, который можно «переключить», и закрытого кода, который нельзя проверить. Открытость = иммунитет к смене Terms за ночь. Для контекста: Rewind продал обещание «данные не покидают устройство», ушёл в облако и был куплен Meta (запись на Mac отключена с 19.12.2025).</div>
+      </details>
+      <details class="faq-item reveal">
+        <summary>Это же лог всего, что я вижу — а вдруг утечёт?</summary>
+        <div class="faq-a">Честно: тотальный локальный лог сам по себе — цель для малвари/форензики. Поэтому мы даём контроль: всё на устройстве, шифрование секретов, исключения приложений/окон, пауза и удаление, redaction чувствительного, локальная модель для air-gapped работы. Плюс защищай само устройство (шифрование диска). <a href="/security">Подробнее о безопасности →</a></div>
+      </details>
+      <details class="faq-item reveal">
+        <summary>Локальная модель ведь тупее облачной?</summary>
+        <div class="faq-a">Да, и мы это не прячем. Persona выигрывает не интеллектом модели, а памятью о твоём реальном контексте. При этом можно подключить и облачную LLM (наружу уйдут только запросы по твоему ключу), и дообучить свою «вторую копию» под свой тон.</div>
+      </details>
+      <details class="faq-item reveal">
+        <summary>Это сожрёт диск, CPU и батарею?</summary>
+        <div class="faq-a">Захват настраиваемый: частота, исключения, retention-политики, тихие часы. Можно ограничить объём и автоматически чистить старое. Тяжёлые модели — опционально.</div>
+      </details>
+      <details class="faq-item reveal">
+        <summary>А запись звука — это вообще законно?</summary>
+        <div class="faq-a">Persona пишет ТВОЙ экран и звук на ТВОём устройстве — в отличие от носимых кулонов, которые пишут окружающих. Соблюдение согласия и местных законов при записи других — на тебе, и мы даём инструменты (пауза, исключения, redaction), чтобы это контролировать.</div>
+      </details>
+      <details class="faq-item reveal">
+        <summary>Что с моими данными, если я уйду?</summary>
+        <div class="faq-a">Полный экспорт без потерь и открытый формат — в любой момент. Никакого «окна на экспорт перед удалением», как у закрывшихся облачных сервисов: данные всегда у тебя.</div>
       </details>
     </section>
 
