@@ -584,8 +584,28 @@
         <span class="text-5xl mb-3">💬</span>
         <h1 class="text-2xl font-bold mb-2">Чат с памятью</h1>
         <p class="text-zinc-500 text-sm max-w-md">
-          Беседуй с AI о чём угодно — модель помнит всю историю беседы благодаря автосводке. Жми «Новый чат» слева.
+          Беседуй с AI о чём угодно — модель помнит всю историю беседы благодаря автосводке.
+          Начни с примера ниже или жми «Новый чат» слева.
         </p>
+
+        {# Онбординг: примеры-кейсы. Клик → создаём чат и кладём текст в композер. #}
+        <div class="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full max-w-xl">
+          <template x-for="ex in onboardCases" :key="ex.text">
+            <button type="button" @click="newChatWith(ex.text)"
+                    class="text-left rounded-xl border border-ink-700 bg-ink-800 hover:bg-ink-950 hover:border-accent-500/50 transition p-3.5">
+              <div class="flex items-center gap-2 mb-1">
+                <span class="text-lg" x-text="ex.icon"></span>
+                <span class="text-sm font-medium text-zinc-200" x-text="ex.title"></span>
+              </div>
+              <div class="text-[11px] text-zinc-500 leading-snug" x-text="ex.text"></div>
+            </button>
+          </template>
+        </div>
+
+        <button type="button" @click="newChat()"
+                class="mt-5 text-xs text-zinc-500 hover:text-accent-400">
+          …или просто пустой чат →
+        </button>
       </div>
     {% endif %}
   </main>
@@ -719,6 +739,13 @@
       activityConnected: false,
       activity: [],
       _activityEs: null,
+      // Онбординг: примеры-кейсы на пустом экране (клик → новый чат + текст)
+      onboardCases: [
+        { icon: '🧠', title: 'Запомни обо мне', text: 'Запомни: меня зовут Ярослав, я разработчик, пишу на Python. Обращайся ко мне на «ты».' },
+        { icon: '💡', title: 'Помоги подумать', text: 'Помоги разложить по полочкам задачу, которую я давно откладываю. Задавай уточняющие вопросы.' },
+        { icon: '🔎', title: 'Разбор темы', text: 'Объясни простыми словами, как работает память в этом ассистенте и что ты обо мне знаешь.' },
+        { icon: '✍️', title: 'Текст под меня', text: 'Напиши короткое сообщение в моём стиле — дружелюбно и без канцелярита.' },
+      ],
       // ⌘ Палитра слэш-команд
       commands: [],
       cmdOpen: false,
@@ -839,6 +866,17 @@
           const d = localStorage.getItem(this._draftKey());
           if (d && !this.question) { this.question = d; this.$nextTick(() => this.autosize()); }
         } catch (e) { /* приватный режим — ок */ }
+        // Онбординг: кнопка-пример с пустого экрана создаёт чат и кладёт текст
+        // в ?draft= — подхватываем, ставим в композер и фокусируемся (не авто-шлём,
+        // чтобы человек прочитал/поправил).
+        try {
+          const seed = new URLSearchParams(location.search).get('draft');
+          if (seed) {
+            this.question = seed;
+            this.$nextTick(() => { this.autosize(); try { this.$refs.composer.focus(); } catch (e) {} });
+            history.replaceState({}, '', location.pathname);
+          }
+        } catch (e) { /* ignore */ }
         // T31 E9 — отслеживать позицию скролла (для умного авто-скролла + кнопки «вниз»)
         this.$nextTick(() => {
           const el = document.getElementById('chat-scroll');
@@ -1750,6 +1788,23 @@
           if (!r.ok) throw new Error('create failed');
           const data = await r.json();
           window.location.href = `/chat/${data.id}`;
+        } catch (e) {
+          alert('Не получилось создать чат: ' + e);
+        }
+      },
+
+      // Онбординг: создать чат и сразу положить текст-пример в композер
+      // (через ?draft=, init() его подхватит). Не отправляет сам.
+      async newChatWith(text) {
+        try {
+          const r = await fetch('/api/chat/sessions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: '{}',
+          });
+          if (!r.ok) throw new Error('create failed');
+          const data = await r.json();
+          window.location.href = `/chat/${data.id}?draft=` + encodeURIComponent(text || '');
         } catch (e) {
           alert('Не получилось создать чат: ' + e);
         }
