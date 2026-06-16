@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, Protocol
 
@@ -926,12 +927,32 @@ class OllamaClient:
             user_msg,
         ]
 
+    # keep_alive: держать модель в памяти, чтобы её не выгружало через 5 мин
+    # (иначе каждый брифинг/проактив платит +10с холодным стартом). Переопределяется
+    # env PERSONA_OLLAMA_KEEP_ALIVE (напр. "30m", "-1" = вечно).
+    _KEEP_ALIVE = os.environ.get("PERSONA_OLLAMA_KEEP_ALIVE", "30m")
+    # Ступени num_ctx: меньше контекст → меньше KV-кэш → быстрее старт и меньше
+    # OOM на слабом GPU. Берём минимальную ступень, в которую влезает промпт+ответ.
+    _NUM_CTX_STEPS = (4096, 8192, 16384)
+
+    def _num_ctx_for(self, request: CompletionRequest) -> int:
+        # Грубая оценка токенов промпта (RU/EN mixed ~3 символа/токен) + бюджет
+        # ответа + запас. Картинка добавляет существенный расход — берём максимум.
+        if request.image_data_url:
+            return self._NUM_CTX
+        chars = len(request.system or "") + len(request.user or "")
+        needed = chars // 3 + int(request.max_tokens or 0) + 512
+        for step in self._NUM_CTX_STEPS:
+            if needed <= step:
+                return step
+        return self._NUM_CTX
+
     def _native_options(self, request: CompletionRequest) -> dict[str, object]:
         # num_predict = output cap. -1 would be unlimited; we keep the
         # caller's max_tokens but with num_ctx large enough that it isn't
         # starved by the prompt. Together this removes the "1 token" cap.
         return {
-            "num_ctx": self._NUM_CTX,
+            "num_ctx": self._num_ctx_for(request),
             "num_predict": request.max_tokens,
             "temperature": request.temperature,
         }
@@ -943,6 +964,7 @@ class OllamaClient:
             "model": self._model,
             "messages": self._native_messages(request),
             "stream": False,
+            "keep_alive": self._KEEP_ALIVE,
             "options": self._native_options(request),
         }
         url = f"{self._endpoint}/api/chat"
@@ -969,6 +991,7 @@ class OllamaClient:
             "messages": self._native_messages(request),
             "stream": False,
             "format": schema,
+            "keep_alive": self._KEEP_ALIVE,
             "options": self._native_options(request),
         }
         url = f"{self._endpoint}/api/chat"
@@ -991,6 +1014,7 @@ class OllamaClient:
             "model": self._model,
             "messages": self._native_messages(request),
             "stream": True,
+            "keep_alive": self._KEEP_ALIVE,
             "options": self._native_options(request),
         }
         url = f"{self._endpoint}/api/chat"
