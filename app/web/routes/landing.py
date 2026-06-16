@@ -145,6 +145,19 @@ async def compare_page(
     )
 
 
+@router.get("/pricing", response_class=HTMLResponse, response_model=None)
+async def pricing_page(
+    request: Request,
+    session: Annotated[SessionRecord | None, Depends(current_user_optional)],
+) -> HTMLResponse:
+    """Публичная страница цен — честно: локально бесплатно, облако по своему ключу."""
+    return templates.TemplateResponse(
+        request,
+        "pricing.html",
+        {"title": "Цена Persona", "app_version": __version__, "session": session},
+    )
+
+
 @router.get("/landing/v2", response_class=HTMLResponse, response_model=None)
 async def landing_page_v2(
     request: Request,
