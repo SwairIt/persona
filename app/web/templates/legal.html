@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0a0a12" />
+  <title>{{ title }} — Persona</title>
+  <meta name="description" content="{{ doc.lead }}" />
+  <link rel="canonical" href="{{ doc.path }}" />
+  <meta property="og:title" content="{{ title }} — Persona" />
+  <meta property="og:description" content="{{ doc.lead }}" />
+  <meta property="og:type" content="website" />
+  <link rel="manifest" href="/static/manifest.json" />
+  <style>:root{color-scheme:dark}html,body{margin:0;background:#07070d;color:#eef0ff}</style>
+  <link rel="stylesheet" href="/static/landing/style.css?v={{ app_version }}" />
+</head>
+<body>
+{% include "_public_nav.html" %}
+
+<main style="max-width:780px;margin:0 auto;padding:6rem 1.25rem 4rem;">
+
+  <header style="margin-bottom:2rem;">
+    <h1 style="font-size:clamp(1.8rem,4.5vw,2.6rem);line-height:1.12;margin:0 0 .75rem;">{{ title }}</h1>
+    <p style="font-size:1.1rem;color:#aab;line-height:1.6;margin:0;">{{ doc.lead }}</p>
+    <p style="font-size:.85rem;color:#778;margin:.75rem 0 0;">Обновлено: {{ updated }}</p>
+  </header>
+
+  {% for heading, paras in doc.sections %}
+    <section class="reveal" style="margin-bottom:1.6rem;">
+      <h2 style="font-size:1.2rem;margin:0 0 .5rem;">{{ heading }}</h2>
+      {% for p in paras %}
+        <p style="color:#bcc;line-height:1.65;margin:0 0 .6rem;">{{ p }}</p>
+      {% endfor %}
+    </section>
+  {% endfor %}
+
+  <hr style="border:none;border-top:1px solid rgba(255,255,255,.08);margin:2rem 0;">
+  <nav style="display:flex;gap:1rem;flex-wrap:wrap;font-size:.92rem;">
+    <a href="/security" style="color:#a9c;">Безопасность</a>
+    <a href="/privacy-policy" style="color:#a9c;">Приватность</a>
+    <a href="/terms" style="color:#a9c;">Условия</a>
+    <a href="/features" style="color:#a9c;">Возможности</a>
+    <a href="/landing" style="color:#a9c;">На главную</a>
+  </nav>
+  <p style="font-size:.8rem;color:#667;margin-top:1.5rem;">Это не юридическая консультация — честное описание того, как Persona работает с данными.</p>
+
+</main>
+</body>
+</html>
