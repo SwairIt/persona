@@ -308,3 +308,7 @@ recall и vec0-поиска (pip install sqlite-vec + ollama pull nomic-embed-te
   bfloat16 и fp16-GradScaler падал (_amp_foreach_non_finite_check_and_unscale not implemented for BFloat16).
   Добавлены torch_dtype=float16 при загрузке + prepare_model_for_kbit_training (обучаемые параметры → fp32) —
   и в ноутбук, и в train_qlora.py. (Поймано вживую на втором запуске обучения.) v2.20.25.
+- ✅ Фикс QLoRA bf16 (правильный): prepare_model_for_kbit_training НЕ помог — обучаемые параметры всё равно
+  bf16, а fp16-GradScaler их не анскейлит. Правильное решение: согласовать ТОЧНОСТЬ ТРЕНЕРА с железом —
+  torch.cuda.is_bf16_supported() → на T4 bf16-режим (GradScaler не используется вовсе), на Pascal 1050 Ti fp16.
+  compute_dtype/torch_dtype/fp16/bf16 теперь авто и в ноутбуке, и в train_qlora.py. v2.20.26.

@@ -69,19 +69,25 @@ def main() -> None:
         print("⚠ CUDA не найдена. На CPU дообучение будет крайне медленным. "
               "Лучше Colab T4 (бесплатно).")
 
-    # 4-bit NF4 + double-quant, compute fp16 (Pascal не умеет bf16).
+    # Выбор точности по железу: T4 (Turing+) умеет bf16 → bf16-режим БЕЗ
+    # GradScaler (он и падал "..unscale not implemented for BFloat16"). Pascal
+    # (1050 Ti) bf16 не тянет → fp16 + GradScaler. Один и тот же скрипт для обоих.
+    use_bf16 = torch.cuda.is_available() and torch.cuda.is_bf16_supported()
+    compute_dtype = torch.bfloat16 if use_bf16 else torch.float16
+    print(f"Точность: {'bf16' if use_bf16 else 'fp16'} (bf16_supported={use_bf16})")
+
     bnb = BitsAndBytesConfig(
         load_in_4bit=True,
         bnb_4bit_quant_type="nf4",
         bnb_4bit_use_double_quant=True,
-        bnb_4bit_compute_dtype=torch.float16,
+        bnb_4bit_compute_dtype=compute_dtype,
     )
     tok = AutoTokenizer.from_pretrained(args.model)
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
     model = AutoModelForCausalLM.from_pretrained(
         args.model, quantization_config=bnb, device_map="auto",
-        torch_dtype=torch.float16,     # без bf16 — T4/Pascal его не тянут аппаратно
+        torch_dtype=compute_dtype,
         attn_implementation="eager",   # НЕ flash-attn — Pascal не поддерживает
     )
     model.config.use_cache = False
@@ -116,7 +122,7 @@ def main() -> None:
         per_device_train_batch_size=1,
         gradient_accumulation_steps=args.grad_accum,
         learning_rate=args.lr,
-        fp16=True, bf16=False,
+        fp16=not use_bf16, bf16=use_bf16,
         gradient_checkpointing=True,
         logging_steps=10,
         save_strategy="epoch",
