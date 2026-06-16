@@ -83,8 +83,9 @@
     <div>
       <p class="text-sm font-medium text-zinc-200">🧬 Вторая копия (дообучение своей модели)</p>
       <p class="text-xs text-zinc-500 mt-0.5">
-        Обучи личную модель в твоём стиле. Тяжёлое обучение — бесплатно на Colab T4,
-        запуск — локально на твоём GPU через Ollama. Скачай датасет и готовый ноутбук:
+        Colab-ноутбук обучает <b>думающую</b> модель (Qwen3-4B-Thinking) на открытых reasoning-данных
+        + характер «прямой, не льстит» — бесплатно на Colab T4, запуск локально на твоём GPU через Ollama.
+        Ноутбук тянет reasoning-данные сам; датасет-в-твоём-стиле ниже — это старый вариант (клон стиля), опционально.
       </p>
     </div>
     {% if dataset_ready %}
@@ -104,7 +105,7 @@
       </div>
       <p class="text-[11px] text-zinc-600">
         Открой ноутбук в <a href="https://colab.research.google.com" target="_blank" rel="noopener" class="underline">Colab</a>
-        → Runtime → T4 GPU → Run all → загрузи эти 2 файла → получишь GGUF для Ollama.
+        → Runtime → T4 GPU → ячейки по очереди → получишь GGUF для Ollama. Reasoning-данные ноутбук скачивает сам.
       </p>
     {% else %}
       <p class="text-xs text-amber-300/90">

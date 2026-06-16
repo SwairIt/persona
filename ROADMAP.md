@@ -312,3 +312,14 @@ recall и vec0-поиска (pip install sqlite-vec + ollama pull nomic-embed-te
   bf16, а fp16-GradScaler их не анскейлит. Правильное решение: согласовать ТОЧНОСТЬ ТРЕНЕРА с железом —
   torch.cuda.is_bf16_supported() → на T4 bf16-режим (GradScaler не используется вовсе), на Pascal 1050 Ti fp16.
   compute_dtype/torch_dtype/fp16/bf16 теперь авто и в ноутбуке, и в train_qlora.py. v2.20.26.
+- ✅ Перенос «второй копии» на reasoning-модель (по запросу + многоагентная веб-проверка фактов).
+  База: Qwen/Qwen3-4B-Thinking-2507 (thinking-only, Q4_K_M ~2.5ГБ — идёт на 1050 Ti с KV q8_0/частичным оффлоадом).
+  Данные: открытые reasoning-датасеты с HF (OpenThoughts-114k Apache + ZeroAgency/ru-thinking-reasoning-r1-v2 MIT,
+  настоящие <think>-трейсы) + небольшой набор «прямой/нельстивый» примеров С рассуждением (~75% reasoning/25%
+  характер — иначе reasoning коллапсирует, arXiv:2411.15382 + Unsloth). Лёгкий QLoRA (rank16/alpha32/1 эпоха/
+  LR2e-4), bf16 на T4, <think> НЕ маскируется. Modelfile: temp0.6/top_p0.95/top_k20 + системный промпт характера.
+  Ноутбук тянет данные сам (загрузка файлов не нужна). + НОВЫЙ пресет системного промпта «Думающий и прямой 🧠»
+  (REASONING_PROMPT, anti-sycophancy по Sharma/Wei) в app/chat/prompts.py — можно включить в /settings/system-prompt
+  СРАЗУ, без обучения (Tier 0). v2.20.27.
+  ⚠ Честно: обучать не обязательно — Qwen3-4B-Thinking уже рассуждает, характер даёт системный промпт; обучение —
+  опциональное усиление с риском деградации reasoning, поэтому щадящие настройки.

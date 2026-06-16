@@ -17,10 +17,11 @@ def test_colab_notebook_is_valid_ipynb() -> None:
     # GPU-метаданные + ключевые шаги присутствуют
     assert nb["metadata"].get("accelerator") == "GPU"
     blob = json.dumps(nb, ensure_ascii=False)
-    assert "files.upload" in blob          # загрузка датасета
-    assert "SFTTrainer" in blob            # обучение
-    assert "convert_hf_to_gguf" in blob    # экспорт GGUF
-    assert "ollama create" in blob         # запуск на ПК
+    assert "Qwen3-4B-Thinking-2507" in blob  # reasoning-база
+    assert "OpenThoughts-114k" in blob       # открытый reasoning-датасет
+    assert "SFTTrainer" in blob              # обучение
+    assert "convert_hf_to_gguf" in blob      # экспорт GGUF
+    assert "ollama create" in blob           # запуск на ПК
 
 
 def test_downloads_mapping_known_keys() -> None:
