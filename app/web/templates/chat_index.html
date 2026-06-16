@@ -140,6 +140,36 @@
                   class="hover:text-accent-400"
                   :class="activityOpen ? 'text-accent-400' : 'text-zinc-500'"
                   title="что делает ИИ — окно активности">🔭 активность</button>
+          {# 🖥 Индикатор нагрузки ПК — только для локальной модели (ollama).
+             При наведении тянет API монитора loadmon (порт 8770). #}
+          <div x-show="current.provider === 'ollama'" x-cloak class="relative"
+               x-data="{ open:false, load:null, err:false, async fetchLoad(){ this.open=true; this.err=false; try{ const r=await fetch('http://127.0.0.1:8770/api/load/now'); if(!r.ok) throw 0; this.load=await r.json(); }catch(e){ this.err=true; this.load=null; } } }"
+               @mouseenter="fetchLoad()" @mouseleave="open=false">
+            <span class="cursor-default text-zinc-500 hover:text-accent-400">🖥 нагрузка</span>
+            <div x-show="open" x-cloak x-transition
+                 class="absolute right-0 top-full mt-1 z-40 w-60 rounded-lg border border-ink-700 bg-ink-900 shadow-2xl p-3 text-[11px]">
+              <template x-if="err">
+                <p class="text-zinc-500">Монитор не запущен. Запусти: <span class="font-mono">python -m loadmon</span></p>
+              </template>
+              <template x-if="load">
+                <div class="space-y-1">
+                  <div class="flex justify-between"><span class="text-zinc-400">CPU</span><span x-text="(load.cpu_pct??'—')+'%'"></span></div>
+                  <div class="flex justify-between"><span class="text-zinc-400">RAM</span><span x-text="(load.ram_pct??'—')+'%'"></span></div>
+                  <template x-if="load.gpu_pct!=null || load.vram_used_mb!=null">
+                    <div class="space-y-1">
+                      <div class="flex justify-between"><span class="text-zinc-400">GPU</span><span x-text="(load.gpu_pct??'—')+'%'+(load.gpu_temp_c!=null?(' · '+load.gpu_temp_c+'°C'):'')"></span></div>
+                      <div class="flex justify-between"><span class="text-zinc-400">VRAM</span><span x-text="(load.vram_used_mb||0)+' / '+(load.vram_total_mb||0)+' МБ'"></span></div>
+                      <div class="text-zinc-600 truncate" x-text="load.gpu_name||''"></div>
+                    </div>
+                  </template>
+                  <template x-if="load.gpu_pct==null && load.vram_used_mb==null">
+                    <p class="text-zinc-600">GPU не виден (нет nvidia-smi на этой машине).</p>
+                  </template>
+                  <a href="http://127.0.0.1:8770/" target="_blank" rel="noopener" class="block pt-1 text-accent-400 hover:underline">открыть монитор →</a>
+                </div>
+              </template>
+            </div>
+          </div>
           <button type="button" @click="renameSession()"
                   class="text-zinc-500 hover:text-accent-400">переим.</button>
           <button type="button" @click="deleteSession()"
