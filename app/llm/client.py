@@ -105,6 +105,21 @@ class LLMClient(Protocol):
         ...
 
 
+def _anthropic_system(system: str) -> object:
+    """Системный промпт для Anthropic с prompt-caching.
+
+    Оборачиваем system в один text-блок с ``cache_control:{type:"ephemeral"}``,
+    чтобы Anthropic кэшировал префикс (persona+правила+инструменты): повторные
+    ходы в той же сессии с тем же префиксом читаются из кэша (~0.1× цены и
+    меньше латентности). Безопасно: содержимое то же; если префикс короче
+    минимума модели — Anthropic просто молча не кэширует (не ошибка). Пустой
+    system → отдаём пустую строку (блок с пустым текстом слать нельзя).
+    """
+    if not system:
+        return ""
+    return [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
+
+
 class AnthropicClient:
     provider: Provider = "anthropic"
 
@@ -119,10 +134,16 @@ class AnthropicClient:
         #: count from a previous request cannot leak forward.
         self.last_input_tokens: int | None = None
         self.last_output_tokens: int | None = None
+        #: Prompt-cache учёт из usage ответа (None пока не было вызова, сброс
+        #: в начале каждого, чтобы старое значение не утекло вперёд).
+        self.last_cache_read_tokens: int | None = None
+        self.last_cache_creation_tokens: int | None = None
 
     async def complete(self, request: CompletionRequest) -> str:
         self.last_input_tokens = None
         self.last_output_tokens = None
+        self.last_cache_read_tokens = None
+        self.last_cache_creation_tokens = None
         headers = {
             "x-api-key": self._api_key,
             "anthropic-version": "2023-06-01",
@@ -132,7 +153,7 @@ class AnthropicClient:
             "model": self._model,
             "max_tokens": request.max_tokens,
             "temperature": request.temperature,
-            "system": request.system,
+            "system": _anthropic_system(request.system),
             "messages": [{"role": "user", "content": request.user}],
         }
         async with httpx.AsyncClient(timeout=60.0) as client:
@@ -143,6 +164,16 @@ class AnthropicClient:
         usage = data.get("usage") or {}
         self.last_input_tokens = _coerce_token_count(usage.get("input_tokens"))
         self.last_output_tokens = _coerce_token_count(usage.get("output_tokens"))
+        self.last_cache_read_tokens = _coerce_token_count(usage.get("cache_read_input_tokens"))
+        self.last_cache_creation_tokens = _coerce_token_count(
+            usage.get("cache_creation_input_tokens")
+        )
+        if self.last_cache_read_tokens or self.last_cache_creation_tokens:
+            usage_log.info(
+                "llm.anthropic.cache", model=self._model,
+                cache_read=self.last_cache_read_tokens,
+                cache_creation=self.last_cache_creation_tokens,
+            )
 
         for block in data.get("content", []):
             if block.get("type") == "text":
@@ -160,6 +191,8 @@ class AnthropicClient:
         """
         self.last_input_tokens = None
         self.last_output_tokens = None
+        self.last_cache_read_tokens = None
+        self.last_cache_creation_tokens = None
         headers = {
             "x-api-key": self._api_key,
             "anthropic-version": "2023-06-01",
@@ -170,7 +203,7 @@ class AnthropicClient:
             "model": self._model,
             "max_tokens": request.max_tokens,
             "temperature": request.temperature,
-            "system": request.system,
+            "system": _anthropic_system(request.system),
             "messages": [{"role": "user", "content": request.user}],
             "stream": True,
         }
