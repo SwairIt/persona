@@ -40,6 +40,7 @@ _KEYWORDS: Final[dict[str, str]] = {
     "/audit": "аудит лог история действий audit log",
     "/settings/capture": "захват скриншоты экран запись частота",
     "/settings/redaction": "секреты скрытие приватность redaction маскирование",
+    "/settings/privacy": "приватность данные локально облако экспорт памяти удалить privacy local-first",
     "/chat": "чат беседа ассистент диалог chat",
     "/ai-activity": "активность инструменты что делает ии прозрачность",
     "/graph": "граф связи память узлы graph",
@@ -163,6 +164,7 @@ _CATEGORIES: Final[list[dict[str, object]]] = [
         "icon": "🔒",
         "description": "Токены API, vault, бэкапы, аудит, hibrnation.",
         "pages": [
+            ("/settings/privacy", "🔒 Приватность — что локально/в облако, экспорт, удалить всё"),
             ("/settings/api-tokens", "API токены"),
             ("/vault", "Vault (зашифрованные заметки)"),
             ("/settings/backup/manage", "Резервные копии БД"),

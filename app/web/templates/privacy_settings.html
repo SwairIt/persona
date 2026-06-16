@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto px-4 py-6 space-y-5">
+  <div>
+    <h1 class="text-2xl font-bold mb-1">🔒 Приватность — твои данные</h1>
+    <p class="text-sm text-zinc-400">
+      Persona — local-first. Память, скрины, звук, чаты живут у тебя на устройстве.
+      Здесь видно, что хранится локально, куда (если вообще) уходят запросы, и можно
+      выгрузить или стереть всё одной кнопкой. Никакого vendor-lock-in.
+    </p>
+  </div>
+
+  {# Текущий провайдер: локально или в облако #}
+  <div class="rounded-xl border p-4 {{ 'border-emerald-500/40 bg-emerald-500/5' if is_local else 'border-amber-500/40 bg-amber-500/5' }}">
+    {% if is_local %}
+      <p class="text-sm text-emerald-200 font-medium">🔒 Сейчас всё локально</p>
+      <p class="text-xs text-zinc-400 mt-1">
+        Активная модель — <b>{{ provider }}</b> (на твоём устройстве). Ни один запрос,
+        факт памяти или скриншот не покидает машину. Ноль телеметрии.
+      </p>
+    {% else %}
+      <p class="text-sm text-amber-200 font-medium">☁ Активна облачная модель: {{ provider }}</p>
+      <p class="text-xs text-zinc-400 mt-1">
+        Запросы (с подмешанной памятью/recall) уходят провайдеру <b>{{ provider }}</b>.
+        Для полной приватности переключись на локальный Ollama в
+        <a href="/settings/llm" class="underline text-accent-400">/settings/llm</a>.
+      </p>
+    {% endif %}
+  </div>
+
+  {# Что хранится #}
+  <div class="grid grid-cols-2 gap-3">
+    <div class="rounded-xl border border-ink-700 bg-ink-800 p-4">
+      <div class="text-xs text-zinc-500">Фактов в памяти</div>
+      <div class="text-2xl font-bold text-zinc-100 mt-1">{{ counts.facts }}</div>
+      <a href="/settings/memory" class="text-[11px] text-accent-400 hover:underline">управлять →</a>
+    </div>
+    <div class="rounded-xl border border-ink-700 bg-ink-800 p-4">
+      <div class="text-xs text-zinc-500">Сообщений в чатах</div>
+      <div class="text-2xl font-bold text-zinc-100 mt-1">{{ counts.messages }}</div>
+    </div>
+  </div>
+
+  {# Экспорт / портативность #}
+  <div class="rounded-xl border border-ink-700 bg-ink-900 p-4 space-y-3">
+    <p class="text-sm font-medium text-zinc-200">Выгрузка данных (портативность)</p>
+    <div class="flex flex-wrap gap-2">
+      <a href="/settings/privacy/export-memory"
+         class="px-3 py-2 rounded-lg bg-ink-800 border border-ink-700 text-sm text-zinc-200 hover:bg-ink-950">
+        📄 Экспорт памяти (Markdown)
+      </a>
+      <a href="/settings/privacy/snapshot"
+         class="px-3 py-2 rounded-lg bg-ink-800 border border-ink-700 text-sm text-zinc-200 hover:bg-ink-950">
+        💾 Снимок БД (.db)
+      </a>
+    </div>
+    <p class="text-[11px] text-zinc-600">Твои данные — твои. Забрать всё можно в любой момент, без локов.</p>
+  </div>
+
+  {# Danger: стереть память #}
+  <div class="rounded-xl border border-rose-500/30 bg-rose-500/5 p-4" x-data="{ open:false }">
+    <p class="text-sm font-medium text-rose-200">Стереть всю личную память</p>
+    <p class="text-xs text-zinc-400 mt-1">Удалит все факты о тебе (чаты не трогает). Необратимо.</p>
+    <button @click="open=!open" class="mt-2 text-xs text-rose-400 hover:underline">показать удаление</button>
+    <form x-show="open" x-cloak method="post" action="/settings/privacy/wipe-memory" class="mt-2 flex gap-2"
+          onsubmit="return confirm('Точно стереть всю память?');">
+      <input name="confirm" placeholder="впиши УДАЛИТЬ"
+             class="flex-1 rounded bg-ink-950 border border-rose-500/40 px-2 py-1 text-sm text-zinc-100 focus:outline-none" />
+      <button type="submit" class="px-3 py-1 rounded bg-rose-600 hover:bg-rose-500 text-white text-sm">Стереть</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

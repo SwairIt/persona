@@ -206,3 +206,7 @@ agent-driven память Letta на слабой модели (мусор за�
   Эндпоинты /settings/memory/{id}/edit|restore. 2 pytest + golden-eval. v2.20.10.
   ОСТАЛОСЬ (мелочь, follow-up): «🧠 запомнил: …» в чате — нужен post-turn SSE-фрейм (авто-извлечение
   идёт фоном после ответа). /remember уже подтверждает явно.
+- ✅ S2b: дашборд приватности /settings/privacy — статус провайдера (🔒 локально Ollama / ☁ облако),
+  счётчики (факты/сообщения), экспорт всей памяти в Markdown (/export-memory), снимок БД через
+  VACUUM INTO (/snapshot), стереть память (typed-confirm «УДАЛИТЬ»). В settings_hub + поиск. 1 pytest. v2.20.11.
+  ОСТАЛОСЬ (S2b-cont, чат-шаблон): per-message бейдж провайдера + preview «что уйдёт в облако» — следующим.

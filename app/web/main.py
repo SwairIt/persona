@@ -107,6 +107,7 @@ from app.web.routes import (
     mac_fs_settings as mac_fs_routes,
     profile_settings as profile_routes,
     memory_settings as memory_settings_routes,
+    privacy_settings as privacy_settings_routes,
     skills_settings as skills_settings_routes,
     voice_chat as voice_chat_routes,
     root_control as root_control_routes,
@@ -645,6 +646,7 @@ def create_app() -> FastAPI:
     app.include_router(mac_fs_routes.router)
     app.include_router(profile_routes.router)
     app.include_router(memory_settings_routes.router)
+    app.include_router(privacy_settings_routes.router)
     app.include_router(skills_settings_routes.router)
     app.include_router(voice_chat_routes.router)
     app.include_router(root_control_routes.router)
