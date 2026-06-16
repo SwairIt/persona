@@ -220,6 +220,80 @@ for _slug, _data in _LEGAL.items():
                          response_class=HTMLResponse, response_model=None)
 
 
+# Roadmap + changelog (BUILD_PLAN C6). Честно: готово/в работе/планируется; без обещаний дат.
+_INFO: dict[str, dict] = {
+    "roadmap": {
+        "path": "/roadmap", "title": "Дорожная карта",
+        "lead": "Что уже работает и куда движемся. Без обещаний дат — local-first продукт развивается по готовности.",
+        "sections": [
+            ("✅ Готово", [
+                "Захват экрана + звук (агенты Mac и Windows), OCR, дедуп",
+                "Часовая и дневная память, граф памяти",
+                "Чат с памятью: кросс-чат recall + bi-temporal факты (история, откат)",
+                "Единая страница дня + «спросить про этот день»",
+                "Аналитика за период (7/30/90)",
+                "Приватность: дашборд, экспорт памяти/БД, локальная модель (Ollama)",
+                "Проактивность: брифинг-карточки + тихие часы, NL-напоминания",
+                "Интеграции: экспорт в .ics, импорт Markdown-заметок",
+                "Своя «вторая копия»: сбор датасета + QLoRA-пайплайн (Qwen3-Thinking)",
+                "Голос: серверный каркас конфига движков",
+            ]),
+            ("🛠 В работе", [
+                "Маркетинговый сайт и блог (контент, сравнения, гайды)",
+                "vec0-ускорение поиска по скринам (тихий fallback без sqlite-vec)",
+            ]),
+            ("🗺 Планируется", [
+                "Голосовые движки на устройстве (faster-whisper, Silero VAD, Piper/Kokoro/Silero TTS, barge-in)",
+                "Активация векторного recall (sqlite-vec + локальные эмбеддинги)",
+                "Больше локальных интеграций (календарь, заметки) — opt-in",
+            ]),
+        ],
+    },
+    "changelog": {
+        "path": "/changelog", "title": "История изменений",
+        "lead": "Ключевые улучшения последних релизов линейки 2.20.x.",
+        "sections": [
+            ("Память и доверие", [
+                "Bi-temporal факты (soft-invalidate) + mem0-реконсиляция, GBNF-извлечение",
+                "Дашборд приватности, экспорт памяти и снимок БД, бейдж провайдера 🔒/☁ в чате",
+                "Spotlighting (recall/экран как ДАННЫЕ) + ре-инъекция персоны в длинных беседах",
+            ]),
+            ("Проактивность и интеграции", [
+                "Брифинг-карточки с обратной связью + тихие часы",
+                "NL-планирование задач («напомни завтра …»)",
+                "Экспорт напоминаний в .ics, импорт Markdown в память",
+            ]),
+            ("Кабинет: день и аналитика", [
+                "Единая страница дня /day/{date}: KPI, скрины по часам, «спросить про день»",
+                "Сквозная навигация в день: граф, память, календарь, тепловая карта",
+                "Страница аналитики /analytics (тренды, топ-приложения, использование ИИ)",
+            ]),
+            ("Сайт", [
+                "Обновлённое сравнение с конкурентами, /features, /compare/*, /pricing, /security, /privacy-policy, /terms",
+            ]),
+        ],
+    },
+}
+
+
+def _info_route(slug: str):
+    async def _page(
+        request: Request,
+        session: Annotated[SessionRecord | None, Depends(current_user_optional)],
+    ) -> HTMLResponse:
+        data = _INFO[slug]
+        return templates.TemplateResponse(
+            request, "infopage.html",
+            {"title": data["title"], "app_version": __version__, "session": session, "doc": data},
+        )
+    return _page
+
+
+for _islug, _idata in _INFO.items():
+    router.add_api_route(_idata["path"], _info_route(_islug), methods=["GET"],
+                         response_class=HTMLResponse, response_model=None)
+
+
 @router.get("/landing/v2", response_class=HTMLResponse, response_model=None)
 async def landing_page_v2(
     request: Request,

@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0a0a12" />
+  <title>{{ title }} — Persona</title>
+  <meta name="description" content="{{ doc.lead }}" />
+  <link rel="canonical" href="{{ doc.path }}" />
+  <meta property="og:title" content="{{ title }} — Persona" />
+  <meta property="og:description" content="{{ doc.lead }}" />
+  <meta property="og:type" content="website" />
+  <link rel="manifest" href="/static/manifest.json" />
+  <style>:root{color-scheme:dark}html,body{margin:0;background:#07070d;color:#eef0ff}</style>
+  <link rel="stylesheet" href="/static/landing/style.css?v={{ app_version }}" />
+</head>
+<body>
+{% include "_public_nav.html" %}
+
+<main style="max-width:820px;margin:0 auto;padding:6rem 1.25rem 4rem;">
+
+  <header style="margin-bottom:2rem;text-align:center;">
+    <h1 style="font-size:clamp(1.9rem,4.5vw,2.8rem);line-height:1.12;margin:0 0 .75rem;">{{ title }}</h1>
+    <p style="font-size:1.1rem;color:#aab;line-height:1.6;max-width:640px;margin:0 auto;">{{ doc.lead }}</p>
+  </header>
+
+  <div style="display:grid;gap:1.1rem;">
+    {% for heading, items in doc.sections %}
+      <section class="glass reveal" style="padding:1.3rem 1.5rem;border-radius:16px;">
+        <h2 style="font-size:1.15rem;margin:0 0 .8rem;">{{ heading }}</h2>
+        <ul style="margin:0;padding-left:1.2rem;color:#bcc;line-height:1.7;">
+          {% for it in items %}<li>{{ it }}</li>{% endfor %}
+        </ul>
+      </section>
+    {% endfor %}
+  </div>
+
+  <nav style="margin-top:2rem;display:flex;gap:1rem;flex-wrap:wrap;font-size:.92rem;">
+    <a href="/roadmap" style="color:#a9c;">Дорожная карта</a>
+    <a href="/changelog" style="color:#a9c;">История изменений</a>
+    <a href="/features" style="color:#a9c;">Возможности</a>
+    <a href="/blog" style="color:#a9c;">Блог</a>
+    <a href="/auth/signup" class="btn btn-primary" style="margin-left:auto;">Начать</a>
+  </nav>
+
+</main>
+</body>
+</html>
