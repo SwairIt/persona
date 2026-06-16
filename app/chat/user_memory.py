@@ -285,6 +285,68 @@ async def reconcile_and_add(
     return {"action": "add", "id": new_id}
 
 
+# Схема извлечения фактов для GBNF (Ollama complete_json) — корень анти-CJK:
+# format=schema физически отрезает мусорные/китайские токены и битый JSON.
+_FACTS_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "facts": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string"},
+                    "kind": {
+                        "type": "string",
+                        "enum": ["fact", "preference", "person", "project", "reminder", "other"],
+                    },
+                },
+                "required": ["text"],
+            },
+        }
+    },
+    "required": ["facts"],
+}
+
+
+async def _extract_facts(client: Any, system: str, user: str) -> list[dict[str, str]]:
+    """Вытащить факты: GBNF-схема для Ollama (надёжно), строковый парсер — fallback."""
+    from app.llm.client import CompletionRequest  # noqa: PLC0415
+
+    # GBNF-путь (только Ollama) — форсит валидный JSON по схеме.
+    if hasattr(client, "complete_json"):
+        try:
+            out = await client.complete_json(
+                CompletionRequest(
+                    system=system + " Верни JSON {facts:[{text,kind}]}; пустой массив если фактов нет.",
+                    user=user, max_tokens=300, temperature=0.0,
+                ),
+                _FACTS_SCHEMA,
+            )
+            res: list[dict[str, str]] = []
+            for f in (out.get("facts") or []):
+                if isinstance(f, dict) and str(f.get("text", "")).strip():
+                    res.append({"text": str(f["text"]).strip(), "kind": str(f.get("kind") or "fact")})
+            return res
+        except Exception as exc:  # noqa: BLE001 — падаем на строковый парсер
+            log.debug("user_memory.extract_json_failed", error=str(exc))
+    # Строковый fallback (облачные провайдеры / сбой схемы).
+    try:
+        out_text = await client.complete(
+            CompletionRequest(system=system, user=user, max_tokens=200, temperature=0.1)
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.debug("user_memory.extract_failed", error=str(exc))
+        return []
+    facts: list[dict[str, str]] = []
+    for raw in (out_text or "").splitlines():
+        line = raw.strip().lstrip("-•*").strip()
+        if not line or line.upper() in ("НЕТ", "NONE") or len(line) < 6:
+            continue
+        facts.append({"text": line, "kind": "fact"})
+    return facts
+
+
 async def extract_and_store(
     user_id: int, user_msg: str, assistant_msg: str, session_id: int | None = None
 ) -> int:
@@ -295,11 +357,7 @@ async def extract_and_store(
     user_msg = (user_msg or "").strip()
     if len(user_msg) < 8:
         return 0
-    from app.llm.client import (  # noqa: PLC0415 — избегаем цикла импорта
-        CompletionRequest,
-        LLMNotConfigured,
-        make_client,
-    )
+    from app.llm.client import LLMNotConfigured, make_client  # noqa: PLC0415
 
     # «Без тихого переполнения»: авто-рост памяти ограничен бюджетом.
     if await count_memory(user_id) >= MEMORY_AUTO_CAP:
@@ -316,28 +374,21 @@ async def extract_and_store(
         "выпиши ТОЛЬКО новые, СТАБИЛЬНЫЕ факты о пользователе (имя/кто он, "
         "предпочтения, проекты, важные люди, постоянные задачи, цели, важные детали "
         "жизни). НЕ включай: сиюминутное, вопросы, общие знания и то, что уже известно. "
-        "Кратко, от 3-го лица. Максимум 3 факта. Если новых фактов нет — ответь ровно: НЕТ."
+        "Кратко, от 3-го лица. Максимум 3 факта."
     )
     user = (
         f"Уже известно:\n{known}\n\nПоследний обмен:\n"
         f"Пользователь: {user_msg[:1500]}\nАссистент: {(assistant_msg or '')[:1200]}\n\n"
         "Новые факты (каждый с новой строки, начиная с «- »):"
     )
-    try:
-        out = await client.complete(
-            CompletionRequest(system=system, user=user, max_tokens=200, temperature=0.1)
-        )
-    except Exception as exc:  # noqa: BLE001 — best-effort
-        log.debug("user_memory.extract_failed", error=str(exc))
-        return 0
+    facts = await _extract_facts(client, system, user)
     added = 0
-    for raw in (out or "").splitlines():
-        line = raw.strip().lstrip("-•*").strip()
-        if not line or line.upper() == "НЕТ" or line.upper() == "NONE" or len(line) < 6:
-            continue
+    for f in facts:
         # mem0-стиль: разрешаем противоречия (update/delete) вместо тупого ADD,
         # чтобы новые факты не сосуществовали со старыми устаревшими.
-        res = await reconcile_and_add(user_id, line, kind="fact", source_session_id=session_id)
+        res = await reconcile_and_add(
+            user_id, f["text"], kind=f.get("kind", "fact"), source_session_id=session_id
+        )
         if res.get("action") in ("add", "update"):
             added += 1
         if added >= 3:

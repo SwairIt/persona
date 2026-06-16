@@ -191,3 +191,6 @@ agent-driven память Letta на слабой модели (мусор за�
   invalidate_memory/restore_memory (soft-invalidate, откат); reconcile_and_add (ADD/UPDATE/DELETE/NOOP
   через GBNF на Ollama, fallback на ADD без LLM); extract_and_store → reconcile. 5 pytest + golden-eval
   не упал. «Москва»→«Берлин» больше не сосуществуют. v2.20.7.
+- ✅ S1b: extract_and_store → GBNF-извлечение фактов. _extract_facts: complete_json со схемой
+  {facts:[{text,kind}]} для Ollama (корень анти-CJK — format режет мусор), строковый парсер —
+  fallback для облачных/сбоя. Каждый факт через reconcile_and_add. 3 pytest (GBNF/fallback/битый-JSON→fallback). v2.20.8.
