@@ -157,12 +157,24 @@ async def voice_settings_page(
 ) -> HTMLResponse:
     from app.chat import list_sessions  # noqa: PLC0415
 
+    from app.voice_config import (  # noqa: PLC0415
+        STT_ENGINES,
+        TTS_ENGINES,
+        get_voice_config,
+    )
+
     settings = await _get_settings()
     sessions = await list_sessions(user["user_id"])
     return templates.TemplateResponse(
         request,
         "voice_settings.html",
-        {"settings": settings, "sessions": sessions},
+        {
+            "settings": settings,
+            "sessions": sessions,
+            "engine": await get_voice_config(),
+            "stt_engines": STT_ENGINES,
+            "tts_engines": TTS_ENGINES,
+        },
     )
 
 
@@ -179,6 +191,20 @@ async def voice_settings_save(
         await set_kv(conn, "voice_enabled", enabled)
         await set_kv(conn, "voice_session_id", session_id if session_id.isdigit() else "")
         await set_kv(conn, "voice_name", voice_name)
+    # S4c — конфиг движков (применяет агент на устройстве); сервер валидирует/хранит.
+    from app.voice_config import save_voice_config  # noqa: PLC0415
+
+    await save_voice_config(
+        {
+            "stt_engine": form.get("stt_engine"),
+            "vad_enabled": form.get("vad_enabled"),
+            "vad_threshold": form.get("vad_threshold"),
+            "tts_engine": form.get("tts_engine"),
+            "tts_voice": form.get("tts_voice"),
+            "tts_rate": form.get("tts_rate"),
+            "barge_in": form.get("barge_in"),
+        }
+    )
     return RedirectResponse(url="/settings/voice", status_code=303)
 
 
@@ -266,6 +292,23 @@ async def voice_pending(
     return JSONResponse(
         {"pending": {"id": int(row["id"]), "text": text, "voice": voice, "command": command}}
     )
+
+
+@router.get("/api/voice/config")
+async def voice_config(
+    authorization: Annotated[str | None, Header()] = None,
+    x_agent_token: Annotated[str | None, Header()] = None,
+) -> JSONResponse:
+    """Агент тянет конфиг голосовых движков (STT/VAD/TTS/barge-in) и применяет
+    его НА УСТРОЙСТВЕ. Сервер только хранит/валидирует предпочтения."""
+    await _require_agent(authorization, x_agent_token)
+    from app.voice_config import get_voice_config  # noqa: PLC0415
+
+    base = await _get_settings()
+    cfg = await get_voice_config()
+    cfg["enabled"] = base["enabled"]
+    cfg["voice"] = base["voice"]  # обратная совместимость со старым say -v
+    return JSONResponse(cfg)
 
 
 @router.post("/api/voice/tts/{tts_id}/ack")

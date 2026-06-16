@@ -44,6 +44,64 @@
       <p class="text-xs text-zinc-500 mt-1">Список голосов на Mac: <span class="font-mono">say -v '?'</span>. Пусто — системный по умолчанию.</p>
     </div>
 
+    {# S4c — движки распознавания/синтеза. Работают на устройстве; сервер хранит выбор. #}
+    <fieldset class="rounded-lg border border-zinc-300 dark:border-ink-700 p-4 space-y-4">
+      <legend class="px-2 text-sm font-semibold">Движки (работают на устройстве)</legend>
+      <p class="text-xs text-zinc-500 -mt-1">
+        Сервер хранит и валидирует эти настройки, агент применяет их у себя. Сами движки
+        (faster-whisper, Silero VAD, Piper/Kokoro/Silero) ставятся и проверяются на устройстве.
+      </p>
+
+      <div class="grid sm:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-sm font-medium mb-1.5">STT (распознавание), приоритет</label>
+          <select name="stt_engine" class="w-full px-3 py-2 rounded-lg border border-zinc-300 dark:border-ink-700 bg-zinc-50 dark:bg-ink-800 text-sm">
+            {% for e in stt_engines %}
+              <option value="{{ e }}" {% if engine.stt_engine == e %}selected{% endif %}>{{ e }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1.5">TTS (синтез)</label>
+          <select name="tts_engine" class="w-full px-3 py-2 rounded-lg border border-zinc-300 dark:border-ink-700 bg-zinc-50 dark:bg-ink-800 text-sm">
+            {% for e in tts_engines %}
+              <option value="{{ e }}" {% if engine.tts_engine == e %}selected{% endif %}>{{ e }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <div class="grid sm:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-sm font-medium mb-1.5">Голос TTS (RU)</label>
+          <input type="text" name="tts_voice" value="{{ engine.tts_voice }}" placeholder="напр. ru_RU-irina, kseniya…"
+                 class="w-full px-3 py-2 rounded-lg border border-zinc-300 dark:border-ink-700 bg-zinc-50 dark:bg-ink-800 text-sm">
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1.5">Скорость речи <span class="text-zinc-500">(0.5–2.0)</span></label>
+          <input type="number" step="0.05" min="0.5" max="2.0" name="tts_rate" value="{{ engine.tts_rate }}"
+                 class="w-full px-3 py-2 rounded-lg border border-zinc-300 dark:border-ink-700 bg-zinc-50 dark:bg-ink-800 text-sm">
+        </div>
+      </div>
+
+      <div class="grid sm:grid-cols-2 gap-4 items-center">
+        <label class="flex items-center gap-3 cursor-pointer">
+          <input type="checkbox" name="vad_enabled" value="1" {% if engine.vad_enabled %}checked{% endif %} class="w-5 h-5 rounded accent-accent-600">
+          <span class="text-sm">Silero VAD (детектор речи)</span>
+        </label>
+        <div>
+          <label class="block text-sm font-medium mb-1.5">Порог VAD <span class="text-zinc-500">(0.0–1.0)</span></label>
+          <input type="number" step="0.05" min="0" max="1" name="vad_threshold" value="{{ engine.vad_threshold }}"
+                 class="w-full px-3 py-2 rounded-lg border border-zinc-300 dark:border-ink-700 bg-zinc-50 dark:bg-ink-800 text-sm">
+        </div>
+      </div>
+
+      <label class="flex items-center gap-3 cursor-pointer">
+        <input type="checkbox" name="barge_in" value="1" {% if engine.barge_in %}checked{% endif %} class="w-5 h-5 rounded accent-accent-600">
+        <span class="text-sm">Barge-in — перебивать озвучку, когда начинаешь говорить</span>
+      </label>
+    </fieldset>
+
     <button type="submit" class="px-5 py-2.5 rounded-lg bg-accent-600 hover:bg-accent-500 text-white text-sm font-medium">
       Сохранить
     </button>

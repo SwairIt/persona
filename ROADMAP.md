@@ -268,3 +268,20 @@ agent-driven память Letta на слабой модели (мусор за�
       --model Qwen/Qwen2.5-1.5B-Instruct --out finetune/out/persona-lora
     (OOM на 4 ГБ VRAM GTX 1050 Ti → --model Qwen/Qwen2.5-0.5B-Instruct --max-seq 512; либо бесплатный Colab T4 16 ГБ.)
     Затем экспорт в GGUF (finetune/export_gguf.md) → ollama create persona-mini → /settings/llm.
+- ✅ S4c (каркас): серверный конфиг голосовых движков. Расширен /settings/voice — выбор STT
+  (faster-whisper/whisper.cpp/server), TTS-движок (piper/kokoro/silero/system) + голос RU + скорость,
+  Silero VAD (вкл + порог), barge-in. app/voice_config.py (валидация: дефолты/кламп чисел/enum/bool, kv).
+  Новый GET /api/voice/config (agent-token) — агент тянет конфиг и применяет НА УСТРОЙСТВЕ. 6 pytest
+  (валидация + kv round-trip). v2.20.21.
+  ⚠ NEEDS DEVICE: реальные движки STT/TTS (faster-whisper порядок, Silero VAD стрим, Piper/Kokoro/Silero RU,
+  barge-in) ставятся и проверяются на Mac/Win-агенте — сервер только хранит/валидирует/отдаёт настройки.
+  Применение в mac-agent (чтение /api/voice/config + запуск движков) — на стороне устройства, вне этой машины.
+
+## ИТОГ автономного цикла (2026-06-16)
+Закрыто soft-only (всё проверяемо без спец-железа): S0 надёжность, S1 память (bi-temporal+mem0+GBNF+hybrid),
+S2 доверие (inspector/privacy/бейдж/онбординг), S3 персона+проактивность (spotlighting, ре-инъекция,
+брифинг-карточки, NL-напоминания), S4a интеграции (.ics+Markdown), S4b vec0-эмбеддинги, «вторая копия» —
+датасет собран (290 реальных пар). Версии 2.20.11 → 2.20.21.
+ОСТАЁТСЯ ПОЛЬЗОВАТЕЛЮ (хардвар): (1) QLoRA-тренировка «второй копии» — нужен GPU (команда выше / finetune/README.md);
+(2) реальные голосовые движки — NEEDS DEVICE на агенте; (3) sqlite-vec/Ollama-embed для активации векторного
+recall и vec0-поиска (pip install sqlite-vec + ollama pull nomic-embed-text — код уже готов, тихий fallback).
