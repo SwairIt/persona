@@ -44,6 +44,7 @@ _KEYWORDS: Final[dict[str, str]] = {
     "/chat": "чат беседа ассистент диалог chat",
     "/ai-activity": "активность инструменты что делает ии прозрачность",
     "/graph": "граф связи память узлы graph",
+    "/briefing": "брифинг сводка дня проактивно карточки утро итоги briefing digest",
     "/settings/skills": "навыки skills инструкции github умения skill",
     "/settings/automation": "браузер browser mcp автоматизация playwright инструменты агент домены allowlist",
 }
@@ -80,6 +81,7 @@ _CATEGORIES: Final[list[dict[str, object]]] = [
         "icon": "🧠",
         "description": "LLM, дайджесты, обогащение карточек, перевод.",
         "pages": [
+            ("/briefing", "🗞 Брифинг — проактивные карточки дня (👍/👎, тихие часы)"),
             ("/graph", "🕸 Граф памяти — промпты, ответы, записи и связи"),
             ("/settings/llm", "Провайдер + ключ LLM"),
             ("/settings/digest-prompt", "Промпт для дайджестов"),

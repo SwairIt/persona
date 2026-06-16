@@ -11,9 +11,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from app import notifications
-from app.briefing import build_briefing
+from app.briefing import build_briefing, build_briefing_cards, store_cards
 from app.logging_setup import get_logger
 from app.storage.db import get_connection
+from app.storage.quiet_hours import is_quiet_now
 from app.storage.repository import get_kv
 from app.workers._bases import ClockScheduler
 
@@ -52,20 +53,42 @@ async def _enabled_getter() -> bool:
 
 async def _job_push_briefing() -> None:
     log.info("briefing.job.start")
+    # S3b — тихие часы: не тревожим проактивным пушем в quiet-hours окно.
+    try:
+        async with get_connection() as conn:
+            if await is_quiet_now(conn):
+                log.info("briefing.job.skipped_quiet")
+                return
+    except Exception as exc:  # noqa: BLE001 — тихие часы не должны ронять брифинг
+        log.debug("briefing.quiet_check_failed", error=str(exc))
+
+    # S3b — собрать и сохранить карточки (страница /briefing с фидбеком).
+    cards_n = 0
+    try:
+        cards = await build_briefing_cards(when="morning")
+        cards_n = await store_cards(cards, slot="morning")
+    except Exception as exc:  # noqa: BLE001 — карточки best-effort
+        log.debug("briefing.cards_failed", error=str(exc))
+
     try:
         result = await build_briefing(when="morning")
     except Exception as exc:  # noqa: BLE001
         log.exception("briefing.build_failed", error=str(exc))
-        return
-    if result is None:
+        result = None
+    if result is None and cards_n == 0:
         log.info("briefing.job.no_data")
         return
-    title, body = result
+    title = result[0] if result else "🌅 Утренняя сводка"
+    body = result[1] if result else None
     try:
         await notifications.push(
-            kind="briefing", title=title, body=body or None, link="/chat", severity="info"
+            kind="briefing",
+            title=title,
+            body=(f"{body}\n\n→ {cards_n} карточек на /briefing" if body else None),
+            link="/briefing",
+            severity="info",
         )
-        log.info("briefing.job.done")
+        log.info("briefing.job.done", cards=cards_n)
     except Exception as exc:  # noqa: BLE001
         log.exception("briefing.push_failed", error=str(exc))
 
