@@ -30,7 +30,7 @@
 - [x] A4. Граф→день: в memgraph detail-popup добавить кнопку «📅 К этому дню» для prompt/answer/
   session/summary/memory узлов → `/day/{date}` (день берём из timestamp узла). memory_graph.py +
   memgraph.js.
-- [ ] A5. `/memory`: часовые карточки и строки daily pins сделать кликабельными → `/day/{date}`
+- [x] A5. `/memory`: часовые карточки и строки daily pins сделать кликабельными → `/day/{date}`
   (+ «View day» ссылка). memory.html.
 - [ ] A6. Унификация навигации к дню: cal_nav.js, /calendar, /stats heatmap, screenshot «jump to day»
   → ведут на `/day/{date}` (canonical). Старые /timeline?date= оставить рабочими.
@@ -99,3 +99,5 @@
 - A4 ✅ (v2.20.31): граф→день. В detail-popup узла кнопка «📅 К этому дню» → /day/{дата из n.at}
   (dayFromAt — локальная дата из timestamp; для day-узлов скрыта, т.к. их основной переход и так на день).
   memgraph.js + memory_graph.html (+ ?v= cache-busting на memgraph.js). JS-синтаксис node --check OK.
+- A5 ✅ (v2.20.32): /memory — часовые карточки (hour_start[:10]) и строки daily pins (p.day) теперь ссылки
+  на /day/{date} («день →» у карточек, кликабельная дата у pins). memory.html. jinja OK.

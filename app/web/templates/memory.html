@@ -18,10 +18,11 @@
       {% for card in cards %}
         <article class="rounded-lg border border-ink-700 bg-ink-800 p-4">
           <div class="flex items-baseline justify-between mb-2">
-            <span class="text-zinc-200 font-mono text-sm">{{ card.hour_start }}</span>
+            <a href="/day/{{ card.hour_start[:10] }}" class="text-zinc-200 hover:text-accent-300 font-mono text-sm" title="открыть этот день">{{ card.hour_start }}</a>
             <span class="text-zinc-500 text-xs">
               {{ card.screen_count }} shots
               {% if card.audio_seconds %}· {{ (card.audio_seconds // 60) }}m voice{% endif %}
+              · <a href="/day/{{ card.hour_start[:10] }}" class="text-accent-400 hover:underline">день →</a>
             </span>
           </div>
           <div class="text-zinc-300 text-sm whitespace-pre-line">{{ card.summary }}</div>
@@ -59,8 +60,10 @@
         </thead>
         <tbody>
           {% for p in pins %}
-            <tr class="border-t border-ink-700">
-              <td class="py-2 px-4 text-zinc-200 font-mono">{{ p.day }}</td>
+            <tr class="border-t border-ink-700 hover:bg-ink-900/40">
+              <td class="py-2 px-4 font-mono">
+                <a href="/day/{{ p.day }}" class="text-accent-300 hover:underline" title="открыть этот день">{{ p.day }}</a>
+              </td>
               <td class="py-2 px-4 text-zinc-300">{{ p.pin }}</td>
               <td class="py-2 px-4 text-right text-zinc-400">{{ p.screen_count }}</td>
               <td class="py-2 px-4 text-right text-zinc-400">
