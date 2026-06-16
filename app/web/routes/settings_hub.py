@@ -47,6 +47,7 @@ _KEYWORDS: Final[dict[str, str]] = {
     "/briefing": "брифинг сводка дня проактивно карточки утро итоги briefing digest",
     "/settings/skills": "навыки skills инструкции github умения skill",
     "/settings/automation": "браузер browser mcp автоматизация playwright инструменты агент домены allowlist",
+    "/settings/integrations": "интеграции календарь ics icalendar экспорт напоминания markdown integrations calendar",
 }
 
 
@@ -143,6 +144,7 @@ _CATEGORIES: Final[list[dict[str, object]]] = [
         "icon": "🔔",
         "description": "SMTP, RSS-токены, webhooks.",
         "pages": [
+            ("/settings/integrations", "🔗 Интеграции — экспорт напоминаний в .ics + календари"),
             ("/settings/smtp", "Email (SMTP)"),
             ("/settings/feed-tokens", "RSS токены доступа"),
             ("/feeds/all-opml", "OPML экспорт всех лент"),

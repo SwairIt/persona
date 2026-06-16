@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto px-4 py-6 space-y-5">
+  <div>
+    <h1 class="text-2xl font-bold mb-1">🔗 Локальные интеграции</h1>
+    <p class="text-sm text-zinc-400">
+      Persona — local-first и без vendor-lock. Экспортируй свои данные в открытые
+      форматы и подключай к привычным приложениям. Всё формируется локально.
+    </p>
+  </div>
+
+  {# Напоминания → .ics #}
+  <div class="rounded-xl border border-ink-700 bg-ink-800 p-4 space-y-3">
+    <div class="flex items-center justify-between gap-3">
+      <div>
+        <p class="text-sm font-medium text-zinc-200">📅 Напоминания в календарь (.ics)</p>
+        <p class="text-xs text-zinc-500 mt-0.5">
+          Задачи, которые ты ставишь («напомни завтра …»), как события-весьдень.
+          Открой в Apple Calendar / Google Calendar / Outlook.
+        </p>
+      </div>
+      <span class="text-xs text-zinc-500 shrink-0">активных: <b class="text-zinc-300">{{ counts.active_reminders }}</b></span>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <a href="/settings/integrations/reminders.ics"
+         class="px-3 py-2 rounded-lg bg-accent-600 hover:bg-accent-500 text-white text-sm">
+        ⬇ Скачать активные
+      </a>
+      <a href="/settings/integrations/reminders.ics?include_done=true"
+         class="px-3 py-2 rounded-lg bg-ink-900 border border-ink-700 text-zinc-200 text-sm hover:bg-ink-950">
+        ⬇ Включая выполненные
+      </a>
+    </div>
+  </div>
+
+  {# Существующие календарные фиды #}
+  <div class="rounded-xl border border-ink-700 bg-ink-900 p-4 space-y-2">
+    <p class="text-sm font-medium text-zinc-200">Другие календарные выгрузки</p>
+    <ul class="text-sm text-zinc-300 space-y-1.5">
+      <li>🤖 <a href="/feeds/reminders/subscribe-help" class="text-accent-400 hover:underline">AI-напоминания</a>
+        — подписка (webcal), обновляется сама.</li>
+      <li>🎯 <a href="/focus/calendar" class="text-accent-400 hover:underline">Фокус-сессии</a> — экспорт в .ics.</li>
+      <li>🗓 <a href="/calendar.ics" class="text-accent-400 hover:underline">Активность</a> — общий .ics календарь.</li>
+    </ul>
+  </div>
+
+  <p class="text-[11px] text-zinc-600">
+    Импорт Markdown-заметок в память — на подходе. Управление напоминаниями —
+    <a href="/reminders" class="underline">/reminders</a>.
+  </p>
+</div>
+{% endblock %}
