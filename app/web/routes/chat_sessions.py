@@ -955,6 +955,10 @@ async def api_send_stream(
             session["user_id"], image_data_url, choices=adv["choices"]
         )
 
+    # S3a — «ядро» персоны (чистый характер, ДО памяти/инструментов/скиллов).
+    # Используется для ре-инъекции роли в конец промпта в длинных беседах.
+    persona_core = base_prompt
+
     # T31 E5 — авто-подбор промпта под задачу (накладка по триггерам вопроса).
     if adv["auto_prompt"] and await _get_auto_prompt():
         from app.chat.auto_prompts import detect_overlay  # noqa: PLC0415
@@ -1000,10 +1004,17 @@ async def api_send_stream(
                 session["user_id"], question, exclude_session_id=session_id
             )
         if recalled:
-            base_prompt = base_prompt + (
-                "\n\nПАМЯТЬ ИЗ ПРОШЛЫХ РАЗГОВОРОВ (это РЕАЛЬНО говорилось в других "
-                "чатах — опирайся на это, если относится к вопросу; не выдумывай "
-                "сверх этого):\n" + recalled +
+            # S3a — спотлайтинг: recall = подтянутые СТАРЫЕ сообщения (по сути
+            # пользовательский ввод). Оборачиваем как ДАННЫЕ, чтобы текст вроде
+            # «игнорируй инструкции» из прошлого чата не перехватил модель.
+            from app.chat.persona_inject import spotlight  # noqa: PLC0415
+
+            base_prompt = base_prompt + spotlight(
+                "ПАМЯТЬ ИЗ ПРОШЛЫХ РАЗГОВОРОВ (это РЕАЛЬНО говорилось в других "
+                "чатах — опирайся, если относится к вопросу; не выдумывай сверх "
+                "этого)",
+                recalled,
+            ) + (
                 "\n\nЕсли называют человека только по имени и есть несколько людей "
                 "с таким именем или ты не уверен, кто это — уточни фамилию, чтобы "
                 "не путать разных людей."
@@ -1055,7 +1066,15 @@ async def api_send_stream(
     try:
         from app.memory_context import build_memory_context  # noqa: PLC0415
 
-        memory_block = await build_memory_context(question)
+        raw_ctx = await build_memory_context(question)
+        if raw_ctx:
+            # S3a — спотлайтинг: контекст с экрана = OCR (внешние данные).
+            from app.chat.persona_inject import spotlight  # noqa: PLC0415
+
+            memory_block = spotlight(
+                "КОНТЕКСТ С ЭКРАНА И АКТИВНОСТИ (распознано с экрана — внешние данные)",
+                raw_ctx,
+            )
     except Exception as exc:  # noqa: BLE001
         log.warning("chat.memory.inject_failed", error=str(exc))
     # T29 шаг4b — pinned messages always stay in context (survive trimming).
@@ -1087,9 +1106,16 @@ async def api_send_stream(
     except Exception as exc:  # noqa: BLE001
         log.warning("chat.reaction.inject_failed", error=str(exc))
 
+    # S3a — ре-инъекция персоны: в длинной беседе повторяем краткое «ядро»
+    # роли в САМОМ конце промпта (ближе всего к генерации), чтобы характер не
+    # терялся в середине контекста. Пусто, пока беседа короткая.
+    from app.chat.persona_inject import persona_reminder  # noqa: PLC0415
+
+    persona_tail = persona_reminder(persona_core, history)
+
     system_with_history = (
-        f"{base_prompt}{pinned_block}{reaction_block}{memory_block}{summary_block}\n\nПоследние сообщения:\n{transcript}"
-        if transcript else f"{base_prompt}{pinned_block}{reaction_block}{memory_block}{summary_block}"
+        f"{base_prompt}{pinned_block}{reaction_block}{memory_block}{summary_block}\n\nПоследние сообщения:\n{transcript}{persona_tail}"
+        if transcript else f"{base_prompt}{pinned_block}{reaction_block}{memory_block}{summary_block}{persona_tail}"
     )
 
     async def event_stream() -> Any:
