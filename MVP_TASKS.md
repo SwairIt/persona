@@ -215,3 +215,8 @@
   4-bit NF4, fp16, gradient_checkpointing, БЕЗ flash-attn, Qwen2.5-0.5/1.5B, paged_adamw_8bit),
   finetune/{export_gguf.md→Ollama, README.md, requirements.txt}. Проверено: dataset/CLI без torch.
   ЧЕСТНО: 4ГБ тянет 0.5–1.5B = клон СТИЛЯ, не интеллекта; если мало — Colab T4, запуск локально.
+
+- `[DONE]` Prompt-caching (Anthropic): system → ephemeral cache-блок в complete/stream (app/llm/client.py
+  _anthropic_system), парс+лог cache_read/creation. Аддитивно, контент промпта не тронут, др. провайдеры —
+  без изменений. v2.20.2. ОПЦ.ПОЗЖЕ (не делал — риск на горячем пути): пере-упорядочить сборку промпта в
+  chat_sessions.py (стабильный префикс→динамика в конец) для более сильного кэш-хита и Ollama KV-reuse.
