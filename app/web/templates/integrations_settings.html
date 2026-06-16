@@ -78,6 +78,45 @@
     </form>
   </div>
 
+  {# «Вторая копия» — датасет + Colab-ноутбук для дообучения #}
+  <div class="rounded-xl border border-ink-700 bg-ink-800 p-4 space-y-3">
+    <div>
+      <p class="text-sm font-medium text-zinc-200">🧬 Вторая копия (дообучение своей модели)</p>
+      <p class="text-xs text-zinc-500 mt-0.5">
+        Обучи личную модель в твоём стиле. Тяжёлое обучение — бесплатно на Colab T4,
+        запуск — локально на твоём GPU через Ollama. Скачай датасет и готовый ноутбук:
+      </p>
+    </div>
+    {% if dataset_ready %}
+      <div class="flex flex-wrap gap-2">
+        <a href="/settings/integrations/download/colab"
+           class="px-3 py-2 rounded-lg bg-accent-600 hover:bg-accent-500 text-white text-sm">
+          ⬇ Colab-ноутбук (.ipynb)
+        </a>
+        <a href="/settings/integrations/download/dataset"
+           class="px-3 py-2 rounded-lg bg-ink-900 border border-ink-700 text-zinc-200 text-sm hover:bg-ink-950">
+          ⬇ Датасет (train)
+        </a>
+        <a href="/settings/integrations/download/dataset-val"
+           class="px-3 py-2 rounded-lg bg-ink-900 border border-ink-700 text-zinc-200 text-sm hover:bg-ink-950">
+          ⬇ Датасет (val)
+        </a>
+      </div>
+      <p class="text-[11px] text-zinc-600">
+        Открой ноутбук в <a href="https://colab.research.google.com" target="_blank" rel="noopener" class="underline">Colab</a>
+        → Runtime → T4 GPU → Run all → загрузи эти 2 файла → получишь GGUF для Ollama.
+      </p>
+    {% else %}
+      <p class="text-xs text-amber-300/90">
+        Датасет ещё не собран. Запусти на сервере:
+        <span class="font-mono">python scripts/build_persona_dataset.py --include-history --user-id 2</span>
+      </p>
+      <p class="text-[11px] text-zinc-600">
+        <a href="/settings/integrations/download/colab" class="underline">Colab-ноутбук</a> можно скачать уже сейчас.
+      </p>
+    {% endif %}
+  </div>
+
   <p class="text-[11px] text-zinc-600">
     Управление напоминаниями — <a href="/reminders" class="underline">/reminders</a>,
     памятью — <a href="/settings/memory" class="underline">/settings/memory</a>.

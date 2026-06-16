@@ -8,10 +8,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 
 from app.auth import current_user_required
 from app.auth.sessions import SessionRecord
@@ -23,6 +24,20 @@ from app.web.templates_engine import templates
 
 router = APIRouter(tags=["settings"])
 log = get_logger("persona.integrations")
+
+# Корень репозитория: app/web/routes/integrations_settings.py → parents[3].
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+
+# Артефакты «второй копии» (датасет/ноутбук) — отдаём на скачивание из UI.
+_DOWNLOADS: dict[str, tuple[str, str, str]] = {
+    "dataset": ("finetune/data/persona.jsonl", "persona.jsonl", "application/jsonl"),
+    "dataset-val": ("finetune/data/persona.val.jsonl", "persona.val.jsonl", "application/jsonl"),
+    "colab": ("finetune/persona_colab.ipynb", "persona_colab.ipynb", "application/x-ipynb+json"),
+}
+
+
+def _dataset_exists() -> bool:
+    return (_REPO_ROOT / "finetune/data/persona.jsonl").exists()
 
 
 async def _counts() -> dict[str, int]:
@@ -48,8 +63,28 @@ async def integrations_page(
             "counts": await _counts(),
             "imported": imported,
             "parsed": parsed,
+            "dataset_ready": _dataset_exists(),
         },
     )
+
+
+@router.get("/settings/integrations/download/{what}", response_model=None)
+async def download_artifact(
+    what: str,
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+) -> FileResponse:
+    """Скачать артефакт «второй копии»: dataset / dataset-val / colab-ноутбук."""
+    entry = _DOWNLOADS.get(what)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="unknown artifact")
+    rel, filename, media = entry
+    path = _REPO_ROOT / rel
+    if not path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="файл ещё не собран — запусти scripts/build_persona_dataset.py",
+        )
+    return FileResponse(path, media_type=media, filename=filename)
 
 
 @router.get("/settings/integrations/reminders.ics", response_model=None)

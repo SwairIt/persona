@@ -294,3 +294,9 @@ recall и vec0-поиска (pip install sqlite-vec + ollama pull nomic-embed-te
   Опц. --owner-name зашивает имя владельца («Его зовут X» + Q&A «как меня зовут»). По выбору пользователя
   пересобрано БЕЗ имени и БЕЗ записи в память: train 347 / val 18, идентичность в 347/347 примеров. Пофикшен
   баг обрезки обязательных пар при малом --size. 4 pytest (вкл. identity в каждом примере). v2.20.22.
+- ✅ Turnkey «вторая копия»: Colab-ноутбук + скачивание из UI. finetune/persona_colab.ipynb (15 ячеек:
+  проверка T4 → install → upload датасета → QLoRA-обучение (Qwen2.5-1.5B, fallback 0.5B) → merge →
+  конвертация в GGUF Q4_K_M через llama.cpp → download → инструкция Ollama на ПК). На /settings/integrations —
+  раздел «Вторая копия» с кнопками скачать ноутбук/датасет(train/val) (download-маршрут, owner-gate, 404 если
+  не собран). Решение пользователя: обучать на бесплатном Colab T4, запускать на своём 1050 Ti через Ollama
+  (GPU нужен для инференса, не для тренировки). 4 pytest (валидность ipynb + рендер). v2.20.23.
