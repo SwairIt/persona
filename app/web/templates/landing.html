@@ -277,20 +277,26 @@
 
     <!-- COMPARE -->
     <section class="compare" id="compare">
-      <h2 class="section-title reveal">Чем Persona отличается</h2>
-      <p class="section-lead reveal">Облачные ассистенты умные, но «общие» и забывчивые. Persona — личная и помнящая.</p>
+      <h2 class="section-title reveal">Persona и где остальные</h2>
+      <p class="section-lead reveal">Эталон рынка ушёл в облако и был куплен. Persona — local-first и открытая, поэтому у неё нет «рубильника» в чужих руках.</p>
+      <div class="compare-note reveal" style="max-width:760px;margin:0 auto 1.5rem;padding:.9rem 1.1rem;border-radius:14px;background:rgba(244,114,182,.08);border:1px solid rgba(244,114,182,.3);font-size:.92rem;line-height:1.5;">
+        ⚠️ <b>Декабрь 2025:</b> Rewind отключён, Limitless куплен Meta (запись на Mac выключена с 19.12.2025), сервис отрезан в EU/UK. Persona так не умеет — её архитектура не даёт это сделать.
+      </div>
       <div class="compare-table reveal">
         <table>
           <thead>
-            <tr><th>Возможность</th><th class="hi">Persona</th><th>Облачные</th><th>Локальные боты</th></tr>
+            <tr><th>Критерий</th><th class="hi">Persona</th><th>Rewind / Limitless</th><th>Microsoft Recall</th><th>Open-source</th></tr>
           </thead>
           <tbody>
-            <tr><td>Память между сессиями</td><td class="hi">✓ живая</td><td>✗ забывает</td><td>✗ нет</td></tr>
-            <tr><td>Знает о тебе (профиль + активность)</td><td class="hi">✓ в каждом чате</td><td>~ в сессии</td><td>✗</td></tr>
-            <tr><td>Данные остаются у тебя</td><td class="hi">✓ локально</td><td>✗ в облаке</td><td>✓</td></tr>
-            <tr><td>Работает офлайн</td><td class="hi">✓ опц.</td><td>✗</td><td>✓</td></tr>
-            <tr><td>Своя дообученная модель</td><td class="hi">✓ LoRA</td><td>✗</td><td>~ вручную</td></tr>
-            <tr><td>Создаёт файлы на ПК</td><td class="hi">✓ allowlist</td><td>✗</td><td>~</td></tr>
+            <tr><td>Приватность / локальность</td><td class="hi">✓ local-first, опц. офлайн</td><td>✗ ушёл в облако, у Meta</td><td>~ локально, но закрыто</td><td>✓ локально</td></tr>
+            <tr><td>Цена</td><td class="hi">✓ открыто, без подписки за облако</td><td>$19–50/мес, сворачивается</td><td>«бесплатно», нужен Copilot+ PC</td><td>✓ FOSS</td></tr>
+            <tr><td>Запись экрана</td><td class="hi">✓ Mac + Windows</td><td>~ Mac, off 19.12.25</td><td>~ только Copilot+ PC</td><td>✓</td></tr>
+            <tr><td>Запись звука</td><td class="hi">✓ + транскрипция</td><td>✓</td><td>✗</td><td>~ (screenpipe)</td></tr>
+            <tr><td>Чат с памятью</td><td class="hi">✓ кросс-чат, bi-temporal</td><td>~ Ask AI</td><td>~ только поиск</td><td>~ через MCP</td></tr>
+            <tr><td>Граф памяти</td><td class="hi">✓</td><td>✗</td><td>✗</td><td>✗</td></tr>
+            <tr><td>Своя дообученная модель</td><td class="hi">✓ «вторая копия» (QLoRA)</td><td>✗</td><td>✗</td><td>~ вручную</td></tr>
+            <tr><td>Открытость</td><td class="hi">✓ без vendor lock-in</td><td>✗ проприетарно</td><td>✗ закрыто</td><td>✓</td></tr>
+            <tr><td>Экспорт данных</td><td class="hi">✓ без потерь</td><td>~ есть</td><td>~ ограничен</td><td>✓ SQLite</td></tr>
           </tbody>
         </table>
       </div>
