@@ -177,7 +177,21 @@
   const dMeta = document.getElementById('mg-detail-meta');
   const dFull = document.getElementById('mg-detail-full');
   const dGo = document.getElementById('mg-detail-go');
+  const dDay = document.getElementById('mg-detail-day');
   const dX = document.getElementById('mg-detail-x');
+
+  // A4: локальная дата (YYYY-MM-DD) из timestamp узла для перехода на /day/{date}
+  function dayFromAt(at) {
+    if (!at) return '';
+    try {
+      const d = new Date(at);
+      if (isNaN(d.getTime())) return ('' + at).slice(0, 10);
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const da = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${da}`;
+    } catch (e) { return ('' + at).slice(0, 10); }
+  }
   if (dX) dX.addEventListener('click', closeDetail);
 
   function fmtTime(s) {
@@ -206,6 +220,13 @@
     dFull.hidden = !n.full;
     if (n.href) { dGo.hidden = false; dGo.href = n.href; dGo.textContent = GO_LABEL[n.type] || 'Перейти →'; }
     else dGo.hidden = true;
+    // A4: «К этому дню» — для любого узла со временем (кроме самих day-узлов,
+    // которые и так ведут на день через основной переход).
+    const dayStr = n.type === 'day' ? '' : dayFromAt(n.at);
+    if (dDay) {
+      if (dayStr) { dDay.hidden = false; dDay.href = '/day/' + dayStr; }
+      else dDay.hidden = true;
+    }
     detailEl.hidden = false;
   }
   function closeDetail() { if (detailEl) detailEl.hidden = true; }

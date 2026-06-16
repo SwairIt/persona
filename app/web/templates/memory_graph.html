@@ -23,6 +23,7 @@
       <div class="mg-detail-meta" id="mg-detail-meta"></div>
       <div class="mg-detail-full" id="mg-detail-full"></div>
       <a class="mg-detail-go" id="mg-detail-go" href="#">Перейти →</a>
+      <a class="mg-detail-go" id="mg-detail-day" href="#" hidden>📅 К этому дню</a>
     </div>
 
     <div class="mg-tip" id="mg-tip" hidden></div>
@@ -64,5 +65,5 @@
   </div>
 </div>
 
-<script src="/static/graph/memgraph.js" defer></script>
+<script src="/static/graph/memgraph.js?v={{ app_version }}" defer></script>
 {% endblock %}

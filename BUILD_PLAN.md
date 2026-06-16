@@ -27,7 +27,7 @@
   быстрые ссылки на существующие виды дня (scrubber/collage/kanban/pdf/markdown/tldr). В settings_hub + nav i18n.
 - [x] A3. «Спросить про этот день»: `POST /api/day/{date}/ask` — LLM-ответ по контексту дня
   (hourly_card этого дня + сэмпл OCR + tldr), стрим или просто JSON. Блок-чат на странице дня.
-- [ ] A4. Граф→день: в memgraph detail-popup добавить кнопку «📅 К этому дню» для prompt/answer/
+- [x] A4. Граф→день: в memgraph detail-popup добавить кнопку «📅 К этому дню» для prompt/answer/
   session/summary/memory узлов → `/day/{date}` (день берём из timestamp узла). memory_graph.py +
   memgraph.js.
 - [ ] A5. `/memory`: часовые карточки и строки daily pins сделать кликабельными → `/day/{date}`
@@ -96,3 +96,6 @@
   + tldr + топ-приложения + часовые карточки + сэмпл OCR (до 6000 симв). Системный промпт «не выдумывай».
   Graceful без LLM (missing_config). answer_about_day(client=...) инжектируемый → 3 pytest (контекст/инъекция/
   пустой вопрос). Форма на /day/{date} теперь работает.
+- A4 ✅ (v2.20.31): граф→день. В detail-popup узла кнопка «📅 К этому дню» → /day/{дата из n.at}
+  (dayFromAt — локальная дата из timestamp; для day-узлов скрыта, т.к. их основной переход и так на день).
+  memgraph.js + memory_graph.html (+ ?v= cache-busting на memgraph.js). JS-синтаксис node --check OK.
