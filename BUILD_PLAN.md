@@ -48,7 +48,7 @@
   Microsoft Recall vs open-source) — из artifacts/competitors (ресёрч).
 - [x] C2. `/features` — глубокая страница всех фич с разбивкой (захват, память, чат, граф, голос,
   брифинги, напоминания, приватность, своя модель).
-- [ ] C3. `/compare/rewind` (+ др. при наличии данных) — детальное сравнение по фичам.
+- [x] C3. `/compare/rewind` (+ др. при наличии данных) — детальное сравнение по фичам.
 - [ ] C4. `/pricing` — честно: open-source/локально бесплатно; облачные модели = по ключу пользователя.
 - [ ] C5. `/security` + `/privacy-policy` + `/terms` (юр./безопасность, local-first акцент).
 - [ ] C6. `/roadmap` + `/changelog` (из git/версий).
@@ -124,3 +124,6 @@
   bi-temporal, граф, проактивность, кроссплатформа, без NPU, без подписки, голос, цельный продукт) + крючок дек.2025 +
   CTA. Добавлены публичные префиксы Фазы C в auth_gate allow-list (/features,/compare,/pricing,/security,/privacy-policy,
   /terms,/roadmap,/changelog). «Возможности» в _public_nav → /features. Открывается без логина.
+- C3 ✅ (v2.20.39): детальные сравнения /compare/{slug} (rewind, recall) — параметризованный роут в landing.py
+  (_COMPARE данные из брифа) + compare.html (standalone+_public_nav). 9 критериев таблицей, крючок, вывод, CTA,
+  перекрёстные ссылки. Публичные, рендер обоих ОК.

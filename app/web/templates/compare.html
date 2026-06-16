@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0a0a12" />
+  <title>{{ title }}</title>
+  <meta name="description" content="{{ c.title }} — честное сравнение по приватности, цене, фичам и владению данными. {{ c.lead }}" />
+  <meta name="keywords" content="{{ slug }} альтернатива, persona vs {{ slug }}, local-first ии, приватный ассистент, {{ c.rival }}" />
+  <link rel="canonical" href="/compare/{{ slug }}" />
+  <meta property="og:title" content="{{ c.title }}" />
+  <meta property="og:description" content="{{ c.lead }}" />
+  <meta property="og:type" content="website" />
+  <link rel="manifest" href="/static/manifest.json" />
+  <style>:root{color-scheme:dark}html,body{margin:0;background:#07070d;color:#eef0ff}</style>
+  <link rel="stylesheet" href="/static/landing/style.css?v={{ app_version }}" />
+</head>
+<body>
+{% include "_public_nav.html" %}
+
+<main style="max-width:920px;margin:0 auto;padding:6rem 1.25rem 4rem;">
+
+  <header style="text-align:center;max-width:740px;margin:0 auto 2rem;">
+    <div style="font-size:.85rem;color:#889;text-transform:uppercase;letter-spacing:.15em;margin-bottom:.5rem;">Сравнение</div>
+    <h1 style="font-size:clamp(1.8rem,4.5vw,2.7rem);line-height:1.12;margin:0 0 1rem;">
+      Persona <span style="color:#778;">vs</span> <span class="grad">{{ c.rival }}</span>
+    </h1>
+    <p style="font-size:1.12rem;color:#aab;line-height:1.6;">{{ c.lead }}</p>
+  </header>
+
+  <div class="reveal" style="margin:0 auto 2rem;padding:1rem 1.2rem;border-radius:14px;background:rgba(244,114,182,.08);border:1px solid rgba(244,114,182,.3);font-size:.95rem;line-height:1.55;">
+    ⚠️ {{ c.hook }}
+  </div>
+
+  <div class="compare-table reveal">
+    <table>
+      <thead>
+        <tr><th>Критерий</th><th class="hi">Persona</th><th>{{ c.rival }}</th></tr>
+      </thead>
+      <tbody>
+        {% for crit, persona, rival in c.rows %}
+          <tr><td>{{ crit }}</td><td class="hi">✓ {{ persona }}</td><td>{{ rival }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <section class="glass reveal" style="margin-top:2rem;padding:1.5rem;border-radius:16px;">
+    <h2 style="margin:0 0 .6rem;font-size:1.25rem;">Вывод</h2>
+    <p style="margin:0;color:#ccd;line-height:1.6;">{{ c.verdict }}</p>
+  </section>
+
+  <section style="text-align:center;margin-top:3rem;">
+    <a href="/auth/signup" class="btn btn-primary btn-lg">Перейти на Persona</a>
+    <span style="display:inline-block;margin-left:.5rem;"><a href="/features" class="btn btn-secondary">Все возможности</a></span>
+    <p style="margin-top:1rem;font-size:.9rem;color:#889;">
+      Другие сравнения:
+      <a href="/compare/rewind" style="color:#a9c;">Rewind / Limitless</a> ·
+      <a href="/compare/recall" style="color:#a9c;">Microsoft Recall</a>
+    </p>
+  </section>
+
+</main>
+</body>
+</html>

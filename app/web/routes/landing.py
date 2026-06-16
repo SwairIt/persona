@@ -80,6 +80,71 @@ async def features_page(
     )
 
 
+# Детальные сравнения (BUILD_PLAN C3). Факты — из ресёрча competitors_brief.md.
+_COMPARE: dict[str, dict] = {
+    "rewind": {
+        "rival": "Rewind / Limitless",
+        "title": "Persona vs Rewind / Limitless",
+        "lead": "Эталон local-first памяти ушёл в облако и был куплен Meta. Persona — открытая, её нельзя выключить.",
+        "hook": "Декабрь 2025: Rewind отключён, Limitless куплен Meta (запись на Mac выключена с 19.12.2025), "
+                "сервис отрезан в EU/UK. Существующим — поддержка ~1 год, дальше технология уходит в носимые устройства Meta.",
+        "rows": [
+            ("Приватность / локальность", "Local-first, опц. полностью офлайн (Ollama)", "Стартовал local-first → ушёл в облако (Pendant), теперь у Meta"),
+            ("Статус продукта", "Активен, открыт, развивается", "Свёрнут / поглощён; Mac-запись отключена 19.12.25"),
+            ("Цена", "Открыто, без вечной облачной подписки", "$19–50/мес + Pendant $99–399"),
+            ("Платформы", "Mac + Windows", "Только macOS"),
+            ("Чат с памятью", "Кросс-чат recall + bi-temporal факты (история, откат)", "Ask AI по истории"),
+            ("Граф памяти", "Да", "Нет"),
+            ("Своя дообученная модель", "Да — «вторая копия» (QLoRA, локально)", "Нет — проприетарный/облачный LLM"),
+            ("Открытость", "Да, без vendor lock-in", "Нет, проприетарно"),
+            ("Экспорт данных", "Без потерь, в любой момент", "Есть (особенно «окно перед удалением» при закрытии в EU/UK)"),
+        ],
+        "verdict": "После поглощения Meta у рынка образовался вакуум доверия. Persona закрывает его архитектурно: "
+                   "нет облачного бэкенда, который можно «переключить», и кода, который нельзя проверить.",
+    },
+    "recall": {
+        "rival": "Microsoft Recall",
+        "title": "Persona vs Microsoft Recall",
+        "lead": "Память без нового ноутбука и без закрытого кода.",
+        "hook": "Microsoft Recall требует Copilot+ PC (NPU ≥40 TOPS), работает только по экрану (без звука), "
+                "код закрыт, а в 2025–2026 ловил эксплойты и утечки чувствительных данных.",
+        "rows": [
+            ("Требования к железу", "Обычный ПК", "Только Copilot+ PC (NPU ≥40 TOPS)"),
+            ("Открытость", "Да — аудируемо", "Нет — закрытый код Windows"),
+            ("Приватность", "Проверяемая (всё локально, опц. офлайн)", "Локально, но закрыто; были утечки/эксплойты"),
+            ("Запись звука", "Да + транскрипция", "Нет — только экран"),
+            ("Чат с памятью", "Да, диалоговый ассистент", "Поиск + Click-to-Do, не диалог"),
+            ("Своя модель", "Да — «вторая копия»", "Нет — закрытая on-device, привязана к NPU"),
+            ("Кроссплатформа", "Mac + Windows", "Только Windows 11 Copilot+"),
+            ("Граф памяти", "Да", "Нет"),
+            ("Экспорт данных", "Без потерь", "Ограничен"),
+        ],
+        "verdict": "Recall заставляет купить новый ноутбук и довериться закрытому коду. Persona работает на твоём "
+                   "ПК, открыта и проверяема, пишет и экран, и звук, и умеет диалоговую память.",
+    },
+}
+
+
+@router.get("/compare/{slug}", response_class=HTMLResponse, response_model=None)
+async def compare_page(
+    request: Request,
+    slug: str,
+    session: Annotated[SessionRecord | None, Depends(current_user_optional)],
+) -> HTMLResponse:
+    """Публичное детальное сравнение Persona vs конкурент."""
+    data = _COMPARE.get(slug.lower())
+    if data is None:
+        from fastapi import HTTPException  # noqa: PLC0415
+
+        raise HTTPException(status_code=404, detail="unknown comparison")
+    return templates.TemplateResponse(
+        request,
+        "compare.html",
+        {"title": data["title"], "app_version": __version__, "session": session,
+         "c": data, "slug": slug.lower()},
+    )
+
+
 @router.get("/landing/v2", response_class=HTMLResponse, response_model=None)
 async def landing_page_v2(
     request: Request,
