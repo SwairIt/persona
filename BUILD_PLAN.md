@@ -25,7 +25,7 @@
   ← →, «сегодня», TL;DR), KPI-плитки (скрины / звук N мин / ИИ: вызовов+токенов / активных часов),
   скрины по часам (reuse timeline-группировку, ссылки на /screenshot/{id}), часовые карточки,
   быстрые ссылки на существующие виды дня (scrubber/collage/kanban/pdf/markdown/tldr). В settings_hub + nav i18n.
-- [ ] A3. «Спросить про этот день»: `POST /api/day/{date}/ask` — LLM-ответ по контексту дня
+- [x] A3. «Спросить про этот день»: `POST /api/day/{date}/ask` — LLM-ответ по контексту дня
   (hourly_card этого дня + сэмпл OCR + tldr), стрим или просто JSON. Блок-чат на странице дня.
 - [ ] A4. Граф→день: в memgraph detail-popup добавить кнопку «📅 К этому дню» для prompt/answer/
   session/summary/memory узлов → `/day/{date}` (день берём из timestamp узла). memory_graph.py +
@@ -92,3 +92,7 @@
   блок «спросить про день» (форма готова, обработчик в A3), часовые карточки, галерея скринов по часам
   (reuse _screenshot_card + _group_by_hour), быстрые ссылки на scrubber/collage/kanban/pdf/таймлайн.
   Роут зарегистрирован, не затирает /day/{day}/collage|kanban|md|pdf.
+- A3 ✅ (v2.20.30): POST /api/day/{date}/ask — LLM-ответ про день. Контекст _day_context = статистика дня
+  + tldr + топ-приложения + часовые карточки + сэмпл OCR (до 6000 симв). Системный промпт «не выдумывай».
+  Graceful без LLM (missing_config). answer_about_day(client=...) инжектируемый → 3 pytest (контекст/инъекция/
+  пустой вопрос). Форма на /day/{date} теперь работает.
