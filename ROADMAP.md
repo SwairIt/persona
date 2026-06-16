@@ -256,3 +256,15 @@ agent-driven память Letta на слабой модели (мусор за�
   та же (исходные BLOB-вектора), скорость O(k) вместо O(N) на всём корпусе. Worker зеркалит новые эмбеддинги
   в vec0 (best-effort). БЕЗ sqlite-vec (как на этой машине) — всё тихо деградирует: no-op/None → полный
   перебор как раньше. 3 pytest fallback + 11 существующих storage не сломаны; golden-eval не просел. v2.20.19.
+- ✅ «Вторая копия» — ДАТАСЕТ СОБРАН на живой БД (soft-only, без GPU). Прогон:
+  python scripts/build_persona_dataset.py --out finetune/data/persona.jsonl --size 400 --include-history --user-id 2
+  Результат: 290 РЕАЛЬНЫХ пар из истории чатов user 2 + синтетика → train 338 (1.3 МБ) / val 17 (60 КБ),
+  формат chat-messages (system=персона, user, assistant). finetune/data/ в .gitignore — JSONL НЕ коммитится.
+  Фактов памяти у user 2: 0 (наполнится через /remember и импорт Markdown). Починен баг скрипта:
+  финальный print с «✓»/кириллицей падал UnicodeEncodeError на cp1251-консоли Windows ПОСЛЕ записи —
+  добавлен reconfigure stdout/stderr на UTF-8. 3 pytest на пайплайн (формат/дедуп/JSONL). v2.20.20.
+  QLoRA-ТРЕНИРОВКА — пользователю (нет NVIDIA/torch на этой машине), команда (см. finetune/README.md):
+    python finetune/train_qlora.py --data finetune/data/persona.jsonl --val finetune/data/persona.val.jsonl \
+      --model Qwen/Qwen2.5-1.5B-Instruct --out finetune/out/persona-lora
+    (OOM на 4 ГБ VRAM GTX 1050 Ti → --model Qwen/Qwen2.5-0.5B-Instruct --max-seq 512; либо бесплатный Colab T4 16 ГБ.)
+    Затем экспорт в GGUF (finetune/export_gguf.md) → ollama create persona-mini → /settings/llm.

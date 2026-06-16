@@ -15,7 +15,17 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import sys
 from pathlib import Path
+
+# Windows-консоль по умолчанию cp1251 — без этого финальный print с «✓» и
+# кириллицей падает UnicodeEncodeError уже ПОСЛЕ записи датасета. Переключаем
+# stdout/stderr на UTF-8, чтобы команда из README отрабатывала чисто.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
+    except Exception:  # noqa: BLE001 — старый Python/перенаправление — не критично
+        pass
 
 
 async def _main() -> None:
