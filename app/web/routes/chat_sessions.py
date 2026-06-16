@@ -48,10 +48,27 @@ from app.chat import (
 )
 from app.llm.client import CompletionRequest, LLMNotConfigured, make_client
 from app.logging_setup import get_logger
+from app.storage.db import get_connection
+from app.storage.repository import get_kv
 from app.web.templates_engine import templates
 
 router = APIRouter(tags=["chat"])
 log = get_logger("persona.chat.routes")
+
+# Провайдеры, у которых данные НЕ покидают машину (бейдж 🔒 в чате).
+# Зеркалит privacy_settings._LOCAL_PROVIDERS — приватность видна прямо в чате.
+_LOCAL_PROVIDERS = {"ollama", "llamacpp", "localai", "lmstudio"}
+
+
+async def _provider_badge() -> dict[str, object]:
+    """Активный LLM-провайдер для бейджа приватности в шапке чата.
+
+    Пользователь всегда видит, уходит ли текущий разговор в облако (☁) или
+    остаётся локально (🔒). Дешёвый kv-чит, дополняет /settings/privacy.
+    """
+    async with get_connection() as conn:
+        provider = (await get_kv(conn, "llm_provider") or "ollama").strip().lower()
+    return {"provider": provider, "is_local": provider in _LOCAL_PROVIDERS}
 
 
 async def _find_vision_model_for_provider(provider: str | None) -> str | None:
@@ -418,6 +435,7 @@ async def chat_index(
             "active_session": None,
             "messages": [],
             "adv": await get_advanced_flags(),
+            "provider_badge": await _provider_badge(),
         },
     )
 
@@ -454,6 +472,7 @@ async def chat_thread(
             "mode": mode,
             "auto_prompt": auto_prompt,
             "adv": await get_advanced_flags(),
+            "provider_badge": await _provider_badge(),
         },
     )
 

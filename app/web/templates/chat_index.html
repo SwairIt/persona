@@ -121,6 +121,19 @@
             {% if active_session.summary %}
               <span class="text-emerald-400">· 🧠 память</span>
             {% endif %}
+            {% if provider_badge %}
+              {% if provider_badge.is_local %}
+                <a href="/settings/privacy" class="text-emerald-400 hover:underline"
+                   title="Локальная модель {{ provider_badge.provider }} — ничего не уходит в облако. Подробнее о приватности.">
+                  · 🔒 локально
+                </a>
+              {% else %}
+                <a href="/settings/privacy" class="text-amber-400 hover:underline"
+                   title="Облачная модель {{ provider_badge.provider }} — запросы (с подмешанной памятью) уходят провайдеру. Нажми, чтобы узнать что именно и как переключиться на локальную.">
+                  · ☁ облако: {{ provider_badge.provider }}
+                </a>
+              {% endif %}
+            {% endif %}
           </div>
         </div>
 
