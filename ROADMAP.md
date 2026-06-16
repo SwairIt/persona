@@ -300,3 +300,7 @@ recall и vec0-поиска (pip install sqlite-vec + ollama pull nomic-embed-te
   раздел «Вторая копия» с кнопками скачать ноутбук/датасет(train/val) (download-маршрут, owner-gate, 404 если
   не собран). Решение пользователя: обучать на бесплатном Colab T4, запускать на своём 1050 Ti через Ollama
   (GPU нужен для инференса, не для тренировки). 4 pytest (валидность ipynb + рендер). v2.20.23.
+- ✅ Фикс совместимости с новыми TRL: SFTConfig в новых версиях TRL переименовал max_seq_length → max_length
+  (и иногда убирает dataset_text_field). И ноутбук (finetune/persona_colab.ipynb), и локальный train_qlora.py
+  теперь собирают kwargs SFTConfig по реальной сигнатуре (inspect) — не падают на свежем TRL. (Поймано вживую
+  при первом запуске обучения пользователем на Colab.) v2.20.24.

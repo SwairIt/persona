@@ -102,7 +102,12 @@ def main() -> None:
     train_ds = _fmt(_read_jsonl(args.data))
     eval_ds = _fmt(_read_jsonl(args.val)) if args.val and Path(args.val).exists() else None
 
-    cfg = SFTConfig(
+    # TRL меняет имена аргументов между версиями: max_seq_length → max_length
+    # (новые версии), dataset_text_field иногда выпиливают. Собираем kwargs по
+    # реальной сигнатуре SFTConfig — чтобы скрипт не падал на свежем TRL.
+    import inspect  # noqa: PLC0415
+
+    sft_kwargs = dict(
         output_dir=args.out,
         num_train_epochs=args.epochs,
         per_device_train_batch_size=1,
@@ -112,13 +117,19 @@ def main() -> None:
         gradient_checkpointing=True,
         logging_steps=10,
         save_strategy="epoch",
-        max_seq_length=args.max_seq,
         optim="paged_adamw_8bit",  # экономит память на Pascal
         warmup_ratio=0.03,
         lr_scheduler_type="cosine",
         report_to="none",
-        dataset_text_field="text",
     )
+    sft_params = inspect.signature(SFTConfig.__init__).parameters
+    if "max_seq_length" in sft_params:
+        sft_kwargs["max_seq_length"] = args.max_seq
+    elif "max_length" in sft_params:
+        sft_kwargs["max_length"] = args.max_seq
+    if "dataset_text_field" in sft_params:
+        sft_kwargs["dataset_text_field"] = "text"
+    cfg = SFTConfig(**sft_kwargs)
     trainer = SFTTrainer(
         model=model, args=cfg, train_dataset=train_ds,
         eval_dataset=eval_ds, peft_config=lora,
