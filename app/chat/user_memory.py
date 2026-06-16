@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.logging_setup import get_logger
-from app.storage.db import get_connection
+from app.storage.db import get_connection, write_transaction
 
 log = get_logger("persona.user_memory")
 
@@ -38,7 +38,7 @@ async def add_memory(
         return None
     if kind not in _KINDS:
         kind = "fact"
-    async with get_connection() as conn:
+    async with write_transaction() as conn:
         cur = await conn.execute(
             "SELECT id FROM user_memory WHERE user_id = ? AND lower(text) = lower(?) LIMIT 1",
             (user_id, text),
@@ -50,14 +50,12 @@ async def add_memory(
                     "UPDATE user_memory SET pinned = 1, updated_at = datetime('now') WHERE id = ?",
                     (existing["id"],),
                 )
-                await conn.commit()
             return int(existing["id"])
         cur = await conn.execute(
             "INSERT INTO user_memory(user_id, kind, text, pinned, source_session_id) "
             "VALUES(?,?,?,?,?)",
             (user_id, kind, text, 1 if pinned else 0, source_session_id),
         )
-        await conn.commit()
         return int(cur.lastrowid)
 
 
@@ -84,13 +82,12 @@ async def list_memory(user_id: int, limit: int = 200) -> list[dict[str, Any]]:
 
 
 async def set_pinned(user_id: int, mem_id: int, pinned: bool) -> bool:
-    async with get_connection() as conn:
+    async with write_transaction() as conn:
         cur = await conn.execute(
             "UPDATE user_memory SET pinned = ?, updated_at = datetime('now') "
             "WHERE id = ? AND user_id = ?",
             (1 if pinned else 0, mem_id, user_id),
         )
-        await conn.commit()
         return cur.rowcount > 0
 
 
@@ -104,11 +101,10 @@ async def count_memory(user_id: int) -> int:
 
 
 async def delete_memory(user_id: int, mem_id: int) -> bool:
-    async with get_connection() as conn:
+    async with write_transaction() as conn:
         cur = await conn.execute(
             "DELETE FROM user_memory WHERE id = ? AND user_id = ?", (mem_id, user_id)
         )
-        await conn.commit()
         return cur.rowcount > 0
 
 
@@ -128,12 +124,11 @@ async def forget(user_id: int, query: str) -> int:
     ids = [r["id"] for r in rows if qf in r["text"].casefold()]
     if not ids:
         return 0
-    async with get_connection() as conn:
+    async with write_transaction() as conn:
         await conn.executemany(
             "DELETE FROM user_memory WHERE id = ? AND user_id = ?",
             [(i, user_id) for i in ids],
         )
-        await conn.commit()
     return len(ids)
 
 

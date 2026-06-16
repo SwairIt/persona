@@ -183,3 +183,6 @@ agent-driven память Letta на слабой модели (мусор за�
 - ✅ S0: golden-eval harness `tests/eval/` (keyword baseline hit_rate=0.67; hybrid-fallback не хуже).
   Запуск на своих данных: PERSONA_DB_PATH=боевая → measure(recall_relevant, user_id). Морфология
   (деплоем→деплой, бег→бегать) — известный gap, цель S1 hybrid+reranker.
+- ✅ S0: SQLite `write_transaction()` (BEGIN IMMEDIATE) в db.py + применён к user_memory
+  (add/set_pinned/delete/forget). 4 pytest зелёные (коммит/откат/20 конкурентных записей/roundtrip).
+  Горячий append_message — следующим (изолированно, чтобы не рисковать ядром чата). v2.20.6.

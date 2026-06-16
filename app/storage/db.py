@@ -176,6 +176,40 @@ def _split_sql_statements(sql: str) -> list[str]:
     return statements
 
 
+async def _configure_connection(conn: aiosqlite.Connection) -> None:
+    """Применить прагмы + sqlite-vec + row_factory к свежему соединению.
+
+    Общий код для get_connection и write_transaction, чтобы настройки не
+    разъезжались между чтением и записью.
+    """
+    await conn.execute("PRAGMA journal_mode = WAL")
+    await conn.execute("PRAGMA synchronous = NORMAL")
+    await conn.execute("PRAGMA foreign_keys = ON")
+    # T19 fix (2026-06-07) — without busy_timeout the second writer
+    # gets ``SQLITE_BUSY`` immediately and dies. With 40 background
+    # workers all heartbeating every 3 sec, plus a slow Ollama call
+    # holding a write transaction, lock contention spikes — the user
+    # reports the site freezes. 5000ms gives writers time to queue
+    # politely instead of throwing.
+    await conn.execute("PRAGMA busy_timeout = 5000")
+    # Read-speed pragmas (cheap, per-connection) — help FTS5 bm25 sorts,
+    # vector KNN temp sorts, and large scans. mmap 256MB, 64MB page cache,
+    # temp tables/indexes in RAM. Best-effort: a build that rejects a
+    # pragma must never break the connection.
+    try:
+        await conn.execute("PRAGMA mmap_size = 268435456")
+        await conn.execute("PRAGMA cache_size = -65536")
+        await conn.execute("PRAGMA temp_store = MEMORY")
+    except Exception:  # noqa: BLE001, S110
+        pass
+    # sqlite-vec per-connection (best-effort). Если расширения нет —
+    # _VEC_USABLE станет False и больше не пробуем; векторный путь тихо
+    # отключён, FTS/LIKE recall работают.
+    if _VEC_USABLE is not False:
+        await _load_sqlite_vec(conn)
+    conn.row_factory = aiosqlite.Row
+
+
 @asynccontextmanager
 async def get_connection(
     db_path: Path | None = None,
@@ -183,30 +217,37 @@ async def get_connection(
     """Yield an async SQLite connection with sane pragmas."""
     target = db_path or get_settings().db_path
     async with aiosqlite.connect(target) as conn:
-        await conn.execute("PRAGMA journal_mode = WAL")
-        await conn.execute("PRAGMA synchronous = NORMAL")
-        await conn.execute("PRAGMA foreign_keys = ON")
-        # T19 fix (2026-06-07) — without busy_timeout the second writer
-        # gets ``SQLITE_BUSY`` immediately and dies. With 40 background
-        # workers all heartbeating every 3 sec, plus a slow Ollama call
-        # holding a write transaction, lock contention spikes — the user
-        # reports the site freezes. 5000ms gives writers time to queue
-        # politely instead of throwing.
-        await conn.execute("PRAGMA busy_timeout = 5000")
-        # Read-speed pragmas (cheap, per-connection) — help FTS5 bm25 sorts,
-        # vector KNN temp sorts, and large scans. mmap 256MB, 64MB page cache,
-        # temp tables/indexes in RAM. Best-effort: a build that rejects a
-        # pragma must never break the connection.
-        try:
-            await conn.execute("PRAGMA mmap_size = 268435456")
-            await conn.execute("PRAGMA cache_size = -65536")
-            await conn.execute("PRAGMA temp_store = MEMORY")
-        except Exception:  # noqa: BLE001, S110
-            pass
-        # sqlite-vec per-connection (best-effort). Если расширения нет —
-        # _VEC_USABLE станет False и больше не пробуем; векторный путь тихо
-        # отключён, FTS/LIKE recall работают.
-        if _VEC_USABLE is not False:
-            await _load_sqlite_vec(conn)
-        conn.row_factory = aiosqlite.Row
+        await _configure_connection(conn)
         yield conn
+
+
+@asynccontextmanager
+async def write_transaction(
+    db_path: Path | None = None,
+) -> AsyncIterator[aiosqlite.Connection]:
+    """Соединение в ЯВНОЙ ``BEGIN IMMEDIATE``-транзакции для записи.
+
+    ``BEGIN IMMEDIATE`` сразу берёт RESERVED write-lock — это устраняет класс
+    дедлоков при апгрейде read→write под конкуренцией (см. T19: 40 воркеров +
+    медленный Ollama). Коммитит при успехе, откатывает при исключении.
+
+    ВАЖНО: держать транзакцию КОРОТКОЙ — НИКАКИХ LLM/сетевых вызовов внутри,
+    иначе заблокируешь всех писателей на время вызова. Делать только сами
+    INSERT/UPDATE/DELETE, а тяжёлую работу (эмбеддинги, LLM) — ДО/ПОСЛЕ блока.
+    """
+    target = db_path or get_settings().db_path
+    # isolation_level=None (autocommit) задаём при connect — в рабочем потоке
+    # aiosqlite; ставить через свойство нельзя (cross-thread ProgrammingError).
+    # В autocommit драйвер не делает неявных BEGIN, поэтому выдаём BEGIN IMMEDIATE сами.
+    async with aiosqlite.connect(target, isolation_level=None) as conn:
+        await _configure_connection(conn)
+        await conn.execute("BEGIN IMMEDIATE")
+        try:
+            yield conn
+            await conn.execute("COMMIT")
+        except BaseException:
+            try:
+                await conn.execute("ROLLBACK")
+            except Exception:  # noqa: BLE001, S110
+                pass
+            raise
