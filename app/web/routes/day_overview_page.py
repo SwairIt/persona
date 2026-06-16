@@ -12,11 +12,11 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Body, Depends, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from app.auth import current_user_required
 from app.auth.sessions import SessionRecord
-from app.day_overview import day_bounds_utc, get_day_overview
+from app.day_overview import day_bounds_utc, get_day_overview, today_iso
 from app.logging_setup import get_logger
 from app.storage.db import get_connection
 from app.storage.repository import list_screenshots
@@ -28,6 +28,14 @@ log = get_logger("persona.day_page")
 
 _MAX_SHOTS = 600
 _OCR_SAMPLE_CHARS = 6000
+
+
+@router.get("/day", response_model=None)
+async def day_today_redirect(
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+) -> RedirectResponse:
+    """`/day` без даты → сегодняшний день (быстрый вход из навбара)."""
+    return RedirectResponse(f"/day/{today_iso()}", status_code=303)
 
 
 @router.get("/day/{date}", response_class=HTMLResponse, response_model=None)

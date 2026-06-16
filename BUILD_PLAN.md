@@ -34,7 +34,7 @@
   (+ «View day» ссылка). memory.html.
 - [x] A6. Унификация навигации к дню: cal_nav.js, /calendar, /stats heatmap, screenshot «jump to day»
   → ведут на `/day/{date}` (canonical). Старые /timeline?date= оставить рабочими.
-- [ ] A7. Дашборд/навбар: плитка/кнопка «📅 День» → `/day/сегодня` + поле выбора даты.
+- [x] A7. Дашборд/навбар: плитка/кнопка «📅 День» → `/day/сегодня` + поле выбора даты.
 
 ## ФАЗА B — Аналитика (удобная)
 - [ ] B1. `/analytics` (или апгрейд /stats): тренды активности (день/неделя), топ-приложения,
@@ -104,3 +104,6 @@
 - A6 ✅ (v2.20.33): навигация к дню унифицирована на /day/{date}. cal_nav.js (клик по дню + «сегодня»:
   /timeline/{date} → /day/{date}, + ?v= cache-busting в base.html), calendar.html (клетки /?date= → /day/),
   stats.html year-heatmap (/?date= → /day/). node --check + jinja OK; старые /?date|/timeline/ ссылки убраны.
+- A7 ✅ (v2.20.34): кнопка «📅 День» в навбаре (base.html more_items) + редирект GET /day → /day/{today}
+  (day_overview_page.py, current_user_required) + i18n nav_day (ru День/en Day/de Tag). Routes /day и /day/{date}
+  оба зарегистрированы без конфликта. ⭐ ФАЗА A (единая страница ДНЯ + сквозная навигация) ПОЛНОСТЬЮ ЗАКРЫТА.
