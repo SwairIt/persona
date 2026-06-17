@@ -19,6 +19,7 @@ async def client() -> AsyncIterator[AsyncClient]:
     from app.web.main import STATIC_DIR
     from app.web.routes import (
         capture_api,
+        landing as landing_routes,
         screenshot,
         search as search_routes,
         settings as settings_routes,
@@ -33,6 +34,7 @@ async def client() -> AsyncIterator[AsyncClient]:
     if STATIC_DIR.exists():
         app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     app.include_router(timeline.router)
+    app.include_router(landing_routes.router)  # owns "/" (home) since the landing reorg
     app.include_router(search_routes.router)
     app.include_router(screenshot.router)
     app.include_router(settings_routes.router)

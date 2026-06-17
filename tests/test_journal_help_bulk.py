@@ -64,7 +64,10 @@ async def test_journal_with_entry(client: AsyncClient) -> None:
 
 
 async def test_help_renders(client: AsyncClient) -> None:
-    resp = await client.get("/help")
+    # T10 (2026-06-07): the keyboard-shortcuts cheatsheet moved from /help
+    # (now the friendly walkthrough in help_walkthrough.py) to /help/shortcuts
+    # in this router. Assert the legacy shortcuts page this router still serves.
+    resp = await client.get("/help/shortcuts")
     assert resp.status_code == 200
     assert "Keyboard shortcuts" in resp.text
     assert "Hybrid" in resp.text
