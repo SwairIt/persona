@@ -80,10 +80,15 @@ async def _session_owner(session_id: int) -> int | None:
     return int(row["user_id"]) if row else None
 
 
-async def _generate_reply(user_id: int, session_id: int, question: str) -> str:
+async def _generate_reply(
+    user_id: int, session_id: int, question: str, extra_context: str | None = None
+) -> str:
     """Сгенерировать ответ ассистента в указанной сессии, переиспользуя
     конвейер чата (история + системный промпт + эффорт). Персистит обе
-    реплики, как обычный /send."""
+    реплики, как обычный /send.
+
+    ``extra_context`` — необязательный блок (например, кросс-чат recall),
+    который подмешивается в системный промпт перед генерацией."""
     from app.chat import (  # noqa: PLC0415
         append_message,
         build_history_for_llm,
@@ -112,6 +117,8 @@ async def _generate_reply(user_id: int, session_id: int, question: str) -> str:
         if transcript
         else active_prompt
     )
+    if extra_context and extra_context.strip():
+        system += "\n\n" + extra_context.strip()
     # Голос — отвечаем короче: добавим подсказку (ответ будет озвучен).
     system += (
         "\n\n[Голосовой режим] Этот ответ будет ОЗВУЧЕН вслух. Отвечай кратко, "

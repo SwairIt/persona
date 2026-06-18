@@ -76,6 +76,9 @@ _PUBLIC_PREFIXES: tuple[str, ...] = (
     # screenshot/audio ever landed. The routes enforce their own bearer
     # auth via app.remote_agents.verify_agent_token.
     "/api/agent/",
+    # Навык Алисы (Яндекс.Диалоги) зовёт вебхук из интернета без cookie;
+    # защита — секрет в пути (kv alice_webhook_secret), проверяется в роуте.
+    "/api/alice/",
     # T28/T29 — the code-write-target device polls (/sync, down) and pushes
     # (/push, up) with its X-Device-Token, no cookie session. The routes
     # enforce auth + check the device is the chosen target.

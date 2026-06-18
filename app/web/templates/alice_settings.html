@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto space-y-6">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">🗣️ Алиса (Яндекс) → Персона</h1>
+    <p class="text-zinc-500 text-sm mt-1">
+      Голосовой навык: «Алиса, открой Персону» — и колонка отвечает мозгом Персоны
+      (память + граф + умный поиск). Все реплики сохраняются в БД и не забываются.
+    </p>
+  </div>
+
+  {# Шаг 1 — секрет #}
+  <form method="post" action="/settings/alice" class="rounded-2xl border border-ink-700 bg-ink-900/50 p-5 space-y-3">
+    <h2 class="font-semibold">1. Секрет вебхука</h2>
+    <p class="text-zinc-500 text-xs">
+      Секрет вшивается в URL вебхука — так чужой не дёрнет твою память.
+      Сгенерируй случайный (рекомендуется) или впиши свой.
+    </p>
+    <input type="text" name="secret" value="{{ secret }}"
+           placeholder="например, m9Xk2_long_secret"
+           class="w-full rounded-lg bg-ink-950 border border-ink-700 px-3 py-2 text-sm font-mono">
+    <div class="flex gap-2">
+      <button type="submit"
+              class="px-3 py-1.5 rounded-lg bg-accent-600 text-white text-sm hover:bg-accent-500">Сохранить</button>
+      <button type="submit" name="generate" value="1"
+              class="px-3 py-1.5 rounded-lg border border-ink-700 text-zinc-300 text-sm hover:bg-ink-800">🎲 Сгенерировать новый</button>
+    </div>
+  </form>
+
+  {# Шаг 2 — URL вебхука #}
+  <div class="rounded-2xl border border-ink-700 bg-ink-900/50 p-5 space-y-3">
+    <h2 class="font-semibold">2. URL вебхука для Яндекс.Диалогов</h2>
+    {% if webhook_url %}
+      <code class="block w-full break-all rounded-lg bg-ink-950 border border-ink-700 px-3 py-2 text-xs text-emerald-300">{{ webhook_url }}</code>
+      <p class="text-amber-400/80 text-xs">
+        ⚠ Этот адрес должен быть доступен из интернета по HTTPS. Если открыл страницу
+        по локальному адресу — подставь сюда свой публичный домен (например, Tailscale
+        Funnel <code>*.ts.net</code>), путь оставь как есть:
+        <code>/api/alice/webhook/{{ secret }}</code>
+      </p>
+    {% else %}
+      <p class="text-zinc-500 text-sm">Сначала сохрани секрет выше — здесь появится готовый URL.</p>
+    {% endif %}
+  </div>
+
+  {# Шаг 3 — инструкция #}
+  <div class="rounded-2xl border border-ink-700 bg-ink-900/50 p-5 space-y-2 text-sm text-zinc-300">
+    <h2 class="font-semibold">3. Создать навык в Яндексе</h2>
+    <ol class="list-decimal list-inside space-y-1 text-zinc-400">
+      <li>Открой <a class="underline" href="https://dialogs.yandex.ru/developer" target="_blank" rel="noopener">dialogs.yandex.ru/developer</a> → «Создать диалог» → «Навык в Алисе».</li>
+      <li>Тип бэкенда — <b>Webhook</b>, вставь URL из шага 2.</li>
+      <li>Имя активации — например «Персона» (тогда запуск: «Алиса, открой Персону»).</li>
+      <li>Опубликуй (для себя достаточно режима черновика/приватного теста).</li>
+      <li>Мозг навыка = провайдер из <a class="underline" href="/settings/llm">/settings/llm</a>. Рекомендуется <b>YandexGPT</b> — он успевает в таймаут Алисы (~2–4 c).</li>
+    </ol>
+    <p class="text-zinc-500 text-xs pt-2">
+      Память пишется в выделенную беседу «Алиса (голос)» — смотри её в
+      <a class="underline" href="/chat">чате</a>, графе и поиске. Локальная модель почти
+      наверняка не уложится в таймаут Алисы — будут обрывы; для голоса бери YandexGPT.
+    </p>
+  </div>
+</div>
+{% endblock %}

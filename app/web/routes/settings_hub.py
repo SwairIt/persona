@@ -147,6 +147,7 @@ _CATEGORIES: Final[list[dict[str, object]]] = [
         "description": "SMTP, RSS-токены, webhooks.",
         "pages": [
             ("/settings/integrations", "🔗 Интеграции — экспорт напоминаний в .ics + календари"),
+            ("/settings/alice", "🗣️ Алиса (Яндекс) → Персона — голосовой навык с памятью"),
             ("/settings/smtp", "Email (SMTP)"),
             ("/settings/feed-tokens", "RSS токены доступа"),
             ("/feeds/all-opml", "OPML экспорт всех лент"),

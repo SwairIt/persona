@@ -114,6 +114,7 @@ from app.web.routes import (
     integrations_settings as integrations_settings_routes,
     skills_settings as skills_settings_routes,
     voice_chat as voice_chat_routes,
+    alice as alice_routes,
     root_control as root_control_routes,
     activity_page as activity_page_routes,
     doctor as doctor_routes,
@@ -657,6 +658,7 @@ def create_app() -> FastAPI:
     app.include_router(integrations_settings_routes.router)
     app.include_router(skills_settings_routes.router)
     app.include_router(voice_chat_routes.router)
+    app.include_router(alice_routes.router)
     app.include_router(root_control_routes.router)
     app.include_router(activity_page_routes.router)
     app.include_router(shot_embed_routes.router)
