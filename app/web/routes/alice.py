@@ -33,7 +33,8 @@ from app.web.templates_engine import templates
 router = APIRouter(tags=["alice"])
 log = get_logger("persona.alice")
 
-_GEN_TIMEOUT = 3.2  # сек — укладываемся в лимит ответа Алисы
+_GEN_TIMEOUT = 2.5  # сек по умолчанию — ответить РАНЬШЕ, чем Алиса сдастся
+                    # (kv alice_timeout_sec переопределяет, диапазон 1..4 c)
 _GREETING = (
     "Привет! Я Персона — твоя память. Спрашивай что угодно: "
     "я помню наши прошлые разговоры."
@@ -80,6 +81,12 @@ async def alice_webhook(
 
     async with get_connection() as conn:
         secret = (await get_kv(conn, "alice_webhook_secret") or "").strip()
+        timeout_raw = (await get_kv(conn, "alice_timeout_sec") or "").strip()
+    try:
+        gen_timeout = float(timeout_raw) if timeout_raw else _GEN_TIMEOUT
+    except ValueError:
+        gen_timeout = _GEN_TIMEOUT
+    gen_timeout = max(1.0, min(4.0, gen_timeout))
     if not secret:
         return _reply(
             "Навык ещё не настроен в Персоне. Открой настройки Алисы и задай секрет.",
@@ -137,12 +144,16 @@ async def alice_webhook(
         _generate_reply(owner_id, sid, command, extra_context=extra)
     )
     try:
-        answer = await asyncio.wait_for(asyncio.shield(task), timeout=_GEN_TIMEOUT)
+        answer = await asyncio.wait_for(asyncio.shield(task), timeout=gen_timeout)
     except asyncio.TimeoutError:
-        answer = "Секунду, я ещё вспоминаю. Повтори вопрос, пожалуйста."
+        log.info("alice.timeout", timeout=gen_timeout)
+        answer = (
+            "Модель не успела ответить вовремя — не справилась. "
+            "Спроси покороче или поставь модель побыстрее."
+        )
     except Exception as exc:  # noqa: BLE001
         log.warning("alice.generate_failed", error=str(exc))
-        answer = "Что-то пошло не так, попробуй ещё раз."
+        answer = "Модель не смогла ответить — что-то пошло не так. Попробуй ещё раз."
     return _reply(answer, version=version)
 
 
@@ -156,6 +167,7 @@ async def alice_settings(
 ) -> HTMLResponse:
     async with get_connection() as conn:
         secret = (await get_kv(conn, "alice_webhook_secret") or "").strip()
+        timeout_raw = (await get_kv(conn, "alice_timeout_sec") or "").strip()
     base = str(request.base_url).rstrip("/")
     webhook = f"{base}/api/alice/webhook/{secret}" if secret else ""
     return templates.TemplateResponse(
@@ -166,6 +178,7 @@ async def alice_settings(
             "active_nav": "settings",
             "secret": secret,
             "webhook_url": webhook,
+            "timeout": timeout_raw or "2.5",
         },
     )
 
@@ -181,6 +194,13 @@ async def alice_settings_save(
         secret = secrets.token_urlsafe(18)
     # секрет — только URL-безопасные символы (он живёт в пути вебхука)
     secret = "".join(ch for ch in secret if ch.isalnum() or ch in "-_")[:64]
+    timeout = str(form.get("timeout") or "").strip().replace(",", ".")
     async with get_connection() as conn:
         await set_kv(conn, "alice_webhook_secret", secret)
+        if timeout:
+            try:
+                t = max(1.0, min(4.0, float(timeout)))
+                await set_kv(conn, "alice_timeout_sec", f"{t:.1f}")
+            except ValueError:
+                pass
     return RedirectResponse("/settings/alice", status_code=303)
