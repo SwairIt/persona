@@ -127,6 +127,9 @@ function voiceChat() {
     ttsSupported: false,
     _rec: null,
     _voices: [],
+    _mr: null,               // MediaRecorder (фолбэк для Safari)
+    _chunks: [],
+    _useServerStt: false,    // в Safari Web Speech ненадёжен → серверный Whisper
     // — переключатель модели —
     modelPickerOpen: false,
     modelPickerLoading: false,
@@ -143,7 +146,15 @@ function voiceChat() {
       return '';
     },
     async init() {
-      this.sttSupported = ('SpeechRecognition' in window) || ('webkitSpeechRecognition' in window);
+      const hasSR = ('SpeechRecognition' in window) || ('webkitSpeechRecognition' in window);
+      const hasRecorder = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder);
+      const ua = navigator.userAgent || '';
+      const isSafari = /safari/i.test(ua) && !/chrome|crios|chromium|android|edg|fxios/i.test(ua);
+      // Safari: webkitSpeechRecognition объявлен, но молчит/падает → сразу
+      // идём через MediaRecorder + серверный Whisper. На остальных — Web Speech
+      // с откатом на запись при ошибке.
+      this._useServerStt = (isSafari && hasRecorder) || (!hasSR && hasRecorder);
+      this.sttSupported = hasSR || hasRecorder;
       this.ttsSupported = ('speechSynthesis' in window);
       try { this.handsFree = localStorage.getItem('persona.voice.handsFree') === '1'; } catch (e) {}
       if (this.ttsSupported) {
@@ -212,8 +223,8 @@ function voiceChat() {
       return this.state==='listening' ? '👂' : this.state==='thinking' ? '…' : this.state==='speaking' ? '🔊' : '🎙️';
     },
     statusText() {
-      return this.state==='listening' ? 'Слушаю…' : this.state==='thinking' ? 'Думаю…'
-           : this.state==='speaking' ? 'Отвечаю…' : 'Нажми и говори';
+      if (this.state==='listening') return this._useServerStt ? 'Слушаю… (нажми ещё раз, когда закончишь)' : 'Слушаю…';
+      return this.state==='thinking' ? 'Думаю…' : this.state==='speaking' ? 'Отвечаю…' : 'Нажми и говори';
     },
     onOrbTap() {
       this._unlockTts();  // обязательно в жесте — иначе iPhone не проиграет звук
@@ -223,8 +234,9 @@ function voiceChat() {
       this.startListening();
     },
     startListening() {
+      if (this._useServerStt) { this._startRecording(); return; }
       const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (!SR) { this.sttSupported = false; return; }
+      if (!SR) { this._startRecording(); return; }
       try {
         const rec = new SR();
         this._rec = rec;
@@ -240,7 +252,15 @@ function voiceChat() {
           }
           this.interim = (finalText + ' ' + interim).trim();
         };
-        rec.onerror = () => { this.state='idle'; this._rec=null; this.interim=''; };
+        rec.onerror = (e) => {
+          this._rec = null; this.interim = '';
+          const err = e && e.error;
+          // нет доступа к микрофону — фолбэк не поможет
+          if (err === 'not-allowed' || err === 'audio-capture') { this.state='idle'; return; }
+          // Safari/прочие сбои Web Speech → переключаемся на серверный Whisper
+          this._useServerStt = true;
+          this._startRecording();
+        };
         rec.onend = () => {
           this._rec = null;
           const said = (finalText || this.interim || '').trim();
@@ -250,11 +270,52 @@ function voiceChat() {
         };
         this.state = 'listening';
         rec.start();
-      } catch (e) { this.state='idle'; }
+      } catch (e) { this._useServerStt = true; this._startRecording(); }
     },
     stopListening() {
       if (this._rec) { try { this._rec.stop(); } catch (e) {} }
-      // onend подхватит дальнейшее
+      if (this._mr && this._mr.state !== 'inactive') { try { this._mr.stop(); } catch (e) {} }
+      // onend / onstop подхватят дальнейшее
+    },
+    // ——— серверный STT (Safari / без Web Speech): запись → Whisper ———
+    async _startRecording() {
+      if (!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder)) {
+        this.sttSupported = false; this.state='idle'; return;
+      }
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const mr = new MediaRecorder(stream);
+        this._mr = mr; this._chunks = [];
+        mr.ondataavailable = (e) => { if (e.data && e.data.size) this._chunks.push(e.data); };
+        mr.onstop = async () => {
+          try { stream.getTracks().forEach(t => t.stop()); } catch (e) {}
+          const blob = new Blob(this._chunks, { type: mr.mimeType || 'audio/webm' });
+          this._mr = null;
+          await this._uploadStt(blob);
+        };
+        mr.start();
+        this.state = 'listening';   // тапни ещё раз, чтобы закончить
+      } catch (e) {
+        this.state = 'idle';
+      }
+    },
+    async _uploadStt(blob) {
+      this.state = 'thinking';
+      try {
+        const ext = (blob.type.indexOf('ogg')>=0) ? 'ogg' : (blob.type.indexOf('mp4')>=0 ? 'm4a' : 'webm');
+        const fd = new FormData();
+        fd.append('file', blob, 'speech.' + ext);
+        const r = await fetch('/api/voice/web/stt', { method:'POST', body: fd });
+        if (r.status === 503) {
+          this.state = 'idle';
+          this.turns.push({ role:'assistant', text:'🎙 Распознавание на сервере недоступно (Whisper не установлен). Поставь Whisper на сервере или открой /voice в Chrome.' });
+          this.scroll();
+          return;
+        }
+        const d = await r.json().catch(() => ({}));
+        if (d && d.ok && d.text && d.text.trim()) { this.sendTurn(d.text.trim()); }
+        else { this.state = 'idle'; }
+      } catch (e) { this.state = 'idle'; }
     },
     async sendTurn(text) {
       this.turns.push({ role:'user', text });
@@ -358,7 +419,12 @@ function voiceChat() {
       try { window.speechSynthesis.cancel(); } catch (e) {}
       this._ttsBuf = ''; this._ttsPending = 0; this.state = 'idle';
     },
-    _delayListen() { setTimeout(() => { if (this.state==='idle') this.startListening(); }, 600); },
+    _delayListen() {
+      // в режиме серверного STT нет авто-стопа по тишине → не зацикливаем
+      // запись; hands-free работает только с Web Speech (Chrome).
+      if (this._useServerStt) return;
+      setTimeout(() => { if (this.state==='idle') this.startListening(); }, 600);
+    },
     _pickVoice(lang) {
       const vs = this._voices && this._voices.length ? this._voices : (window.speechSynthesis.getVoices()||[]);
       const want = lang.slice(0,2);
