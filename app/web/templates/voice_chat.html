@@ -33,6 +33,45 @@
        }"
        x-text="statusText()"></p>
 
+    {# Переключатель модели — как в чате (per-session, сохраняется глобально) #}
+    <div class="relative text-xs" @click.outside="modelPickerOpen=false">
+      <button type="button" @click="openModelPicker()"
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-ink-700 text-zinc-300 hover:bg-ink-800 font-mono">
+        <span class="text-zinc-500">модель:</span>
+        <span x-text="currentModelLabel || 'по умолчанию'"></span>
+        <span class="text-zinc-600">▾</span>
+      </button>
+      <div x-show="modelPickerOpen" x-cloak
+           class="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 w-80 max-h-96 overflow-y-auto rounded-xl border border-ink-700 bg-ink-900 shadow-2xl z-40 text-left">
+        <template x-if="modelPickerLoading">
+          <div class="p-3 text-xs text-zinc-500">загружаю…</div>
+        </template>
+        <template x-for="prov in availableProviders" :key="prov.slug">
+          <div :class="prov.configured ? '' : 'opacity-40'" class="border-b border-ink-800 last:border-b-0">
+            <div class="px-3 py-1.5 text-[10px] uppercase tracking-widest text-zinc-500" x-text="prov.slug"></div>
+            <template x-for="m in prov.models" :key="(m.name || m)">
+              <button type="button" @click="pickModel(prov.slug, (m.name || m))"
+                      :title="m.description || ''"
+                      :class="(prov.slug === current.provider && (m.name || m) === current.model) ? 'bg-accent-600/20 text-accent-300' : 'hover:bg-ink-800 text-zinc-300'"
+                      class="block w-full text-left px-3 py-1.5 text-xs">
+                <div class="flex items-center justify-between">
+                  <span class="truncate font-mono">
+                    <span x-text="(m.name || m)"></span>
+                    <span x-show="m.vision" class="ml-1.5 text-amber-400" title="видит картинки">👁</span>
+                  </span>
+                  <span x-show="prov.slug === current.provider && (m.name || m) === current.model" class="text-emerald-400">●</span>
+                </div>
+                <div x-show="m.description" class="text-[10px] text-zinc-500 mt-0.5 truncate" x-text="m.description"></div>
+              </button>
+            </template>
+            <template x-if="!prov.models.length">
+              <div class="px-3 py-1.5 text-[10px] text-zinc-600 italic" x-text="prov.configured ? 'нет моделей' : 'нет ключа'"></div>
+            </template>
+          </div>
+        </template>
+      </div>
+    </div>
+
     <div class="flex items-center gap-4 text-xs">
       <label class="flex items-center gap-1.5 cursor-pointer text-zinc-400">
         <input type="checkbox" x-model="handsFree" @change="saveHF()" class="accent-accent-500">
@@ -88,6 +127,21 @@ function voiceChat() {
     ttsSupported: false,
     _rec: null,
     _voices: [],
+    // — переключатель модели —
+    modelPickerOpen: false,
+    modelPickerLoading: false,
+    availableProviders: [],
+    current: { provider: '', model: '' },
+    // — потоковая озвучка / iOS-аудио —
+    _ttsUnlocked: false,
+    _ttsBuf: '',
+    _ttsPending: 0,
+    _streaming: false,
+    get currentModelLabel() {
+      if (this.current && this.current.model) return this.current.model;
+      if (this.current && this.current.provider && this.current.provider !== 'none') return this.current.provider;
+      return '';
+    },
     async init() {
       this.sttSupported = ('SpeechRecognition' in window) || ('webkitSpeechRecognition' in window);
       this.ttsSupported = ('speechSynthesis' in window);
@@ -97,8 +151,48 @@ function voiceChat() {
         load(); try { window.speechSynthesis.onvoiceschanged = load; } catch (e) {}
       }
       await this.resolveSession();
+      this.loadModels();  // подтянуть текущую модель для лейбла (не блокируя UI)
     },
     saveHF() { try { localStorage.setItem('persona.voice.handsFree', this.handsFree ? '1':'0'); } catch (e) {} },
+    // ——— выбор модели (тот же API, что у чата) ———
+    async loadModels() {
+      this.modelPickerLoading = true;
+      try {
+        const r = await fetch('/api/llm/models', { headers: { 'Accept': 'application/json' } });
+        if (r.ok) {
+          const d = await r.json();
+          this.availableProviders = d.providers || [];
+          if (d.current) this.current = d.current;
+        }
+      } catch (e) {}
+      this.modelPickerLoading = false;
+    },
+    openModelPicker() {
+      this.modelPickerOpen = !this.modelPickerOpen;
+      if (this.modelPickerOpen && !this.availableProviders.length) this.loadModels();
+    },
+    async pickModel(provider, model) {
+      if (!this.sessionId) { await this.resolveSession(); }
+      try {
+        const r = await fetch(`/api/chat/sessions/${this.sessionId}/model`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ provider, model }),
+        });
+        if (r.ok) { this.current = { provider, model }; }
+      } catch (e) {}
+      this.modelPickerOpen = false;
+    },
+    // iOS Safari: разрешает аудио только из жеста пользователя — «разогреваем»
+    // синтез беззвучной фразой при первом тапе, дальше speak() работает и async.
+    _unlockTts() {
+      if (this._ttsUnlocked || !this.ttsSupported) return;
+      try {
+        const u = new SpeechSynthesisUtterance(' ');
+        u.volume = 0;
+        window.speechSynthesis.speak(u);
+        this._ttsUnlocked = true;
+      } catch (e) {}
+    },
     async resolveSession() {
       try {
         const r = await fetch('/api/chat/sessions', { headers: { 'Accept':'application/json' } });
@@ -122,6 +216,7 @@ function voiceChat() {
            : this.state==='speaking' ? 'Отвечаю…' : 'Нажми и говори';
     },
     onOrbTap() {
+      this._unlockTts();  // обязательно в жесте — иначе iPhone не проиграет звук
       if (this.state==='speaking') { this.stopSpeak(); this.startListening(); return; }  // barge-in
       if (this.state==='listening') { this.stopListening(); return; }
       if (this.state==='thinking') return;
@@ -168,11 +263,14 @@ function voiceChat() {
       if (!this.sessionId) { this.turns.push({ role:'assistant', text:'(не удалось открыть чат)' }); return; }
       this.state = 'thinking';
       const idx = this.turns.push({ role:'assistant', text:'' }) - 1;
+      // сброс состояния потоковой озвучки этого ответа
+      try { window.speechSynthesis.cancel(); } catch (e) {}
+      this._ttsBuf = ''; this._ttsPending = 0; this._streaming = true;
       try {
         const r = await fetch(`/api/chat/sessions/${this.sessionId}/send-stream`, {
           method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ question: text }),
         });
-        if (!r.ok || !r.body) { this.turns[idx].text = '(ошибка ответа)'; this.state='idle'; return; }
+        if (!r.ok || !r.body) { this.turns[idx].text = '(ошибка ответа)'; this._streaming=false; this.state='idle'; return; }
         const reader = r.body.getReader();
         const dec = new TextDecoder();
         let buf = '';
@@ -186,31 +284,80 @@ function voiceChat() {
             const line = p.replace(/^data:\s?/, '').trim();
             if (!line) continue;
             let frame; try { frame = JSON.parse(line); } catch (e) { continue; }
-            if (frame.type === 'delta' && frame.text) { this.turns[idx].text += frame.text; this.scroll(); }
+            if (frame.type === 'delta' && frame.text) {
+              this.turns[idx].text += frame.text;
+              this._ttsBuf += frame.text;
+              this._drainTts(false);   // ← начинаем говорить, как только готово предложение
+              this.scroll();
+            }
             else if (frame.type === 'error') { this.turns[idx].text += '\n[ошибка: ' + (frame.detail||'') + ']'; }
           }
         }
       } catch (e) {
         this.turns[idx].text = this.turns[idx].text || ('(ошибка: ' + (e && e.message ? e.message : e) + ')');
       }
-      const answer = (this.turns[idx].text || '').trim();
-      if (answer && this.ttsSupported) { this.speak(answer); }
+      // поток закончился — досказать остаток буфера
+      this._streaming = false;
+      if (this.ttsSupported) { this._drainTts(true); }
       else { this.state = 'idle'; if (this.handsFree && this.sttSupported) this._delayListen(); }
     },
-    speak(text) {
+    // Вытягивает из буфера завершённые предложения и сразу отправляет их в
+    // синтез. Длинное предложение без точки режем по пробелу (~220 симв.),
+    // чтобы не ждать слишком долго перед началом речи.
+    _drainTts(final) {
+      if (!this.ttsSupported) return;
+      while (this._ttsBuf) {
+        let take = 0;
+        const m = this._ttsBuf.match(/^[\s\S]*?[.!?…\n]+/);
+        if (m) take = m[0].length;
+        else if (!final && this._ttsBuf.length > 220) {
+          const cut = this._ttsBuf.slice(0, 220).lastIndexOf(' ');
+          take = cut > 40 ? cut + 1 : 0;
+        }
+        if (!take) break;
+        const sentence = this._ttsBuf.slice(0, take);
+        this._ttsBuf = this._ttsBuf.slice(take);
+        const clean = this._forTts(sentence).trim();
+        if (clean) this._enqueueSpeak(clean);
+      }
+      if (final) {
+        const rest = this._forTts(this._ttsBuf).trim();
+        this._ttsBuf = '';
+        if (rest) this._enqueueSpeak(rest);
+        if (this._ttsPending === 0) {
+          this.state = 'idle';
+          if (this.handsFree && this.sttSupported) this._delayListen();
+        }
+      }
+    },
+    // Кладёт одну фразу в очередь синтеза. speechSynthesis сам проигрывает
+    // фразы по очереди; короткие фразы заодно обходят баг «обрыв после ~15с».
+    _enqueueSpeak(text) {
       try {
-        window.speechSynthesis.cancel();
-        const u = new SpeechSynthesisUtterance(this._forTts(text));
+        const u = new SpeechSynthesisUtterance(text);
         const lang = /[а-яё]/i.test(text) ? 'ru-RU' : 'en-US';
         u.lang = lang;
         const v = this._pickVoice(lang); if (v) u.voice = v;
-        u.onend = () => { this.state='idle'; if (this.handsFree && this.sttSupported) this._delayListen(); };
-        u.onerror = () => { this.state='idle'; };
+        this._ttsPending++;
         this.state = 'speaking';
+        u.onend = () => {
+          this._ttsPending = Math.max(0, this._ttsPending - 1);
+          if (this._ttsPending === 0 && !this._streaming) {
+            this.state = 'idle';
+            if (this.handsFree && this.sttSupported) this._delayListen();
+          }
+        };
+        u.onerror = () => {
+          this._ttsPending = Math.max(0, this._ttsPending - 1);
+          if (this._ttsPending === 0 && !this._streaming) this.state = 'idle';
+        };
         window.speechSynthesis.speak(u);
-      } catch (e) { this.state='idle'; }
+      } catch (e) {}
     },
-    stopSpeak() { try { window.speechSynthesis.cancel(); } catch (e) {} this.state='idle'; },
+    stopSpeak() {
+      try { window.speechSynthesis.cancel(); } catch (e) {}
+      this._ttsBuf = ''; this._ttsPending = 0; this.state = 'idle';
+    },
     _delayListen() { setTimeout(() => { if (this.state==='idle') this.startListening(); }, 600); },
     _pickVoice(lang) {
       const vs = this._voices && this._voices.length ? this._voices : (window.speechSynthesis.getVoices()||[]);
