@@ -82,6 +82,8 @@ async def alice_webhook(
     async with get_connection() as conn:
         secret = (await get_kv(conn, "alice_webhook_secret") or "").strip()
         timeout_raw = (await get_kv(conn, "alice_timeout_sec") or "").strip()
+        scope_raw = (await get_kv(conn, "alice_memory_scope") or "session").strip().lower()
+    scope = scope_raw if scope_raw in ("session", "personal", "all") else "session"
     try:
         gen_timeout = float(timeout_raw) if timeout_raw else _GEN_TIMEOUT
     except ValueError:
@@ -121,27 +123,44 @@ async def alice_webhook(
         log.warning("alice.session_failed", error=str(exc))
         return _reply("Не удалось открыть память, попробуй ещё раз.", version=version)
 
-    # Кросс-чат recall (быстрый keyword) для «помнит всё».
-    recall = ""
-    try:
-        from app.chat.sessions import recall_relevant  # noqa: PLC0415
+    # Объём памяти Алисы (kv alice_memory_scope):
+    #   session  — только эта беседа (история сессии Алисы), без профиля/других чатов;
+    #   personal — + профиль «обо мне» + явно запомненные факты (user_memory);
+    #   all      — + релевантная память из ВСЕХ чатов (кросс-чат recall).
+    include_profile = scope != "session"
+    parts: list[str] = []
+    if scope in ("personal", "all"):
+        try:
+            from app.chat.user_memory import build_memory_block  # noqa: PLC0415
 
-        recall = await recall_relevant(
-            owner_id, command, exclude_session_id=sid, limit=5
-        )
-    except Exception as exc:  # noqa: BLE001
-        log.debug("alice.recall_failed", error=str(exc))
+            facts = await build_memory_block(owner_id)
+            if facts.strip():
+                parts.append(facts)
+        except Exception as exc:  # noqa: BLE001
+            log.debug("alice.memory_block_failed", error=str(exc))
+    if scope == "all":
+        try:
+            from app.chat.sessions import recall_relevant  # noqa: PLC0415
+
+            recall = await recall_relevant(
+                owner_id, command, exclude_session_id=sid, limit=5
+            )
+            if recall.strip():
+                parts.append(
+                    "Релевантная память из других бесед (используй, если уместно):\n"
+                    + recall
+                )
+        except Exception as exc:  # noqa: BLE001
+            log.debug("alice.recall_failed", error=str(exc))
+    extra = "\n\n".join(parts) if parts else None
 
     from app.web.routes.voice import _generate_reply  # noqa: PLC0415
 
-    extra = (
-        "Релевантная память из других бесед (используй, если уместно):\n" + recall
-        if recall.strip()
-        else None
-    )
     # shield: ответ допишется в БД даже если мы вернём заглушку по таймауту.
     task = asyncio.ensure_future(
-        _generate_reply(owner_id, sid, command, extra_context=extra)
+        _generate_reply(
+            owner_id, sid, command, extra_context=extra, include_profile=include_profile
+        )
     )
     try:
         answer = await asyncio.wait_for(asyncio.shield(task), timeout=gen_timeout)
@@ -168,6 +187,9 @@ async def alice_settings(
     async with get_connection() as conn:
         secret = (await get_kv(conn, "alice_webhook_secret") or "").strip()
         timeout_raw = (await get_kv(conn, "alice_timeout_sec") or "").strip()
+        scope = (await get_kv(conn, "alice_memory_scope") or "session").strip().lower()
+    if scope not in ("session", "personal", "all"):
+        scope = "session"
     base = str(request.base_url).rstrip("/")
     webhook = f"{base}/api/alice/webhook/{secret}" if secret else ""
     return templates.TemplateResponse(
@@ -179,6 +201,7 @@ async def alice_settings(
             "secret": secret,
             "webhook_url": webhook,
             "timeout": timeout_raw or "2.5",
+            "scope": scope,
         },
     )
 
@@ -195,6 +218,7 @@ async def alice_settings_save(
     # секрет — только URL-безопасные символы (он живёт в пути вебхука)
     secret = "".join(ch for ch in secret if ch.isalnum() or ch in "-_")[:64]
     timeout = str(form.get("timeout") or "").strip().replace(",", ".")
+    scope = str(form.get("scope") or "").strip().lower()
     async with get_connection() as conn:
         await set_kv(conn, "alice_webhook_secret", secret)
         if timeout:
@@ -203,4 +227,6 @@ async def alice_settings_save(
                 await set_kv(conn, "alice_timeout_sec", f"{t:.1f}")
             except ValueError:
                 pass
+        if scope in ("session", "personal", "all"):
+            await set_kv(conn, "alice_memory_scope", scope)
     return RedirectResponse("/settings/alice", status_code=303)

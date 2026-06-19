@@ -81,7 +81,11 @@ async def _session_owner(session_id: int) -> int | None:
 
 
 async def _generate_reply(
-    user_id: int, session_id: int, question: str, extra_context: str | None = None
+    user_id: int,
+    session_id: int,
+    question: str,
+    extra_context: str | None = None,
+    include_profile: bool = True,
 ) -> str:
     """Сгенерировать ответ ассистента в указанной сессии, переиспользуя
     конвейер чата (история + системный промпт + эффорт). Персистит обе
@@ -111,7 +115,7 @@ async def _generate_reply(
     if history and history[-1]["role"] == "user":
         history = history[:-1]
     transcript = _bounded_transcript(history)
-    active_prompt = await _base_prompt(user_id, None)
+    active_prompt = await _base_prompt(user_id, None, include_profile=include_profile)
     system = (
         f"{active_prompt}\n\nПредыдущие сообщения (для контекста):\n{transcript}"
         if transcript

@@ -142,18 +142,25 @@ _CHOICES_HINT = (
 
 
 async def _base_prompt(
-    user_id: int, image_data_url: str | None, *, choices: bool = True
+    user_id: int,
+    image_data_url: str | None,
+    *,
+    choices: bool = True,
+    include_profile: bool = True,
 ) -> str:
     """T29 — the system prompt for a turn: vision prompt (if image) or the
     user's active prompt, PLUS the user's 'about me' profile so the AI knows
     who it's talking to. T31 — также префикс идентичности Persona.
     ``choices`` — добавлять ли подсказку про меню выбора (выкл в простом режиме).
+    ``include_profile`` — подмешивать ли профиль «обо мне» (выкл для урезанного
+    доступа, напр. голосового навыка Алисы со scope «только беседа»).
     Used by all chat paths (send/send-stream/compare)."""
     from app.profile import get_profile, profile_block  # noqa: PLC0415
 
     base = _SYSTEM_PROMPT_VISION if image_data_url else await get_active_system_prompt()
     hint = _CHOICES_HINT if choices else ""
-    return _PERSONA_IDENTITY + base + hint + profile_block(await get_profile(user_id))
+    profile = profile_block(await get_profile(user_id)) if include_profile else ""
+    return _PERSONA_IDENTITY + base + hint + profile
 
 
 # T31 E2 — эффорт: бюджет ответа (max_tokens) + температура. Гибрид «мощности».

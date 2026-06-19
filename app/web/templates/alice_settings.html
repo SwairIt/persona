@@ -38,6 +38,33 @@
     </div>
   </form>
 
+  {# Объём памяти Алисы #}
+  <form method="post" action="/settings/alice" class="rounded-2xl border border-ink-700 bg-ink-900/50 p-5 space-y-3">
+    <input type="hidden" name="secret" value="{{ secret }}">
+    <input type="hidden" name="timeout" value="{{ timeout }}">
+    <h2 class="font-semibold">🔒 Что Алиса знает (объём памяти)</h2>
+    <p class="text-zinc-500 text-xs">
+      Колонка общая, аккаунт твой — поэтому выбери, сколько из твоей базы видит Алиса.
+      Реплики самой Алисы всегда пишутся в её беседу и доступны ей в любом режиме.
+    </p>
+    <label class="flex items-start gap-2 text-sm cursor-pointer">
+      <input type="radio" name="scope" value="session" class="mt-1 accent-accent-500" {{ 'checked' if scope == 'session' else '' }}>
+      <span><b>Только беседа Алисы</b> <span class="text-zinc-500">(приватно, по умолчанию)</span><br>
+        <span class="text-zinc-500 text-xs">Знает лишь то, что ты говорил именно ей. Ни профиля, ни других чатов, ни базы.</span></span>
+    </label>
+    <label class="flex items-start gap-2 text-sm cursor-pointer">
+      <input type="radio" name="scope" value="personal" class="mt-1 accent-accent-500" {{ 'checked' if scope == 'personal' else '' }}>
+      <span><b>+ Профиль и запомненные факты</b><br>
+        <span class="text-zinc-500 text-xs">Беседа Алисы + «обо мне» + факты, что ты явно просил запомнить. Без переписки из других чатов.</span></span>
+    </label>
+    <label class="flex items-start gap-2 text-sm cursor-pointer">
+      <input type="radio" name="scope" value="all" class="mt-1 accent-accent-500" {{ 'checked' if scope == 'all' else '' }}>
+      <span><b>+ Память всех чатов</b><br>
+        <span class="text-zinc-500 text-xs">Полный recall по всем беседам Персоны (самый широкий доступ).</span></span>
+    </label>
+    <button type="submit" class="px-3 py-1.5 rounded-lg bg-accent-600 text-white text-sm hover:bg-accent-500">Сохранить объём</button>
+  </form>
+
   {# Шаг 2 — URL вебхука #}
   <div class="rounded-2xl border border-ink-700 bg-ink-900/50 p-5 space-y-3">
     <h2 class="font-semibold">2. URL вебхука для Яндекс.Диалогов</h2>
