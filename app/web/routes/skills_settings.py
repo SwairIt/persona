@@ -32,6 +32,9 @@ log = get_logger("persona.skills.settings")
 
 
 async def _render(request: Request, user_id: int, *, error: str = "", saved: str = "") -> HTMLResponse:
+    from app.skills.builtin import seed_builtin_skills  # noqa: PLC0415
+
+    await seed_builtin_skills(user_id)  # встроенные навыки в каталоге (один раз)
     items = await list_skills(user_id)
     return templates.TemplateResponse(
         request,

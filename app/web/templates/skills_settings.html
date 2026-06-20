@@ -60,7 +60,9 @@
                 <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-zinc-700/40 text-zinc-400">выкл</span>
               {% endif %}
             </div>
-            {% if s.source_url %}
+            {% if s.source_url == 'builtin' %}
+              <span class="text-[11px] text-indigo-300/80">⭐ встроенный навык</span>
+            {% elif s.source_url %}
               <a href="{{ s.source_url }}" target="_blank" rel="noopener"
                  class="text-[11px] text-zinc-500 hover:text-accent-300 font-mono truncate block">{{ s.source_url }}</a>
             {% endif %}

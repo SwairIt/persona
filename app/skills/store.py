@@ -157,6 +157,9 @@ async def list_skills(user_id: int) -> list[dict[str, object]]:
 
 async def enabled_skills_prompt(user_id: int) -> str:
     """System-prompt fragment listing the user's enabled skills."""
+    from app.skills.builtin import seed_builtin_skills  # noqa: PLC0415
+
+    await seed_builtin_skills(user_id)  # один раз положит встроенные навыки
     async with get_connection() as conn:
         cur = await conn.execute(
             "SELECT name, content FROM skill WHERE user_id = ? AND enabled = 1 ORDER BY id",
