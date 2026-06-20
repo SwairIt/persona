@@ -432,18 +432,34 @@ _RECALL_STOP: frozenset[str] = frozenset({
 
 
 def _recall_terms(question: str) -> list[str]:
-    """Ключевые слова из вопроса: имена собственные (с большой буквы) и
-    длинные слова. По ним ищем релевантные прошлые сообщения."""
+    """Ключевые слова из вопроса для поиска по прошлым чатам. Приоритет —
+    имена собственные (с большой буквы), затем значимые слова (≥4 букв).
+    Если ничего значимого не нашлось — мягкий фолбэк на любые не-стоп токены
+    (≥3 букв), чтобы бытовые факты («во что я одет», «как звали кота») тоже
+    находились в других чатах, а не терялись из-за слишком жёсткого порога."""
     import re  # noqa: PLC0415
 
-    terms: list[str] = []
-    for w in re.findall(r"[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё0-9-]+", question or ""):
+    tokens = re.findall(r"[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё0-9-]+", question or "")
+    proper: list[str] = []
+    content: list[str] = []
+    for w in tokens:
         lw = w.lower()
-        proper = w[:1].isupper() and not w.isupper()  # «Олег», не «ОЛЕГ»/«олег»
-        if lw in _RECALL_STOP and not proper:
+        is_proper = w[:1].isupper() and not w.isupper()  # «Олег», не «ОЛЕГ»/«олег»
+        if lw in _RECALL_STOP and not is_proper:
             continue
-        if (proper or len(lw) >= 5) and lw not in terms:
-            terms.append(lw)
+        if is_proper:
+            if lw not in proper:
+                proper.append(lw)
+        elif len(lw) >= 4 and lw not in content:
+            content.append(lw)
+    terms = proper + content
+    if not terms:  # ничего значимого — берём любые не-стоп токены ≥3 букв
+        for w in tokens:
+            lw = w.lower()
+            if lw in _RECALL_STOP or len(lw) < 3:
+                continue
+            if lw not in terms:
+                terms.append(lw)
     return terms[:6]
 
 
