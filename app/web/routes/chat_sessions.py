@@ -975,6 +975,22 @@ async def api_send_stream(
 
         base_prompt = base_prompt + detect_overlay(question)
 
+    # Слэш-команда-навык (/review, /debug, /security, …): экспертная накладка
+    # на ОДИН ход. Клиент шлёт имя команды, текст инструкции берём на сервере.
+    _cmd = str(body.get("cmd") or "").strip() if isinstance(body, dict) else ""
+    if _cmd:
+        from app.chat.commands import command_overlay  # noqa: PLC0415
+
+        _ov = command_overlay(_cmd)
+        if _ov:
+            from app.chat.persona_inject import spotlight  # noqa: PLC0415
+
+            base_prompt = base_prompt + spotlight(
+                "РЕЖИМ-НАВЫК для этого ответа (следуй этим инструкциям именно "
+                "сейчас, поверх обычного стиля)",
+                _ov,
+            )
+
     # ЛИЧНАЯ ПАМЯТЬ (курируемые факты «кто ты»): всегда подмешиваем, чтобы
     # ассистент помнил пользователя между чатами. /remember пополняет её.
     try:

@@ -1036,6 +1036,13 @@
             this.question = arg ? ('Найди в интернете актуальную информацию и ответь: ' + arg) : '';
             await this._sendIfText(); return true;
           }
+          // overlay-команды (эксперт-навыки): сервер подставит инструкцию по имени
+          if (spec.overlay) {
+            if (!arg) { this.question = '/' + real + ' '; return true; }  // нет текста — оставим для ввода
+            this._cmdName = real;
+            this.question = arg;
+            await this._sendIfText(); return true;
+          }
         }
         // client-команды
         switch (real) {
@@ -1931,6 +1938,7 @@
             body: JSON.stringify({
               question: text || 'Опиши прикреплённую картинку',
               image_data_url: image || null,
+              cmd: this._cmdName || null,
             }),
             signal: this._abortController.signal,
           });
@@ -2008,6 +2016,7 @@
           }
         } finally {
           this._abortController = null;
+          this._cmdName = null;   // overlay-команда действует ровно один ход
           this.thinking = false;
           this._stopThinkingClock();
           this.$nextTick(() => this.scrollToBottom());
