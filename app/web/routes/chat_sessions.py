@@ -1522,11 +1522,27 @@ async def api_send_stream(
             except Exception as exc:  # noqa: BLE001
                 log.debug("chat.auto_memory.dispatch_failed", error=str(exc))
 
+        # 7f — векторная индексация новых сообщений (для семантического recall).
+        # Идемпотентно: backfill_index индексирует только ещё не учтённые строки,
+        # так что на ход уходит 1–2 эмбеддинга. No-op без sqlite-vec/embed-модели.
+        async def _bg_vec_index(uid: int) -> None:
+            try:
+                from app.memory_vec import (  # noqa: PLC0415
+                    backfill_index,
+                    sqlite_vec_available,
+                )
+
+                if sqlite_vec_available():
+                    await backfill_index(limit=30, user_id=uid)
+            except Exception as exc:  # noqa: BLE001
+                log.debug("chat.vec_index.dispatch_failed", error=str(exc))
+
         import asyncio as _asyncio  # noqa: PLC0415
         _asyncio.create_task(_bg_summarise(session_id))
         _asyncio.create_task(
             _bg_extract_memory(session["user_id"], question, full, session_id)
         )
+        _asyncio.create_task(_bg_vec_index(session["user_id"]))
 
     # T29 — run the generation in a DETACHED task so it survives the user
     # closing the page. `event_stream()` (unchanged) is driven by `_pump`,

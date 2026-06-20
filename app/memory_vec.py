@@ -23,7 +23,7 @@ from app.storage.repository import get_kv
 
 log = get_logger("persona.memory_vec")
 
-_OLLAMA = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/")
+_DEFAULT_OLLAMA = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/")
 _DEFAULT_EMBED_MODEL = "nomic-embed-text"
 _RRF_K = 60
 
@@ -37,6 +37,22 @@ async def _embed_model() -> str:
         return _DEFAULT_EMBED_MODEL
 
 
+async def _ollama_endpoint() -> str:
+    """Тот же эндпоинт Ollama, что у чата (kv ``byo_api_key_ollama``) — чтобы
+    эмбеддинги шли в ту же модель-машину (например, devtunnel на ПК), а не в
+    localhost сервера, где Ollama нет. Гарантируем схему http(s)."""
+    ep = ""
+    try:
+        async with get_connection() as conn:
+            ep = (await get_kv(conn, "byo_api_key_ollama") or "").strip()
+    except Exception:  # noqa: BLE001
+        ep = ""
+    ep = ep or _DEFAULT_OLLAMA
+    if ep and not ep.startswith(("http://", "https://")):
+        ep = "http://" + ep
+    return ep.rstrip("/")
+
+
 async def embed(text: str) -> list[float] | None:
     """Эмбеддинг текста через Ollama. None при любой проблеме (тихо)."""
     text = (text or "").strip()
@@ -47,10 +63,11 @@ async def embed(text: str) -> list[float] | None:
     except Exception:  # noqa: BLE001
         return None
     model = await _embed_model()
+    endpoint = await _ollama_endpoint()
     try:
         async with httpx.AsyncClient(timeout=20.0) as client:
             r = await client.post(
-                f"{_OLLAMA}/api/embeddings", json={"model": model, "prompt": text[:8000]}
+                f"{endpoint}/api/embeddings", json={"model": model, "prompt": text[:8000]}
             )
             if r.status_code != 200:
                 return None
