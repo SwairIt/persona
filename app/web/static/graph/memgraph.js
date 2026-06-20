@@ -26,24 +26,40 @@
 
   // --- настройки (с дефолтами) ---
   const PHYS_DEFAULT = {
-    repulsion: 900,    // сила отталкивания узлов
-    linkDist: 64,      // желаемая длина связи
-    linkStr: 0.03,     // жёсткость связи
-    gravity: 0.012,    // притяжение к центру (держит граф вместе)
-    friction: 0.82,    // трение (затухание скорости)
+    repulsion: 1100,   // сила отталкивания узлов (больше — просторнее, меньше слипания)
+    linkDist: 70,      // желаемая длина связи
+    linkStr: 0.035,    // жёсткость связи
+    gravity: 0.011,    // притяжение к центру (держит граф вместе)
+    friction: 0.86,    // трение: ближе к 1 = меньше трения, мягче глайд (был 0.82)
   };
   // по умолчанию включено только «нужное»: чаты, промпты, ответы, конспекты
   const SHOW_DEFAULT = {
     prompt: true, answer: true, session: true, summary: true,
     memory: false, recording: false, day: false,
   };
-  const LS = 'persona_graph_cfg_v1';
-  let cfg = { phys: { ...PHYS_DEFAULT }, show: { ...SHOW_DEFAULT } };
+  const MAX_FOCUS = 60;   // фокус-режим: сколько вершин показываем по умолчанию
+  // важность для отбора в фокусе: структурные узлы — якоря, потом по свежести
+  const TYPE_RANK = { day: 0, session: 1, summary: 2, memory: 3, recording: 4, answer: 5, prompt: 6 };
+  const LS = 'persona_graph_cfg_v2';  // v2 — новые дефолты физики + фокус-режим
+  let cfg = { phys: { ...PHYS_DEFAULT }, show: { ...SHOW_DEFAULT }, focus: true };
   try {
     const saved = JSON.parse(localStorage.getItem(LS) || 'null');
-    if (saved && saved.phys && saved.show) cfg = { phys: { ...PHYS_DEFAULT, ...saved.phys }, show: { ...SHOW_DEFAULT, ...saved.show } };
+    if (saved && saved.phys && saved.show) {
+      cfg = {
+        phys: { ...PHYS_DEFAULT, ...saved.phys },
+        show: { ...SHOW_DEFAULT, ...saved.show },
+        focus: saved.focus !== false,  // по умолчанию фокус включён
+      };
+    }
   } catch (e) { /* битый конфиг — дефолты */ }
   const saveCfg = () => { try { localStorage.setItem(LS, JSON.stringify(cfg)); } catch (e) {} };
+  const expanded = new Set();  // id вершин, раскрытых вручную (клик «Связи» / поиск)
+  function cmpImportance(a, b) {
+    const ra = (a.type in TYPE_RANK) ? TYPE_RANK[a.type] : 9;
+    const rb = (b.type in TYPE_RANK) ? TYPE_RANK[b.type] : 9;
+    if (ra !== rb) return ra - rb;
+    return String(b.at || '').localeCompare(String(a.at || ''));  // новее — выше
+  }
 
   let RAW = null;        // сырые данные с сервера
   let sim = null;        // текущее состояние симуляции
@@ -76,11 +92,28 @@
     }
     if (emptyEl) emptyEl.hidden = true;
 
+    // снапшот позиций текущих узлов — чтобы при раскрытии/поиске граф не прыгал
+    const prev = new Map();
+    const prevQ = sim ? sim.searchQ : '';
+    if (sim) sim.nodes.forEach((n) => prev.set(n.id, { x: n.x, y: n.y, vx: n.vx, vy: n.vy }));
+
+    // кандидаты по фильтру типов
+    const candidates = rawNodes.filter((n) => cfg.show[n.type]);
+    // фокус-режим: показываем важные/недавние + раскрытые вручную; иначе всё
+    let visibleIds;
+    if (!cfg.focus || candidates.length <= MAX_FOCUS) {
+      visibleIds = new Set(candidates.map((n) => n.id));
+    } else {
+      const ranked = candidates.slice().sort(cmpImportance);
+      visibleIds = new Set(ranked.slice(0, MAX_FOCUS).map((n) => n.id));
+      expanded.forEach((id) => visibleIds.add(id));
+    }
+    const shownRaw = candidates.filter((n) => visibleIds.has(n.id));
+    const hiddenCount = candidates.length - shownRaw.length;
+
     const idx = new Map();
     const nodes = [];
-    rawNodes.forEach((n) => {
-      if (cfg.show[n.type]) { idx.set(n.id, nodes.length); nodes.push(makeNode(n)); }
-    });
+    shownRaw.forEach((n) => { idx.set(n.id, nodes.length); nodes.push(makeNode(n)); });
     const links = ((RAW && RAW.links) || [])
       .filter((l) => idx.has(l.a) && idx.has(l.b))
       .map((l) => ({ a: idx.get(l.a), b: idx.get(l.b) }));
@@ -96,27 +129,35 @@
       const cards = (counts.memory || 0) + (counts.recording || 0);
       if (cards) parts.push(cards + ' карточек');
       if (counts.day) parts.push(counts.day + ' дней');
-      statsEl.textContent = (parts.join(' · ') || 'нет узлов выбранных типов') + (RAW.truncated ? ' · показаны недавние' : '');
+      let txt = parts.join(' · ') || 'нет узлов выбранных типов';
+      if (hiddenCount > 0) txt += ' · скрыто ' + hiddenCount + ' (клик по узлу → «Связи»)';
+      statsEl.textContent = txt + (RAW.truncated ? ' · показаны недавние' : '');
     }
     if (legendEl) {
       legendEl.innerHTML = Object.keys(TYPES).filter((t) => counts[t])
         .map((t) => `<span><i style="background:rgb(${TYPES[t].c})"></i>${TYPES[t].label}</span>`).join('');
     }
+    updateShowAll(hiddenCount);
 
     const neigh = nodes.map(() => new Set());
     links.forEach((l) => { neigh[l.a].add(l.b); neigh[l.b].add(l.a); });
 
-    // стартовая раскладка по окружности (детерминированная)
+    // раскладка: существующие — на своих местах (без прыжка), новые — по окружности
     let seed = 9; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
     const R = Math.min(W, H) * 0.36;
     nodes.forEach((n, i) => {
-      const a = (i / nodes.length) * Math.PI * 2;
-      n.x = W / 2 + Math.cos(a) * R + (rnd() - 0.5) * 50;
-      n.y = H / 2 + Math.sin(a) * R + (rnd() - 0.5) * 50;
-      n.vx = n.vy = 0;
+      const p = prev.get(n.id);
+      if (p) { n.x = p.x; n.y = p.y; n.vx = p.vx; n.vy = p.vy; }
+      else {
+        const a = (i / nodes.length) * Math.PI * 2;
+        n.x = W / 2 + Math.cos(a) * R + (rnd() - 0.5) * 50;
+        n.y = H / 2 + Math.sin(a) * R + (rnd() - 0.5) * 50;
+        n.vx = n.vy = 0;
+      }
     });
 
-    sim = { nodes, links, neigh, hover: -1, drag: -1, alpha: 1 };
+    sim = { nodes, links, neigh, hover: -1, drag: -1, alpha: 1, searchQ: prevQ || '', searchHits: new Set() };
+    computeHits();  // пересчитать подсветку поиска для нового набора узлов
     if (reduce) { for (let k = 0; k < 280; k++) step(); draw(); }  // статичная раскладка
   }
 
@@ -227,13 +268,88 @@
       if (dayStr) { dDay.hidden = false; dDay.href = '/day/' + dayStr; }
       else dDay.hidden = true;
     }
+    // «Показать связи» — сколько соседей ещё скрыто (фокус-режим)
+    _curNode = n;
+    const exp = document.getElementById('mg-detail-expand');
+    if (exp) {
+      const links = (RAW && RAW.links) || [];
+      const shownIds = new Set(sim ? sim.nodes.map((x) => x.id) : []);
+      let hiddenNb = 0;
+      links.forEach((l) => {
+        if (l.a === n.id && !shownIds.has(l.b)) hiddenNb++;
+        if (l.b === n.id && !shownIds.has(l.a)) hiddenNb++;
+      });
+      if (hiddenNb > 0) { exp.hidden = false; exp.textContent = '🔗 Показать связи (+' + hiddenNb + ')'; }
+      else exp.hidden = true;
+    }
     detailEl.hidden = false;
   }
   function closeDetail() { if (detailEl) detailEl.hidden = true; }
 
+  // --- поиск / фокус-режим / раскрытие связей ---
+  let _curNode = null;  // узел, открытый в карточке (для кнопки «Связи»)
+
+  function computeHits() {
+    if (!sim) return;
+    const q = (sim.searchQ || '').toLowerCase();
+    sim.searchHits = new Set();
+    if (!q) return;
+    sim.nodes.forEach((n, i) => {
+      if (((n.label || '') + ' ' + (n.full || '')).toLowerCase().includes(q)) sim.searchHits.add(i);
+    });
+  }
+
+  function onSearch(q) {
+    if (!sim) return;
+    sim.searchQ = q;
+    computeHits();
+    // нет совпадений среди видимых, но есть в полном графе — раскрываем их
+    if (q && sim.searchHits.size === 0) {
+      const ql = q.toLowerCase();
+      const matches = ((RAW && RAW.nodes) || [])
+        .filter((n) => cfg.show[n.type] && (((n.label || '') + ' ' + (n.full || '')).toLowerCase().includes(ql)))
+        .slice(0, 12);
+      if (matches.length) { matches.forEach((n) => expanded.add(n.id)); build(); }
+    }
+    if (sim) sim.alpha = Math.max(sim.alpha, 0.4);
+  }
+
+  function focusFirstHit() {
+    if (!sim || !sim.searchHits.size) return;
+    const i = sim.searchHits.values().next().value;
+    const n = sim.nodes[i];
+    n.x = W / 2; n.y = H / 2; n.vx = n.vy = 0;  // подтянуть к центру
+    sim.alpha = 1;
+    openDetail(n);
+  }
+
+  function expandNode(id) {
+    if (id == null) return 0;
+    const links = (RAW && RAW.links) || [];
+    let added = 0;
+    links.forEach((l) => {
+      if (l.a === id && !expanded.has(l.b)) { expanded.add(l.b); added++; }
+      if (l.b === id && !expanded.has(l.a)) { expanded.add(l.a); added++; }
+    });
+    expanded.add(id);
+    build();
+    if (sim) sim.alpha = 1;
+    return added;
+  }
+
+  function updateShowAll(hiddenCount) {
+    const b = document.getElementById('mg-show-all');
+    if (!b) return;
+    if (hiddenCount > 0 && cfg.focus) { b.hidden = false; b.textContent = 'Показать все (+' + hiddenCount + ')'; }
+    else b.hidden = true;
+  }
+
   // --- физика (по cfg.phys), мягкие границы вместо жёсткого клампа в углы ---
   function step() {
     if (!sim) return;
+    // «остывание»: когда симуляция успокоилась и ничего не тащат — замираем
+    // (без этого граф вечно микро-дрожал — те самые «баганые»).
+    if (sim.alpha < 0.03 && sim.drag < 0) return;
     const { nodes, links } = sim;
     const P = cfg.phys;
     const cx = W / 2, cy = H / 2;
@@ -271,6 +387,7 @@
       if (n.y < m) { n.y = m; n.vy = Math.abs(n.vy) * 0.5; }
       else if (n.y > H - m) { n.y = H - m; n.vy = -Math.abs(n.vy) * 0.5; }
     }
+    sim.alpha *= 0.985;  // постепенно остываем → плавно встаёт и замирает
   }
 
   function draw() {
@@ -284,17 +401,24 @@
       ctx.lineWidth = on ? 1.5 : 0.6;
       ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
     }
+    const q = sim.searchQ, hits = sim.searchHits;
     for (let i = 0; i < nodes.length; i++) {
       const n = nodes[i], t = TYPES[n.type] || TYPES.prompt;
+      const isHit = q ? hits.has(i) : true;
       const active = hover < 0 || i === hover || neigh[hover].has(i);
-      const dim = n.compressed ? 0.45 : 1;
-      const r = n.r * (i === hover ? 1.5 : 1);
+      const sdim = (q && !isHit) ? 0.2 : 1;   // при поиске не-совпадения приглушаем
+      const dim = (n.compressed ? 0.45 : 1) * sdim;
+      const r = n.r * (i === hover ? 1.5 : (q && isHit ? 1.35 : 1));
       const g = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, r * 3);
       g.addColorStop(0, `rgba(${t.c},${(active ? 0.85 : 0.18) * dim})`);
       g.addColorStop(1, `rgba(${t.c},0)`);
       ctx.fillStyle = g; ctx.beginPath(); ctx.arc(n.x, n.y, r * 3, 0, 7); ctx.fill();
       ctx.fillStyle = `rgba(${t.c},${(active ? 1 : 0.35) * dim})`;
       ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, 7); ctx.fill();
+      if (q && isHit) {  // кольцо вокруг найденного
+        ctx.strokeStyle = 'rgba(94,234,212,0.95)'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(n.x, n.y, r + 4, 0, 7); ctx.stroke();
+      }
     }
   }
 
@@ -324,6 +448,34 @@
     slider('mg-friction', 'friction');
     bind('mg-phys-reset', () => { cfg.phys = { ...PHYS_DEFAULT }; saveCfg(); syncControls(); if (sim) sim.alpha = 1; });
 
+    // поиск по графу (подсветка + раскрытие скрытых совпадений; Enter — к центру)
+    const search = document.getElementById('mg-search');
+    if (search) {
+      let st = null;
+      search.addEventListener('input', () => {
+        clearTimeout(st); const v = search.value.trim();
+        st = setTimeout(() => onSearch(v), 160);
+      });
+      search.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); onSearch(search.value.trim()); focusFirstHit(); }
+        if (e.key === 'Escape') { search.value = ''; onSearch(''); }
+      });
+    }
+    // объём: «показать все» + переключатель фокус-режима
+    bind('mg-show-all', () => { cfg.focus = false; saveCfg(); build(); if (sim) sim.alpha = 1; syncControls(); });
+    const focusChk = document.getElementById('mg-focus');
+    if (focusChk) focusChk.addEventListener('change', () => {
+      cfg.focus = focusChk.checked; if (cfg.focus) expanded.clear();
+      saveCfg(); build(); if (sim) sim.alpha = 1;
+    });
+    // раскрыть связи узла из карточки деталей
+    bind('mg-detail-expand', () => {
+      if (!_curNode) return;
+      const id = _curNode.id; expandNode(id);
+      const nn = sim && sim.nodes.find((x) => x.id === id);
+      if (nn) openDetail(nn);
+    });
+
     syncControls();
   }
 
@@ -342,6 +494,7 @@
   function bind(id, fn) { const el = document.getElementById(id); if (el) el.addEventListener('click', fn); }
   function syncControls() {
     document.querySelectorAll('#mg-types input[data-type]').forEach((el) => { el.checked = !!cfg.show[el.dataset.type]; });
+    const fc = document.getElementById('mg-focus'); if (fc) fc.checked = cfg.focus;
     [['mg-repulsion', 'repulsion'], ['mg-linkdist', 'linkDist'], ['mg-linkstr', 'linkStr'], ['mg-gravity', 'gravity'], ['mg-friction', 'friction']]
       .forEach(([id, key]) => { const el = document.getElementById(id); if (el) { el.value = cfg.phys[key]; const o = document.getElementById(id + '-val'); if (o) o.textContent = cfg.phys[key]; } });
   }
