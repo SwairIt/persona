@@ -324,11 +324,21 @@
            И последнее assistant сообщение ещё пустое. Как только
            прилетел первый чанк — badge скрывается, контент сам говорит
            что модель работает. #}
-        <div x-show="thinking && (messages.length === 0 || !messages[messages.length-1].content || messages[messages.length-1].role !== 'assistant' || messages[messages.length-1].content === '')"
-             class="flex justify-start">
-          <div class="rounded-lg bg-ink-800 border border-ink-700 px-3 py-2 text-sm text-zinc-500 italic flex items-center gap-2">
-            <span class="inline-block w-1.5 h-1.5 rounded-full bg-accent-400 animate-pulse"></span>
-            модель думает<span x-show="thinkingSeconds > 0" class="font-mono ml-1" x-text="'(' + thinkingSeconds + 'с)'"></span>…
+        {# Живая статус-строка под ответом (как у Claude): логотип Persona +
+           статус (думает/печатает) + время + примерно токенов + подсказка Stop.
+           Видна всю генерацию — и пока думает, и пока пишет. #}
+        <div x-show="thinking" class="flex justify-start px-1">
+          <div class="flex items-center gap-2 py-1 text-xs text-zinc-500">
+            <span class="text-accent-400 text-sm leading-none animate-pulse select-none" title="Persona">✦</span>
+            <span class="text-zinc-400" x-text="streamStatus || 'думает'"></span>
+            <span class="inline-flex gap-0.5">
+              <span class="w-1 h-1 rounded-full bg-zinc-500 animate-pulse" style="animation-delay:0ms"></span>
+              <span class="w-1 h-1 rounded-full bg-zinc-500 animate-pulse" style="animation-delay:200ms"></span>
+              <span class="w-1 h-1 rounded-full bg-zinc-500 animate-pulse" style="animation-delay:400ms"></span>
+            </span>
+            <span class="font-mono text-zinc-600" x-show="thinkingSeconds > 0" x-text="thinkingSeconds + 'с'"></span>
+            <span class="font-mono text-zinc-600" x-show="streamTokens > 0" x-text="'· ~' + streamTokens + ' ток.'"></span>
+            <span class="text-zinc-700 hidden sm:inline">· Esc — стоп · печатай и Ctrl+Enter — в очередь</span>
           </div>
         </div>
       </div>
@@ -774,6 +784,10 @@
       thinking: false,
       thinkingSeconds: 0,
       _thinkingTimer: null,
+      streamStatus: '',        // живой статус под ответом: думает/печатает
+      streamTokens: 0,         // примерная оценка токенов вывода на лету
+      _statusTimer: null,
+      _statusWords: ['думает', 'размышляет', 'прикидывает', 'собирает мысли', 'формулирует'],
       // T31 E9 — «живой» чат: умный авто-скролл + кнопка «вниз» + черновик
       atBottom: true,
       // озвучка ответов (браузерный SpeechSynthesis, как в /ask)
@@ -1830,6 +1844,21 @@
         this._thinkingTimer = null;
         this.thinkingSeconds = 0;
       },
+      _startStatusRotation() {
+        // фаза «думает»: крутим слова, пока не пошёл первый токен
+        this.streamStatus = this._statusWords[0];
+        this.streamTokens = 0;
+        clearInterval(this._statusTimer);
+        let i = 0;
+        this._statusTimer = setInterval(() => {
+          i = (i + 1) % this._statusWords.length;
+          this.streamStatus = this._statusWords[i];
+        }, 1800);
+      },
+      _stopStatusRotation() {
+        clearInterval(this._statusTimer);
+        this._statusTimer = null;
+      },
 
       async stop() {
         // 1) серверная остановка генерации (фоновая задача реально прекращается,
@@ -1909,6 +1938,7 @@
         this.thinking = true;
         this.atBottom = true;
         this._startThinkingClock();
+        this._startStatusRotation();
         this.$nextTick(() => { this.scrollToBottom(); this.autosize(); });
 
         // T22.3 — SSE streaming. Cold-start vision models on 4GB VRAM
@@ -1971,8 +2001,12 @@
                   if (!firstDeltaReceived) {
                     firstDeltaReceived = true;
                     this.thinkingSeconds = 0;
+                    this.streamStatus = 'печатает';
+                    this._stopStatusRotation();
                   }
                   this.messages[assistantIdx].content += evt.text;
+                  // живая оценка токенов вывода (≈ 4 символа на токен)
+                  this.streamTokens = Math.ceil((this.messages[assistantIdx].content || '').length / 4);
                   this.$nextTick(() => this.autoScroll());
                 } else if (evt.type === 'done') {
                   this.messages[assistantIdx].elapsed_ms = evt.elapsed_ms;
@@ -2019,6 +2053,8 @@
           this._cmdName = null;   // overlay-команда действует ровно один ход
           this.thinking = false;
           this._stopThinkingClock();
+          this._stopStatusRotation();
+          this.streamStatus = ''; this.streamTokens = 0;
           this.$nextTick(() => this.scrollToBottom());
           // T26 — auto-process queued prompts
           if (this.queuedPrompts.length > 0) {

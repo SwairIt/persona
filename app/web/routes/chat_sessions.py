@@ -164,7 +164,7 @@ async def _base_prompt(
 
 
 # T31 E2 — эффорт: бюджет ответа (max_tokens) + температура. Гибрид «мощности».
-_EFFORT_TOKENS: dict[str, int] = {"fast": 900, "normal": 4096, "deep": 8192}
+_EFFORT_TOKENS: dict[str, int] = {"fast": 900, "normal": 4096, "deep": 16000}
 _EFFORT_TEMP: dict[str, float] = {"fast": 0.5, "normal": 0.7, "deep": 0.7}
 
 
@@ -1199,7 +1199,14 @@ async def api_send_stream(
         # a reopened tab can poll /live and watch the answer grow in real time.
         streaming_msg_id: int | None = None
         last_save = 0.0
-        eff = await _get_effort(session_id) if adv["effort"] else "normal"
+        # Скорость по режиму: простой режим (друг) — всегда «быстро» (короткие
+        # снапи-ответы, низкая задержка); рабочий — выбранный эффорт или «норма».
+        if not adv["master"]:
+            eff = "fast"
+        elif adv["effort"]:
+            eff = await _get_effort(session_id)
+        else:
+            eff = "normal"
         completion_req = CompletionRequest(
             system=system_with_history,
             user=question,
@@ -1327,7 +1334,11 @@ async def api_send_stream(
         # T31 E3 — в режимах plan/ask инструменты НЕ выполняются (только план/спрос).
         # Если пользователь нажал Stop — никаких инструментов/догенерации.
         _act_seq = 0  # порядковый номер вызова инструмента в этом ходе (окно активности)
-        for _round in (range(8) if (_tools_on and not stopped) else range(0)):
+        # Рабочий режим может работать ДОЛГО: deep — до 40 раундов инструментов,
+        # иначе 16 (цикл всё равно прерывается, когда новых вызовов нет, плюс
+        # дедуп-гард и проверка Stop — рунэвея не будет).
+        _max_rounds = (40 if eff == "deep" else 16) if (_tools_on and not stopped) else 0
+        for _round in range(_max_rounds):
             tool_calls = [
                 tc for tc in parse_tool_calls(full)
                 if tc.get("raw") not in executed_raws
