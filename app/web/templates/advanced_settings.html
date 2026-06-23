@@ -10,6 +10,30 @@
     </p>
   </header>
 
+  {# --- ПРОФИЛИ (пресеты режима) --- #}
+  <section class="mb-6">
+    <div class="text-xs uppercase tracking-widest text-zinc-500 mb-2 px-1">Профиль — быстрый пресет</div>
+    <div class="grid sm:grid-cols-2 gap-2">
+      {% for name, label, desc, _m, _f in profiles %}
+      <form method="post" action="/settings/advanced/profile">
+        <input type="hidden" name="profile" value="{{ name }}">
+        <button type="submit"
+                class="w-full text-left rounded-xl border p-3.5 transition hover:border-accent-500
+                       {% if active_profile == name %}border-accent-500/70 bg-accent-600/10{% else %}border-ink-700 bg-ink-900{% endif %}">
+          <span class="flex items-center gap-2">
+            <span class="text-sm font-semibold">{{ label }}</span>
+            {% if active_profile == name %}<span class="text-[10px] px-1.5 py-0.5 rounded-full bg-accent-600/25 text-accent-300">активен</span>{% endif %}
+          </span>
+          <span class="block text-xs text-zinc-500 mt-1">{{ desc }}</span>
+        </button>
+      </form>
+      {% endfor %}
+    </div>
+    <p class="text-[11px] text-zinc-600 mt-2 px-1">
+      Профиль одним кликом ставит мастер-переключатель и набор функций ниже. Потом можно докрутить вручную и «Сохранить».
+    </p>
+  </section>
+
   <form method="post" action="/settings/advanced" x-data="{ master: {{ 'true' if flags.master else 'false' }} }">
 
     {# --- МАСТЕР --- #}

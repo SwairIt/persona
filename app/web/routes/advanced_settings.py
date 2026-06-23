@@ -36,6 +36,36 @@ _FEATURES: tuple[tuple[str, str, str], ...] = (
 )
 
 
+# Профили = пресеты (мастер + фич-флаги). Имя → (label, desc, master, {feat:bool}).
+# Ключи, не указанные в dict, наследуют значение master.
+_PROFILES: tuple[tuple[str, str, str, bool, dict[str, bool]], ...] = (
+    ("assistant", "🧑‍🤝‍🧑 ИИ-ассистент",
+     "Простой быстрый собеседник: без кода, планов, инструментов и лишних кнопок. Всегда быстро.",
+     False, {}),
+    ("simple", "🌱 Простой (для начала)",
+     "Чуть-чуть умных функций для новичка: только меню выбора. Без кода, режимов и эффорта.",
+     True, {"auto_prompt": False, "effort": False, "modes": False, "tools": False, "choices": True}),
+    ("balanced", "⚖️ Сбалансированный",
+     "Умный помощник: авто-промпт, выбор мощности и меню выбора. Без выполнения кода/инструментов.",
+     True, {"auto_prompt": True, "effort": True, "modes": False, "tools": False, "choices": True}),
+    ("full", "🛠 Полный (разработчик)",
+     "Все возможности: режимы плана/авто, инструменты и код, эффорт, авто-промпт, меню.",
+     True, {"auto_prompt": True, "effort": True, "modes": True, "tools": True, "choices": True}),
+)
+
+
+def _detect_profile(flags: dict[str, object]) -> str:
+    """Какой профиль соответствует текущим флагам (или '' если кастом)."""
+    for name, _l, _d, master, feats in _PROFILES:
+        if bool(flags.get("master")) != master:
+            continue
+        if not master:
+            return name  # ассистент: фичи не важны, мастер выключен
+        if all(bool(flags.get(k)) == feats.get(k, master) for k, _t, _dd in _FEATURES):
+            return name
+    return ""
+
+
 # режимы поиска памяти по всем чатам
 _RECALL_MODES: tuple[tuple[str, str, str], ...] = (
     ("off", "Выключена", "ИИ помнит только текущий чат."),
@@ -59,17 +89,35 @@ async def advanced_page(
     request: Request,
     user: Annotated[SessionRecord, Depends(current_user_required)],
 ) -> HTMLResponse:
+    flags = await _read_raw()
     return templates.TemplateResponse(
         request,
         "advanced_settings.html",
         {
             "title": "Расширенные функции",
             "active_nav": "settings",
-            "flags": await _read_raw(),
+            "flags": flags,
             "features": _FEATURES,
             "recall_modes": _RECALL_MODES,
+            "profiles": _PROFILES,
+            "active_profile": _detect_profile(flags),
         },
     )
+
+
+@router.post("/settings/advanced/profile")
+async def advanced_apply_profile(
+    user: Annotated[SessionRecord, Depends(current_user_required)],
+    profile: Annotated[str, Form()] = "",
+) -> RedirectResponse:
+    prof = next((p for p in _PROFILES if p[0] == profile), None)
+    if prof is not None:
+        _name, _label, _desc, master, feats = prof
+        async with get_connection() as conn:
+            await set_kv(conn, "advanced_mode", "1" if master else "0")
+            for key, _t, _d in _FEATURES:
+                await set_kv(conn, f"feat_{key}", "1" if feats.get(key, master) else "0")
+    return RedirectResponse(url="/settings/advanced", status_code=303)
 
 
 @router.post("/settings/advanced")

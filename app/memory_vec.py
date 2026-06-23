@@ -65,9 +65,12 @@ async def embed(text: str) -> list[float] | None:
     model = await _embed_model()
     endpoint = await _ollama_endpoint()
     try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
+        # timeout щедрый: первый embed после простоя грузит модель (cold start)
+        # через туннель; keep_alive держит её тёплой, чтобы дальше было быстро.
+        async with httpx.AsyncClient(timeout=60.0) as client:
             r = await client.post(
-                f"{endpoint}/api/embeddings", json={"model": model, "prompt": text[:8000]}
+                f"{endpoint}/api/embeddings",
+                json={"model": model, "prompt": text[:8000], "keep_alive": "30m"},
             )
             if r.status_code != 200:
                 return None
@@ -251,6 +254,25 @@ async def _rerank(question: str, rows: list[dict[str, Any]], limit: int) -> list
         return rows
 
 
+def _norm_q(s: str) -> str:
+    return " ".join((s or "").lower().split()).strip(" ?!.,—-")
+
+
+def _is_echo(content: str, question: str) -> bool:
+    """True, если результат — это по сути ПЕРЕСПРОС того же вопроса (эхо), а не
+    содержательный ответ/факт. Такие эхо засоряют выдачу, когда один вопрос
+    задавали много раз — и вытесняют реальный факт. Фильтруем их."""
+    c, q = _norm_q(content), _norm_q(question)
+    if not c or not q:
+        return False
+    if c == q:
+        return True
+    # короткий переспрос: один почти подстрока другого
+    if len(c) <= len(q) + 14 and (q in c or c in q):
+        return True
+    return False
+
+
 async def hybrid_recall(user_id: int, question: str,
                         exclude_session_id: int | None = None, limit: int = 6) -> str:
     """FTS5 bm25 + векторный KNN через RRF. Fallback на recall_relevant при любой
@@ -277,6 +299,10 @@ async def hybrid_recall(user_id: int, question: str,
             rowmap.setdefault(mid, r)
         ranked = sorted(scores.items(), key=lambda kv: -kv[1])
         merged = [rowmap[mid] for mid, _ in ranked]
+        # Выкинуть эхо-переспросы (когда вопрос задавали много раз дословно — они
+        # вытесняют реальный факт). Если после фильтра пусто — оставляем как есть.
+        filtered = [r for r in merged if not _is_echo(str(r.get("content") or ""), question)]
+        merged = filtered or merged
         # Опц. финальный cross-encoder реранк top-N → точнее, чем RRF-порядок.
         merged = await _rerank(question, merged, limit)
         block = _fmt(merged, limit)

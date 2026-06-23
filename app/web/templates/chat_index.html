@@ -358,7 +358,7 @@
           <a href="/settings/advanced"
              class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border bg-ink-800/60 hover:border-accent-500 transition
                     {% if adv and adv.master %}border-accent-600/50 text-accent-300{% else %}border-emerald-600/40 text-emerald-300{% endif %}">
-            {% if adv and adv.master %}🛠 <span>Рабочий режим</span>{% else %}🧑‍🤝‍🧑 <span>Режим друга</span>{% endif %}
+            {% if adv and adv.master %}🛠 <span>Рабочий режим</span>{% else %}🧑‍🤝‍🧑 <span>ИИ-ассистент · быстро</span>{% endif %}
           </a>
           <a href="/settings/system-prompt" class="text-zinc-500 hover:text-accent-400 px-1">характер ассистента →</a>
         </div>
@@ -807,6 +807,8 @@
       // T26 — queue: messages typed while previous still streaming
       queuedPrompts: [],
 
+      // расширенный режим включён? (для скрытия команд в режиме ИИ-ассистента)
+      advMaster: {{ 'true' if adv and adv.master else 'false' }},
       // T22 — model picker state
       modelPickerOpen: false,
       modelPickerLoading: false,
@@ -826,6 +828,18 @@
         if (this.current.model) return this.current.model;
         if (this.current.provider) return this.current.provider;
         return '';
+      },
+
+      async _loadCurrentModel() {
+        // показать активную модель в лейбле сразу (даже если в сессии не
+        // закреплена — берём текущего провайдера/модель с сервера)
+        try {
+          const r = await fetch('/api/llm/models', { headers: { 'Accept': 'application/json' } });
+          if (!r.ok) return;
+          const d = await r.json();
+          if (Array.isArray(d.providers)) this.availableProviders = d.providers;
+          if (!this.current.provider && d.current) this.current = d.current;
+        } catch (e) { /* ignore */ }
       },
 
       async openModelPicker() {
@@ -848,6 +862,9 @@
 
       async pickModel(provider, model) {
         this.modelPickerOpen = false;
+        const prev = this.currentModelLabel;
+        const next = model || provider;
+        if (next === prev) return;  // та же модель — ничего не делаем
         try {
           const r = await fetch(`/api/chat/sessions/${this.sessionId}/model`, {
             method: 'POST',
@@ -856,6 +873,8 @@
           });
           if (r.ok) {
             this.current = { provider, model };
+            // как у Claude: видно в чате, когда и на что переключились
+            this._sysNote('🔄 Модель: ' + (prev ? prev + ' → ' : '') + next + ' · применится со следующего сообщения');
           } else {
             alert('Не получилось переключить модель');
           }
@@ -898,6 +917,7 @@
         });
         // озвучка: доступность + сохранённый авто-режим
         this._initTts();
+        this._loadCurrentModel();  // показать активную модель сразу
         // Граф памяти → ?msg=<id>: проскроллить к сообщению и подсветить.
         this.jumpToMessage();
         // T29 — if the answer is still being generated (tab reopened
@@ -1003,6 +1023,8 @@
       },
       onComposerInput() {
         const q = this.question || '';
+        // В простом режиме (ИИ-ассистент) команд нет — палитру не показываем.
+        if (!this.advMaster) { this.cmdOpen = false; return; }
         // Палитра активна, только пока печатается первый токен «/имя» (без пробела).
         const m = q.match(/^\/([a-zA-Z?\-]*)$/);
         if (!m) { this.cmdOpen = false; return; }
