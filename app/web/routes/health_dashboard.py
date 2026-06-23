@@ -19,11 +19,13 @@ this module is a thin view layer that does no SQL of its own.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Final
+from typing import Annotated, Final
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
+from app.auth import current_user_required
+from app.auth.sessions import SessionRecord
 from app.health_dashboard import (
     AMBER_THRESHOLD_SECONDS,
     GREEN_THRESHOLD_SECONDS,
@@ -94,8 +96,10 @@ async def health_dashboard_page(request: Request) -> HTMLResponse:
 
 
 @router.get("/api/health-dashboard.json")
-async def health_dashboard_json() -> JSONResponse:
-    """Return the full :class:`HealthState` as JSON."""
+async def health_dashboard_json(
+    _user: Annotated[SessionRecord, Depends(current_user_required)],
+) -> JSONResponse:
+    """Return the full :class:`HealthState` as JSON (owner-only)."""
     state = await build_health_state()
     return JSONResponse(dict(state))
 

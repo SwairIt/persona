@@ -242,6 +242,12 @@ def _render(
     status_code: int = 200,
 ) -> HTMLResponse:
     """Single render entry-point so every code path uses the same context."""
+    # Безопасность: НЕ отдаём plaintext-значения ключей в HTML (утечка в history/
+    # DevTools/кеш). Шаблон показывает только статус «настроен», не сам ключ.
+    safe_keys = {
+        slug: {k: v for k, v in entry.items() if k != "value"}
+        for slug, entry in keys.items()
+    }
     return templates.TemplateResponse(
         request,
         "llm_switcher.html",
@@ -250,7 +256,7 @@ def _render(
             "active_nav": "settings",
             "providers": PROVIDERS,
             "current_provider": current_provider,
-            "keys": keys,
+            "keys": safe_keys,
             "notice": notice,
             "error": error,
             "test_result": test_result,

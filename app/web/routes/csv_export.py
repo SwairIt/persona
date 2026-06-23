@@ -26,11 +26,13 @@ from __future__ import annotations
 import csv
 import io
 from datetime import date, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Annotated
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse, Response, StreamingResponse
 
+from app.auth import current_user_required
+from app.auth.sessions import SessionRecord
 from app.csv_export import (
     stream_audio_segments_csv,
     stream_hourly_cards_csv,
@@ -169,6 +171,7 @@ async def export_bulk_landing(request: Request) -> HTMLResponse:
 
 @router.get("/api/export/search.csv")
 async def export_search_csv(
+    _user: Annotated[SessionRecord, Depends(current_user_required)],
     q: str = Query(default=""),
     app_name: str | None = Query(default=None, alias="app"),
     since: str | None = Query(default=None),
@@ -220,6 +223,7 @@ def _strip_marks(snippet: str) -> str:
 
 @router.get("/api/export/search.md")
 async def export_search_markdown(
+    _user: Annotated[SessionRecord, Depends(current_user_required)],
     q: str = Query(default=""),
     app_name: str | None = Query(default=None, alias="app"),
     since: str | None = Query(default=None),

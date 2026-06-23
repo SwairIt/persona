@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 
 from app import __version__
+from app.auth import current_user_required
+from app.auth.sessions import SessionRecord
 from app.embeddings import is_available as embeddings_available
 from app.ocr import probe_tesseract
 from app.settings import get_settings
@@ -16,7 +20,10 @@ router = APIRouter(tags=["about"])
 
 
 @router.get("/about", response_class=HTMLResponse)
-async def about_page(request: Request) -> HTMLResponse:
+async def about_page(
+    request: Request,
+    _user: Annotated[SessionRecord, Depends(current_user_required)],
+) -> HTMLResponse:
     settings = get_settings()
     tesseract = probe_tesseract(settings.tesseract_path)
 

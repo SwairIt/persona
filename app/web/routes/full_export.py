@@ -10,16 +10,22 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter
+from typing import Annotated
+
+from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 
+from app.auth import current_user_required
+from app.auth.sessions import SessionRecord
 from app.settings import get_settings
 
 router = APIRouter(prefix="/api/export", tags=["export"])
 
 
 @router.get("/full.zip")
-async def export_full() -> StreamingResponse:
+async def export_full(
+    _user: Annotated[SessionRecord, Depends(current_user_required)],
+) -> StreamingResponse:
     """Stream a ZIP containing the DB snapshot + every thumbnail + manifest.
 
     v1.15 also includes audio_segments and remote-agent uploads

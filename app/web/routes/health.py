@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Annotated
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from app import __version__
+from app.auth import current_user_required
+from app.auth.sessions import SessionRecord
 from app.ocr import probe_tesseract
 from app.settings import get_settings
 from app.storage.db import get_connection
@@ -48,7 +51,11 @@ async def health() -> JSONResponse:
 
 
 @router.get("/welcome", response_class=HTMLResponse)
-async def welcome(request: Request, kind: str = Query(default="")) -> HTMLResponse:
+async def welcome(
+    request: Request,
+    _user: Annotated[SessionRecord, Depends(current_user_required)],
+    kind: str = Query(default=""),
+) -> HTMLResponse:
     """Onboarding pipeline page — shows which setup steps are done.
 
     T17 (2026-06-07): replaces the old static welcome.html with a

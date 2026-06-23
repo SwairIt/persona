@@ -282,7 +282,7 @@ async def magic_request(
     result = await send_email(addr, "Вход в Persona", text, html)
     delivered = result.get("status") == "sent"
     if not delivered:
-        log.warning("magic.not_emailed", status=result.get("status"), link=link)
+        log.warning("magic.not_emailed", status=result.get("status"))
     if json_mode:
         msg = (
             f"Аккаунт создан 🎉 Ссылка для входа отправлена на {addr}."
@@ -346,7 +346,7 @@ async def forgot_password(
             text, html = _magic_email_html(link)
             result = await send_email(chk["email"], "Смена пароля Persona", text, html)
             if result.get("status") != "sent":
-                log.warning("forgot.not_emailed", status=result.get("status"), link=link)
+                log.warning("forgot.not_emailed", status=result.get("status"))
     if json_mode:
         return JSONResponse({"ok": True, "message": generic})
     return templates.TemplateResponse(
