@@ -122,7 +122,7 @@ web-поиск + структурированные находки; финаль
     - [x] D: ночной воркер «сон» (Hermes-style, migration 191, dream_worker/reflection/dreams) — 8cbb969 (v2.20.68).
     - [x] B: salience-scoring recall (migration 192, score_and_rerank + MMR + generative mode) — a918b3e (v2.20.69).
     - [x] F: /settings/memory — тумблер dream_enabled, час сна, режим recall, веса, показ/забыть рефлексии — 4a7eadb (v2.20.71).
-    - [бэклог] C: importance при записи (эвристика/LLM → user_memory.salience) — generative и без неё работает (нейтральный дефолт).
+    - [x] C: importance при записи — эвристика salience в add_memory + build_memory_block берёт факты по важности — 8227e8e (v2.20.74).
     - [бэклог] E (опц.): RAG по документам + Reflexion на 👎.
     - ⚠️ При включённом vector/hybrid recall сделать backfill_index (реиндекс под новые nomic-префиксы), когда поднят Ollama-туннель.
 - [~] **Ф4 русский i18n — приоритет DONE** (коммит 01e29f6, v2.20.70): DEFAULT_LANGUAGE=ru +
@@ -135,8 +135,8 @@ web-поиск + структурированные находки; финаль
           навбар ведёт туда — «настройки нормальные» по сути уже сделано.
     - [x] i18n-остаток: локализованы 22 settings/admin страницы (376→834 ключа, паритет en/ru/de) — c1323b5 (v2.20.72).
     - [x] low-sev Ф1: /health payload-trim (убран host/port/db_error/captures_total) — c1323b5.
-    - [ ] доделать 3 отката (api_tokens/settings_backup/vault — потерян _batch_5) + 9 файлов `<html lang="en">`.
-    - [ ] остаток i18n (~170 не-ежедневных шаблонов) — МАЛЕНЬКИМИ батчами (агент дропнулся на большом, 57 мин).
+    - [x] доделаны 3 отката (api_tokens/settings_backup/vault) + 9 файлов `<html lang>`→ru — 78a4a15 (v2.20.73, 885 ключей).
+    - [ ] остаток i18n (~165 не-ежедневных шаблонов) — МАЛЕНЬКИМИ батчами ≤8 (агент дропнулся на большом, 57 мин).
     - [ ] low-sev Ф1 хвост: HSTS (или на FastPanel-прокси), GET /auth/logout→POST.
     - 🔑 УРОК: i18n-субагенту давать ≤8 шаблонов за прогон + класть ключи СРАЗУ в en/ru/de (не в batch-файлы).
           При обрыве ключи восстанавливаются из app/translations/_batch_*.json слиянием (скрипт был в temp).
