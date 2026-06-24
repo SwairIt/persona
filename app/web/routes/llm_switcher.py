@@ -39,10 +39,11 @@ from __future__ import annotations
 
 from typing import Final
 
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
 
 from app.audit import log_action
+from app.auth import current_user_required
 from app.llm.client import CompletionRequest, LLMNotConfigured, make_client
 from app.logging_setup import get_logger
 from app.storage.db import get_connection
@@ -50,7 +51,10 @@ from app.storage.repository import get_kv, set_kv
 from app.vault import get_secret, set_secret
 from app.web.templates_engine import templates
 
-router = APIRouter(tags=["settings"])
+router = APIRouter(
+    tags=["settings"],
+    dependencies=[Depends(current_user_required)],
+)
 log = get_logger("persona.llm.switcher")
 
 

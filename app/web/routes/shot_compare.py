@@ -13,9 +13,13 @@ the helper raises :class:`LookupError` and we translate that here.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
+from app.auth import current_user_required
+from app.auth.sessions import SessionRecord
 from app.logging_setup import get_logger
 from app.shot_compare import (
     CompareResult,
@@ -32,6 +36,7 @@ router = APIRouter(tags=["analysis"])
 @router.get("/compare", response_class=HTMLResponse)
 async def compare_page(
     request: Request,
+    _user: Annotated[SessionRecord, Depends(current_user_required)],
     a: int = Query(..., description="ID of the 'before' screenshot"),
     b: int = Query(..., description="ID of the 'after' screenshot"),
 ) -> HTMLResponse:
@@ -60,6 +65,7 @@ async def compare_page(
 
 @router.get("/api/compare.json")
 async def compare_json(
+    _user: Annotated[SessionRecord, Depends(current_user_required)],
     a: int = Query(..., description="ID of the 'before' screenshot"),
     b: int = Query(..., description="ID of the 'after' screenshot"),
 ) -> JSONResponse:

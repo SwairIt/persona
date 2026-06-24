@@ -53,6 +53,7 @@ from app.csv_export import (
     stream_screenshots_csv,
 )
 from app.logging_setup import get_logger
+from app.net_guard import url_is_safe
 from app.storage.db import get_connection
 
 log = get_logger("persona.webhook_csv_pipeline")
@@ -170,6 +171,14 @@ async def upsert_destination(
         raise ValueError(msg)
     if not (url_clean.startswith("http://") or url_clean.startswith("https://")):
         msg = "webhook_url must start with http:// or https://"
+        raise ValueError(msg)
+    if not url_is_safe(url_clean):
+        # SSRF guard: refuse a destination that resolves to a private /
+        # loopback / link-local / reserved / multicast / unspecified address
+        # (127.0.0.1, 10.x, 169.254.169.254, ::1 …). Rejected at save time so
+        # the settings UI shows a 400 instead of the nightly worker silently
+        # POSTing this install's CSV into the server's own network.
+        msg = "webhook_url resolves to a private/loopback/reserved address (blocked)"
         raise ValueError(msg)
     if kind_clean not in _ALLOWED_KINDS:
         msg = (
@@ -289,6 +298,26 @@ async def _collect_csv_body(
     return "".join(chunks)
 
 
+class _NoRedirects(urllib.request.HTTPRedirectHandler):
+    """A redirect handler that follows nothing.
+
+    Returning ``None`` from :meth:`redirect_request` tells urllib not to
+    follow the 3xx; the redirect status then surfaces as an
+    :class:`urllib.error.HTTPError` which :func:`_post_csv` records like any
+    other HTTP reply. This closes the SSRF redirect hole: a public host can
+    no longer ``302`` us into an internal address after the pre-flight
+    :func:`url_is_safe` check has already vetted the *original* URL.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001, ANN201, ARG002, PLR0913
+        return None
+
+
+# Reused across calls. ``build_opener`` with our subclass swaps out the
+# default redirect handler while keeping the standard HTTP/HTTPS/proxy ones.
+_NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirects)
+
+
 def _post_csv(
     url: str,
     body_bytes: bytes,
@@ -304,16 +333,23 @@ def _post_csv(
     failure). The ``0`` sentinel matches what curl writes for the
     same condition.
     """
+    if not url_is_safe(url):
+        # SSRF guard, re-checked immediately before the network call in case
+        # the destination's DNS has changed since it was saved. Surfaced as
+        # the ``0`` sentinel so the UI renders it like a transport failure.
+        return 0, "blocked by SSRF guard (private/loopback/reserved target)"
     headers: dict[str, str] = {"Content-Type": "text/csv"}
     headers.update(extra_headers)
-    request = urllib.request.Request(  # noqa: S310 - URL is operator-supplied
+    request = urllib.request.Request(  # noqa: S310 - URL vetted by url_is_safe
         url,
         data=body_bytes,
         headers=headers,
         method="POST",
     )
     try:
-        with urllib.request.urlopen(  # noqa: S310 - URL is operator-supplied
+        # Use the no-redirect opener (not the module ``urlopen``) so a public
+        # host cannot 302 the request into an internal address.
+        with _NO_REDIRECT_OPENER.open(  # noqa: S310 - URL vetted by url_is_safe
             request, timeout=_REQUEST_TIMEOUT_S
         ) as response:
             # ``HTTPResponse.status`` is always present in 3.9+.

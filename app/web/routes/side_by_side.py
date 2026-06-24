@@ -18,11 +18,13 @@ from __future__ import annotations
 
 import hashlib
 from datetime import UTC, date, datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Annotated
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
+from app.auth import current_user_required
+from app.auth.sessions import SessionRecord
 from app.logging_setup import get_logger
 from app.storage.db import get_connection
 from app.storage.repository import get_screenshot
@@ -101,6 +103,7 @@ def _clamp_offset(offset: int) -> int:
 @router.get("/compare/{id_a}/{id_b}", response_class=HTMLResponse)
 async def side_by_side_page(
     request: Request,
+    _user: Annotated[SessionRecord, Depends(current_user_required)],
     id_a: int,
     id_b: int,
 ) -> HTMLResponse:
@@ -125,6 +128,7 @@ async def side_by_side_page(
 
 @router.get("/api/compare/shots-of-day.json", response_class=JSONResponse)
 async def side_by_side_shots_of_day(
+    _user: Annotated[SessionRecord, Depends(current_user_required)],
     offset: int = Query(default=0, description="Day offset from today; arrow keys step by ±1."),
 ) -> JSONResponse:
     """Return the shot-of-day id pair (``offset`` and ``offset - 1``) as JSON.

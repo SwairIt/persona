@@ -34,15 +34,19 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
+from app.auth import current_user_required
 from app.logging_setup import get_logger
 from app.storage.db import get_connection
 from app.web.templates_engine import templates
 
-router = APIRouter(tags=["external_ping"])
+router = APIRouter(
+    tags=["external_ping"],
+    dependencies=[Depends(current_user_required)],
+)
 log = get_logger("persona.external_ping")
 
 # Hard caps to keep a single row small and the admin table render-able.

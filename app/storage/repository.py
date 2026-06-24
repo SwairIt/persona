@@ -326,6 +326,15 @@ async def set_kv(conn: aiosqlite.Connection, key: str, value: str) -> None:
     await conn.commit()
 
 
+async def delete_kv(conn: aiosqlite.Connection, key: str) -> None:
+    """Delete a kv_settings entry. No-op if the key is absent."""
+    await conn.execute(
+        "DELETE FROM kv_settings WHERE key = ?",
+        (key,),
+    )
+    await conn.commit()
+
+
 async def list_kv(conn: aiosqlite.Connection) -> dict[str, str]:
     """Return all kv_settings as a dict."""
     cursor = await conn.execute("SELECT key, value FROM kv_settings")

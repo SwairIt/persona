@@ -15,11 +15,14 @@ The HTML toolbar button at the top of the screen calls these via fetch.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from app.auth import current_user_optional
+from app.auth import current_user_optional, current_user_required
+from app.auth.sessions import SessionRecord
 from app.logging_setup import get_logger
 from app.storage.db import get_connection
 from app.storage.repository import get_kv, set_kv
@@ -48,7 +51,11 @@ async def mic_status() -> JSONResponse:
 
 
 @router.post("/api/audio/mic")
-async def mic_toggle(payload: _TogglePayload, request: Request) -> JSONResponse:
+async def mic_toggle(
+    request: Request,
+    _user: Annotated[SessionRecord, Depends(current_user_required)],
+    payload: _TogglePayload,
+) -> JSONResponse:
     """Flip the live mic pause flag.
 
     Takes effect within ~5 s. When the user is signed in, also fans the

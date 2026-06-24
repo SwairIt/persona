@@ -27,10 +27,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
 import anyio
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.auth import current_user_required
 from app.logging_setup import get_logger
 from app.multi_shot_zip import MAX_IDS, build_shots_zip
 
@@ -39,7 +40,10 @@ if TYPE_CHECKING:
 
 log = get_logger("persona.multi_shot_zip")
 
-router = APIRouter(tags=["multi-shot-zip"])
+router = APIRouter(
+    tags=["multi-shot-zip"],
+    dependencies=[Depends(current_user_required)],
+)
 
 # 64 KiB chunks — same constant the archive-bundle route uses. Big
 # enough to keep syscall overhead negligible, small enough that one

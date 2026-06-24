@@ -20,8 +20,6 @@ from __future__ import annotations
 
 from typing import Annotated
 
-import secrets
-
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
@@ -42,6 +40,7 @@ from app.auth.users import update_password
 from app.logging_setup import get_logger
 from app.smtp_delivery import send_email
 from app.storage.db import get_connection
+from app.web.rate_limit import allow as _rate_allow
 from app.web.templates_engine import templates
 
 
@@ -98,6 +97,41 @@ def _trim_ua(raw: str | None) -> str | None:
     return raw[:_MAX_UA_LEN]
 
 
+def _client_ip(request: Request) -> str:
+    """Best-effort client IP, honouring the reverse proxy's X-Forwarded-For."""
+    xff = request.headers.get("x-forwarded-for", "")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _cookie_secure(request: Request) -> bool:
+    """Session-cookie Secure flag. True over real HTTPS ИЛИ за TLS-прокси,
+    который ставит X-Forwarded-Proto=https (devtunnel / FastPanel)."""
+    if request.headers.get("x-forwarded-proto", "").lower() == "https":
+        return True
+    return request.url.scheme == "https"
+
+
+def _rate_limited(request: Request, bucket: str, max_events: int, window_seconds: int) -> bool:
+    """True если IP превысил бюджет попыток для ``bucket`` (anti brute-force/спам)."""
+    return not _rate_allow(f"{bucket}:{_client_ip(request)}", max_events, window_seconds)
+
+
+def _too_many(request: Request) -> Response:
+    """Дружелюбный 429 для throttled auth-эндпоинтов."""
+    msg = "Слишком много попыток. Подожди минуту и попробуй снова."
+    if _wants_json(request):
+        return JSONResponse({"ok": False, "error": msg}, status_code=429)
+    return HTMLResponse(
+        "<!doctype html><meta charset=utf-8>"
+        "<body style='font-family:system-ui,sans-serif;background:#0b0b0f;color:#eee;"
+        "padding:3rem;text-align:center'><h2>⏳ " + msg + "</h2>"
+        "<p><a href='/auth/login' style='color:#a78bfa'>Назад ко входу</a></p></body>",
+        status_code=429,
+    )
+
+
 # --- GET pages -------------------------------------------------------------
 
 
@@ -152,6 +186,8 @@ async def signup_submit(
     display_name: Annotated[str, Form()] = "",
 ) -> Response:
     """Create the user, start a session, redirect to /now."""
+    if _rate_limited(request, "signup", 10, 3600):
+        return _too_many(request)
     try:
         user = await create_user(email, password, display_name)
     except ValueError as exc:
@@ -177,7 +213,7 @@ async def signup_submit(
     ua = _trim_ua(request.headers.get("user-agent"))
     token, _expires_at = await issue_session(user["id"], user_agent=ua)
     response = RedirectResponse(url=await _post_auth_dest(user["id"]), status_code=303)
-    secure = request.url.scheme == "https"
+    secure = _cookie_secure(request)
     _set_session_cookie(response, token, secure, 30 * 24 * 3600)
     return response
 
@@ -189,6 +225,8 @@ async def login_submit(
     password: Annotated[str, Form()],
 ) -> Response:
     """Verify credentials, start a session. JSON for inline fetch, else page."""
+    if _rate_limited(request, "login", 20, 3600):
+        return _too_many(request)
     user = await authenticate(email, password)
     if user is None:
         if _wants_json(request):
@@ -202,7 +240,7 @@ async def login_submit(
     ua = _trim_ua(request.headers.get("user-agent"))
     token, _expires_at = await issue_session(user["id"], user_agent=ua)
     dest = await _post_auth_dest(user["id"])
-    secure = request.url.scheme == "https"
+    secure = _cookie_secure(request)
     if _wants_json(request):
         response: Response = JSONResponse({"ok": True, "redirect": dest})
     else:
@@ -231,17 +269,19 @@ async def magic_request(
     request: Request,
     email: Annotated[str, Form()],
 ) -> Response:
-    """Request a passwordless login link (and auto-register new emails).
+    """Request a passwordless login link for an EXISTING account.
 
     Existing user → mint a magic link and email it. Unknown email →
-    auto-create a passwordless account, then mint + email the link. New
-    accounts are SAFE to create openly because the owner-gate sandboxes
-    every non-owner to /pending — a stranger can never see the owner's data.
+    generic response, NO account creation (anti-abuse on a public domain:
+    blind account creation + spam-blast). New accounts go through the
+    explicit /auth/signup form. Rate-limited per IP.
 
     The link is NEVER shown in the HTTP response: otherwise anyone could
     type someone else's email and log in as them. When SMTP isn't set up,
     the link is logged server-side so the owner can still test.
     """
+    if _rate_limited(request, "magic", 5, 3600):
+        return _too_many(request)
     chk = check_email(email)
     json_mode = _wants_json(request)
     # Невалидный формат ИЛИ распознанная опечатка домена (gmail.ru→gmail.com)
@@ -262,18 +302,19 @@ async def magic_request(
     uid = await _user_id_for_email(addr)
     registered_now = False
     if uid is None:
-        try:
-            user = await create_user(addr, secrets.token_urlsafe(18), "")
-            uid = int(user["id"])
-            registered_now = True
-        except ValueError:
-            uid = await _user_id_for_email(addr)
-    if uid is None:
+        # Публичный домен: НЕ создаём аккаунт вслепую по magic-ссылке
+        # (анти-абуз: рассылка спама + бесконтрольное создание юзеров).
+        # Ответ одинаковый, чтобы не палить, существует ли аккаунт.
+        # Новые аккаунты — только через явный /auth/signup.
         if json_mode:
-            return JSONResponse({"ok": False, "error": "Не удалось обработать email."}, status_code=400)
+            return JSONResponse({
+                "ok": True, "delivered": True, "registered": False,
+                "message": f"Если аккаунт {addr} существует — ссылка для входа отправлена.",
+            })
         return templates.TemplateResponse(
             request, "auth_magic_sent.html",
-            {"title": "Ошибка", "mode": "invalid", "email": addr}, status_code=400,
+            {"title": "Проверьте почту", "mode": "login", "email": addr,
+             "delivered": True, "registered": False},
         )
 
     token = await create_magic_link(addr)
@@ -323,7 +364,7 @@ async def magic_consume(request: Request, token: str) -> Response:
     nxt = request.query_params.get("next", "")
     dest = nxt if nxt.startswith("/") and not nxt.startswith("//") else await _post_auth_dest(uid)
     response = RedirectResponse(url=dest, status_code=303)
-    secure = request.url.scheme == "https"
+    secure = _cookie_secure(request)
     _set_session_cookie(response, token2, secure, 30 * 24 * 3600)
     return response
 
@@ -335,6 +376,8 @@ async def forgot_password(
 ) -> Response:
     """Сброс пароля через письмо: шлём magic-link на страницу установки пароля.
     Ответ одинаковый независимо от наличия аккаунта (не палим, кто зареган)."""
+    if _rate_limited(request, "forgot", 5, 3600):
+        return _too_many(request)
     chk = check_email(email)
     json_mode = _wants_json(request)
     generic = "Если такой аккаунт есть — на почту отправлена ссылка для смены пароля."

@@ -28,9 +28,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import anyio
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 
+from app.auth import current_user_required
 from app.diagnostics_bundle import build_diag_bundle
 from app.logging_setup import get_logger
 
@@ -39,7 +40,10 @@ if TYPE_CHECKING:
 
 log = get_logger("persona.diag")
 
-router = APIRouter(tags=["diagnostics-bundle"])
+router = APIRouter(
+    tags=["diagnostics-bundle"],
+    dependencies=[Depends(current_user_required)],
+)
 
 # 64 KiB chunks — same constant the archive-bundle route uses. Big
 # enough to keep syscall overhead negligible, small enough that one

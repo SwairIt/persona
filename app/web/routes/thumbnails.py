@@ -3,18 +3,30 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 
+from app.auth import current_user_required
+from app.auth.sessions import SessionRecord
 from app.settings import get_settings
 
 router = APIRouter(tags=["thumbnails"])
 
 
 @router.get("/thumbs/{relative_path:path}")
-async def thumbnail(relative_path: str) -> FileResponse:
-    """Stream a WebP thumbnail. Path is validated against the thumbnails root."""
+async def thumbnail(
+    relative_path: str,
+    _user: Annotated[SessionRecord, Depends(current_user_required)],
+) -> FileResponse:
+    """Stream a WebP thumbnail (owner-only). Path validated against the root.
+
+    Тумбы — это приватные скриншоты экрана владельца. Раньше /thumbs/* был в
+    публичном allow-list → любой аноним мог перебором id выкачать всю историю
+    экрана. Теперь только под сессией. (Публичные шары/дни получат отдельный
+    токен-скоупленный роут эскизов — TODO в NIGHT_BUILD_PLAN Ф5.)
+    """
     settings = get_settings()
     root = settings.thumbnails_dir
     candidate = (root / relative_path).resolve()

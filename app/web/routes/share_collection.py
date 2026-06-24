@@ -14,11 +14,13 @@ from __future__ import annotations
 import json
 import secrets
 import time
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
+from app.auth import current_user_required
+from app.auth.sessions import SessionRecord
 from app.logging_setup import get_logger
 from app.storage.db import get_connection
 from app.storage.repository import get_screenshot
@@ -91,6 +93,7 @@ def _parse_cover_id(raw: str | None, ids: list[int]) -> int | None:
 
 @router.post("/api/share/collection")
 async def create_collection_share(
+    _user: Annotated[SessionRecord, Depends(current_user_required)],
     screenshot_ids: str = Form(...),
     title: str | None = Form(None),
     ttl_hours: int = Form(24),

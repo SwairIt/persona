@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
+from app.auth import current_user_required
 from app.logging_setup import get_logger
 from app.storage.db import get_connection
 from app.storage.webhooks import (
@@ -16,7 +17,10 @@ from app.storage.webhooks import (
 from app.web.templates_engine import templates
 from app.webhooks.dispatcher import VALID_EVENTS, dispatch_test
 
-router = APIRouter(tags=["webhooks"])
+router = APIRouter(
+    tags=["webhooks"],
+    dependencies=[Depends(current_user_required)],
+)
 
 log = get_logger("persona.webhook.filters")
 

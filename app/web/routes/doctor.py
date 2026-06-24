@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 
+from app.auth import current_user_required
 from app.diagnostics import run_doctor
 from app.web.templates_engine import templates
 
-router = APIRouter(tags=["doctor"])
+router = APIRouter(
+    tags=["doctor"],
+    dependencies=[Depends(current_user_required)],
+)
 
 
 @router.get("/doctor", response_class=HTMLResponse)

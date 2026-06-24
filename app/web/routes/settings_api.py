@@ -31,16 +31,20 @@ from __future__ import annotations
 import re
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Path, Request
+from fastapi import APIRouter, Depends, HTTPException, Path, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.audit import log_action
+from app.auth import current_user_required
 from app.logging_setup import get_logger
 from app.storage.db import get_connection
 from app.storage.repository import get_kv, list_kv, set_kv
 
-router = APIRouter(tags=["settings-api"])
+router = APIRouter(
+    tags=["settings-api"],
+    dependencies=[Depends(current_user_required)],
+)
 log = get_logger("persona.settings_api")
 
 # Replacement value substituted for any kv whose key looks secret. The

@@ -50,7 +50,7 @@ log = get_logger("persona.install")
 #   * device_token — X-Device-Token for /api/sync/* + /api/devices/heartbeat
 #                    + /api/workspace/sync (T28 code-write-target sync)
 _PENDING: dict[str, tuple[str, str, str, float]] = {}
-_TTL_SECONDS = 600  # 10 minutes — plenty of time to copy-paste
+_TTL_SECONDS = 180  # 3 minutes — enough to copy-paste, short blast radius
 
 
 def _purge_expired() -> None:
@@ -63,7 +63,9 @@ def _purge_expired() -> None:
 # T29 — pending installs are stored in the SHARED DB (kv), not the in-memory
 # dict above, because with --workers N the mint and the script-fetch hit
 # DIFFERENT worker processes → an in-memory dict 410s even on the first run.
-# Kept reusable within the TTL (not single-use) so re-running curl works.
+# The row is single-use: the first script-fetch consumes it via
+# :func:`_consume_pending`, so a leaked/replayed URL 410s instead of
+# re-serving the agent credentials. Re-running curl now requires a fresh mint.
 async def _store_pending(
     install_id: str, agent_token: str, device_token: str, server_url: str
 ) -> None:
@@ -94,6 +96,22 @@ async def _load_pending(install_id: str) -> tuple[str, str, str] | None:
     if time.time() - float(d.get("t", 0)) > _TTL_SECONDS:
         return None
     return (str(d.get("a", "")), str(d.get("d", "")), str(d.get("u", "")))
+
+
+async def _consume_pending(install_id: str) -> None:
+    """Delete the shared-DB kv row backing ``install_id``.
+
+    Makes the install link genuinely single-use: once a script-fetch has
+    loaded the tokens, the row is gone, so a second GET (or a leaked URL in a
+    proxy log / shoulder-surf) 410s instead of re-serving the credentials.
+    """
+    if not install_id:
+        return
+    from app.storage.db import get_connection  # noqa: PLC0415
+    from app.storage.repository import delete_kv  # noqa: PLC0415
+
+    async with get_connection() as conn:
+        await delete_kv(conn, f"install_pending_{install_id}")
 
 
 async def _ensure_device(user_id: int, kind: str, name: str) -> str:
@@ -240,6 +258,8 @@ async def install_mac_script(t: str = Query(...)) -> PlainTextResponse:
             "# Install link expired. Refresh /welcome/install/mac to mint a new one.\n",
             status_code=410,
         )
+    # Single-use: consume the token now so a replay (or a leaked URL) 410s.
+    await _consume_pending(t)
     agent_token, device_token, server_url = record
 
     # Quote everything safely. Tokens are url-safe base64 so they're
@@ -545,6 +565,8 @@ async def install_windows_script(t: str = Query(...)) -> PlainTextResponse:
             "# Install link expired. Refresh /welcome/install/windows to mint a new one.\n",
             status_code=410,
         )
+    # Single-use: consume the token now so a replay (or a leaked URL) 410s.
+    await _consume_pending(t)
     agent_token, device_token, server_url = record
     script = (
         _WINDOWS_PS1_TEMPLATE.replace("__SERVER__", server_url.replace("'", "''"))

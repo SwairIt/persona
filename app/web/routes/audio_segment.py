@@ -43,19 +43,23 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Final
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 
 if TYPE_CHECKING:
     from pathlib import Path
 
+from app.auth import current_user_required
 from app.logging_setup import get_logger
 from app.settings import get_settings
 from app.storage.db import get_connection
 
 log = get_logger("persona.audio.web")
 
-router = APIRouter(tags=["audio-segment"])
+router = APIRouter(
+    tags=["audio-segment"],
+    dependencies=[Depends(current_user_required)],
+)
 
 # Mapping from the ``codec`` column to the MIME type we hand the
 # browser. Mirrors :data:`app.web.routes.note_attachments._MIME_TO_EXT`

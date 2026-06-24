@@ -9,9 +9,9 @@ Two surfaces share this module:
   policy that protects the searchable index also protects the
   externally visible captions.
 * ``/admin/public-days`` — admin list + publish form, plus
-  ``/admin/public-days/{day}/unpublish``. These sit behind the same
-  auth as the rest of the admin UI (no extra wiring here — they live
-  on the existing router).
+  ``/admin/public-days/{day}/unpublish``. Each admin handler requires a
+  signed-in session via the ``current_user_required`` dependency; only
+  the ``/public/day/{slug}`` reader below is intentionally anonymous.
 
 Slug validation, persistence, and slug-uniqueness all live in
 :mod:`app.public_day`. The route module just translates HTTP <-> the
@@ -21,12 +21,14 @@ helpers and renders the two templates.
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import Any, Final
+from typing import Annotated, Any, Final
 
-from fastapi import APIRouter, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app import public_day as public_day_store
+from app.auth import current_user_required
+from app.auth.sessions import SessionRecord
 from app.logging_setup import get_logger
 from app.redaction import apply_redaction
 from app.storage.db import get_connection
@@ -201,7 +203,10 @@ async def public_day_view(request: Request, slug: str) -> HTMLResponse:
 
 
 @router.get("/admin/public-days", response_class=HTMLResponse)
-async def admin_public_days(request: Request) -> HTMLResponse:
+async def admin_public_days(
+    request: Request,
+    _user: Annotated[SessionRecord, Depends(current_user_required)],
+) -> HTMLResponse:
     """List currently-published days + offer a form to publish a new one."""
     rows = await public_day_store.list_published()
     return templates.TemplateResponse(
@@ -217,6 +222,7 @@ async def admin_public_days(request: Request) -> HTMLResponse:
 
 @router.post("/admin/public-days")
 async def admin_public_days_create(
+    _user: Annotated[SessionRecord, Depends(current_user_required)],
     day: str = Form(...),
     slug: str = Form(...),
     title: str = Form(...),
@@ -240,7 +246,10 @@ async def admin_public_days_create(
 
 
 @router.post("/admin/public-days/{day}/unpublish")
-async def admin_public_days_unpublish(day: str) -> RedirectResponse:
+async def admin_public_days_unpublish(
+    _user: Annotated[SessionRecord, Depends(current_user_required)],
+    day: str,
+) -> RedirectResponse:
     """Remove the public-day row for ``day``."""
     try:
         await public_day_store.unpublish(day)

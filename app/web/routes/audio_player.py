@@ -41,10 +41,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Final
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from app.audio.waveform import compute_waveform_peaks
+from app.auth import current_user_required
 from app.logging_setup import get_logger
 from app.settings import get_settings
 from app.storage.db import get_connection
@@ -55,7 +56,10 @@ if TYPE_CHECKING:
 
 log = get_logger("persona.audio.player")
 
-router = APIRouter(tags=["audio-player"])
+router = APIRouter(
+    tags=["audio-player"],
+    dependencies=[Depends(current_user_required)],
+)
 
 # Extension → MIME mapping for the streaming endpoint. The spec calls
 # out ``audio/opus`` and ``audio/wav`` explicitly; anything else falls

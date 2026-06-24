@@ -21,12 +21,14 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
+from app.auth import current_user_required
+from app.auth.sessions import SessionRecord
 from app.logging_setup import get_logger
 from app.storage.db import get_connection
 from app.storage.notes import get_note
@@ -189,6 +191,7 @@ async def _record_visit(
 
 @router.post("/api/screenshot/{screenshot_id}/share/create")
 async def create_shot_share(
+    _user: Annotated[SessionRecord, Depends(current_user_required)],
     screenshot_id: int,
     body: ShotShareCreateRequest | None = None,
 ) -> dict[str, Any]:
@@ -263,7 +266,10 @@ async def view_shot_share(request: Request, shot_id: int, token: str) -> HTMLRes
 
 
 @router.post("/shot/share/{shot_id}/revoke")
-async def revoke_shot_share(shot_id: int) -> dict[str, Any]:
+async def revoke_shot_share(
+    _user: Annotated[SessionRecord, Depends(current_user_required)],
+    shot_id: int,
+) -> dict[str, Any]:
     """Mark all currently-live tokens for this screenshot as revoked.
 
     Future tokens issued after this call will still work — revocation is a

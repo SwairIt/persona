@@ -15,7 +15,7 @@ minute even without explicit cache invalidation.
 Public allow-list
 -----------------
 Paths starting with these prefixes are always accessible:
-  * /landing, /auth/*, /help, /static/*, /thumbs/*
+  * /landing, /auth/*, /help, /static/*
   * /healthz, /api/health.json (so load balancers stay green)
   * /api/sync/*, /api/devices/heartbeat (agent-facing, auth via header)
   * /favicon.ico
@@ -65,7 +65,6 @@ _PUBLIC_PREFIXES: tuple[str, ...] = (
     "/auth/",
     "/help",
     "/static/",
-    "/thumbs/",
     "/healthz",
     "/api/health.json",
     "/api/sync/",

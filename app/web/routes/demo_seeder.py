@@ -19,10 +19,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
+from app.auth import current_user_required
 from app.demo_seeder import (
     SeederRefused,
     count_demo_rows,
@@ -32,7 +33,10 @@ from app.demo_seeder import (
 from app.logging_setup import get_logger
 from app.web.templates_engine import templates
 
-router = APIRouter(tags=["demo-seeder"])
+router = APIRouter(
+    tags=["demo-seeder"],
+    dependencies=[Depends(current_user_required)],
+)
 log = get_logger("persona.web.demo_seeder")
 
 

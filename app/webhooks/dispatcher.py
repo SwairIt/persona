@@ -34,6 +34,7 @@ from typing import Any
 import httpx
 
 from app.logging_setup import get_logger
+from app.net_guard import url_is_safe
 from app.storage.db import get_connection
 from app.storage.webhooks import list_webhooks, record_delivery
 from app.webhook_filters import should_fire
@@ -104,7 +105,10 @@ async def _do_dispatch(event_type: str, payload: dict[str, Any]) -> None:
     }
     body_bytes = json.dumps(body_obj, ensure_ascii=False).encode("utf-8")
 
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    # follow_redirects stays False (httpx's default, pinned explicitly): a
+    # 30x reply from an otherwise-public host could bounce the signed POST
+    # into an internal address that the pre-flight SSRF check never saw.
+    async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
         tasks = [_post_one(client, sub, body_bytes, ts, event_type) for sub in subs]
         await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -132,6 +136,23 @@ async def _post_one(
 ) -> None:
     sub_id = int(sub["id"])
     url = str(sub["url"])
+
+    if not url_is_safe(url):
+        # The destination is not http(s), or it resolves to a private /
+        # loopback / link-local / reserved / multicast / unspecified address
+        # — i.e. an SSRF vector pointing back into the server's own network.
+        # Refuse to send and record it as a failed delivery. We deliberately
+        # do NOT enqueue a retry: re-resolving the same host won't make it
+        # safe, so retrying would just hammer the guard forever.
+        async with get_connection() as conn:
+            await record_delivery(
+                conn,
+                sub_id,
+                status_code=0,
+                error="blocked by SSRF guard (private/loopback/reserved target)",
+            )
+        log.warning("webhook.sign.ssrf_blocked", url=url)
+        return
 
     secret = await ensure_secret(sub_id)
     headers = {

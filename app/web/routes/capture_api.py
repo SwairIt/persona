@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import asyncio
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
+from app.auth import current_user_required
 from app.capture import capture_primary_monitor, get_active_window
 from app.dedup import compute_phash, find_or_create_dedup_group
 from app.settings import get_settings
@@ -19,7 +20,11 @@ from app.storage.repository import (
 from app.storage.thumbnails import save_thumbnail
 from app.workers.control import get_controller
 
-router = APIRouter(prefix="/api/capture", tags=["capture-control"])
+router = APIRouter(
+    prefix="/api/capture",
+    tags=["capture-control"],
+    dependencies=[Depends(current_user_required)],
+)
 
 
 @router.post("/start")

@@ -77,6 +77,18 @@ _SENSITIVE_KEY_NEEDLES: Final[tuple[str, ...]] = (
     "access_token",
     "refresh_token",
     "bearer",
+    # Broadened denylist (pre-domain hardening) — these substrings also
+    # flag connection/credential/endpoint settings that can leak infra
+    # topology or auth material when a diag bundle lands on a public tracker.
+    "smtp",
+    "pass",
+    "url",
+    "webhook",
+    "host",
+    "user",
+    "from",
+    "provider",
+    "session",
 )
 
 # Sentinel written in place of a stripped value so a reader can tell
