@@ -14,39 +14,31 @@
 <div class="mb-6 flex items-end justify-between flex-wrap gap-3">
   <div>
     <h1 class="text-2xl font-bold tracking-tight flex items-center gap-3">
-      <span class="text-accent-400">⟲</span> Retention preview
+      <span class="text-accent-400">⟲</span> {{ t('retention_preview_title') }}
     </h1>
     <p class="text-zinc-500 text-sm mt-1">
-      Exactly what the retention worker would touch on its next run, no
-      writes performed. Useful for sanity-checking thresholds before
-      lowering them.
+      {{ t('retention_preview_intro') }}
     </p>
   </div>
   <a href="/settings"
      class="text-xs text-zinc-500 hover:text-accent-400 underline">
-    ← settings
+    ← {{ t('btn_settings') }}
   </a>
 </div>
 
 {# ---- dry-run banner ---- #}
 <div class="rounded-lg border border-amber-700/60 bg-amber-900/20 p-4 mb-8">
   <p class="text-amber-200 text-sm">
-    <strong class="font-semibold">Dry-run.</strong>
-    This is a preview &mdash; no rows are demoted, no thumbnails are
-    deleted, no recycle-bin entries are purged. The numbers below match
-    what the retention worker would do on its next sweep with the
-    currently-configured thresholds
-    (warm after <span class="font-mono">{{ warm_after_days }}</span>
-    day{{ "" if warm_after_days == 1 else "s" }},
-    cold after <span class="font-mono">{{ cold_after_days }}</span>
-    day{{ "" if cold_after_days == 1 else "s" }},
-    bin purge after <span class="font-mono">{{ recycle_retention_days }}</span>
-    day{{ "" if recycle_retention_days == 1 else "s" }}).
+    <strong class="font-semibold">{{ t('retention_preview_dry_run') }}</strong>
+    {{ t('retention_preview_banner_a') }}
+    {{ t('retention_preview_banner_warm') }} <span class="font-mono">{{ warm_after_days }}</span>
+    {{ t('label_day_many') }},
+    {{ t('retention_preview_banner_cold') }} <span class="font-mono">{{ cold_after_days }}</span>
+    {{ t('label_day_many') }},
+    {{ t('retention_preview_banner_bin') }} <span class="font-mono">{{ recycle_retention_days }}</span>
+    {{ t('label_day_many') }}).
     {% if not tiered_retention %}
-      <br><strong class="font-semibold">Note:</strong> tiered retention
-      is currently <span class="font-mono">disabled</span> in settings
-      &mdash; warm/cold demotions would be skipped even though candidates
-      exist.
+      <br><strong class="font-semibold">{{ t('label_note') }}:</strong> {{ t('retention_preview_note_disabled') }}
     {% endif %}
   </p>
 </div>
@@ -57,7 +49,7 @@
   <div class="rounded-lg border border-amber-700/40 bg-amber-900/10 p-5">
     <div class="flex items-baseline justify-between">
       <div class="text-xs uppercase tracking-wider text-amber-300/80">
-        Demote to warm
+        {{ t('retention_preview_demote_warm') }}
       </div>
       <div class="text-[10px] text-zinc-500 font-mono">
         hot → warm
@@ -67,7 +59,7 @@
       {{ "{:,}".format(preview.to_demote_warm) }}
     </div>
     <div class="text-xs text-zinc-500 mt-1">
-      screenshot{{ "" if preview.to_demote_warm == 1 else "s" }} would be downscaled
+      {{ t('retention_preview_would_downscale') }}
     </div>
 
     {# sample thumbs #}
@@ -77,23 +69,23 @@
           {% if s.thumbnail_url %}
             <a href="/screenshot/{{ s.id }}"
                class="block aspect-video bg-ink-900 rounded overflow-hidden border border-amber-700/20 hover:border-amber-500/60 transition"
-               title="Screenshot #{{ s.id }}">
-              <img src="{{ s.thumbnail_url }}" alt="Screenshot #{{ s.id }}"
+               title="{{ t('retention_preview_screenshot') }} #{{ s.id }}">
+              <img src="{{ s.thumbnail_url }}" alt="{{ t('retention_preview_screenshot') }} #{{ s.id }}"
                    loading="lazy"
                    class="w-full h-full object-cover">
             </a>
           {% else %}
             <div class="aspect-video bg-ink-900 rounded border border-ink-700 flex items-center justify-center text-[10px] text-zinc-600 font-mono"
-                 title="No thumbnail">
+                 title="{{ t('retention_preview_no_thumb') }}">
               #{{ s.id }}
             </div>
           {% endif %}
         {% endfor %}
       </div>
     {% elif preview.to_demote_warm == 0 %}
-      <p class="text-xs text-zinc-500 mt-4 italic">Nothing to demote.</p>
+      <p class="text-xs text-zinc-500 mt-4 italic">{{ t('retention_preview_nothing_demote') }}</p>
     {% else %}
-      <p class="text-xs text-zinc-500 mt-4 italic">No sample thumbnails available.</p>
+      <p class="text-xs text-zinc-500 mt-4 italic">{{ t('retention_preview_no_samples') }}</p>
     {% endif %}
   </div>
 
@@ -101,7 +93,7 @@
   <div class="rounded-lg border border-sky-700/40 bg-sky-900/10 p-5">
     <div class="flex items-baseline justify-between">
       <div class="text-xs uppercase tracking-wider text-sky-300/80">
-        Demote to cold
+        {{ t('retention_preview_demote_cold') }}
       </div>
       <div class="text-[10px] text-zinc-500 font-mono">
         warm → cold
@@ -111,7 +103,7 @@
       {{ "{:,}".format(preview.to_demote_cold) }}
     </div>
     <div class="text-xs text-zinc-500 mt-1">
-      thumbnail{{ "" if preview.to_demote_cold == 1 else "s" }} would be deleted; row + OCR kept
+      {{ t('retention_preview_would_delete_thumb') }}
     </div>
 
     {% if cold_samples %}
@@ -120,23 +112,23 @@
           {% if s.thumbnail_url %}
             <a href="/screenshot/{{ s.id }}"
                class="block aspect-video bg-ink-900 rounded overflow-hidden border border-sky-700/20 hover:border-sky-500/60 transition"
-               title="Screenshot #{{ s.id }}">
-              <img src="{{ s.thumbnail_url }}" alt="Screenshot #{{ s.id }}"
+               title="{{ t('retention_preview_screenshot') }} #{{ s.id }}">
+              <img src="{{ s.thumbnail_url }}" alt="{{ t('retention_preview_screenshot') }} #{{ s.id }}"
                    loading="lazy"
                    class="w-full h-full object-cover">
             </a>
           {% else %}
             <div class="aspect-video bg-ink-900 rounded border border-ink-700 flex items-center justify-center text-[10px] text-zinc-600 font-mono"
-                 title="No thumbnail">
+                 title="{{ t('retention_preview_no_thumb') }}">
               #{{ s.id }}
             </div>
           {% endif %}
         {% endfor %}
       </div>
     {% elif preview.to_demote_cold == 0 %}
-      <p class="text-xs text-zinc-500 mt-4 italic">Nothing to demote.</p>
+      <p class="text-xs text-zinc-500 mt-4 italic">{{ t('retention_preview_nothing_demote') }}</p>
     {% else %}
-      <p class="text-xs text-zinc-500 mt-4 italic">No sample thumbnails available.</p>
+      <p class="text-xs text-zinc-500 mt-4 italic">{{ t('retention_preview_no_samples') }}</p>
     {% endif %}
   </div>
 
@@ -144,17 +136,17 @@
   <div class="rounded-lg border border-rose-700/40 bg-rose-900/10 p-5">
     <div class="flex items-baseline justify-between">
       <div class="text-xs uppercase tracking-wider text-rose-300/80">
-        Hard delete
+        {{ t('retention_preview_hard_delete') }}
       </div>
       <div class="text-[10px] text-zinc-500 font-mono">
-        recycle bin
+        {{ t('retention_preview_recycle_bin') }}
       </div>
     </div>
     <div class="text-4xl font-bold mt-2 text-rose-200">
       {{ "{:,}".format(preview.to_hard_delete) }}
     </div>
     <div class="text-xs text-zinc-500 mt-1">
-      bin row{{ "" if preview.to_hard_delete == 1 else "s" }} would be purged forever
+      {{ t('retention_preview_would_purge') }}
     </div>
 
     {% if delete_samples %}
@@ -162,23 +154,23 @@
         {% for s in delete_samples %}
           {% if s.thumbnail_url %}
             <div class="block aspect-video bg-ink-900 rounded overflow-hidden border border-rose-700/20"
-                 title="Recycle-bin entry #{{ s.id }}">
-              <img src="{{ s.thumbnail_url }}" alt="Recycle bin #{{ s.id }}"
+                 title="{{ t('retention_preview_bin_entry') }} #{{ s.id }}">
+              <img src="{{ s.thumbnail_url }}" alt="{{ t('retention_preview_bin_entry') }} #{{ s.id }}"
                    loading="lazy"
                    class="w-full h-full object-cover opacity-60">
             </div>
           {% else %}
             <div class="aspect-video bg-ink-900 rounded border border-ink-700 flex items-center justify-center text-[10px] text-zinc-600 font-mono"
-                 title="No thumbnail">
+                 title="{{ t('retention_preview_no_thumb') }}">
               #{{ s.id }}
             </div>
           {% endif %}
         {% endfor %}
       </div>
     {% elif preview.to_hard_delete == 0 %}
-      <p class="text-xs text-zinc-500 mt-4 italic">Nothing to purge.</p>
+      <p class="text-xs text-zinc-500 mt-4 italic">{{ t('retention_preview_nothing_purge') }}</p>
     {% else %}
-      <p class="text-xs text-zinc-500 mt-4 italic">No sample thumbnails available.</p>
+      <p class="text-xs text-zinc-500 mt-4 italic">{{ t('retention_preview_no_samples') }}</p>
     {% endif %}
   </div>
 </section>
@@ -188,7 +180,7 @@
   <div class="flex items-baseline justify-between flex-wrap gap-2">
     <div>
       <div class="text-xs uppercase tracking-wider text-emerald-300/80">
-        Estimated disk freed
+        {{ t('retention_preview_est_disk_freed') }}
       </div>
       <div class="text-3xl font-bold mt-2 text-emerald-200">
         {{ "%.1f" | format(mb_freed) }} MB
@@ -198,17 +190,14 @@
       </div>
     </div>
     <div class="text-xs text-zinc-500 max-w-md">
-      Sum of <code class="text-zinc-400">stat().st_size</code> for every
-      thumbnail the next sweep would unlink &mdash; cold demotions plus
-      recycle-bin purges. Warm demotions only re-encode, so they save
-      bytes but the figure here is conservative and excludes them.
+      {{ t('retention_preview_disk_note_a') }}<code class="text-zinc-400">stat().st_size</code>{{ t('retention_preview_disk_note_b') }}
     </div>
   </div>
 </section>
 
 {# ---- JSON link, for scripts ---- #}
 <p class="text-xs text-zinc-500 mt-6">
-  Need the raw numbers? &nbsp;
+  {{ t('retention_preview_raw_numbers') }} &nbsp;
   <a href="/api/retention-preview.json"
      class="text-accent-400 hover:underline font-mono">
     GET /api/retention-preview.json

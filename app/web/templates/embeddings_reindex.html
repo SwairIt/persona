@@ -2,63 +2,59 @@
 
 {% block content %}
 <div class="mb-6">
-  <h1 class="text-2xl font-bold tracking-tight">Embeddings re-index</h1>
+  <h1 class="text-2xl font-bold tracking-tight">{{ t('emb_reindex_title') }}</h1>
   <p class="text-zinc-500 text-sm mt-1">
-    Bulk re-compute the semantic-search vectors for every screenshot whose OCR text is
-    long enough to embed. Run this after changing
-    <code class="font-mono text-xs">PERSONA_EMBEDDINGS_MODEL</code> or installing a new
-    fastembed version — the on-disk vectors are stale and the regular worker would only
-    catch up gradually. A single click is capped at
-    <strong>{{ default_max_shots }}</strong> shots by default
-    (hard ceiling: {{ hard_max_shots }}) so a runaway job can never saturate the worker.
+    {{ t('emb_reindex_intro_a') }}
+    <code class="font-mono text-xs">PERSONA_EMBEDDINGS_MODEL</code> {{ t('emb_reindex_intro_b') }}
+    <strong>{{ default_max_shots }}</strong> {{ t('emb_reindex_intro_c').replace('{n}', hard_max_shots | string) }}
   </p>
 </div>
 
 <section class="grid gap-4 md:grid-cols-3 mb-8">
   <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
-    <div class="text-xs uppercase tracking-widest text-zinc-500">Model</div>
+    <div class="text-xs uppercase tracking-widest text-zinc-500">{{ t('emb_reindex_model') }}</div>
     <div class="text-lg font-semibold mt-1 break-all">{{ model }}</div>
   </div>
   <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
-    <div class="text-xs uppercase tracking-widest text-zinc-500">Feature flag</div>
+    <div class="text-xs uppercase tracking-widest text-zinc-500">{{ t('emb_reindex_feature_flag') }}</div>
     <div class="text-lg font-semibold mt-1
                 {% if enabled %}text-emerald-300{% else %}text-rose-300{% endif %}">
-      {% if enabled %}enabled{% else %}disabled{% endif %}
+      {% if enabled %}{{ t('emb_reindex_enabled') }}{% else %}{{ t('emb_reindex_disabled') }}{% endif %}
     </div>
     {% if not enabled %}
       <div class="text-xs text-zinc-500 mt-1">
-        Set <code class="font-mono">PERSONA_EMBEDDINGS_ENABLED=true</code>.
+        {{ t('emb_reindex_set') }} <code class="font-mono">PERSONA_EMBEDDINGS_ENABLED=true</code>.
       </div>
     {% endif %}
   </div>
   <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
-    <div class="text-xs uppercase tracking-widest text-zinc-500">Library</div>
+    <div class="text-xs uppercase tracking-widest text-zinc-500">{{ t('emb_reindex_library') }}</div>
     <div class="text-lg font-semibold mt-1
                 {% if library_available %}text-emerald-300{% else %}text-rose-300{% endif %}">
-      {% if library_available %}fastembed installed{% else %}fastembed missing{% endif %}
+      {% if library_available %}{{ t('emb_reindex_lib_installed') }}{% else %}{{ t('emb_reindex_lib_missing') }}{% endif %}
     </div>
     {% if not library_available %}
       <div class="text-xs text-zinc-500 mt-1">
-        Install via <code class="font-mono">uv sync --extra embeddings</code>.
+        {{ t('emb_reindex_install_via') }} <code class="font-mono">uv sync --extra embeddings</code>.
       </div>
     {% endif %}
   </div>
 </section>
 
 <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
-  <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">Start re-index</h2>
+  <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">{{ t('emb_reindex_start_heading') }}</h2>
   <form method="post" action="/admin/embeddings-reindex/start"
-        onsubmit="return confirm('Re-compute embeddings for up to ' + this.max_shots.value + ' shots?');"
+        onsubmit="return confirm('{{ t('emb_reindex_confirm_a') }}' + this.max_shots.value + '{{ t('emb_reindex_confirm_b') }}');"
         class="flex flex-wrap items-end gap-4">
     <label class="flex flex-col gap-1">
-      <span class="text-xs uppercase tracking-wider text-zinc-500">Batch size</span>
+      <span class="text-xs uppercase tracking-wider text-zinc-500">{{ t('emb_reindex_batch_size') }}</span>
       <input type="number" name="batch_size"
              value="{{ default_batch_size }}" min="1" max="1000"
              class="w-28 px-2 py-1 bg-ink-900 border border-ink-700 rounded text-sm
                     focus:outline-none focus:border-accent-500">
     </label>
     <label class="flex flex-col gap-1">
-      <span class="text-xs uppercase tracking-wider text-zinc-500">Max shots</span>
+      <span class="text-xs uppercase tracking-wider text-zinc-500">{{ t('emb_reindex_max_shots') }}</span>
       <input type="number" name="max_shots"
              value="{{ default_max_shots }}" min="1" max="{{ hard_max_shots }}"
              class="w-32 px-2 py-1 bg-ink-900 border border-ink-700 rounded text-sm
@@ -70,10 +66,10 @@
             class="px-4 py-2 rounded text-sm font-medium transition
                    bg-accent-600 hover:bg-accent-500 text-white
                    disabled:bg-ink-700 disabled:text-zinc-500 disabled:cursor-not-allowed">
-      Start re-index
+      {{ t('emb_reindex_start_btn') }}
     </button>
     <span class="text-xs text-zinc-500">
-      The job runs in the background; you can leave this page open to watch progress.
+      {{ t('emb_reindex_bg_note') }}
     </span>
   </form>
 </section>
@@ -81,7 +77,7 @@
 <section id="progress-card"
          class="rounded-lg border border-ink-700 bg-ink-800 p-5">
   <div class="flex items-center justify-between mb-3">
-    <h2 class="text-sm uppercase tracking-widest text-zinc-500">Progress</h2>
+    <h2 class="text-sm uppercase tracking-widest text-zinc-500">{{ t('emb_reindex_progress') }}</h2>
     <span id="progress-status"
           class="px-2 py-0.5 rounded-full text-xs font-medium bg-ink-700 text-zinc-300">
       idle
@@ -96,19 +92,19 @@
 
   <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
     <div>
-      <div class="text-xs uppercase tracking-wider text-zinc-500">Processed</div>
+      <div class="text-xs uppercase tracking-wider text-zinc-500">{{ t('emb_reindex_processed') }}</div>
       <div id="progress-processed" class="text-lg font-semibold text-zinc-100">0</div>
     </div>
     <div>
-      <div class="text-xs uppercase tracking-wider text-zinc-500">Total</div>
+      <div class="text-xs uppercase tracking-wider text-zinc-500">{{ t('label_grand_total') }}</div>
       <div id="progress-total" class="text-lg font-semibold text-zinc-100">0</div>
     </div>
     <div>
-      <div class="text-xs uppercase tracking-wider text-zinc-500">Batches</div>
+      <div class="text-xs uppercase tracking-wider text-zinc-500">{{ t('emb_reindex_batches') }}</div>
       <div id="progress-batches" class="text-lg font-semibold text-zinc-100">0</div>
     </div>
     <div>
-      <div class="text-xs uppercase tracking-wider text-zinc-500">Ratio</div>
+      <div class="text-xs uppercase tracking-wider text-zinc-500">{{ t('emb_reindex_ratio') }}</div>
       <div id="progress-ratio" class="text-lg font-semibold text-zinc-100">0.0%</div>
     </div>
   </div>
@@ -118,8 +114,8 @@
   </div>
 
   <div class="mt-4 text-xs text-zinc-500 flex flex-wrap gap-4">
-    <span>Started: <span id="progress-started">—</span></span>
-    <span>Finished: <span id="progress-finished">—</span></span>
+    <span>{{ t('emb_reindex_started') }} <span id="progress-started">—</span></span>
+    <span>{{ t('emb_reindex_finished') }} <span id="progress-finished">—</span></span>
   </div>
 </section>
 

@@ -3,22 +3,21 @@
 {% block content %}
 <div class="mb-6 flex items-center justify-between flex-wrap gap-3">
   <div>
-    <h1 class="text-2xl font-bold tracking-tight">Retention activity trend</h1>
+    <h1 class="text-2xl font-bold tracking-tight">{{ t('retention_trend_title') }}</h1>
     <p class="text-zinc-500 text-sm mt-1">
-      Daily count of screenshots the retention worker demoted or hard-deleted
-      over the last <span class="font-mono text-zinc-300">{{ days }}</span>
-      day{{ '' if days == 1 else 's' }}.
+      {{ t('retention_trend_intro_a') }} <span class="font-mono text-zinc-300">{{ days }}</span>
+      {{ t('label_day_many') }}.
     </p>
   </div>
   <form method="get" action="/stats/retention-trend"
         class="flex items-center gap-2 text-sm">
-    <label for="days" class="text-zinc-400">Window</label>
+    <label for="days" class="text-zinc-400">{{ t('label_window') }}</label>
     <select id="days" name="days"
             onchange="this.form.submit()"
             class="bg-ink-800 border border-ink-700 rounded px-2 py-1 text-zinc-100 font-mono">
       {% for option in [7, 14, 30, 60, 90, 180, 365] %}
         <option value="{{ option }}" {% if option == days %}selected{% endif %}>
-          {{ option }} days
+          {{ t('retention_trend_n_days').replace('{n}', option | string) }}
         </option>
       {% endfor %}
     </select>
@@ -29,60 +28,60 @@
   <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
     <div class="flex items-center gap-2">
       <span class="w-2 h-2 rounded-full" style="background: {{ color_warm_stroke }};"></span>
-      <div class="text-xs uppercase tracking-widest text-zinc-500">Demoted to warm</div>
+      <div class="text-xs uppercase tracking-widest text-zinc-500">{{ t('retention_trend_demoted_warm') }}</div>
     </div>
     <div class="text-3xl font-bold mt-1 tabular-nums">
       {{ "{:,}".format(total_demoted_warm) }}
       <span class="text-base font-normal text-zinc-500 ml-1">
-        shot{{ '' if total_demoted_warm == 1 else 's' }}
+        {{ t('retention_trend_shots') }}
       </span>
     </div>
     <div class="text-xs text-zinc-500 mt-1">
-      Hot tier downgraded to warm thumbnails.
+      {{ t('retention_trend_warm_note') }}
     </div>
   </div>
   <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
     <div class="flex items-center gap-2">
       <span class="w-2 h-2 rounded-full" style="background: {{ color_cold_stroke }};"></span>
-      <div class="text-xs uppercase tracking-widest text-zinc-500">Demoted to cold</div>
+      <div class="text-xs uppercase tracking-widest text-zinc-500">{{ t('retention_trend_demoted_cold') }}</div>
     </div>
     <div class="text-3xl font-bold mt-1 tabular-nums">
       {{ "{:,}".format(total_demoted_cold) }}
       <span class="text-base font-normal text-zinc-500 ml-1">
-        shot{{ '' if total_demoted_cold == 1 else 's' }}
+        {{ t('retention_trend_shots') }}
       </span>
     </div>
     <div class="text-xs text-zinc-500 mt-1">
-      Thumbnails dropped; metadata kept.
+      {{ t('retention_trend_cold_note') }}
     </div>
   </div>
   <div class="rounded-lg border border-ink-700 bg-ink-800 p-5">
     <div class="flex items-center gap-2">
       <span class="w-2 h-2 rounded-full" style="background: {{ color_delete_stroke }};"></span>
-      <div class="text-xs uppercase tracking-widest text-zinc-500">Hard deleted</div>
+      <div class="text-xs uppercase tracking-widest text-zinc-500">{{ t('retention_trend_hard_deleted') }}</div>
     </div>
     <div class="text-3xl font-bold mt-1 tabular-nums">
       {{ "{:,}".format(total_hard_deleted) }}
       <span class="text-base font-normal text-zinc-500 ml-1">
-        shot{{ '' if total_hard_deleted == 1 else 's' }}
+        {{ t('retention_trend_shots') }}
       </span>
     </div>
     <div class="text-xs text-zinc-500 mt-1">
-      Recycle bin entries permanently purged.
+      {{ t('retention_trend_deleted_note') }}
     </div>
   </div>
 </section>
 
 <div class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
   <h2 class="text-xs uppercase tracking-widest text-zinc-500 mb-3">
-    Stacked daily volume ({{ svg_width }} × {{ svg_height }})
+    {{ t('retention_trend_stacked_volume') }} ({{ svg_width }} × {{ svg_height }})
   </h2>
   <svg xmlns="http://www.w3.org/2000/svg"
        width="{{ svg_width }}"
        height="{{ svg_height }}"
        viewBox="0 0 {{ svg_width }} {{ svg_height }}"
        role="img"
-       aria-label="Stacked-area chart of daily retention activity over the last {{ days }} days"
+       aria-label="{{ t('retention_trend_chart_aria') }}"
        class="block w-full h-auto">
 
     {# Y-axis gridlines + tick labels. #}
@@ -152,7 +151,7 @@
             fill="#52525b"
             font-size="12"
             font-family="JetBrains Mono, Cascadia Code, Consolas, monospace">
-        no retention activity in window
+        {{ t('retention_trend_no_activity') }}
       </text>
     {% endif %}
 
@@ -178,35 +177,35 @@
       <span class="w-3 h-3 rounded-sm"
             style="background: {{ color_warm_fill }};
                    border: 1px solid {{ color_warm_stroke }};"></span>
-      Demoted to warm
+      {{ t('retention_trend_demoted_warm') }}
     </span>
     <span class="flex items-center gap-1.5">
       <span class="w-3 h-3 rounded-sm"
             style="background: {{ color_cold_fill }};
                    border: 1px solid {{ color_cold_stroke }};"></span>
-      Demoted to cold
+      {{ t('retention_trend_demoted_cold') }}
     </span>
     <span class="flex items-center gap-1.5">
       <span class="w-3 h-3 rounded-sm"
             style="background: {{ color_delete_fill }};
                    border: 1px solid {{ color_delete_stroke }};"></span>
-      Hard deleted
+      {{ t('retention_trend_hard_deleted') }}
     </span>
   </div>
 </div>
 
 <details class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
   <summary class="cursor-pointer text-sm text-zinc-300 hover:text-zinc-100">
-    Day-by-day table ({{ entries | length }} rows)
+    {{ t('retention_trend_day_table').replace('{n}', entries | length | string) }}
   </summary>
   <table class="mt-4 w-full text-sm font-mono tabular-nums">
     <thead>
       <tr class="text-xs uppercase tracking-widest text-zinc-500 border-b border-ink-700">
-        <th class="text-left py-1.5 pr-4 font-normal">Date</th>
-        <th class="text-right py-1.5 px-4 font-normal">Warm</th>
-        <th class="text-right py-1.5 px-4 font-normal">Cold</th>
-        <th class="text-right py-1.5 px-4 font-normal">Deleted</th>
-        <th class="text-right py-1.5 pl-4 font-normal">Total</th>
+        <th class="text-left py-1.5 pr-4 font-normal">{{ t('storage_report_th_date') }}</th>
+        <th class="text-right py-1.5 px-4 font-normal">{{ t('retention_trend_th_warm') }}</th>
+        <th class="text-right py-1.5 px-4 font-normal">{{ t('retention_trend_th_cold') }}</th>
+        <th class="text-right py-1.5 px-4 font-normal">{{ t('retention_trend_th_deleted') }}</th>
+        <th class="text-right py-1.5 pl-4 font-normal">{{ t('label_grand_total') }}</th>
       </tr>
     </thead>
     <tbody>
@@ -237,7 +236,7 @@
 </details>
 
 <p class="text-xs text-zinc-500">
-  Machine-readable counterpart at
+  {{ t('retention_trend_json_note') }}
   <a href="{{ json_url }}" class="font-mono text-accent-400 hover:underline">{{ json_url }}</a>.
 </p>
 {% endblock %}

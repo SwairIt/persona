@@ -58,6 +58,31 @@ Key count: **303 → 376** (+73 new keys, added identically to all three tables)
 > code/JS (not prose): `x-text` Alpine expressions, `<code>` env-var/path
 > identifiers, the `--- title: … ---` front-matter literal.
 
+> **Later pass (2026-06-24, +8 diagnostic/stats templates).** Key count grew
+> **982 → 1201** (+219 new keys) when the eight user-facing English
+> diagnostics/stats/admin templates below were localized. Parity verified
+> (`set(en)==set(ru)==set(de)`, 1201 each); all eight parse without
+> `TemplateSyntaxError` under the **app** Jinja environment (the bare
+> `jinja2.Environment` chokes only on app-registered filters like `filesize`,
+> not on syntax); every added `t()` key resolves in `ru.json`;
+> `import app.web.main` OK; no temp files in `app/translations/`.
+>
+> Converted: `stats.html`, `storage_savings.html`, `retention_preview.html`,
+> `retention_trend.html`, `idle_stats.html`, `embeddings_reindex.html`,
+> `permalinks.html`, `lang_autodetect.html`. Reused existing keys where exact:
+> `btn_apply`, `btn_settings`, `btn_prev`/`btn_today`/`btn_next`, `btn_go`,
+> `label_app`, `label_window`, `label_grand_total`, `label_note`,
+> `label_less`/`label_more`, `label_day_many`, `val_yes`/`val_no`,
+> `msg_no_app_data`, `storage_report_back_to_stats`,
+> `storage_report_th_date`/`_bar`/`_no_data`, `feed_tokens_th_created`, and
+> the pre-existing `dow_mon`/`dow_wed`/`dow_fri` weekday keys. Localized
+> user-facing JS string literals in `permalinks.html` (prompt + clipboard
+> feedback) and the two `onsubmit="confirm(…)"` strings. Left as code (not
+> prose): `<code>` env-var/path/HTTP-status identifiers, Unicode-script data
+> codes (`cyrillic`/`latin`/`cjk`), JS state-machine status keys
+> (`idle`/`running`/`done`/`error`) in `embeddings_reindex.html`, and the
+> in-JS dynamic `Error:`/`Polling failed:` debug strings.
+
 ---
 
 ## Converted in this pass (high-visibility surfaces)
@@ -156,11 +181,14 @@ explicitly excludes from this pass.
 
 Top residual offenders (heuristic count) — recommended next batch, by surface:
 
-- **Stats / analytics**: `stats.html` (13), `tag_stats.html` (9), `llm_usage.html` (9),
-  `yearly_wrapped.html` (8), `storage_savings.html` (10), `retention_trend.html` (4),
-  `idle_stats.html` (5), `sentiment_stats.html` (4).
+- **Stats / analytics**: ~~`stats.html` (13)~~ **DONE (2026-06-24)**,
+  `tag_stats.html` (9), `llm_usage.html` (9),
+  `yearly_wrapped.html` (8), ~~`storage_savings.html` (10)~~ **DONE**,
+  ~~`retention_trend.html` (4)~~ **DONE**, ~~`idle_stats.html` (5)~~ **DONE**,
+  `sentiment_stats.html` (4). (Also `retention_preview.html` and
+  `embeddings_reindex.html` — DONE.)
 - **Sharing / embed**: `shot_share_ui.html` (12), `share_analytics.html` (7),
-  `permalinks.html` (3).
+  ~~`permalinks.html` (3)~~ **DONE**.
 - **Onboarding / misc**: `tour.html` (12), `setup_wizard.html` (3), `welcome.html` (1),
   `help.html` (6).
 - **Diff / dedup / OCR admin**: `multi_day_diff.html` (10), `tag_merge_wizard.html` (10),
@@ -168,10 +196,10 @@ Top residual offenders (heuristic count) — recommended next batch, by surface:
   `day_ocr_diff.html` (4).
 - **Admin / tokens / digests**: `demo_seeder.html` (8), `feed_tokens.html` (8),
   `api_tokens.html` (6), `agents_admin.html` (6), `app_icons_admin.html` (6),
-  `digest_weekly.html` (7), `quality_lab.html` (7), `lang_autodetect.html` (7),
+  `digest_weekly.html` (7), `quality_lab.html` (7), ~~`lang_autodetect.html` (7)~~ **DONE (2026-06-24)**,
   `notes_csv_import.html` (7), `regex_rules.html` (6), `bulk_tag.html` (6),
-  `quiet_hours.html` (6), `retention_preview.html` (6), ~~`summary.html` (6)~~ **DONE (2026-06-24)**,
-  `webhooks.html` (5), `heartbeat_alerts.html` (5), `embeddings_reindex.html` (5),
+  `quiet_hours.html` (6), ~~`retention_preview.html` (6)~~ **DONE**, ~~`summary.html` (6)~~ **DONE (2026-06-24)**,
+  ~~`webhooks.html` (5)~~ **DONE**, `heartbeat_alerts.html` (5), ~~`embeddings_reindex.html` (5)~~ **DONE**,
   `facet_sets.html` (5), `outbox_admin.html` (5), `bookmarklet.html` (5),
   `capture_weekly_trend.html` (5), `tag_merge.html` (5).
 
@@ -194,9 +222,26 @@ localized (ru/en/de), so they are **no longer residual**:
 | `keywords.html` | `/keywords` — top-keyword cloud |
 | `shared.html` | `/share/<token>` — public shared screenshot |
 
+### Done in the 2026-06-24 +8 diagnostics/stats pass (user-facing English → `t()`)
+
+These eight (reachable from the settings hub Diagnostics card or linked off
+`/stats`) were wholly/near-wholly hardcoded English and are now fully localized
+(ru/en/de), so they are **no longer residual**:
+
+| Template | Surface |
+|---|---|
+| `stats.html` | `/stats` — overall stats (hub → «Общая статистика») |
+| `storage_savings.html` | `/storage-savings` — bytes reclaimed (linked off `/stats`) |
+| `retention_preview.html` | `/retention-preview` — dry-run retention sweep |
+| `retention_trend.html` | `/stats/retention-trend` — daily demote/delete trend |
+| `idle_stats.html` | `/idle` — per-day active vs. idle (AFK) |
+| `embeddings_reindex.html` | `/admin/embeddings-reindex` — bulk vector re-index |
+| `permalinks.html` | `/permalinks` — short `/go/<slug>` redirects |
+| `lang_autodetect.html` | `/admin/ocr-lang-autodetect` — per-app OCR language recs |
+
 ### Suggested follow-up order (if continuing)
-1. `stats.html` (highest daily relevance of the residual set).
+1. `tag_stats.html` / `llm_usage.html` / `yearly_wrapped.html` (remaining stats).
 2. `welcome.html` / `setup_wizard.html` / `tour.html` (first-run onboarding).
 3. `shot_share_ui.html` (public-facing share surface).
 4. The OCR / diff / dedup admin cluster.
-5. The token / webhook / digest admin cluster (lowest visibility).
+5. The token / digest admin cluster (lowest visibility).

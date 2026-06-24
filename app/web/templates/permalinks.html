@@ -2,15 +2,11 @@
 
 {% block content %}
 <div class="mb-6">
-  <h1 class="text-2xl font-bold tracking-tight">Permalinks</h1>
+  <h1 class="text-2xl font-bold tracking-tight">{{ t('permalinks_title') }}</h1>
   <p class="text-zinc-500 text-sm mt-1">
-    Capture the current URL — path, query string, hash — as a short
-    <code class="text-zinc-300">/go/&lt;slug&gt;</code> link that 302-redirects to the
-    original page state. Useful for sharing a heavily-filtered search, a focus session
-    bookmark, or a long timeline range without pasting a 300-character URL into chat.
-    Permalinks are relative-only: a target URL that does not start with
-    <code class="text-zinc-300">/</code> is rejected so this table cannot be turned into
-    an open redirect.
+    {{ t('permalinks_intro_a') }}
+    <code class="text-zinc-300">/go/&lt;slug&gt;</code> {{ t('permalinks_intro_b') }}
+    <code class="text-zinc-300">/</code> {{ t('permalinks_intro_c') }}
   </p>
 </div>
 
@@ -19,11 +15,10 @@
     <button id="permalink-current-btn"
             type="button"
             class="px-4 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium text-white">
-      Create permalink for current URL
+      {{ t('permalinks_create_btn') }}
     </button>
     <span class="text-xs text-zinc-500">
-      Captures <code class="text-zinc-300">window.location.href</code> (minus the origin),
-      asks for an optional label, then copies the short link to your clipboard.
+      {{ t('permalinks_create_hint_a') }} <code class="text-zinc-300">window.location.href</code> {{ t('permalinks_create_hint_b') }}
     </span>
   </div>
   <div id="permalink-feedback"
@@ -35,11 +30,11 @@
     <table class="w-full text-sm">
       <thead class="bg-ink-900 text-zinc-500 text-xs uppercase tracking-wider">
         <tr>
-          <th class="text-left py-2 px-4">Slug</th>
-          <th class="text-left py-2 px-4">Label</th>
-          <th class="text-left py-2 px-4">Target</th>
-          <th class="text-right py-2 px-4">Hits</th>
-          <th class="text-left py-2 px-4">Created</th>
+          <th class="text-left py-2 px-4">{{ t('permalinks_th_slug') }}</th>
+          <th class="text-left py-2 px-4">{{ t('permalinks_th_label') }}</th>
+          <th class="text-left py-2 px-4">{{ t('permalinks_th_target') }}</th>
+          <th class="text-right py-2 px-4">{{ t('permalinks_th_hits') }}</th>
+          <th class="text-left py-2 px-4">{{ t('feed_tokens_th_created') }}</th>
         </tr>
       </thead>
       <tbody>
@@ -76,22 +71,19 @@
   </div>
 {% else %}
   <p class="text-zinc-500 text-sm">
-    No permalinks yet. Click the button above on any page with interesting filters or
-    query state.
+    {{ t('permalinks_none') }}
   </p>
 {% endif %}
 
 <section class="mt-10 rounded-lg border border-ink-700 bg-ink-800 p-5">
-  <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">How it works</h2>
+  <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">{{ t('permalinks_how_it_works') }}</h2>
   <ul class="text-zinc-400 text-sm space-y-2 list-disc list-inside">
-    <li>Slugs are 8-character base36 tokens (e.g. <code class="text-zinc-300">a3k8m1qr</code>)
-      drawn from <code class="text-zinc-300">secrets.randbelow</code> — opaque, but stable.</li>
-    <li>The redirect is a <code class="text-zinc-300">302 Found</code> so the link is never
-      cached as permanent — a future edit (if added) takes effect immediately.</li>
-    <li>Each <code class="text-zinc-300">/go/&lt;slug&gt;</code> hit increments the
-      <code class="text-zinc-300">hits</code> counter so dead links surface in this table.</li>
-    <li>Target URLs must start with <code class="text-zinc-300">/</code>. Absolute URLs and
-      protocol-relative URLs (<code class="text-zinc-300">//…</code>) are rejected.</li>
+    <li>{{ t('permalinks_how_a1') }} <code class="text-zinc-300">a3k8m1qr</code>)
+      {{ t('permalinks_how_a2') }} <code class="text-zinc-300">secrets.randbelow</code> {{ t('permalinks_how_a3') }}</li>
+    <li>{{ t('permalinks_how_b1') }} <code class="text-zinc-300">302 Found</code> {{ t('permalinks_how_b2') }}</li>
+    <li>{{ t('permalinks_how_c1') }} <code class="text-zinc-300">/go/&lt;slug&gt;</code> {{ t('permalinks_how_c2') }}
+      <code class="text-zinc-300">hits</code> {{ t('permalinks_how_c3') }}</li>
+    <li>{{ t('permalinks_how_d1') }} <code class="text-zinc-300">/</code>{{ t('permalinks_how_d2') }} <code class="text-zinc-300">//…</code>{{ t('permalinks_how_d3') }}</li>
   </ul>
 </section>
 
@@ -124,11 +116,11 @@
       var loc = window.location;
       var relative = loc.pathname + loc.search + loc.hash;
       if (!relative.startsWith('/')) {
-        show('Could not capture a relative URL from this page.', false);
+        show('{{ t('permalinks_js_no_relative') }}', false);
         return;
       }
       var label = window.prompt(
-        'Optional label for this permalink (leave blank for none):',
+        '{{ t('permalinks_js_prompt') }}',
         document.title || ''
       );
       if (label === null) return; // user cancelled
@@ -145,7 +137,7 @@
           } catch (_) {
             detail = 'HTTP ' + resp.status;
           }
-          show('Failed: ' + detail, false);
+          show('{{ t('permalinks_js_failed') }}' + detail, false);
           return;
         }
         var data = await resp.json();
@@ -158,13 +150,13 @@
           } catch (_) { copied = false; }
         }
         show(
-          (copied ? 'Copied: ' : 'Created: ') + short +
-          ' — reloading table…',
+          (copied ? '{{ t('permalinks_js_copied') }}' : '{{ t('permalinks_js_created') }}') + short +
+          '{{ t('permalinks_js_reloading') }}',
           true
         );
         setTimeout(function () { window.location.reload(); }, 900);
       } catch (e) {
-        show('Network error: ' + (e && e.message ? e.message : e), false);
+        show('{{ t('permalinks_js_network_error') }}' + (e && e.message ? e.message : e), false);
       }
     });
   })();

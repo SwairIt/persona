@@ -3,14 +3,10 @@
 {% block content %}
 <div class="mb-8 flex flex-wrap items-end justify-between gap-4">
   <div>
-    <h1 class="text-2xl font-bold tracking-tight">OCR language auto-detect</h1>
+    <h1 class="text-2xl font-bold tracking-tight">{{ t('lang_autodetect_title') }}</h1>
     <p class="text-zinc-500 text-sm mt-1">
-      Samples the latest captures per app, classifies their Unicode script mix,
-      and recommends Tesseract language packs whose script dominates more than
-      50&nbsp;% of the OCR&rsquo;d text. Applying a recommendation widens the
-      global <code class="font-mono text-xs">ocr_languages</code> setting to the
-      union of the current pack list and the recommended packs &mdash; existing
-      manually-picked packs are never dropped.
+      {{ t('lang_autodetect_intro_a') }}
+      <code class="font-mono text-xs">ocr_languages</code> {{ t('lang_autodetect_intro_b') }}
     </p>
   </div>
 
@@ -21,24 +17,24 @@
             class="px-4 py-2 rounded-md bg-accent-600 hover:bg-accent-500
                    disabled:bg-ink-700 disabled:text-zinc-500 disabled:cursor-not-allowed
                    text-white font-medium transition">
-      Apply all ({{ appliable_count }})
+      {{ t('lang_autodetect_apply_all').replace('{n}', appliable_count | string) }}
     </button>
   </form>
 </div>
 
 <div class="grid sm:grid-cols-3 gap-4 mb-8">
   <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
-    <div class="text-xs uppercase tracking-widest text-zinc-500">Apps scanned</div>
+    <div class="text-xs uppercase tracking-widest text-zinc-500">{{ t('lang_autodetect_apps_scanned') }}</div>
     <div class="text-2xl font-bold mt-1 tabular-nums">{{ rows | length }}</div>
   </div>
   <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
-    <div class="text-xs uppercase tracking-widest text-zinc-500">Recommendations to apply</div>
+    <div class="text-xs uppercase tracking-widest text-zinc-500">{{ t('lang_autodetect_recs_to_apply') }}</div>
     <div class="text-2xl font-bold mt-1 tabular-nums">{{ appliable_count }}</div>
   </div>
   <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
-    <div class="text-xs uppercase tracking-widest text-zinc-500">Current global packs</div>
+    <div class="text-xs uppercase tracking-widest text-zinc-500">{{ t('lang_autodetect_current_packs') }}</div>
     <div class="text-sm font-mono mt-2 text-zinc-200 break-all">
-      {% if configured_string %}{{ configured_string }}{% else %}<span class="text-zinc-500">(none)</span>{% endif %}
+      {% if configured_string %}{{ configured_string }}{% else %}<span class="text-zinc-500">{{ t('lang_autodetect_none') }}</span>{% endif %}
     </div>
   </div>
 </div>
@@ -48,12 +44,12 @@
     <table class="w-full text-sm">
       <thead class="bg-ink-900 text-xs uppercase tracking-widest text-zinc-500 text-left">
         <tr>
-          <th class="px-4 py-3 font-medium">App</th>
-          <th class="px-4 py-3 font-medium text-right">Shots</th>
-          <th class="px-4 py-3 font-medium text-right">Chars</th>
-          <th class="px-4 py-3 font-medium">Script mix</th>
-          <th class="px-4 py-3 font-medium">Recommended</th>
-          <th class="px-4 py-3 font-medium text-right">Action</th>
+          <th class="px-4 py-3 font-medium">{{ t('label_app') }}</th>
+          <th class="px-4 py-3 font-medium text-right">{{ t('lang_autodetect_th_shots') }}</th>
+          <th class="px-4 py-3 font-medium text-right">{{ t('lang_autodetect_th_chars') }}</th>
+          <th class="px-4 py-3 font-medium">{{ t('lang_autodetect_th_script_mix') }}</th>
+          <th class="px-4 py-3 font-medium">{{ t('lang_autodetect_th_recommended') }}</th>
+          <th class="px-4 py-3 font-medium text-right">{{ t('lang_autodetect_th_action') }}</th>
         </tr>
       </thead>
       <tbody>
@@ -101,19 +97,19 @@
                                  {% else %}
                                    bg-accent-500/15 text-accent-400 border-accent-500/40
                                  {% endif %}"
-                          {% if pack in row.missing_packs %}title="Not installed on host"{% endif %}>
+                          {% if pack in row.missing_packs %}title="{{ t('lang_autodetect_not_installed') }}"{% endif %}>
                       {{ pack }}
                     </span>
                   {% endfor %}
                 </div>
                 {% if row.missing_packs %}
                   <p class="text-xs text-rose-400 mt-1">
-                    Missing on host: {{ row.missing_packs | join(', ') }}
+                    {{ t('lang_autodetect_missing_on_host') }} {{ row.missing_packs | join(', ') }}
                   </p>
                 {% endif %}
               {% else %}
                 <span class="text-xs text-zinc-500">
-                  {% if row.total_chars < 40 %}Not enough text yet{% else %}No dominant script{% endif %}
+                  {% if row.total_chars < 40 %}{{ t('lang_autodetect_not_enough_text') }}{% else %}{{ t('lang_autodetect_no_dominant') }}{% endif %}
                 </span>
               {% endif %}
             </td>
@@ -125,13 +121,13 @@
                           class="px-3 py-1.5 rounded-md bg-accent-600/20 text-accent-400
                                  hover:bg-accent-600/30 border border-accent-600/40
                                  text-xs font-medium transition">
-                    Apply
+                    {{ t('btn_apply') }}
                   </button>
                 </form>
               {% elif row.already_covered %}
-                <span class="text-xs text-emerald-400">Already covered</span>
+                <span class="text-xs text-emerald-400">{{ t('lang_autodetect_already_covered') }}</span>
               {% elif row.recommended and row.missing_packs %}
-                <span class="text-xs text-rose-400">Install pack first</span>
+                <span class="text-xs text-rose-400">{{ t('lang_autodetect_install_first') }}</span>
               {% else %}
                 <span class="text-xs text-zinc-600">&mdash;</span>
               {% endif %}
@@ -144,18 +140,17 @@
 {% else %}
   <section class="rounded-lg border border-ink-700 bg-ink-800 p-10 text-center text-zinc-500">
     <div class="text-4xl mb-3">&empty;</div>
-    <p>No OCR text captured yet for any app.</p>
+    <p>{{ t('lang_autodetect_empty_a') }}</p>
     <p class="mt-1 text-xs">
-      Once Tesseract finishes a few screenshots, per-app recommendations will
-      appear here.
+      {{ t('lang_autodetect_empty_b') }}
     </p>
   </section>
 {% endif %}
 
 <p class="text-xs text-zinc-500 mt-6">
-  Pack list is managed at
+  {{ t('lang_autodetect_footer_a') }}
   <a href="/settings/ocr-languages" class="underline hover:text-zinc-300">/settings/ocr-languages</a>.
-  Cross-app script breakdown at
+  {{ t('lang_autodetect_footer_b') }}
   <a href="/stats/ocr-languages" class="underline hover:text-zinc-300">/stats/ocr-languages</a>.
 </p>
 {% endblock %}

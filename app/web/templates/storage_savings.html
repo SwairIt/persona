@@ -13,41 +13,41 @@
 
 <div class="mb-6 flex items-end justify-between flex-wrap gap-3">
   <div>
-    <h1 class="text-2xl font-bold tracking-tight">Storage savings</h1>
+    <h1 class="text-2xl font-bold tracking-tight">{{ t('storage_savings_title') }}</h1>
     <p class="text-zinc-500 text-sm mt-1 max-w-2xl">
-      Bytes reclaimed per day by the three housekeeping passes:
-      <strong class="text-zinc-300">pHash dedup</strong> (skipped near-duplicate captures),
-      <strong class="text-zinc-300">thumbnail dedup</strong> (unlinked byte-identical JPEGs),
-      and <strong class="text-zinc-300">recycle-bin purge</strong> (hard-deleted expired soft-deletes).
-      Window: <strong class="text-zinc-300">{{ days_window }}</strong> days.
+      {{ t('storage_savings_intro_1') }}
+      <strong class="text-zinc-300">{{ t('storage_savings_phash') }}</strong> {{ t('storage_savings_phash_note') }}
+      <strong class="text-zinc-300">{{ t('storage_savings_thumb') }}</strong> {{ t('storage_savings_thumb_note') }}
+      <strong class="text-zinc-300">{{ t('storage_savings_recycle') }}</strong> {{ t('storage_savings_recycle_note') }}
+      {{ t('storage_savings_window') }} <strong class="text-zinc-300">{{ days_window }}</strong> {{ t('storage_savings_days') }}.
     </p>
   </div>
   <a href="/stats" class="text-xs text-zinc-500 hover:text-accent-400 underline">
-    ← back to stats
+    ← {{ t('storage_report_back_to_stats') }}
   </a>
 </div>
 
 {# ---- grand totals ---- #}
 <section class="mb-6 grid grid-cols-2 md:grid-cols-4 gap-3">
   <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
-    <div class="text-xs text-zinc-500">Total reclaimed</div>
+    <div class="text-xs text-zinc-500">{{ t('storage_savings_total_reclaimed') }}</div>
     <div class="text-2xl font-bold mt-1 text-emerald-300">{{ humanize_bytes(grand_bytes) }}</div>
-    <div class="text-xs text-zinc-500 mt-1">across all sources</div>
+    <div class="text-xs text-zinc-500 mt-1">{{ t('storage_savings_across_sources') }}</div>
   </div>
   <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
-    <div class="text-xs text-zinc-500">Dedup hits</div>
+    <div class="text-xs text-zinc-500">{{ t('storage_savings_dedup_hits') }}</div>
     <div class="text-2xl font-bold mt-1 text-accent-400">{{ "{:,}".format(grand_dedup_hits) }}</div>
-    <div class="text-xs text-zinc-500 mt-1">near-dup captures skipped</div>
+    <div class="text-xs text-zinc-500 mt-1">{{ t('storage_savings_near_dup_skipped') }}</div>
   </div>
   <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
-    <div class="text-xs text-zinc-500">Thumb dedup</div>
+    <div class="text-xs text-zinc-500">{{ t('storage_savings_thumb_dedup') }}</div>
     <div class="text-2xl font-bold mt-1 text-sky-300">{{ humanize_bytes(grand_thumb_bytes) }}</div>
-    <div class="text-xs text-zinc-500 mt-1">duplicate JPEGs unlinked</div>
+    <div class="text-xs text-zinc-500 mt-1">{{ t('storage_savings_jpegs_unlinked') }}</div>
   </div>
   <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
-    <div class="text-xs text-zinc-500">Retention purge</div>
+    <div class="text-xs text-zinc-500">{{ t('storage_savings_retention_purge') }}</div>
     <div class="text-2xl font-bold mt-1 text-amber-300">{{ humanize_bytes(grand_retention_bytes) }}</div>
-    <div class="text-xs text-zinc-500 mt-1">expired soft-deletes</div>
+    <div class="text-xs text-zinc-500 mt-1">{{ t('storage_savings_expired_soft_deletes') }}</div>
   </div>
 </section>
 
@@ -55,9 +55,9 @@
 <section class="mb-8 rounded-lg border border-ink-700 bg-ink-800 p-5">
   <div class="flex items-center justify-between mb-3">
     <div>
-      <h2 class="text-sm font-semibold text-zinc-300">Bytes saved per day</h2>
+      <h2 class="text-sm font-semibold text-zinc-300">{{ t('storage_savings_bytes_per_day') }}</h2>
       <p class="text-zinc-500 text-xs mt-0.5">
-        Oldest left → newest right. Peak:
+        {{ t('storage_savings_oldest_newest') }}
         <strong class="text-zinc-300">{{ humanize_bytes(max_bytes) }}</strong>.
       </p>
     </div>
@@ -72,7 +72,7 @@
 
     <svg viewBox="0 0 {{ svg_w }} {{ svg_h }}" width="100%" height="{{ svg_h }}"
          class="block" preserveAspectRatio="none" role="img"
-         aria-label="Daily storage savings line chart">
+         aria-label="{{ t('storage_savings_chart_aria') }}">
 
       {# baseline at y = svg_h - pad #}
       <line x1="0" x2="{{ svg_w }}" y1="{{ svg_h - pad }}" y2="{{ svg_h - pad }}"
@@ -97,7 +97,7 @@
         {%- set x = (loop.index0 * step) if (rows | length) > 1 else (svg_w / 2) %}
         {%- set y = (svg_h - pad) - ((row.bytes_saved / max_bytes) * inner_h) %}
         <circle cx="{{ x | round(2) }}" cy="{{ y | round(2) }}" r="2" fill="#a78bfa">
-          <title>{{ row.day }} — {{ humanize_bytes(row.bytes_saved) }} ({{ row.dedup_hits }} dedup hits)</title>
+          <title>{{ row.day }} — {{ humanize_bytes(row.bytes_saved) }} ({{ t('storage_savings_n_dedup_hits').replace('{n}', row.dedup_hits | string) }})</title>
         </circle>
       {%- endfor %}
     </svg>
@@ -107,7 +107,7 @@
       <span>{{ rows[-1].day }}</span>
     </div>
   {% else %}
-    <p class="text-zinc-500 text-xs">No savings recorded yet — run the dedup or retention passes first.</p>
+    <p class="text-zinc-500 text-xs">{{ t('storage_savings_no_data') }}</p>
   {% endif %}
 </section>
 
@@ -116,12 +116,12 @@
   <table class="w-full text-sm">
     <thead class="bg-ink-900/60 text-xs uppercase tracking-wide text-zinc-500">
       <tr>
-        <th class="px-4 py-2 text-left font-medium">Date</th>
-        <th class="px-4 py-2 text-right font-medium">Total saved</th>
-        <th class="px-4 py-2 text-right font-medium">Dedup hits</th>
-        <th class="px-4 py-2 text-right font-medium">Thumb dedup</th>
-        <th class="px-4 py-2 text-right font-medium">Retention</th>
-        <th class="px-4 py-2 text-left font-medium w-40">Bar</th>
+        <th class="px-4 py-2 text-left font-medium">{{ t('storage_report_th_date') }}</th>
+        <th class="px-4 py-2 text-right font-medium">{{ t('storage_savings_th_total_saved') }}</th>
+        <th class="px-4 py-2 text-right font-medium">{{ t('storage_savings_dedup_hits') }}</th>
+        <th class="px-4 py-2 text-right font-medium">{{ t('storage_savings_thumb_dedup') }}</th>
+        <th class="px-4 py-2 text-right font-medium">{{ t('storage_savings_th_retention') }}</th>
+        <th class="px-4 py-2 text-left font-medium w-40">{{ t('storage_report_th_bar') }}</th>
       </tr>
     </thead>
     <tbody class="divide-y divide-ink-700">
@@ -151,15 +151,14 @@
           </td>
         </tr>
       {% else %}
-        <tr><td colspan="6" class="px-4 py-6 text-center text-zinc-500 text-xs">No data.</td></tr>
+        <tr><td colspan="6" class="px-4 py-6 text-center text-zinc-500 text-xs">{{ t('storage_report_no_data') }}</td></tr>
       {% endfor %}
     </tbody>
   </table>
 </section>
 
 <p class="text-xs text-zinc-500 mt-4">
-  1 KB = 1024 B. Recorded by <code class="text-zinc-400">app.storage_savings</code>;
-  raw JSON at <a href="/api/storage-savings.json?days={{ days_window }}"
+  {{ t('storage_savings_footer_1') }}<code class="text-zinc-400">app.storage_savings</code>{{ t('storage_savings_footer_2') }}<a href="/api/storage-savings.json?days={{ days_window }}"
     class="hover:text-accent-400 underline">/api/storage-savings.json</a>.
 </p>
 {% endblock %}
