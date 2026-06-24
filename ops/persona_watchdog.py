@@ -20,7 +20,10 @@ import time
 import urllib.request
 
 REPO = r"C:\www-Yaroslav\Persona"
-PYEXE = r"C:\www-Yaroslav\Persona\.venv\Scripts\python.exe"
+# pythonw (GUI-subsystem) — НЕ аллоцирует консоль. С обычным python.exe uv-шим
+# при re-exec плодил чёрное консольное окно при каждом респауне (CREATE_NO_WINDOW
+# его не давил). pythonw + CREATE_NO_WINDOW = тихий фоновый сервер без окна.
+PYEXE = r"C:\www-Yaroslav\Persona\.venv\Scripts\pythonw.exe"
 HOME = r"C:\Users\Yaroslav"
 PERSONA_DIR = r"C:\Users\Yaroslav\.persona"
 URL = "http://127.0.0.1:8000/landing"
@@ -53,7 +56,7 @@ def _kill_existing() -> None:
     subprocess.run(
         [
             "powershell", "-NoProfile", "-Command",
-            "Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | "
+            "Get-CimInstance Win32_Process -Filter \"Name='python.exe' OR Name='pythonw.exe'\" | "
             "Where-Object { $_.CommandLine -like '*app.web.main*' } | "
             "ForEach-Object { taskkill /F /PID $_.ProcessId /T }",
         ],
@@ -75,11 +78,13 @@ def _start() -> None:
     env["PERSONA_LEAN_MODE"] = "1"
     out = open(OUT_LOG, "ab")  # noqa: SIM115 - handed to the detached child
     err = open(ERR_LOG, "ab")  # noqa: SIM115
+    # ОДИН процесс (без --workers): pythonw + uvicorn --workers крашит воркеры
+    # (multiprocessing-спавн без stdout под pythonw). Single-process async-uvicorn
+    # тянет нагрузку одного пользователя и не конфликтует за запись в SQLite.
     subprocess.Popen(
         [
             PYEXE, "-m", "uvicorn", "app.web.main:create_app",
             "--factory", "--host", "127.0.0.1", "--port", "8000",
-            "--workers", "3",
         ],
         cwd=REPO,
         env=env,
