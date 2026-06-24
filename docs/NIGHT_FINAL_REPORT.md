@@ -57,8 +57,10 @@ Yandex, local-LLM-паттерны, salience/forgetting → синтез на р
 - `import app.web.main` — OK.
 - Миграции на реальной БД (init_database повторно) — идемпотентны, OK.
 - i18n паритет: `set(en)==set(ru)==set(de)` = 982 ключа.
-- **Тесты:** 10 новых юнит-тестов на ночной код (память: salience/scoring/dreams;
-  безопасность: SSRF-гард/rate-limit) — зелёные (`tests/test_night_build.py`).
+- **Тесты:** 22 новых теста на ночной код — 10 юнит (память: salience/scoring/
+  dreams; безопасность: SSRF/rate-limit, `test_night_build.py`) + 12 регресс-
+  сторожей (критичные роуты блокируют анонима — `test_security_auth_guard.py`;
+  ловят случайное снятие auth).
   Полный pytest-набор — **546 passed, 15 skipped, 0 failed** (после обновления
   11 тест-файлов под owner-only роуты Ф1, коммит 55bfec4 — security-фиксы
   потребовали авторизации в тестах).
