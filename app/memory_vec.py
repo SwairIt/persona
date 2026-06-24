@@ -53,8 +53,15 @@ async def _ollama_endpoint() -> str:
     return ep.rstrip("/")
 
 
-async def embed(text: str) -> list[float] | None:
-    """Эмбеддинг текста через Ollama. None при любой проблеме (тихо)."""
+async def embed(text: str, kind: str = "document") -> list[float] | None:
+    """Эмбеддинг текста через Ollama. None при любой проблеме (тихо).
+
+    ``kind``: ``document`` для хранимого текста, ``query`` для поискового запроса.
+    nomic-embed-text ТРЕБУЕТ task-префиксы (``search_document:`` / ``search_query:``)
+    — Ollama их сам НЕ добавляет, без них retrieval тихо проседает на 5-10 пунктов.
+    Префикс добавляем только для nomic-моделей (другим он бы навредил).
+    ВАЖНО: при смене схемы префиксов нужен реиндекс (``backfill_index``).
+    """
     text = (text or "").strip()
     if not text:
         return None
@@ -64,13 +71,19 @@ async def embed(text: str) -> list[float] | None:
         return None
     model = await _embed_model()
     endpoint = await _ollama_endpoint()
+    prompt = text[:8000]
+    if "nomic" in model.lower():
+        prefix = "search_query: " if kind == "query" else "search_document: "
+        prompt = prefix + prompt
     try:
         # timeout щедрый: первый embed после простоя грузит модель (cold start)
         # через туннель; keep_alive держит её тёплой, чтобы дальше было быстро.
+        # num_ctx=8192: дефолтные 2048 режут длинные чанки ДО эмбеддинга.
         async with httpx.AsyncClient(timeout=60.0) as client:
             r = await client.post(
                 f"{endpoint}/api/embeddings",
-                json={"model": model, "prompt": text[:8000], "keep_alive": "30m"},
+                json={"model": model, "prompt": prompt, "keep_alive": "30m",
+                      "options": {"num_ctx": 8192}},
             )
             if r.status_code != 200:
                 return None
@@ -280,7 +293,7 @@ async def hybrid_recall(user_id: int, question: str,
     from app.chat.sessions import recall_relevant  # noqa: PLC0415
 
     try:
-        qvec = await embed(question) if sqlite_vec_available() else None
+        qvec = await embed(question, kind="query") if sqlite_vec_available() else None
         vec_hits = await _vector_hits(user_id, qvec, exclude_session_id) if qvec else []
         fts_hits = await _fts_hits(user_id, question, exclude_session_id)
         if not vec_hits:
