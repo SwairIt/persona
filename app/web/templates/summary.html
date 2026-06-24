@@ -2,10 +2,9 @@
 
 {% block content %}
 <div class="mb-6">
-  <h1 class="text-2xl font-bold tracking-tight">Daily summary</h1>
+  <h1 class="text-2xl font-bold tracking-tight">{{ t('summary_title') }}</h1>
   <p class="text-zinc-500 text-sm mt-1">
-    Optional. Uses your own LLM API key (Anthropic, OpenAI, or Groq) — requests go directly from this app
-    to the provider. We never see your key or your data.
+    {{ t('summary_intro') }}
   </p>
 </div>
 
@@ -15,22 +14,22 @@
     <button @click="generate()"
             :disabled="loading"
             class="px-5 py-2 bg-accent-600 hover:bg-accent-500 disabled:opacity-50 rounded text-sm font-medium">
-      <span x-show="!loading">Generate summary</span>
-      <span x-show="loading">Generating…</span>
+      <span x-show="!loading">{{ t('summary_generate') }}</span>
+      <span x-show="loading">{{ t('summary_generating') }}</span>
     </button>
     <a href="/api/export/day" :href="`/api/export/day?date=${date}`"
-       class="px-3 py-2 bg-ink-800 hover:bg-ink-700 rounded text-sm text-zinc-400">↓ raw JSON</a>
+       class="px-3 py-2 bg-ink-800 hover:bg-ink-700 rounded text-sm text-zinc-400">{{ t('summary_raw_json') }}</a>
   </div>
 
   <div x-show="error" class="rounded-lg border border-amber-700/40 bg-amber-900/20 text-amber-300 p-4 text-sm">
-    <strong class="block mb-1">Cannot generate summary</strong>
+    <strong class="block mb-1">{{ t('summary_cannot_generate') }}</strong>
     <span x-text="error"></span>
     <details class="mt-2 text-xs text-amber-200/80">
-      <summary class="cursor-pointer">How to set this up</summary>
+      <summary class="cursor-pointer">{{ t('summary_how_to_setup') }}</summary>
       <ol class="list-decimal list-inside space-y-1 mt-2">
-        <li>Get an API key from <a class="underline" href="https://console.anthropic.com">Anthropic</a>, <a class="underline" href="https://platform.openai.com">OpenAI</a>, or <a class="underline" href="https://console.groq.com">Groq</a>.</li>
-        <li>Edit <code>.env</code>:<br><code>PERSONA_BYO_API_PROVIDER=anthropic</code><br><code>PERSONA_BYO_API_KEY=sk-ant-…</code></li>
-        <li>Restart Persona.</li>
+        <li>{{ t('summary_step_get_key') | safe }}</li>
+        <li>{{ t('summary_step_edit_env') | safe }}<br><code>PERSONA_BYO_API_PROVIDER=anthropic</code><br><code>PERSONA_BYO_API_KEY=sk-ant-…</code></li>
+        <li>{{ t('summary_step_restart') }}</li>
       </ol>
     </details>
   </div>

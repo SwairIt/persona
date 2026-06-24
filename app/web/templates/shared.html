@@ -3,8 +3,8 @@
 {% block content %}
 <div class="max-w-3xl mx-auto">
   <div class="mb-4 flex items-center justify-between">
-    <h1 class="text-xl font-bold tracking-tight">Shared screenshot</h1>
-    <span class="text-xs text-zinc-500 font-mono">read-only · time-limited</span>
+    <h1 class="text-xl font-bold tracking-tight">{{ t('shared_title') }}</h1>
+    <span class="text-xs text-zinc-500 font-mono">{{ t('shared_subtitle') }}</span>
   </div>
 
   <div class="rounded-lg overflow-hidden border border-ink-700 bg-ink-900 mb-4">
@@ -14,23 +14,23 @@
            class="w-full object-contain">
     {% else %}
       <div class="aspect-video flex items-center justify-center text-zinc-500">
-        Thumbnail unavailable (deleted by retention policy).
+        {{ t('shared_thumb_unavailable') }}
       </div>
     {% endif %}
   </div>
 
   <dl class="space-y-2 text-sm">
     <div class="flex justify-between gap-3">
-      <dt class="text-zinc-500">Captured</dt>
+      <dt class="text-zinc-500">{{ t('shared_captured') }}</dt>
       <dd class="font-mono text-zinc-300">{{ shot.captured_at | humantime }}</dd>
     </div>
     <div class="flex justify-between gap-3">
-      <dt class="text-zinc-500">App</dt>
+      <dt class="text-zinc-500">{{ t('label_app') }}</dt>
       <dd class="text-zinc-300">{{ shot.app_name or '—' }}</dd>
     </div>
     {% if shot.window_title %}
       <div class="flex justify-between gap-3">
-        <dt class="text-zinc-500">Window</dt>
+        <dt class="text-zinc-500">{{ t('label_window') }}</dt>
         <dd class="text-zinc-300 text-right truncate max-w-[60%]" title="{{ shot.window_title }}">
           {{ shot.window_title }}
         </dd>
@@ -40,7 +40,7 @@
 
   {% if shot.ocr_text %}
     <section class="mt-6 rounded-lg border border-ink-700 bg-ink-800 p-4">
-      <h3 class="text-xs uppercase tracking-widest text-zinc-500 mb-3">OCR text</h3>
+      <h3 class="text-xs uppercase tracking-widest text-zinc-500 mb-3">{{ t('shared_ocr_text') }}</h3>
       <pre class="text-sm font-mono text-zinc-200 whitespace-pre-wrap leading-relaxed">{{ shot.ocr_text }}</pre>
     </section>
   {% endif %}

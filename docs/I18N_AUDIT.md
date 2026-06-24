@@ -41,6 +41,23 @@ IMPORT OK app.web.main
 
 Key count: **303 → 376** (+73 new keys, added identically to all three tables).
 
+> **Later pass (2026-06-24, +8 templates).** Key count grew to **885** across
+> intervening passes, then **885 → 982** (+97 new keys) when the eight
+> user-facing English templates below were localized. Parity verified
+> (`set(en)==set(ru)==set(de)`, 982 each); all eight parse without
+> `TemplateSyntaxError`; `import app.web.main` OK; no temp files in
+> `app/translations/`.
+>
+> Converted: `summary.html`, `reading.html`, `reminders.html`,
+> `favourites.html`, `focus.html`, `inbox.html`, `keywords.html`,
+> `shared.html`. Each was wholly (or near-wholly) hardcoded English; now uses
+> `{{ t('…') }}` with real ru/en/de. Numeric/id placeholders interpolate via
+> the established `t('key').replace('{n}', x | string)` idiom (matching
+> `dashboard.html` / `hours.html`). Reused existing keys where exact:
+> `btn_add`, `btn_apply`, `btn_refresh`, `label_app`, `label_window`. Left as
+> code/JS (not prose): `x-text` Alpine expressions, `<code>` env-var/path
+> identifiers, the `--- title: … ---` front-matter literal.
+
 ---
 
 ## Converted in this pass (high-visibility surfaces)
@@ -153,13 +170,29 @@ Top residual offenders (heuristic count) — recommended next batch, by surface:
   `api_tokens.html` (6), `agents_admin.html` (6), `app_icons_admin.html` (6),
   `digest_weekly.html` (7), `quality_lab.html` (7), `lang_autodetect.html` (7),
   `notes_csv_import.html` (7), `regex_rules.html` (6), `bulk_tag.html` (6),
-  `quiet_hours.html` (6), `retention_preview.html` (6), `summary.html` (6),
+  `quiet_hours.html` (6), `retention_preview.html` (6), ~~`summary.html` (6)~~ **DONE (2026-06-24)**,
   `webhooks.html` (5), `heartbeat_alerts.html` (5), `embeddings_reindex.html` (5),
   `facet_sets.html` (5), `outbox_admin.html` (5), `bookmarklet.html` (5),
   `capture_weekly_trend.html` (5), `tag_merge.html` (5).
 
 …plus a long tail of templates with 1–4 hits each (most of which are `<code>`
 identifiers, `x-text` expressions, or app/brand names — i.e. false positives).
+
+### Done in the 2026-06-24 +8 pass (user-facing English → `t()`)
+
+These eight were wholly/near-wholly hardcoded English and are now fully
+localized (ru/en/de), so they are **no longer residual**:
+
+| Template | Surface |
+|---|---|
+| `summary.html` | `/summary` — daily LLM summary |
+| `reading.html` | `/reading` — read-later list |
+| `reminders.html` | `/reminders` — per-day todos |
+| `favourites.html` | `/favourites` — starred shots |
+| `focus.html` | `/focus` — Pomodoro timer |
+| `inbox.html` | `/inbox` — Markdown drop-folder import |
+| `keywords.html` | `/keywords` — top-keyword cloud |
+| `shared.html` | `/share/<token>` — public shared screenshot |
 
 ### Suggested follow-up order (if continuing)
 1. `stats.html` (highest daily relevance of the residual set).

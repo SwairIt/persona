@@ -3,30 +3,28 @@
 {% block content %}
 <div class="mb-6 flex items-start justify-between gap-4 flex-wrap">
   <div>
-    <h1 class="text-2xl font-bold tracking-tight">Favourites</h1>
+    <h1 class="text-2xl font-bold tracking-tight">{{ t('favourites_title') }}</h1>
     <p class="text-zinc-500 text-sm mt-1">
-      Screenshots you've starred for quick access. Different from
-      <span class="text-amber-400">pinned</span> shots &mdash; pin protects a frame
-      from auto-demotion, a star is just a bookmark.
+      {{ t('favourites_intro') }}
     </p>
   </div>
   <div class="text-xs text-zinc-500 font-mono flex-shrink-0">
-    {{ total }} starred &middot; page {{ page }} / {{ total_pages }}
+    {{ total }} {{ t('favourites_starred_count') }} &middot; {{ t('favourites_page') }} {{ page }} / {{ total_pages }}
   </div>
 </div>
 
 <form method="get" action="/favourites" class="mb-4 flex items-center gap-2 text-xs">
-  <label for="favourites-sort" class="text-zinc-500 uppercase tracking-wider">Sort by</label>
+  <label for="favourites-sort" class="text-zinc-500 uppercase tracking-wider">{{ t('favourites_sort_by') }}</label>
   <select id="favourites-sort" name="sort_by"
           onchange="this.form.submit()"
           class="px-2 py-1.5 bg-ink-800 border border-ink-700 rounded font-mono text-xs">
-    <option value="captured_at" {% if sort_by == 'captured_at' %}selected{% endif %}>Most recently starred</option>
-    <option value="captured_at_asc" {% if sort_by == 'captured_at_asc' %}selected{% endif %}>Oldest captured first</option>
-    <option value="app_name" {% if sort_by == 'app_name' %}selected{% endif %}>App name (A&ndash;Z)</option>
-    <option value="ocr_length" {% if sort_by == 'ocr_length' %}selected{% endif %}>OCR text length</option>
+    <option value="captured_at" {% if sort_by == 'captured_at' %}selected{% endif %}>{{ t('favourites_sort_recent') }}</option>
+    <option value="captured_at_asc" {% if sort_by == 'captured_at_asc' %}selected{% endif %}>{{ t('favourites_sort_oldest') }}</option>
+    <option value="app_name" {% if sort_by == 'app_name' %}selected{% endif %}>{{ t('favourites_sort_app') }}</option>
+    <option value="ocr_length" {% if sort_by == 'ocr_length' %}selected{% endif %}>{{ t('favourites_sort_ocr') }}</option>
   </select>
   <noscript>
-    <button type="submit" class="px-2 py-1.5 bg-ink-800 border border-ink-700 rounded">apply</button>
+    <button type="submit" class="px-2 py-1.5 bg-ink-800 border border-ink-700 rounded">{{ t('btn_apply') }}</button>
   </noscript>
 </form>
 
@@ -48,13 +46,13 @@
             </div>
           {% else %}
             <div class="aspect-video bg-ink-900 flex items-center justify-center text-zinc-600 text-xs flex-col gap-1">
-              <span>{{ '&#129482; cold' if shot.tier == 'cold' else 'metadata only' }}</span>
+              <span>{{ '&#129482; cold' if shot.tier == 'cold' else t('favourites_metadata_only') }}</span>
               <span class="text-[9px] text-zinc-700 truncate px-2">{{ shot.window_title or '' }}</span>
             </div>
           {% endif %}
           {% if shot.tier == 'pinned' %}
             <span class="absolute top-1.5 left-1.5 text-[11px] text-amber-400 bg-ink-900/80 rounded px-1.5 py-0.5"
-                  title="Pinned">&#128204;</span>
+                  title="{{ t('favourites_pinned_tip') }}">&#128204;</span>
           {% endif %}
         </a>
 
@@ -78,8 +76,8 @@
           </div>
           <button type="button"
                   data-favourite-id="{{ shot.id }}"
-                  title="Unstar"
-                  aria-label="Unstar screenshot {{ shot.id }}"
+                  title="{{ t('favourites_unstar') }}"
+                  aria-label="{{ t('favourites_unstar_aria').replace('{id}', shot.id | string) }}"
                   class="flex-shrink-0 text-amber-400 hover:text-rose-400 text-lg leading-none px-2 py-1 rounded hover:bg-ink-900 transition">
             &#9733;
           </button>
@@ -93,16 +91,16 @@
       {% if has_prev %}
         <a href="/favourites?page={{ page - 1 }}&amp;sort_by={{ sort_by | urlencode }}"
            class="px-4 py-2 rounded-md bg-ink-800 hover:bg-ink-700 text-zinc-300">
-          &larr; Newer stars
+          {{ t('favourites_newer') }}
         </a>
       {% else %}
         <span></span>
       {% endif %}
-      <span class="text-xs text-zinc-500 font-mono">page {{ page }} / {{ total_pages }}</span>
+      <span class="text-xs text-zinc-500 font-mono">{{ t('favourites_page') }} {{ page }} / {{ total_pages }}</span>
       {% if has_next %}
         <a href="/favourites?page={{ page + 1 }}&amp;sort_by={{ sort_by | urlencode }}"
            class="px-4 py-2 rounded-md bg-ink-800 hover:bg-ink-700 text-zinc-300">
-          Older stars &rarr;
+          {{ t('favourites_older') }}
         </a>
       {% else %}
         <span></span>
@@ -112,15 +110,13 @@
 {% else %}
   <div class="text-center py-20 px-6 rounded-lg border border-dashed border-ink-700 bg-ink-900/40">
     <div class="text-5xl text-zinc-700 mb-4">&#9734;</div>
-    <h2 class="text-lg font-semibold text-zinc-300">No favourites yet</h2>
+    <h2 class="text-lg font-semibold text-zinc-300">{{ t('favourites_empty_title') }}</h2>
     <p class="text-sm text-zinc-500 mt-2 max-w-md mx-auto">
-      Open any screenshot and tap the star to add it here. Favourites are a
-      personal shortcut list &mdash; they don't affect the tier sweep or any
-      automatic cleanup. Use <span class="text-amber-400">pin</span> for that.
+      {{ t('favourites_empty_intro') }}
     </p>
     <a href="/"
        class="inline-block mt-5 px-4 py-2 rounded-md bg-accent-600 hover:bg-accent-500 text-white text-sm font-medium transition">
-      Browse the timeline &rarr;
+      {{ t('favourites_browse_timeline') }}
     </a>
   </div>
 {% endif %}

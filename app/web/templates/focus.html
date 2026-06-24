@@ -3,11 +3,9 @@
 {% block content %}
 <div class="mb-6 flex items-center justify-between flex-wrap gap-3">
   <div>
-    <h1 class="text-2xl font-bold tracking-tight">Focus</h1>
+    <h1 class="text-2xl font-bold tracking-tight">{{ t('focus_title') }}</h1>
     <p class="text-zinc-500 text-sm mt-1">
-      Pomodoro-style timer with optional capture pause during the work block.
-      The countdown is driven by the client clock — refreshing the page does
-      not lose time. When it hits zero a small beep plays via the Web Audio API.
+      {{ t('focus_intro') }}
     </p>
   </div>
 </div>
@@ -52,24 +50,24 @@
       {% endif %}
 
       <p class="text-zinc-500 text-xs mb-4">
-        {{ active.work_minutes }} min work
-        {% if active.break_minutes %}· then {{ active.break_minutes }} min break{% endif %}
+        {{ active.work_minutes }} {{ t('focus_min_work') }}
+        {% if active.break_minutes %}· {{ t('focus_then_break').replace('{n}', active.break_minutes | string) }}{% endif %}
       </p>
 
       <form method="post" action="/focus/end" class="flex items-center justify-center gap-2">
         <input type="hidden" name="session_id" value="{{ active.id }}">
         <button type="submit" name="completed" value="1"
                 class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded text-sm font-medium">
-          Done
+          {{ t('focus_done') }}
         </button>
         <button type="submit" name="completed" value="0"
                 class="px-4 py-2 bg-rose-700 hover:bg-rose-600 rounded text-sm font-medium">
-          Bail
+          {{ t('focus_bail') }}
         </button>
         <label class="flex items-center gap-1.5 text-xs text-zinc-500 ml-2">
           <input type="checkbox" name="resume_capture" value="1" checked
                  class="rounded border-ink-700 bg-ink-900">
-          resume capture
+          {{ t('focus_resume_capture') }}
         </label>
       </form>
 
@@ -80,38 +78,38 @@
         <div class="absolute inset-0 rounded-full"
              style="background: conic-gradient(rgb(38 38 46) 0deg, rgb(38 38 46) 360deg);"></div>
         <div class="absolute rounded-full bg-ink-800" style="inset: 12px;"></div>
-        <div class="relative text-3xl font-mono text-zinc-500">Ready</div>
+        <div class="relative text-3xl font-mono text-zinc-500">{{ t('focus_ready') }}</div>
       </div>
 
       <form method="post" action="/focus/start" class="space-y-3">
-        <input type="text" name="label" placeholder="What are you focusing on?"
+        <input type="text" name="label" placeholder="{{ t('focus_label_placeholder') }}"
                maxlength="200"
                class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm">
 
         <div class="flex items-center justify-center gap-4 text-sm">
           <label class="flex items-center gap-2 text-zinc-400">
-            Work
+            {{ t('focus_work') }}
             <input type="number" name="work_minutes" value="25" min="1" max="240"
                    class="w-20 px-2 py-1 bg-ink-900 border border-ink-700 rounded text-center font-mono">
-            min
+            {{ t('focus_min') }}
           </label>
           <label class="flex items-center gap-2 text-zinc-400">
-            Break
+            {{ t('focus_break') }}
             <input type="number" name="break_minutes" value="5" min="0" max="60"
                    class="w-20 px-2 py-1 bg-ink-900 border border-ink-700 rounded text-center font-mono">
-            min
+            {{ t('focus_min') }}
           </label>
         </div>
 
         <label class="flex items-center justify-center gap-1.5 text-xs text-zinc-500">
           <input type="checkbox" name="pause_capture" value="1"
                  class="rounded border-ink-700 bg-ink-900">
-          pause screen capture during the work block
+          {{ t('focus_pause_capture') }}
         </label>
 
         <button type="submit"
                 class="w-full px-5 py-2.5 bg-accent-600 hover:bg-accent-500 rounded-lg font-medium">
-          Start focus block
+          {{ t('focus_start') }}
         </button>
       </form>
     {% endif %}
@@ -120,8 +118,8 @@
 
   {# ---- Recent sessions panel --------------------------------------------- #}
   <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
-    <h2 class="text-lg font-semibold mb-3">Recent sessions
-      <span class="text-zinc-500 text-xs font-normal">· last 7 days</span>
+    <h2 class="text-lg font-semibold mb-3">{{ t('focus_recent') }}
+      <span class="text-zinc-500 text-xs font-normal">{{ t('focus_last_7_days') }}</span>
     </h2>
     {% if recent %}
       <div class="space-y-2 text-sm">
@@ -133,11 +131,11 @@
               </span>
               {% if s.ended_at %}
                 <span class="truncate {{ 'text-emerald-400' if s.completed else 'text-rose-400' }}">
-                  {{ 'OK' if s.completed else '×' }} {{ s.label or '(no label)' }}
+                  {{ 'OK' if s.completed else '×' }} {{ s.label or t('focus_no_label') }}
                 </span>
               {% else %}
                 <span class="truncate text-accent-400">
-                  … {{ s.label or '(no label)' }}
+                  … {{ s.label or t('focus_no_label') }}
                 </span>
               {% endif %}
             </div>
@@ -149,7 +147,7 @@
         {% endfor %}
       </div>
     {% else %}
-      <p class="text-zinc-500 text-sm">No focus sessions in the last 7 days.</p>
+      <p class="text-zinc-500 text-sm">{{ t('focus_none_recent') }}</p>
     {% endif %}
   </section>
 
