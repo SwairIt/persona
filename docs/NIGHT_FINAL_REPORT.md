@@ -57,8 +57,13 @@ Yandex, local-LLM-паттерны, salience/forgetting → синтез на р
 - `import app.web.main` — OK.
 - Миграции на реальной БД (init_database повторно) — идемпотентны, OK.
 - i18n паритет: `set(en)==set(ru)==set(de)` = 982 ключа.
-- Security smoke (после рестарта): см. ниже.
-- Сервер в проде на v2.20.75 (autostart-респаун).
+- **Тесты:** 10 новых юнит-тестов на ночной код (память: salience/scoring/dreams;
+  безопасность: SSRF-гард/rate-limit) — зелёные (`tests/test_night_build.py`).
+  Полный pytest-набор — **546 passed, 15 skipped, 0 failed** (после обновления
+  11 тест-файлов под owner-only роуты Ф1, коммит 55bfec4 — security-фиксы
+  потребовали авторизации в тестах).
+- Security smoke (v2.20.75): full.zip/settings/multishot→401, thumbs/doctor→303,
+  `/health` без host/port. Сервер в проде (autostart-респаун).
 
 ---
 
