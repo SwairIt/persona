@@ -25,6 +25,35 @@ _MAX_LEN = 600
 MEMORY_AUTO_CAP = 80
 
 
+def _heuristic_importance(text: str, kind: str, pinned: bool = False) -> float:
+    """Грубая важность факта 1..10 без LLM (всегда работает, дёшево) — Ф3-C.
+
+    Generative-recall и ночной «сон» используют salience как вес. Durable-факты
+    (имена/цели/предпочтения/закреплённые) — выше; смолток/очень короткое — ниже.
+    Не LLM специально: дешёвый детерминированный fallback, не зависит от Ollama.
+    """
+    base = {
+        "person": 7.0, "project": 7.0, "preference": 6.5,
+        "reminder": 6.0, "fact": 5.0, "other": 4.0,
+    }.get(kind, 5.0)
+    low = (text or "").lower()
+    n = len(text or "")
+    if n < 15:
+        base -= 1.0
+    elif n > 80:
+        base += 0.7
+    if any(w in low for w in (
+        "зовут", "люблю", "ненавиж", "цель", "хочу", "работа", "живу", "важно",
+        "name", "goal", "prefer", "always", "never",
+    )):
+        base += 0.8
+    if any(w in low for w in ("привет", "ладно", "ха-ха", " lol", "hello")):
+        base -= 0.8
+    if pinned:
+        base += 1.5
+    return max(1.0, min(10.0, round(base, 1)))
+
+
 async def add_memory(
     user_id: int,
     text: str,
@@ -52,30 +81,40 @@ async def add_memory(
                     (existing["id"],),
                 )
             return int(existing["id"])
+        sal = _heuristic_importance(text, kind, pinned)
         cur = await conn.execute(
-            "INSERT INTO user_memory(user_id, kind, text, pinned, source_session_id) "
-            "VALUES(?,?,?,?,?)",
-            (user_id, kind, text, 1 if pinned else 0, source_session_id),
+            "INSERT INTO user_memory(user_id, kind, text, pinned, source_session_id, "
+            "salience, importance_source) VALUES(?,?,?,?,?,?,?)",
+            (user_id, kind, text, 1 if pinned else 0, source_session_id, sal, "heuristic"),
         )
         return int(cur.lastrowid)
 
 
 async def list_memory(
-    user_id: int, limit: int = 200, include_invalidated: bool = False
+    user_id: int, limit: int = 200, include_invalidated: bool = False,
+    order_by_salience: bool = False,
 ) -> list[dict[str, Any]]:
     """Факты пользователя: закреплённые сверху, потом новые.
 
     По умолчанию — только АКТУАЛЬНЫЕ (``valid_until IS NULL``). bi-temporal
     история (устаревшие/опровергнутые факты) доступна через
     ``include_invalidated=True`` (для UI-инспектора памяти).
+
+    ``order_by_salience`` (Ф3-C) — для отбора в системный промпт: при переполнении
+    бюджета всплывают ВАЖНЫЕ факты (salience), а не просто свежие. Для UI остаётся
+    хронология (pinned + recency).
     """
     where = "user_id = ?" + ("" if include_invalidated else " AND valid_until IS NULL")
+    order = (
+        "ORDER BY pinned DESC, COALESCE(salience, 5) DESC, id DESC LIMIT ?"
+        if order_by_salience
+        else "ORDER BY pinned DESC, id DESC LIMIT ?"
+    )
     async with get_connection() as conn:
         cur = await conn.execute(
             "SELECT id, kind, text, pinned, source_session_id, created_at, "
             "       valid_until, superseded_by "
-            f"FROM user_memory WHERE {where} "
-            "ORDER BY pinned DESC, id DESC LIMIT ?",
+            f"FROM user_memory WHERE {where} {order}",
             (user_id, max(1, min(1000, int(limit)))),
         )
         rows = await cur.fetchall()
@@ -416,7 +455,8 @@ async def build_memory_block(user_id: int, max_items: int = 14) -> str:
     """Блок для системного промпта: закреплённые + недавние факты о пользователе,
     плюс свежие наблюдения ночной рефлексии («сон») отдельным коротким блоком."""
     blocks: list[str] = []
-    items = await list_memory(user_id, limit=max_items)
+    # Ф3-C: при переполнении бюджета берём ВАЖНЫЕ факты (salience), не просто свежие.
+    items = await list_memory(user_id, limit=max_items, order_by_salience=True)
     if items:
         lines = ["── Что я помню о тебе (личная память) ──"]
         for it in items:
