@@ -7,19 +7,19 @@
 {% block content %}
 <div class="mb-6">
   <h1 class="text-2xl font-bold tracking-tight">{{ t('title_settings') }}</h1>
-  <p class="text-zinc-500 text-sm mt-1">Read-only view of current config. Edit <code class="text-accent-400">.env</code> and restart to change.</p>
+  <p class="text-zinc-500 text-sm mt-1">{{ t('settings_cfg_intro') }} <code class="text-accent-400">.env</code> {{ t('settings_cfg_intro_tail') }}</p>
 </div>
 
 <div class="grid lg:grid-cols-2 gap-6">
   <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
     <h2 class="text-lg font-semibold mb-4">{{ t('section_capture') }}</h2>
     <dl class="space-y-2 text-sm font-mono">
-      <div class="flex justify-between"><dt class="text-zinc-500">Interval</dt><dd>{{ settings.capture_interval_seconds }}s</dd></div>
-      <div class="flex justify-between"><dt class="text-zinc-500">Thumbnail quality</dt><dd>{{ settings.thumbnail_quality }}</dd></div>
-      <div class="flex justify-between"><dt class="text-zinc-500">Thumbnail max width</dt><dd>{{ settings.thumbnail_max_width }}px</dd></div>
-      <div class="flex justify-between"><dt class="text-zinc-500">Dedup hamming threshold</dt><dd>{{ settings.dedup_hamming_threshold }}</dd></div>
-      <div class="flex justify-between"><dt class="text-zinc-500">Retention</dt><dd>{{ settings.retention_days }}d</dd></div>
-      <div class="flex justify-between"><dt class="text-zinc-500">Idle threshold</dt><dd>{{ settings.idle_threshold_seconds }}s</dd></div>
+      <div class="flex justify-between"><dt class="text-zinc-500">{{ t('cfg_interval') }}</dt><dd>{{ settings.capture_interval_seconds }}s</dd></div>
+      <div class="flex justify-between"><dt class="text-zinc-500">{{ t('cfg_thumb_quality') }}</dt><dd>{{ settings.thumbnail_quality }}</dd></div>
+      <div class="flex justify-between"><dt class="text-zinc-500">{{ t('cfg_thumb_max_width') }}</dt><dd>{{ settings.thumbnail_max_width }}px</dd></div>
+      <div class="flex justify-between"><dt class="text-zinc-500">{{ t('cfg_dedup_hamming') }}</dt><dd>{{ settings.dedup_hamming_threshold }}</dd></div>
+      <div class="flex justify-between"><dt class="text-zinc-500">{{ t('cfg_retention') }}</dt><dd>{{ settings.retention_days }}d</dd></div>
+      <div class="flex justify-between"><dt class="text-zinc-500">{{ t('cfg_idle_threshold') }}</dt><dd>{{ settings.idle_threshold_seconds }}s</dd></div>
     </dl>
   </section>
 
@@ -27,43 +27,43 @@
     <h2 class="text-lg font-semibold mb-4">{{ t('section_ocr') }}</h2>
     <dl class="space-y-2 text-sm">
       <div class="flex justify-between">
-        <dt class="text-zinc-500">Enabled in .env</dt>
-        <dd class="font-mono">{{ "yes" if settings.ocr_enabled else "no" }}</dd>
+        <dt class="text-zinc-500">{{ t('cfg_enabled_in_env') }}</dt>
+        <dd class="font-mono">{{ t('val_yes') if settings.ocr_enabled else t('val_no') }}</dd>
       </div>
       <div class="flex justify-between">
-        <dt class="text-zinc-500">Binary configured</dt>
-        <dd class="font-mono">{{ "yes" if settings.tesseract_path else "no" }}</dd>
+        <dt class="text-zinc-500">{{ t('cfg_binary_configured') }}</dt>
+        <dd class="font-mono">{{ t('val_yes') if settings.tesseract_path else t('val_no') }}</dd>
       </div>
       <div class="flex justify-between">
-        <dt class="text-zinc-500">Binary available</dt>
-        <dd class="font-mono">{{ "yes" if tesseract.available else "no" }}</dd>
+        <dt class="text-zinc-500">{{ t('cfg_binary_available') }}</dt>
+        <dd class="font-mono">{{ t('val_yes') if tesseract.available else t('val_no') }}</dd>
       </div>
       {% if tesseract.binary_path %}
         <div class="flex justify-between gap-3">
-          <dt class="text-zinc-500">Path</dt>
+          <dt class="text-zinc-500">{{ t('cfg_path') }}</dt>
           <dd class="font-mono text-right truncate text-xs">{{ tesseract.binary_path }}</dd>
         </div>
       {% endif %}
       {% if tesseract.version %}
         <div class="flex justify-between">
-          <dt class="text-zinc-500">Version</dt>
+          <dt class="text-zinc-500">{{ t('cfg_version') }}</dt>
           <dd class="font-mono">{{ tesseract.version }}</dd>
         </div>
       {% endif %}
       <div class="flex justify-between">
-        <dt class="text-zinc-500">Languages</dt>
+        <dt class="text-zinc-500">{{ t('cfg_languages') }}</dt>
         <dd class="font-mono">{{ settings.tesseract_langs }}</dd>
       </div>
     </dl>
     {% if tesseract.error %}
       <p class="text-amber-400 text-xs mt-3">{{ tesseract.error }}</p>
       <details class="mt-3 text-xs text-zinc-400">
-        <summary class="cursor-pointer text-zinc-300">How to enable OCR</summary>
+        <summary class="cursor-pointer text-zinc-300">{{ t('cfg_how_enable_ocr') }}</summary>
         <ol class="list-decimal list-inside space-y-1 mt-2">
-          <li>Install Tesseract: <a class="text-accent-400 underline" href="https://github.com/UB-Mannheim/tesseract/wiki">UB-Mannheim build</a></li>
-          <li>Set <code>PERSONA_TESSERACT_PATH=C:\Program Files\Tesseract-OCR\tesseract.exe</code></li>
-          <li>Set <code>PERSONA_OCR_ENABLED=true</code></li>
-          <li>Restart Persona — old screenshots backfill automatically</li>
+          <li>{{ t('cfg_install_tesseract') }} <a class="text-accent-400 underline" href="https://github.com/UB-Mannheim/tesseract/wiki">{{ t('cfg_ubmannheim_build') }}</a></li>
+          <li>{{ t('cfg_set') }} <code>PERSONA_TESSERACT_PATH=C:\Program Files\Tesseract-OCR\tesseract.exe</code></li>
+          <li>{{ t('cfg_set') }} <code>PERSONA_OCR_ENABLED=true</code></li>
+          <li>{{ t('cfg_restart_backfill') }}</li>
         </ol>
       </details>
     {% endif %}
@@ -72,28 +72,27 @@
   <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
     <h2 class="text-lg font-semibold mb-4">{{ t('section_paths') }}</h2>
     <dl class="space-y-2 text-sm font-mono text-xs">
-      <div><dt class="text-zinc-500">Data dir</dt><dd class="text-zinc-300 truncate">{{ settings.data_dir }}</dd></div>
-      <div><dt class="text-zinc-500">DB</dt><dd class="text-zinc-300 truncate">{{ settings.db_path }}</dd></div>
-      <div><dt class="text-zinc-500">Thumbnails</dt><dd class="text-zinc-300 truncate">{{ settings.thumbnails_dir }}</dd></div>
+      <div><dt class="text-zinc-500">{{ t('cfg_data_dir') }}</dt><dd class="text-zinc-300 truncate">{{ settings.data_dir }}</dd></div>
+      <div><dt class="text-zinc-500">{{ t('cfg_db') }}</dt><dd class="text-zinc-300 truncate">{{ settings.db_path }}</dd></div>
+      <div><dt class="text-zinc-500">{{ t('cfg_thumbnails') }}</dt><dd class="text-zinc-300 truncate">{{ settings.thumbnails_dir }}</dd></div>
     </dl>
   </section>
 
   <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
     <h2 class="text-lg font-semibold mb-4">{{ t('section_server') }}</h2>
     <dl class="space-y-2 text-sm font-mono">
-      <div class="flex justify-between"><dt class="text-zinc-500">Host</dt><dd>{{ settings.host }}</dd></div>
-      <div class="flex justify-between"><dt class="text-zinc-500">Port</dt><dd>{{ settings.port }}</dd></div>
-      <div class="flex justify-between"><dt class="text-zinc-500">Log level</dt><dd>{{ settings.log_level }}</dd></div>
+      <div class="flex justify-between"><dt class="text-zinc-500">{{ t('cfg_host') }}</dt><dd>{{ settings.host }}</dd></div>
+      <div class="flex justify-between"><dt class="text-zinc-500">{{ t('cfg_port') }}</dt><dd>{{ settings.port }}</dd></div>
+      <div class="flex justify-between"><dt class="text-zinc-500">{{ t('cfg_log_level') }}</dt><dd>{{ settings.log_level }}</dd></div>
     </dl>
   </section>
 
   <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 lg:col-span-2">
     <h2 class="text-lg font-semibold mb-2">{{ t('section_language') }}</h2>
     <p class="text-zinc-500 text-xs mb-4">
-      Switch the UI language. Translation tables live under
-      <code>app/translations/{lang}.json</code>; missing keys fall back
-      to English so a partially translated locale still renders. Stored
-      in <code>kv_settings</code> under <code>ui_language</code>.
+      {{ t('cfg_lang_desc_a') }}
+      <code>app/translations/{lang}.json</code>; {{ t('cfg_lang_desc_b') }}
+      <code>kv_settings</code> → <code>ui_language</code>.
     </p>
     <form action="/settings/ui-language" method="post" class="flex items-center gap-3">
       <label for="ui-language-select" class="text-sm text-zinc-300">
@@ -116,10 +115,9 @@
   <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 lg:col-span-2">
     <h2 class="text-lg font-semibold mb-2">{{ t('section_appearance') }}</h2>
     <p class="text-zinc-500 text-xs mb-4">
-      Compact mode tightens row padding, shrinks the base font, and
-      reduces the timeline / day-kanban thumbnail size. The setting is
-      stored in <code>kv_settings</code> and applied via a
-      <code>data-compact</code> attribute on <code>&lt;body&gt;</code>.
+      {{ t('cfg_compact_desc') }}
+      <code>kv_settings</code> {{ t('cfg_applied_via') }}
+      <code>data-compact</code> {{ t('cfg_attr_on_body') }} <code>&lt;body&gt;</code>.
     </p>
     <form action="/settings/compact-mode" method="post" class="flex items-center gap-3">
       <label class="flex items-center gap-2 text-sm cursor-pointer">
@@ -129,7 +127,7 @@
           value="true"
           {% if compact_mode_enabled %}checked{% endif %}
           class="w-4 h-4 accent-accent-500 bg-ink-900 border-ink-700 rounded">
-        <span>Compact mode (smaller fonts, denser thumbnails)</span>
+        <span>{{ t('cfg_compact_label') }}</span>
       </label>
       <button type="submit" class="px-3 py-1.5 bg-accent-600 hover:bg-accent-500 rounded text-xs font-medium">
         {{ t('btn_save') }}
@@ -137,11 +135,10 @@
     </form>
 
     <p class="text-zinc-500 text-xs mt-6 mb-4">
-      Grayscale mode wraps the whole UI in a CSS
-      <code>filter: grayscale(1)</code> for distraction-light reading —
-      accent colours, thumbnails, and tag pills collapse to neutral
-      tones. Stored in <code>kv_settings</code> and applied via a
-      <code>data-grayscale</code> attribute on <code>&lt;body&gt;</code>.
+      {{ t('cfg_grayscale_desc') }}
+      <code>filter: grayscale(1)</code> {{ t('cfg_grayscale_desc2') }}
+      <code>kv_settings</code> {{ t('cfg_applied_via') }}
+      <code>data-grayscale</code> {{ t('cfg_attr_on_body') }} <code>&lt;body&gt;</code>.
     </p>
     <form action="/settings/grayscale-mode" method="post" class="flex items-center gap-3">
       <label class="flex items-center gap-2 text-sm cursor-pointer">
@@ -151,7 +148,7 @@
           value="true"
           {% if grayscale_mode_enabled %}checked{% endif %}
           class="w-4 h-4 accent-accent-500 bg-ink-900 border-ink-700 rounded">
-        <span>Grayscale mode (drain colour from the whole UI)</span>
+        <span>{{ t('cfg_grayscale_label') }}</span>
       </label>
       <button type="submit" class="px-3 py-1.5 bg-accent-600 hover:bg-accent-500 rounded text-xs font-medium">
         {{ t('btn_save') }}
@@ -159,12 +156,9 @@
     </form>
 
     <p class="text-zinc-500 text-xs mt-6 mb-4">
-      Reduce motion disables every CSS transition and animation across
-      the UI — hover fades, status-pill pulses, htmx swap animations,
-      Alpine transitions. Useful if you are sensitive to motion
-      (vestibular disorders, post-concussion, migraine) or simply prefer
-      a static interface. Stored in <code>kv_settings</code> and applied
-      via a <code>data-reduce-motion</code> attribute on
+      {{ t('cfg_reduce_motion_desc') }}
+      <code>kv_settings</code> {{ t('cfg_applied_via') }}
+      <code>data-reduce-motion</code> {{ t('cfg_attr_on_body') }}
       <code>&lt;body&gt;</code>.
     </p>
     <form action="/settings/reduce-motion" method="post" class="flex items-center gap-3">
@@ -175,7 +169,7 @@
           value="true"
           {% if reduce_motion_enabled %}checked{% endif %}
           class="w-4 h-4 accent-accent-500 bg-ink-900 border-ink-700 rounded">
-        <span>Reduce motion (disable all transitions and animations)</span>
+        <span>{{ t('cfg_reduce_motion_label') }}</span>
       </label>
       <button type="submit" class="px-3 py-1.5 bg-accent-600 hover:bg-accent-500 rounded text-xs font-medium">
         {{ t('btn_save') }}
@@ -184,18 +178,12 @@
   </section>
 
   <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 lg:col-span-2">
-    <h2 class="text-lg font-semibold mb-2">Capture behaviour</h2>
+    <h2 class="text-lg font-semibold mb-2">{{ t('cfg_capture_behaviour') }}</h2>
     <p class="text-zinc-500 text-xs mb-4">
-      As of v1.10 Persona starts capturing immediately when the app
-      boots — the yellow <strong>Пауза</strong> pill on first frame
-      routinely tricked new users into thinking Persona was broken.
-      Enable the checkbox below if you would rather have the old
-      behaviour where every fresh boot starts paused and you have to
-      click <em>Resume</em> in the header before the first screenshot
-      is taken. Stored in <code>kv_settings</code> under
-      <code>capture_paused_on_boot</code>; read once by the FastAPI
-      lifespan on process start, so the change applies on the next
-      Persona restart (not immediately).
+      {{ t('cfg_capture_boot_a') }} <strong>{{ t('status_paused') }}</strong>
+      {{ t('cfg_capture_boot_b') }} <em>{{ t('btn_resume') }}</em>
+      {{ t('cfg_capture_boot_c') }} <code>kv_settings</code> →
+      <code>capture_paused_on_boot</code>; {{ t('cfg_capture_boot_d') }}
     </p>
     <form action="/settings/capture-paused-on-boot" method="post" class="flex items-center gap-3">
       <label class="flex items-center gap-2 text-sm cursor-pointer">
@@ -205,7 +193,7 @@
           value="true"
           {% if capture_paused_on_boot_enabled %}checked{% endif %}
           class="w-4 h-4 accent-accent-500 bg-ink-900 border-ink-700 rounded">
-        <span>Pause capture on app start (opt back in to pre-v1.10 behaviour)</span>
+        <span>{{ t('cfg_pause_on_boot_label') }}</span>
       </label>
       <button type="submit" class="px-3 py-1.5 bg-accent-600 hover:bg-accent-500 rounded text-xs font-medium">
         {{ t('btn_save') }}
@@ -216,10 +204,7 @@
   <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 lg:col-span-2">
     <h2 class="text-lg font-semibold mb-2">{{ t('section_digests') }}</h2>
     <p class="text-zinc-500 text-xs mb-4">
-      Anti-FOMO digest mode tells the LLM to write a qualitative, themes-only
-      retrospective. Shot counts, percentages, time-spent figures, and other
-      productivity metrics are stripped from both the prompt and the
-      generated text.
+      {{ t('cfg_antifomo_desc') }}
     </p>
     <form action="/settings/anti-fomo-digest" method="post" class="flex items-center gap-3">
       <label class="flex items-center gap-2 text-sm cursor-pointer">
@@ -229,14 +214,14 @@
           value="true"
           {% if anti_fomo_enabled %}checked{% endif %}
           class="w-4 h-4 accent-accent-500 bg-ink-900 border-ink-700 rounded">
-        <span>Anti-FOMO digest mode (themes only, no numbers)</span>
+        <span>{{ t('cfg_antifomo_label') }}</span>
       </label>
       <button type="submit" class="px-3 py-1.5 bg-accent-600 hover:bg-accent-500 rounded text-xs font-medium">
         {{ t('btn_save') }}
       </button>
       {% if anti_fomo_kv_set and anti_fomo_enabled != anti_fomo_env_default %}
         <span class="text-xs text-zinc-500">
-          (overriding <code>PERSONA_ANTI_FOMO_DIGEST={{ "true" if anti_fomo_env_default else "false" }}</code>)
+          ({{ t('cfg_overriding') }} <code>PERSONA_ANTI_FOMO_DIGEST={{ "true" if anti_fomo_env_default else "false" }}</code>)
         </span>
       {% endif %}
     </form>
@@ -245,12 +230,8 @@
   <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 lg:col-span-2">
     <h2 class="text-lg font-semibold mb-2">{{ t('section_browser_notif') }}</h2>
     <p class="text-zinc-500 text-xs mb-4">
-      Opt in to desktop notifications for reminders that come due while
-      this tab is open. The permission prompt only appears after you
-      click the button below — required by browsers, which reject
-      permission requests that aren't tied to a user gesture. Once
-      granted, this tab polls <code>/api/push-notif/pending</code>
-      every five minutes.
+      {{ t('cfg_notif_desc_a') }} <code>/api/push-notif/pending</code>
+      {{ t('cfg_notif_desc_b') }}
     </p>
     <button
       type="button"
@@ -264,13 +245,13 @@
 <section class="mt-8 rounded-lg border border-rose-700/40 bg-rose-950/20 p-5">
   <h2 class="text-lg font-semibold mb-2 text-rose-300">{{ t('section_danger_zone') }}</h2>
   <p class="text-zinc-400 text-xs mb-4">
-    Bulk-delete screenshots. <strong class="text-rose-300">Irreversible.</strong> Snapshots are not affected.
+    {{ t('cfg_danger_desc') }} <strong class="text-rose-300">{{ t('cfg_irreversible') }}</strong> {{ t('cfg_snapshots_unaffected') }}
   </p>
 
   <details class="mb-4">
-    <summary class="cursor-pointer text-sm text-zinc-300">Delete all screenshots for one app</summary>
+    <summary class="cursor-pointer text-sm text-zinc-300">{{ t('cfg_delete_by_app') }}</summary>
     <form action="/api/bulk/delete-by-app" method="post" class="flex gap-2 mt-3"
-          onsubmit="return confirm('Really delete every screenshot for this app?')">
+          onsubmit="return confirm('{{ t('cfg_confirm_delete_app') }}')">
       <input name="app" placeholder="{{ t('ph_app_exact') }}" required
              class="flex-1 px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm">
       <input name="confirm" placeholder="{{ t('ph_app_confirm') }}" required
@@ -280,9 +261,9 @@
   </details>
 
   <details>
-    <summary class="cursor-pointer text-sm text-zinc-300">Delete all screenshots in a time range</summary>
+    <summary class="cursor-pointer text-sm text-zinc-300">{{ t('cfg_delete_by_range') }}</summary>
     <form action="/api/bulk/delete-by-range" method="post" class="grid sm:grid-cols-4 gap-2 mt-3"
-          onsubmit="return confirm('Really delete every screenshot in this range?')">
+          onsubmit="return confirm('{{ t('cfg_confirm_delete_range') }}')">
       <input name="since" type="datetime-local" required
              class="px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm">
       <input name="until" type="datetime-local" required
@@ -297,7 +278,7 @@
 <section class="mt-8 rounded-lg border border-ink-700 bg-ink-800 p-5">
   <h2 class="text-lg font-semibold mb-3">{{ t('section_ui_overrides') }} ({{ overrides | length }})</h2>
   <p class="text-zinc-500 text-xs mb-4">
-    Stored in <code>kv_settings</code>. These are informational for now — they will be wired into Settings in v0.2.
+    {{ t('cfg_stored_in') }} <code>kv_settings</code>. {{ t('cfg_overrides_desc_b') }}
   </p>
   <form action="/settings/override" method="post" class="flex gap-3 mb-4">
     <input name="key" placeholder="{{ t('ph_key') }}" class="px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm">

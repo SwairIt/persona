@@ -4,7 +4,8 @@ Persona stores UI strings as ``key -> phrase`` pairs in per-language JSON
 files under :mod:`app/translations`. The active language is picked from
 the ``ui_language`` row in ``kv_settings`` (migration 081); anything
 outside the whitelist :data:`SUPPORTED_LANGUAGES` collapses to the
-default ``"en"`` so a manual kv edit can never wedge the renderer.
+default ``"ru"`` so a manual kv edit can never wedge the renderer.
+Persona — русскоязычный продукт, поэтому язык по умолчанию русский.
 
 The module deliberately mirrors the *synchronous-Jinja-global / async
 read elsewhere* split used by the theme, compact-mode, grayscale, and
@@ -47,7 +48,9 @@ TRANSLATIONS_DIR: Final[Path] = Path(__file__).parent / "translations"
 # code here — the dual gate stops typos in kv from silently selecting a
 # file that doesn't exist.
 SUPPORTED_LANGUAGES: Final[frozenset[str]] = frozenset({"en", "ru", "de"})
-DEFAULT_LANGUAGE: Final[str] = "en"
+# Persona — русскоязычный продукт по умолчанию (kv ui_language всё ещё может
+# переключить на en/de). Фолбэк-цепочка в t(): effective → ru → en → key.
+DEFAULT_LANGUAGE: Final[str] = "ru"
 
 # kv key shared with :mod:`app.web.routes.settings` (the language
 # selector) and migration ``081_ui_language.sql`` — single source of
@@ -141,12 +144,14 @@ def t(key: str, lang: str | None = None) -> str:
     value = table.get(key)
     if value is not None:
         return value
-    # Fall back to English so a missing Russian key still renders a real
-    # word, not the bare identifier.
-    if effective_lang != DEFAULT_LANGUAGE:
-        fallback = _TRANSLATIONS.get(DEFAULT_LANGUAGE, {}).get(key)
-        if fallback is not None:
-            return fallback
+    # Цепочка фолбэков: язык по умолчанию (ru) → английский → сам ключ.
+    # Так отсутствующий ключ всё равно отрендерит реальное слово, а не id,
+    # и ни ru-, ни de-пользователь не увидит «голый» идентификатор.
+    for fb in (DEFAULT_LANGUAGE, "en"):
+        if fb != effective_lang:
+            fallback = _TRANSLATIONS.get(fb, {}).get(key)
+            if fallback is not None:
+                return fallback
     return key
 
 

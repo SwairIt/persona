@@ -211,7 +211,7 @@
            class="flex items-center gap-2 sm:gap-3 text-xs shrink-0">
         <span id="status-pill-heartbeat-dot"
               class="w-1.5 h-1.5 rounded-full bg-zinc-600 transition-colors"
-              title="Worker heartbeat"></span>
+              title="{{ t('tip_worker_heartbeat') }}"></span>
         <span x-show="paused" class="flex items-center gap-1.5 text-amber-400">
           <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
           <span class="hidden lg:inline">{{ t('status_paused') }}</span>
@@ -307,7 +307,7 @@
              пользователь её не увидит — drawer показывается только <md. #}
           <a href="/m"
              class="block mt-3 mx-4 px-4 py-3 text-center text-sm rounded-md bg-accent-600/20 text-accent-300 border border-accent-500/40 hover:bg-accent-600/30">
-            📱 Mobile view
+            📱 {{ t('nav_mobile_view') }}
           </a>
         </nav>
       </aside>
@@ -369,8 +369,8 @@
     <a href="/whats-new" class="font-mono hover:text-accent-400">v{{ app_version }}</a>
     <button type="button"
             id="persona-version-banner-dismiss"
-            aria-label="Dismiss version banner"
-            title="Dismiss"
+            aria-label="{{ t('aria_dismiss_version') }}"
+            title="{{ t('btn_dismiss') }}"
             class="rounded-full px-1.5 leading-none text-zinc-500 hover:bg-ink-800 hover:text-zinc-200">×</button>
   </div>
   <script>
