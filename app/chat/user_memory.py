@@ -413,12 +413,30 @@ async def extract_and_store(
 
 
 async def build_memory_block(user_id: int, max_items: int = 14) -> str:
-    """Блок для системного промпта: закреплённые + недавние факты о пользователе."""
+    """Блок для системного промпта: закреплённые + недавние факты о пользователе,
+    плюс свежие наблюдения ночной рефлексии («сон») отдельным коротким блоком."""
+    blocks: list[str] = []
     items = await list_memory(user_id, limit=max_items)
-    if not items:
-        return ""
-    lines = ["── Что я помню о тебе (личная память) ──"]
-    for it in items:
-        mark = "📌 " if it["pinned"] else "• "
-        lines.append(f"{mark}{it['text']}")
-    return "\n".join(lines)
+    if items:
+        lines = ["── Что я помню о тебе (личная память) ──"]
+        for it in items:
+            mark = "📌 " if it["pinned"] else "• "
+            lines.append(f"{mark}{it['text']}")
+        blocks.append("\n".join(lines))
+    # Выводы ночной рефлексии (insight/dream) — отдельным блоком, только если есть
+    # актуальные. Best-effort: на старой БД без таблицы reflection тихо пропускаем.
+    try:
+        from app.dreams import list_active_reflections  # noqa: PLC0415
+
+        refl = await list_active_reflections(
+            user_id, kinds=["insight", "dream"], limit=4
+        )
+    except Exception as exc:  # noqa: BLE001 — рефлексии опциональны, не ломаем промпт
+        log.debug("user_memory.reflections_skip", error=str(exc))
+        refl = []
+    if refl:
+        rlines = ["── Что я заметил о тебе ──"]
+        for r in refl:
+            rlines.append(f"• {r['text']}")
+        blocks.append("\n".join(rlines))
+    return "\n\n".join(blocks)

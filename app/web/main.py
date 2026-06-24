@@ -1087,6 +1087,13 @@ async def _run_memory_of_day_worker(controller: object) -> None:
     await run_memory_of_day_worker()
 
 
+async def _run_dream_worker(controller: object) -> None:
+    """Adapter for the nightly memory-reflection ("dream") worker (docs §3)."""
+    from app.workers.dream_worker import run_dream_worker  # noqa: PLC0415
+
+    await run_dream_worker()
+
+
 async def _run_briefing_worker(controller: object) -> None:
     """Adapter for the proactive morning-briefing worker (MVP 7g)."""
     from app.workers.briefing_worker import run_briefing_worker  # noqa: PLC0415
@@ -1275,6 +1282,12 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         asyncio.create_task(
             _run_memory_of_day_worker(controller),
             name="memory-of-day-worker",
+        ),
+        # Hermes-style nightly memory consolidation ("сон") — opt-in
+        # (kv dream_enabled), fires at kv dream_hour_local (default 03:00).
+        asyncio.create_task(
+            _run_dream_worker(controller),
+            name="dream-worker",
         ),
         asyncio.create_task(
             _run_briefing_worker(controller),
