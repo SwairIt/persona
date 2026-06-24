@@ -5,17 +5,28 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#030014" />
 
-  <title>Persona — твоя память как сингулярность</title>
-  <meta name="description" content="Persona — личный ИИ, который видит твой день, помнит контекст и работает на твоём железе. Живая память в каждом чате, своя модель, файлы прямо на устройстве." />
-  <!-- v2 — альтернативный дизайн; noindex,follow, чтобы не конкурировать с основным
-       /landing (canonical не ставим: на noindex-странице он конфликтует и игнорируется). -->
-  <meta name="robots" content="noindex,follow" />
+  <title>Persona — твоя память как сингулярность · личный ИИ, который знает о тебе всё</title>
+  <meta name="description" content="Persona — личный ИИ, который видит твой день, помнит контекст и работает на твоём железе. Живая память в каждом чате, своя модель, файлы прямо на устройстве. Приватность по умолчанию, без vendor lock-in." />
+  <meta name="keywords" content="личный ИИ, персональный ассистент, ИИ с памятью, приватный ИИ, локальная нейросеть, своя модель, граф памяти, Rewind альтернатива, Limitless альтернатива, Persona" />
+  <link rel="canonical" href="/landing" />
   <meta property="og:title" content="Persona — твоя память как сингулярность" />
   <meta property="og:description" content="Видит, помнит, понимает. Личный ИИ, который знает о тебе всё — и остаётся у тебя." />
   <meta property="og:type" content="website" />
   <meta property="og:locale" content="ru_RU" />
   <meta property="og:image" content="/static/icon-180.png" />
   <meta name="twitter:card" content="summary_large_image" />
+
+  <!-- Structured data — основная индексируемая страница (перенесено из v1). -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {"@type": "Organization", "name": "Persona", "url": "/", "description": "Личный ИИ с живой памятью о пользователе, работает на своём железе."},
+      {"@type": "WebSite", "name": "Persona", "url": "/", "inLanguage": "ru-RU"},
+      {"@type": "SoftwareApplication", "name": "Persona", "applicationCategory": "ProductivityApplication", "operatingSystem": "macOS, Windows, Web", "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"}}
+    ]
+  }
+  </script>
 
   <link rel="manifest" href="/static/manifest.json" />
   <link rel="apple-touch-icon" href="/static/icon-180.png" />
@@ -259,22 +270,61 @@
 
     <!-- COMPARE -->
     <section class="compare" id="compare">
-      <h2 class="section-title reveal">Чем Persona отличается</h2>
-      <p class="section-lead reveal">Облачные ассистенты умные, но «общие» и забывчивые. Persona — личная и помнящая.</p>
+      <h2 class="section-title reveal">Persona и где остальные</h2>
+      <p class="section-lead reveal">Эталон рынка ушёл в облако и был куплен. Persona — local-first и открытая, поэтому у неё нет «рубильника» в чужих руках.</p>
+      <div class="compare-note reveal" style="max-width:760px;margin:0 auto 1.5rem;padding:.9rem 1.1rem;border-radius:14px;background:rgba(229,156,255,.08);border:1px solid rgba(229,156,255,.3);font-size:.92rem;line-height:1.5;">
+        ⚠️ <b>Декабрь 2025:</b> Rewind отключён, Limitless куплен Meta (запись на Mac выключена с 19.12.2025), сервис отрезан в EU/UK. Persona так не умеет — её архитектура не даёт это сделать.
+      </div>
       <div class="compare-table reveal">
         <table>
           <thead>
-            <tr><th>Возможность</th><th class="hi">Persona</th><th>Облачные</th><th>Локальные боты</th></tr>
+            <tr><th>Критерий</th><th class="hi">Persona</th><th>Rewind / Limitless</th><th>Microsoft Recall</th><th>Open-source</th></tr>
           </thead>
           <tbody>
-            <tr><td>Память между сессиями</td><td class="hi">✓ живая</td><td>✗ забывает</td><td>✗ нет</td></tr>
-            <tr><td>Знает о тебе (профиль + активность)</td><td class="hi">✓ в каждом чате</td><td>~ в сессии</td><td>✗</td></tr>
-            <tr><td>Данные остаются у тебя</td><td class="hi">✓ локально</td><td>✗ в облаке</td><td>✓</td></tr>
-            <tr><td>Работает офлайн</td><td class="hi">✓ опц.</td><td>✗</td><td>✓</td></tr>
-            <tr><td>Своя дообученная модель</td><td class="hi">✓ LoRA</td><td>✗</td><td>~ вручную</td></tr>
-            <tr><td>Создаёт файлы на ПК</td><td class="hi">✓ allowlist</td><td>✗</td><td>~</td></tr>
+            <tr><td>Приватность / локальность</td><td class="hi">✓ local-first, опц. офлайн</td><td>✗ ушёл в облако, у Meta</td><td>~ локально, но закрыто</td><td>✓ локально</td></tr>
+            <tr><td>Цена</td><td class="hi">✓ открыто, без подписки за облако</td><td>$19–50/мес, сворачивается</td><td>«бесплатно», нужен Copilot+ PC</td><td>✓ FOSS</td></tr>
+            <tr><td>Запись экрана</td><td class="hi">✓ Mac + Windows</td><td>~ Mac, off 19.12.25</td><td>~ только Copilot+ PC</td><td>✓</td></tr>
+            <tr><td>Запись звука</td><td class="hi">✓ + транскрипция</td><td>✓</td><td>✗</td><td>~ (screenpipe)</td></tr>
+            <tr><td>Чат с памятью</td><td class="hi">✓ кросс-чат, bi-temporal</td><td>~ Ask AI</td><td>~ только поиск</td><td>~ через MCP</td></tr>
+            <tr><td>Граф памяти</td><td class="hi">✓</td><td>✗</td><td>✗</td><td>✗</td></tr>
+            <tr><td>Своя дообученная модель</td><td class="hi">✓ «вторая копия» (QLoRA)</td><td>✗</td><td>✗</td><td>~ вручную</td></tr>
+            <tr><td>Открытость</td><td class="hi">✓ без vendor lock-in</td><td>✗ проприетарно</td><td>✗ закрыто</td><td>✓</td></tr>
+            <tr><td>Экспорт данных</td><td class="hi">✓ без потерь</td><td>~ есть</td><td>~ ограничен</td><td>✓ SQLite</td></tr>
           </tbody>
         </table>
+      </div>
+    </section>
+
+    <!-- USE CASES -->
+    <section class="usecases" id="usecases">
+      <h2 class="section-title reveal">Когда Persona выручает</h2>
+      <p class="section-lead reveal">Не «ещё одни заметки руками», а ретро-поиск по тому, что ты реально видел и делал.</p>
+      <div class="reveal" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:1rem;max-width:1000px;margin:1.5rem auto 0;">
+        <div style="padding:1.3rem;border-radius:16px;background:rgba(255,255,255,.03);border:1px solid rgba(167,139,250,.18);">
+          <div style="font-size:1.6rem;">🔎</div>
+          <h3 style="margin:.4rem 0;font-size:1.05rem;">«Что мне писал клиент 3 недели назад?»</h3>
+          <p style="margin:0;color:#b4adcf;font-size:.92rem;line-height:1.5;">Найди тот разговор, письмо или экран — по смыслу, а не по точным словам, даже если приложение давно закрыто.</p>
+        </div>
+        <div style="padding:1.3rem;border-radius:16px;background:rgba(255,255,255,.03);border:1px solid rgba(167,139,250,.18);">
+          <div style="font-size:1.6rem;">🧵</div>
+          <h3 style="margin:.4rem 0;font-size:1.05rem;">Вернуть контекст после переключения</h3>
+          <p style="margin:0;color:#b4adcf;font-size:.92rem;line-height:1.5;">Перескочил на другую задачу и забыл, на чём остановился? Persona напомнит, что ты делал час назад и что осталось.</p>
+        </div>
+        <div style="padding:1.3rem;border-radius:16px;background:rgba(255,255,255,.03);border:1px solid rgba(167,139,250,.18);">
+          <div style="font-size:1.6rem;">🗣️</div>
+          <h3 style="margin:.4rem 0;font-size:1.05rem;">Саммари встречи без бота</h3>
+          <p style="margin:0;color:#b4adcf;font-size:.92rem;line-height:1.5;">Звук пишется и распознаётся на твоём устройстве — получи краткое содержание созвона, не пуская в комнату чужого бота.</p>
+        </div>
+        <div style="padding:1.3rem;border-radius:16px;background:rgba(255,255,255,.03);border:1px solid rgba(167,139,250,.18);">
+          <div style="font-size:1.6rem;">🌅</div>
+          <h3 style="margin:.4rem 0;font-size:1.05rem;">Утренний бриф «что не закрыл вчера»</h3>
+          <p style="margin:0;color:#b4adcf;font-size:.92rem;line-height:1.5;">Проактивные карточки из реального контекста дня — а не из календаря, который ты ведёшь руками.</p>
+        </div>
+        <div style="padding:1.3rem;border-radius:16px;background:rgba(255,255,255,.03);border:1px solid rgba(167,139,250,.18);">
+          <div style="font-size:1.6rem;">🖼️</div>
+          <h3 style="margin:.4rem 0;font-size:1.05rem;">Найти мельком виденное</h3>
+          <p style="margin:0;color:#b4adcf;font-size:.92rem;line-height:1.5;">Тот слайд, ссылка или цифра, что промелькнули на экране и пропали — Persona помнит их по OCR.</p>
+        </div>
       </div>
     </section>
 
@@ -336,7 +386,31 @@
       </details>
       <details class="faq-item reveal">
         <summary>Сколько стоит?</summary>
-        <div class="faq-a">Persona — open-source и работает на твоём железе. Платишь только за облачную модель, если решишь её подключить.</div>
+        <div class="faq-a">Persona — open-source и работает на твоём железе. Платишь только за облачную модель, если решишь её подключить. Никакой вечной подписки за облако. <a href="/pricing">Подробнее о цене →</a></div>
+      </details>
+      <details class="faq-item reveal">
+        <summary>А вдруг вы уйдёте в облако или вас купят, как Rewind?</summary>
+        <div class="faq-a">Архитектурно это невозможно повторить: Persona local-first и открытая. Нет облачного бэкенда, который можно «переключить», и закрытого кода, который нельзя проверить. Открытость = иммунитет к смене Terms за ночь. Для контекста: Rewind продал обещание «данные не покидают устройство», ушёл в облако и был куплен Meta (запись на Mac отключена с 19.12.2025).</div>
+      </details>
+      <details class="faq-item reveal">
+        <summary>Это же лог всего, что я вижу — а вдруг утечёт?</summary>
+        <div class="faq-a">Честно: тотальный локальный лог сам по себе — цель для малвари/форензики. Поэтому мы даём контроль: всё на устройстве, шифрование секретов, исключения приложений/окон, пауза и удаление, redaction чувствительного, локальная модель для air-gapped работы. Плюс защищай само устройство (шифрование диска). <a href="/security">Подробнее о безопасности →</a></div>
+      </details>
+      <details class="faq-item reveal">
+        <summary>Локальная модель ведь тупее облачной?</summary>
+        <div class="faq-a">Да, и мы это не прячем. Persona выигрывает не интеллектом модели, а памятью о твоём реальном контексте. При этом можно подключить и облачную LLM (наружу уйдут только запросы по твоему ключу), и дообучить свою «вторую копию» под свой тон.</div>
+      </details>
+      <details class="faq-item reveal">
+        <summary>Это сожрёт диск, CPU и батарею?</summary>
+        <div class="faq-a">Захват настраиваемый: частота, исключения, retention-политики, тихие часы. Можно ограничить объём и автоматически чистить старое. Тяжёлые модели — опционально.</div>
+      </details>
+      <details class="faq-item reveal">
+        <summary>А запись звука — это вообще законно?</summary>
+        <div class="faq-a">Persona пишет ТВОЙ экран и звук на ТВОём устройстве — в отличие от носимых кулонов, которые пишут окружающих. Соблюдение согласия и местных законов при записи других — на тебе, и мы даём инструменты (пауза, исключения, redaction), чтобы это контролировать.</div>
+      </details>
+      <details class="faq-item reveal">
+        <summary>Что с моими данными, если я уйду?</summary>
+        <div class="faq-a">Полный экспорт без потерь и открытый формат — в любой момент. Никакого «окна на экспорт перед удалением», как у закрывшихся облачных сервисов: данные всегда у тебя.</div>
       </details>
     </section>
 
@@ -403,7 +477,7 @@
   {% endif %}
 
   <footer class="footer">
-    <span>Persona <span style="opacity:.6">v{{ app_version }}</span> · <a href="/landing">классический лендинг</a></span>
+    <span>Persona <span style="opacity:.6">v{{ app_version }}</span></span>
     <span class="footer-links">
       <a href="/blog">Блог</a> · <a href="/help">Справка</a> ·
       <a href="https://github.com/SwairIt/persona">Исходник</a>

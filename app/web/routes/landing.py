@@ -32,7 +32,7 @@ log = get_logger("persona.landing")
 def _render(
     request: Request,
     session: SessionRecord | None,
-    template: str = "landing.html",
+    template: str = "landing_v2.html",
 ) -> HTMLResponse:
     return templates.TemplateResponse(
         request,
@@ -294,15 +294,9 @@ for _islug, _idata in _INFO.items():
                          response_class=HTMLResponse, response_model=None)
 
 
-@router.get("/landing/v2", response_class=HTMLResponse, response_model=None)
-async def landing_page_v2(
-    request: Request,
-    session: Annotated[SessionRecord | None, Depends(current_user_optional)],
-) -> HTMLResponse:
-    """Alternate "starlit violet cosmos" landing with a 3D black-hole hero.
-
-    Same content + auth-aware CTAs as ``/landing``, different design. Covered
-    by the ``/landing`` public allow-list prefix, so logged-out visitors reach
-    it. Kept ``noindex`` (in the template) to avoid duplicate-content with v1.
-    """
-    return _render(request, session, template="landing_v2.html")
+@router.get("/landing/v2", response_model=None)
+async def landing_page_v2_redirect() -> RedirectResponse:
+    """v2 («starlit violet cosmos» с 3D-чёрной-дырой) стал ОСНОВНЫМ лендингом
+    (``/`` и ``/landing``). Старый URL — 301 на ``/landing``, чтобы внешние
+    ссылки/закладки не вели на дубль и не плодили duplicate-content."""
+    return RedirectResponse(url="/landing", status_code=301)
