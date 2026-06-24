@@ -2,10 +2,9 @@
 
 {% block content %}
 <div class="mb-6">
-  <h1 class="text-2xl font-bold tracking-tight">Quiet hours</h1>
+  <h1 class="text-2xl font-bold tracking-tight">{{ t('quiet_hours_title') }}</h1>
   <p class="text-zinc-500 text-sm mt-1">
-    Recurring weekly windows during which screen capture is auto-paused
-    (e.g. nights 23:00&ndash;07:00, weekends). Times are interpreted in your local timezone.
+    {{ t('quiet_hours_intro') }}
   </p>
 </div>
 
@@ -13,20 +12,20 @@
   <div class="flex items-center gap-3 text-sm">
     <span class="w-2.5 h-2.5 rounded-full {{ 'bg-emerald-400' if quiet_now else 'bg-zinc-500' }}"></span>
     {% if quiet_now %}
-      <span class="text-emerald-300 font-medium">Quiet right now</span>
-      <span class="text-zinc-400">&mdash; capture is being skipped</span>
+      <span class="text-emerald-300 font-medium">{{ t('quiet_hours_quiet_now') }}</span>
+      <span class="text-zinc-400">{{ t('quiet_hours_capture_skipped') }}</span>
     {% else %}
-      <span class="text-zinc-300 font-medium">Not quiet right now</span>
-      <span class="text-zinc-500">&mdash; capture runs normally</span>
+      <span class="text-zinc-300 font-medium">{{ t('quiet_hours_not_quiet_now') }}</span>
+      <span class="text-zinc-500">{{ t('quiet_hours_capture_normal') }}</span>
     {% endif %}
   </div>
 </section>
 
 <form action="/quiet-hours" method="post" class="mb-8 rounded-lg border border-ink-700 bg-ink-800 p-5">
-  <h2 class="text-lg font-semibold mb-3">Add a quiet window</h2>
+  <h2 class="text-lg font-semibold mb-3">{{ t('quiet_hours_add_window') }}</h2>
   <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
     <label class="text-sm">
-      <span class="block text-zinc-400 text-xs mb-1">Day</span>
+      <span class="block text-zinc-400 text-xs mb-1">{{ t('quiet_hours_day') }}</span>
       <select name="weekday"
               class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
         {% for i in range(7) %}
@@ -36,7 +35,7 @@
     </label>
 
     <label class="text-sm">
-      <span class="block text-zinc-400 text-xs mb-1">Start hour</span>
+      <span class="block text-zinc-400 text-xs mb-1">{{ t('quiet_hours_start_hour') }}</span>
       <select name="start_hour"
               class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
         {% for h in hours %}
@@ -46,29 +45,29 @@
     </label>
 
     <label class="text-sm">
-      <span class="block text-zinc-400 text-xs mb-1">End hour</span>
+      <span class="block text-zinc-400 text-xs mb-1">{{ t('quiet_hours_end_hour') }}</span>
       <select name="end_hour"
               class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
         {% for h in end_hours %}
-          <option value="{{ h }}" {% if h == 24 %}selected{% endif %}>{% if h == 24 %}24:00 (end of day){% else %}{{ "%02d:00"|format(h) }}{% endif %}</option>
+          <option value="{{ h }}" {% if h == 24 %}selected{% endif %}>{% if h == 24 %}24:00 {{ t('quiet_hours_end_of_day') }}{% else %}{{ "%02d:00"|format(h) }}{% endif %}</option>
         {% endfor %}
       </select>
     </label>
 
     <label class="text-sm">
-      <span class="block text-zinc-400 text-xs mb-1">Label (optional)</span>
-      <input name="label" placeholder="e.g. Sleep"
+      <span class="block text-zinc-400 text-xs mb-1">{{ t('quiet_hours_label_optional') }}</span>
+      <input name="label" placeholder="{{ t('quiet_hours_label_placeholder') }}"
              class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
     </label>
   </div>
 
   <button type="submit" class="mt-4 px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
-    Add window
+    {{ t('quiet_hours_add_window_btn') }}
   </button>
 </form>
 
 <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
-  <h2 class="text-lg font-semibold mb-4">Schedule</h2>
+  <h2 class="text-lg font-semibold mb-4">{{ t('quiet_hours_schedule') }}</h2>
   {% if rules %}
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-3">
       {% for day_idx in range(7) %}
@@ -88,7 +87,7 @@
                     {% endif %}
                   </div>
                   <form action="/quiet-hours/{{ r.id }}/delete" method="post" class="inline"
-                        onsubmit="return confirm('Delete this window?')">
+                        onsubmit="return confirm('{{ t('quiet_hours_confirm_delete') }}')">
                     <button class="text-zinc-500 hover:text-rose-400">&times;</button>
                   </form>
                 </div>
@@ -101,7 +100,7 @@
       {% endfor %}
     </div>
   {% else %}
-    <p class="text-zinc-500 text-sm">No quiet windows configured. Capture runs 24/7.</p>
+    <p class="text-zinc-500 text-sm">{{ t('quiet_hours_none') }}</p>
   {% endif %}
 </section>
 {% endblock %}

@@ -21,9 +21,12 @@
 
 ## Команды
 - Импорт-чек: `c:\www-Yaroslav\Persona\.venv\Scripts\python.exe -c "import app.web.main"`
-- Рестарт (память `dev-server-restart`): убить WORKER-детей раньше родителей (иначе отдают старый код на :8000),
-  потом `Start-Process .venv\Scripts\python.exe -m uvicorn app.web.main:create_app --factory --host 0.0.0.0 --port 8000` detached.
-- Перед публичным доменом запуск добавит `--proxy-headers --forwarded-allow-ips=*`.
+- **Рестарт (важно!):** на боксе есть AUTOSTART-респаунер — реальный сервер это 3-воркер uvicorn
+  (родитель + 3 multiprocessing-чайлда, запуск через uv-python). При смерти он САМ респаунится из
+  файлов на диске → подхватывает новый код. Поэтому рестарт = `taskkill /PID <parent> /F /T` по дереву
+  (или убить 3 воркер-чайлда + родителя), подождать ~15-20с, autostart поднимет НОВЫЙ код на 127.0.0.1:8000.
+  Ручной `Start-Process` гонится с autostart и проигрывает бинд — НЕ нужен. Проверка: `/api/health.json`→200.
+- Перед публичным доменом autostart-команду обновить на `--proxy-headers --forwarded-allow-ips=*`.
 
 ## Гардрейлы (жёстко)
 - НЕ пушить в GitHub. НЕ делать `reset --hard` / `push --force` / удаление данных/БД.
@@ -105,11 +108,34 @@ web-поиск + структурированные находки; финаль
 ---
 
 ## Прогресс (обновлять каждую итерацию)
-- 2026-06-24 старт. Готово ранее: коммит 6a806dc (критические дыры), 12 файлов Ф1 router-level auth (uncommitted).
-- [ ] Ф1 безопасность
-- [ ] Ф2 research памяти
-- [ ] Ф3 память + ночная рефлексия
-- [ ] Ф4 русский i18n
-- [ ] Ф5 UI/UX
+- 2026-06-24 старт. Готово ранее: коммит 6a806dc (критические дыры).
+- [x] **Ф1 безопасность — DONE (коммит 66d90c4, v2.20.66).** Все 27 дыр закрыты defense-in-depth auth +
+      /thumbs owner-only + allow-list + cookie Secure(X-Forwarded-Proto) + rate-limit /auth/* + magic
+      no-auto-create + SSRF-гард (net_guard) + install single-use. Проверено вживую: full.zip/settings/
+      multishot→401, thumbs/diagzip/doctor→303. **Отложено (low-sev, фолоу-ап Ф5/полировка):** HSTS
+      (можно на FastPanel-прокси), GET /auth/logout→POST, /health payload-trim, токен-роуты эскизов для
+      публичных шар/дней (public_day/shot_share/shared_collection сейчас не показывают тумбы анониму),
+      bootstrap fail-closed gate (route-level auth уже покрывает перечисленные роуты).
+- [x] **Ф2 research памяти — DONE** (docs/MEMORY_RESEARCH.md, 7 потоков + синтез на реальном коде).
+- [x] **Ф3 память — DONE (ядро):**
+    - [x] A: фикс эмбеддингов nomic (префиксы + num_ctx) — коммит b364a48 (v2.20.67).
+    - [x] D: ночной воркер «сон» (Hermes-style, migration 191, dream_worker/reflection/dreams) — 8cbb969 (v2.20.68).
+    - [x] B: salience-scoring recall (migration 192, score_and_rerank + MMR + generative mode) — a918b3e (v2.20.69).
+    - [x] F: /settings/memory — тумблер dream_enabled, час сна, режим recall, веса, показ/забыть рефлексии — 4a7eadb (v2.20.71).
+    - [бэклог] C: importance при записи (эвристика/LLM → user_memory.salience) — generative и без неё работает (нейтральный дефолт).
+    - [бэклог] E (опц.): RAG по документам + Reflexion на 👎.
+    - ⚠️ При включённом vector/hybrid recall сделать backfill_index (реиндекс под новые nomic-префиксы), когда поднят Ollama-туннель.
+- [~] **Ф4 русский i18n — приоритет DONE** (коммит 01e29f6, v2.20.70): DEFAULT_LANGUAGE=ru +
+    robust-фолбэк ru→en→key; конвертированы base.html/dashboard.html/settings.html (последний был
+    почти весь английский); 303→376 ключей с паритетом en/ru/de. **Остаток** (низкий приоритет, для
+    след. проходов): ~194 не-ежедневных admin/diag/stats-шаблона + 9 файлов `<html lang="en">` —
+    инвентаризовано в docs/I18N_AUDIT.md.
+- [ ] **Ф3-F (ВАЖНО, следующее): страница /settings/memory** — toggle `dream_enabled` (иначе ночной
+    «сон» недоступен пользователю!), просмотр/правка/забыть память, веса recall, час сна. + Ф3-C importance.
+- [ ] Ф5 UI/UX (settings-shell + полировка + фолоу-ап low-sev Ф1)
 - [ ] Ф6 ключевые фичи
 - [ ] Ф7 финал → PERSONA_NIGHT_DONE
+- [x] Рестарт после Ф4 — сервер UP на новом коде (376 i18n-ключей, ru-дефолт, PID автостарта).
+    ПОДТВЕРЖДЁННЫЙ ПАТТЕРН РЕСТАРТА: `taskkill /T` дерева uvicorn (listener + multiprocessing-чайлды)
+    → ПОДОЖДАТЬ 60-90с → autostart САМ поднимет новый код с диска. Ручной Start-Process НЕ нужен
+    (всегда проигрывает бинд-гонку автостарту). Проверка: `/api/health.json`→200.

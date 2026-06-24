@@ -2,16 +2,14 @@
 
 {% block content %}
 <div class="mb-6">
-  <h1 class="text-2xl font-bold tracking-tight">Webhooks</h1>
+  <h1 class="text-2xl font-bold tracking-tight">{{ t('webhooks_title') }}</h1>
   <p class="text-zinc-500 text-sm mt-1">
-    Fire-and-forget HTTP POST when something happens. Persona never retries — if your endpoint is flaky,
-    you're on your own. Optionally sign with HMAC-SHA256 via the <code>secret</code> field
-    (delivered as <code>X-Persona-Signature: sha256=&lt;hex&gt;</code>).
+    {{ t('webhooks_intro_1') }}<code>secret</code>{{ t('webhooks_intro_2') }}<code>X-Persona-Signature: sha256=&lt;hex&gt;</code>{{ t('webhooks_intro_3') }}
   </p>
 </div>
 
 <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
-  <h2 class="text-lg font-semibold mb-3">Add subscription</h2>
+  <h2 class="text-lg font-semibold mb-3">{{ t('webhooks_add_subscription') }}</h2>
   <form action="/webhooks" method="post" class="space-y-3">
     <input name="url" placeholder="https://your-endpoint.example.com/persona" required
            class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
@@ -22,20 +20,19 @@
           <option value="{{ ev }}">{{ ev }}</option>
         {% endfor %}
       </select>
-      <input name="secret" placeholder="HMAC secret (optional)"
+      <input name="secret" placeholder="{{ t('webhooks_ph_hmac_secret') }}"
              class="flex-1 px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono">
-      <button type="submit" class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium">Add</button>
+      <button type="submit" class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium">{{ t('btn_add') }}</button>
     </div>
     <div>
       <label class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">
-        Event filter
+        {{ t('webhooks_event_filter') }}
       </label>
       <input name="event_types" value="*"
-             placeholder="screenshot.captured, screenshot.tagged or * for all"
+             placeholder="{{ t('webhooks_ph_event_types') }}"
              class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
       <p class="text-[11px] text-zinc-500 mt-1">
-        Comma-separated event types to subscribe to. Use <code>*</code> for every event,
-        or globs like <code>capture.*</code> to match a whole family.
+        {{ t('webhooks_event_types_hint_1') }}<code>*</code>{{ t('webhooks_event_types_hint_2') }}<code>capture.*</code>{{ t('webhooks_event_types_hint_3') }}
       </p>
     </div>
   </form>
@@ -46,11 +43,11 @@
     <table class="w-full text-sm">
       <thead class="bg-ink-900 text-zinc-500 text-xs uppercase tracking-wider">
         <tr>
-          <th class="text-left py-2 px-3">Event</th>
-          <th class="text-left py-2 px-3">Filter</th>
+          <th class="text-left py-2 px-3">{{ t('webhooks_th_event') }}</th>
+          <th class="text-left py-2 px-3">{{ t('webhooks_th_filter') }}</th>
           <th class="text-left py-2 px-3">URL</th>
-          <th class="text-left py-2 px-3">Last status</th>
-          <th class="text-left py-2 px-3">Last delivery</th>
+          <th class="text-left py-2 px-3">{{ t('webhooks_th_last_status') }}</th>
+          <th class="text-left py-2 px-3">{{ t('webhooks_th_last_delivery') }}</th>
           <th class="py-2 px-3"></th>
         </tr>
       </thead>
@@ -58,7 +55,7 @@
         {% for s in subs %}
           <tr class="border-t border-ink-700">
             <td class="py-2 px-3 font-mono text-xs">{{ s.event_type }}</td>
-            <td class="py-2 px-3 font-mono text-xs text-zinc-400" title="event_types filter">
+            <td class="py-2 px-3 font-mono text-xs text-zinc-400" title="{{ t('webhooks_title_event_types_filter') }}">
               {{ s.event_types or '*' }}
             </td>
             <td class="py-2 px-3 text-xs truncate max-w-[20rem]" title="{{ s.url }}">{{ s.url }}</td>
@@ -76,16 +73,16 @@
             <td class="py-2 px-3 text-right space-x-1">
               <button type="button"
                       class="text-xs px-2 py-1 rounded bg-sky-700 hover:bg-sky-600 text-white"
-                      onclick="personaTestWebhook(this, {{ s.id }})">test</button>
+                      onclick="personaTestWebhook(this, {{ s.id }})">{{ t('webhooks_action_test') }}</button>
               <form action="/webhooks/{{ s.id }}/toggle" method="post" class="inline">
                 <input type="hidden" name="enabled" value="{{ 'false' if s.enabled else 'true' }}">
                 <button type="submit" class="text-xs px-2 py-1 rounded bg-ink-900 hover:bg-ink-700">
-                  {{ 'disable' if s.enabled else 'enable' }}
+                  {{ t('webhooks_action_disable') if s.enabled else t('webhooks_action_enable') }}
                 </button>
               </form>
               <form action="/webhooks/{{ s.id }}/delete" method="post" class="inline"
-                    onsubmit="return confirm('Delete this webhook?')">
-                <button type="submit" class="text-xs px-2 py-1 rounded bg-rose-900/40 hover:bg-rose-900 text-rose-300">delete</button>
+                    onsubmit="return confirm('{{ t('webhooks_confirm_delete') }}')">
+                <button type="submit" class="text-xs px-2 py-1 rounded bg-rose-900/40 hover:bg-rose-900 text-rose-300">{{ t('webhooks_action_delete') }}</button>
               </form>
             </td>
           </tr>
@@ -94,18 +91,18 @@
     </table>
   </div>
 {% else %}
-  <p class="text-zinc-500 text-sm">No webhooks configured.</p>
+  <p class="text-zinc-500 text-sm">{{ t('webhooks_none') }}</p>
 {% endif %}
 
 <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mt-8">
-  <h2 class="text-lg font-semibold mb-3">Event reference</h2>
+  <h2 class="text-lg font-semibold mb-3">{{ t('webhooks_event_reference') }}</h2>
   <ul class="text-sm space-y-1 text-zinc-400">
-    <li><code class="text-accent-400">capture.saved</code> — fired after a thumbnail is persisted (smart-thumbnail decisions skip this).</li>
-    <li><code class="text-accent-400">capture.budget_exceeded</code> — first time today's MB usage crossed the budget.</li>
-    <li><code class="text-accent-400">digest.daily_generated</code> — auto-digest worker finished and stored a day summary.</li>
-    <li><code class="text-accent-400">ocr.completed</code> — OCR finished for a screenshot.</li>
-    <li><code class="text-accent-400">tier.demoted</code> — a screenshot moved hot→warm or warm→cold.</li>
-    <li><code class="text-accent-400">streak.broken</code> — current streak counter dropped to 0 today.</li>
+    <li><code class="text-accent-400">capture.saved</code>{{ t('webhooks_ev_capture_saved') }}</li>
+    <li><code class="text-accent-400">capture.budget_exceeded</code>{{ t('webhooks_ev_budget_exceeded') }}</li>
+    <li><code class="text-accent-400">digest.daily_generated</code>{{ t('webhooks_ev_digest_daily') }}</li>
+    <li><code class="text-accent-400">ocr.completed</code>{{ t('webhooks_ev_ocr_completed') }}</li>
+    <li><code class="text-accent-400">tier.demoted</code>{{ t('webhooks_ev_tier_demoted') }}</li>
+    <li><code class="text-accent-400">streak.broken</code>{{ t('webhooks_ev_streak_broken') }}</li>
   </ul>
 </section>
 

@@ -3,18 +3,18 @@
 {% block content %}
 <div class="mb-6 flex items-center justify-between flex-wrap gap-3">
   <div>
-    <h1 class="text-2xl font-bold tracking-tight">App groups</h1>
+    <h1 class="text-2xl font-bold tracking-tight">{{ t('app_groups_title') }}</h1>
     <p class="text-zinc-500 text-sm mt-1">
-      Bucket raw window-class / executable names (<code>devenv.exe</code>,
-      <code>slack.exe</code>) into categories like
+      {{ t('app_groups_intro_1') }} (<code>devenv.exe</code>,
+      <code>slack.exe</code>) {{ t('app_groups_intro_2') }}
       <code>work</code> / <code>personal</code> / <code>comms</code> /
-      <code>dev</code> / <code>games</code>. Group totals show up on the
-      <a href="/stats/app-groups" class="text-accent-400 hover:text-accent-300">stats page</a>.
-      Clear the group field to remove an assignment.
+      <code>dev</code> / <code>games</code>. {{ t('app_groups_intro_3') }}
+      <a href="/stats/app-groups" class="text-accent-400 hover:text-accent-300">{{ t('app_groups_stats_page') }}</a>.
+      {{ t('app_groups_intro_4') }}
     </p>
   </div>
   <a href="/stats/app-groups"
-     class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700 text-sm">Group stats &rarr;</a>
+     class="px-3 py-1.5 rounded bg-ink-800 hover:bg-ink-700 text-sm">{{ t('app_groups_group_stats') }} &rarr;</a>
 </div>
 
 <form action="/settings/app-groups" method="post" class="flex gap-2 mb-6">
@@ -25,7 +25,7 @@
          list="default-groups-list"
          class="flex-1 px-3 py-2 bg-ink-800 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
   <button type="submit"
-          class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium">Save group</button>
+          class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium">{{ t('app_groups_save_group') }}</button>
 </form>
 
 <datalist id="default-groups-list">
@@ -39,8 +39,8 @@
     <table class="w-full text-sm">
       <thead class="bg-ink-900 text-zinc-500 text-xs uppercase tracking-wider">
         <tr>
-          <th class="text-left py-2 px-4 w-1/3">App</th>
-          <th class="text-left py-2 px-4">Group</th>
+          <th class="text-left py-2 px-4 w-1/3">{{ t('app_groups_th_app') }}</th>
+          <th class="text-left py-2 px-4">{{ t('app_groups_th_group') }}</th>
           <th class="py-2 px-4 w-32"></th>
         </tr>
       </thead>
@@ -62,14 +62,14 @@
                     <option value="{{ current }}" selected>{{ current }}</option>
                   {% endif %}
                 </select>
-                <button class="px-3 py-1.5 bg-ink-700 hover:bg-ink-600 rounded text-xs">Update</button>
+                <button class="px-3 py-1.5 bg-ink-700 hover:bg-ink-600 rounded text-xs">{{ t('app_groups_btn_update') }}</button>
               </form>
             </td>
             <td class="py-2 px-4 text-right">
               <form action="/settings/app-groups" method="post" class="inline">
                 <input type="hidden" name="app_name" value="{{ item.app_name }}">
                 <input type="hidden" name="group_name" value="">
-                <button class="text-xs px-2 py-1 rounded bg-rose-900/40 hover:bg-rose-900 text-rose-300">remove</button>
+                <button class="text-xs px-2 py-1 rounded bg-rose-900/40 hover:bg-rose-900 text-rose-300">{{ t('btn_remove') }}</button>
               </form>
             </td>
           </tr>
@@ -79,14 +79,14 @@
   </div>
 {% else %}
   <p class="text-zinc-500 text-sm mb-8">
-    No groups configured yet — add one above, or use the suggestions below.
+    {{ t('app_groups_empty') }}
   </p>
 {% endif %}
 
 {% if suggested %}
   <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
     <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">
-      Suggested (your most-captured apps without a group)
+      {{ t('app_groups_suggested_heading') }}
     </h2>
     <div class="space-y-2">
       {% for s in suggested %}
@@ -96,12 +96,12 @@
           <span class="text-zinc-500 text-xs w-12 font-mono">{{ s.count }}</span>
           <select name="group_name" required
                   class="flex-1 px-3 py-1.5 bg-ink-900 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
-            <option value="" disabled selected>Pick a group&hellip;</option>
+            <option value="" disabled selected>{{ t('app_groups_pick_group') }}</option>
             {% for g in default_groups %}
               <option value="{{ g }}">{{ g }}</option>
             {% endfor %}
           </select>
-          <button class="px-3 py-1.5 bg-ink-700 hover:bg-ink-600 rounded text-xs">Add</button>
+          <button class="px-3 py-1.5 bg-ink-700 hover:bg-ink-600 rounded text-xs">{{ t('btn_add') }}</button>
         </form>
       {% endfor %}
     </div>

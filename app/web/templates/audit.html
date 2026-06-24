@@ -14,11 +14,9 @@
 
 <div class="mb-6 flex items-end justify-between flex-wrap gap-3">
   <div>
-    <h1 class="text-2xl font-bold tracking-tight">Audit log</h1>
+    <h1 class="text-2xl font-bold tracking-tight">{{ t('audit_title') }}</h1>
     <p class="text-zinc-500 text-sm mt-1">
-      Append-only record of privileged admin actions &mdash; settings
-      changes, bulk-delete, token issuance, vault reads. Useful for
-      after-the-fact security review. Newest events first.
+      {{ t('audit_intro') }}
     </p>
   </div>
   <a href="/api/audit.json{% if filter_qs %}?{{ filter_qs }}{% endif %}"
@@ -33,17 +31,17 @@
                   text-zinc-300 hover:text-accent-400 flex items-center
                   justify-between gap-2">
     <span class="flex items-center gap-2">
-      <span class="text-xs uppercase tracking-widest text-zinc-500">Filters</span>
+      <span class="text-xs uppercase tracking-widest text-zinc-500">{{ t('audit_filters') }}</span>
       {% if filters_active %}
         <span class="px-2 py-0.5 rounded-full bg-accent-600/20 text-accent-400
                      text-[10px] font-mono uppercase tracking-wider">
-          active
+          {{ t('audit_active') }}
         </span>
       {% endif %}
     </span>
     <span class="text-zinc-500 text-xs font-mono">
-      {{ "{:,}".format(total_rows) }} match{{ "" if total_rows == 1 else "es" }}
-      &middot; page {{ page }} / {{ total_pages }}
+      {{ "{:,}".format(total_rows) }} {{ t('audit_matches') }}
+      &middot; {{ t('audit_page') }} {{ page }} / {{ total_pages }}
     </span>
   </summary>
 
@@ -51,7 +49,7 @@
         class="px-4 pb-4 pt-1 grid gap-3 md:grid-cols-2 lg:grid-cols-4 items-end">
     <label class="flex flex-col gap-1">
       <span class="text-xs uppercase tracking-widest text-zinc-500">
-        Date from
+        {{ t('audit_date_from') }}
       </span>
       <input type="date" name="date_from" value="{{ filter_date_from }}"
              class="px-3 py-2 bg-ink-900 border border-ink-700 rounded
@@ -61,7 +59,7 @@
 
     <label class="flex flex-col gap-1">
       <span class="text-xs uppercase tracking-widest text-zinc-500">
-        Date to
+        {{ t('audit_date_to') }}
       </span>
       <input type="date" name="date_to" value="{{ filter_date_to }}"
              class="px-3 py-2 bg-ink-900 border border-ink-700 rounded
@@ -71,7 +69,7 @@
 
     <label class="flex flex-col gap-1">
       <span class="text-xs uppercase tracking-widest text-zinc-500">
-        Action contains
+        {{ t('audit_action_contains') }}
       </span>
       <input type="text" name="action" value="{{ filter_action }}"
              placeholder="vault, bulk_delete, api_token"
@@ -82,7 +80,7 @@
 
     <label class="flex flex-col gap-1">
       <span class="text-xs uppercase tracking-widest text-zinc-500">
-        Actor contains
+        {{ t('audit_actor_contains') }}
       </span>
       <input type="text" name="actor" value="{{ filter_actor }}"
              placeholder="admin, token:..., ip"
@@ -95,13 +93,13 @@
       <button type="submit"
               class="px-4 py-2 bg-accent-600 hover:bg-accent-500 rounded
                      text-sm font-medium transition">
-        Apply
+        {{ t('btn_apply') }}
       </button>
       {% if filters_active %}
         <a href="/audit"
            class="px-4 py-2 bg-ink-900 hover:bg-ink-700 border border-ink-700
                   rounded text-sm">
-          Clear
+          {{ t('audit_clear') }}
         </a>
       {% endif %}
     </div>
@@ -113,12 +111,12 @@
     <table class="w-full text-sm">
       <thead class="bg-ink-900 text-zinc-500 text-xs uppercase tracking-wider">
         <tr>
-          <th class="text-left py-2 px-3">Timestamp</th>
-          <th class="text-left py-2 px-3">Action</th>
-          <th class="text-left py-2 px-3">Actor</th>
-          <th class="text-left py-2 px-3">Target</th>
-          <th class="text-left py-2 px-3">Detail</th>
-          <th class="text-center py-2 px-3 w-12">OK</th>
+          <th class="text-left py-2 px-3">{{ t('audit_th_timestamp') }}</th>
+          <th class="text-left py-2 px-3">{{ t('audit_th_action') }}</th>
+          <th class="text-left py-2 px-3">{{ t('audit_th_actor') }}</th>
+          <th class="text-left py-2 px-3">{{ t('audit_th_target') }}</th>
+          <th class="text-left py-2 px-3">{{ t('audit_th_detail') }}</th>
+          <th class="text-center py-2 px-3 w-12">{{ t('audit_th_ok') }}</th>
         </tr>
       </thead>
       <tbody>
@@ -141,9 +139,9 @@
             </td>
             <td class="py-2 px-3 text-center">
               {% if row.success %}
-                <span class="text-emerald-400 font-mono" title="success">&#x2713;</span>
+                <span class="text-emerald-400 font-mono" title="{{ t('audit_success') }}">&#x2713;</span>
               {% else %}
-                <span class="text-rose-400 font-mono" title="failure">&#x2717;</span>
+                <span class="text-rose-400 font-mono" title="{{ t('audit_failure') }}">&#x2717;</span>
               {% endif %}
             </td>
           </tr>
@@ -154,28 +152,28 @@
 
   <nav class="flex items-center justify-between mt-5 text-xs">
     <div class="text-zinc-500">
-      Showing rows {{ ((page - 1) * page_size) + 1 }}&ndash;{{ ((page - 1) * page_size) + (rows | length) }}
-      of {{ "{:,}".format(total_rows) }}
+      {{ t('audit_showing_rows') }} {{ ((page - 1) * page_size) + 1 }}&ndash;{{ ((page - 1) * page_size) + (rows | length) }}
+      {{ t('audit_of') }} {{ "{:,}".format(total_rows) }}
     </div>
     <div class="flex gap-2">
       {% if has_prev %}
         <a href="/audit?page={{ page - 1 }}{% if filter_qs %}&{{ filter_qs }}{% endif %}"
            class="px-3 py-1.5 bg-ink-900 hover:bg-ink-700 border border-ink-700 rounded">
-          &larr; Prev
+          &larr; {{ t('audit_prev') }}
         </a>
       {% else %}
         <span class="px-3 py-1.5 bg-ink-900/50 border border-ink-700 rounded text-zinc-600">
-          &larr; Prev
+          &larr; {{ t('audit_prev') }}
         </span>
       {% endif %}
       {% if has_next %}
         <a href="/audit?page={{ page + 1 }}{% if filter_qs %}&{{ filter_qs }}{% endif %}"
            class="px-3 py-1.5 bg-ink-900 hover:bg-ink-700 border border-ink-700 rounded">
-          Next &rarr;
+          {{ t('audit_next') }} &rarr;
         </a>
       {% else %}
         <span class="px-3 py-1.5 bg-ink-900/50 border border-ink-700 rounded text-zinc-600">
-          Next &rarr;
+          {{ t('audit_next') }} &rarr;
         </span>
       {% endif %}
     </div>
@@ -183,9 +181,9 @@
 {% else %}
   <p class="text-zinc-500 text-sm">
     {% if filters_active %}
-      No audit events match the current filters.
+      {{ t('audit_empty_filtered') }}
     {% else %}
-      No audit events recorded yet.
+      {{ t('audit_empty_none') }}
     {% endif %}
   </p>
 {% endif %}

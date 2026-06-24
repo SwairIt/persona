@@ -2,24 +2,21 @@
 
 {% block content %}
 <div class="mb-6">
-  <h1 class="text-2xl font-bold tracking-tight">Digest prompts</h1>
+  <h1 class="text-2xl font-bold tracking-tight">{{ t('digest_prompts_title') }}</h1>
   <p class="text-zinc-500 text-sm mt-1">
-    Override the system prompts the BYO LLM receives when it writes your
-    weekly and monthly retrospectives. Leave a box empty to use the
-    built-in default for that cadence. Changes take effect on the
-    <strong>next</strong> digest run for that cadence &mdash; nothing is
-    regenerated retroactively.
+    {{ t('digest_prompts_intro_1') }}
+    <strong>{{ t('digest_prompts_next_word') }}</strong> {{ t('digest_prompts_intro_2') }}
   </p>
 </div>
 
 {% if saved %}
   <div class="rounded-lg border border-emerald-700/40 bg-emerald-900/20 text-emerald-200 px-4 py-3 mb-4 text-sm">
-    Saved. The next digest will use your custom prompt.
+    {{ t('digest_prompts_saved') }}
   </div>
 {% endif %}
 
 <section class="mb-10">
-  <h2 class="text-xl font-semibold tracking-tight mb-4">Weekly prompt</h2>
+  <h2 class="text-xl font-semibold tracking-tight mb-4">{{ t('digest_prompts_weekly_heading') }}</h2>
 
   {% if error %}
     <div class="rounded-lg border border-rose-700/40 bg-rose-900/20 text-rose-200 px-4 py-3 mb-4 text-sm">
@@ -28,9 +25,7 @@
   {% endif %}
 
   <div class="rounded-lg border border-amber-700/40 bg-amber-900/20 text-amber-200 px-4 py-3 mb-6 text-xs leading-relaxed">
-    Your template is rendered with Python's <code class="font-mono">str.format</code>.
-    Every placeholder below must appear <em>exactly</em> (curly braces and all)
-    somewhere in the body or saving will be rejected.
+    {{ t('digest_prompts_format_1') }} <code class="font-mono">str.format</code>{{ t('digest_prompts_format_2') }} <em>{{ t('digest_prompts_format_exactly') }}</em> {{ t('digest_prompts_format_3') }}
     <div class="mt-3 flex flex-wrap gap-2">
       {% for name in placeholders %}
         <code class="font-mono px-2 py-1 rounded bg-ink-900/60 border border-amber-700/40">
@@ -39,9 +34,9 @@
       {% endfor %}
     </div>
     <ul class="mt-3 list-disc list-inside space-y-1 text-amber-200/80">
-      <li><code class="font-mono">{{ '{week_start}' }}</code> &mdash; ISO date of the Monday that opens the week.</li>
-      <li><code class="font-mono">{{ '{sections}' }}</code> &mdash; the rendered daily-digest / notes / captures block.</li>
-      <li><code class="font-mono">{{ '{shots_count}' }}</code> &mdash; integer count of screenshots in the window.</li>
+      <li><code class="font-mono">{{ '{week_start}' }}</code> &mdash; {{ t('digest_prompts_ph_week_start') }}</li>
+      <li><code class="font-mono">{{ '{sections}' }}</code> &mdash; {{ t('digest_prompts_ph_sections') }}</li>
+      <li><code class="font-mono">{{ '{shots_count}' }}</code> &mdash; {{ t('digest_prompts_ph_shots') }}</li>
     </ul>
   </div>
 
@@ -49,36 +44,35 @@
         class="rounded-lg border border-ink-700 bg-ink-800 p-5 space-y-4">
     <label class="flex flex-col gap-2">
       <span class="text-xs uppercase tracking-widest text-zinc-500">
-        Custom weekly system prompt
+        {{ t('digest_prompts_custom_weekly_label') }}
         {% if is_custom %}
           <span class="ml-2 normal-case tracking-normal text-emerald-400">
-            (active &mdash; overriding the default)
+            {{ t('digest_prompts_active_note') }}
           </span>
         {% else %}
           <span class="ml-2 normal-case tracking-normal text-zinc-500">
-            (empty &mdash; using the built-in default)
+            {{ t('digest_prompts_empty_note') }}
           </span>
         {% endif %}
       </span>
       <textarea name="template" rows="20" spellcheck="false"
-                placeholder="Paste your own prompt here. Include every placeholder listed above."
+                placeholder="{{ t('digest_prompts_textarea_ph') }}"
                 class="px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm leading-relaxed w-full">{{ template }}</textarea>
     </label>
 
     <div class="flex items-center justify-between flex-wrap gap-3 pt-4 border-t border-ink-700">
       <div class="text-xs text-zinc-500">
-        Stored in <code class="font-mono">kv_settings.weekly_digest_prompt_template</code>.
-        An empty value falls back to the hard-coded prompt.
+        {{ t('digest_prompts_stored_in') }} <code class="font-mono">kv_settings.weekly_digest_prompt_template</code>{{ t('digest_prompts_empty_fallback') }}
       </div>
       <div class="flex items-center gap-2">
         <button type="submit" formaction="/settings/digest-prompt/reset"
                 formnovalidate
                 class="px-4 py-2 border border-ink-700 hover:border-rose-500 hover:text-rose-300 rounded text-sm">
-          Reset to default
+          {{ t('digest_prompts_reset_default') }}
         </button>
         <button type="submit"
                 class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
-          Save
+          {{ t('btn_save') }}
         </button>
       </div>
     </div>
@@ -86,14 +80,14 @@
 
   <details class="mt-6 rounded-lg border border-ink-700 bg-ink-800/60 p-4 text-sm">
     <summary class="cursor-pointer text-zinc-300 font-medium">
-      Show the built-in weekly default
+      {{ t('digest_prompts_show_weekly_default') }}
     </summary>
     <pre class="mt-3 whitespace-pre-wrap font-mono text-xs text-zinc-400 leading-relaxed">{{ default_template }}</pre>
   </details>
 </section>
 
 <section class="mb-6">
-  <h2 class="text-xl font-semibold tracking-tight mb-4">Monthly prompt</h2>
+  <h2 class="text-xl font-semibold tracking-tight mb-4">{{ t('digest_prompts_monthly_heading') }}</h2>
 
   {% if monthly_error %}
     <div class="rounded-lg border border-rose-700/40 bg-rose-900/20 text-rose-200 px-4 py-3 mb-4 text-sm">
@@ -102,10 +96,9 @@
   {% endif %}
 
   <div class="rounded-lg border border-amber-700/40 bg-amber-900/20 text-amber-200 px-4 py-3 mb-6 text-xs leading-relaxed">
-    Same rules as the weekly editor &mdash; rendered with Python's
-    <code class="font-mono">str.format</code>; every placeholder below must
-    appear <em>exactly</em> (curly braces and all) somewhere in the body or
-    saving will be rejected.
+    {{ t('digest_prompts_monthly_format_1') }}
+    <code class="font-mono">str.format</code>{{ t('digest_prompts_monthly_format_2') }}
+    <em>{{ t('digest_prompts_format_exactly') }}</em> {{ t('digest_prompts_format_3') }}
     <div class="mt-3 flex flex-wrap gap-2">
       {% for name in monthly_placeholders %}
         <code class="font-mono px-2 py-1 rounded bg-ink-900/60 border border-amber-700/40">
@@ -114,9 +107,9 @@
       {% endfor %}
     </div>
     <ul class="mt-3 list-disc list-inside space-y-1 text-amber-200/80">
-      <li><code class="font-mono">{{ '{month}' }}</code> &mdash; ISO ``YYYY-MM`` string of the calendar month.</li>
-      <li><code class="font-mono">{{ '{sections}' }}</code> &mdash; the rendered daily-digest / keyword / top-app block.</li>
-      <li><code class="font-mono">{{ '{shots_count}' }}</code> &mdash; integer count of screenshots in the month.</li>
+      <li><code class="font-mono">{{ '{month}' }}</code> &mdash; {{ t('digest_prompts_ph_month') }}</li>
+      <li><code class="font-mono">{{ '{sections}' }}</code> &mdash; {{ t('digest_prompts_ph_sections_monthly') }}</li>
+      <li><code class="font-mono">{{ '{shots_count}' }}</code> &mdash; {{ t('digest_prompts_ph_shots_monthly') }}</li>
     </ul>
   </div>
 
@@ -124,36 +117,35 @@
         class="rounded-lg border border-ink-700 bg-ink-800 p-5 space-y-4">
     <label class="flex flex-col gap-2">
       <span class="text-xs uppercase tracking-widest text-zinc-500">
-        Custom monthly system prompt
+        {{ t('digest_prompts_custom_monthly_label') }}
         {% if monthly_is_custom %}
           <span class="ml-2 normal-case tracking-normal text-emerald-400">
-            (active &mdash; overriding the default)
+            {{ t('digest_prompts_active_note') }}
           </span>
         {% else %}
           <span class="ml-2 normal-case tracking-normal text-zinc-500">
-            (empty &mdash; using the built-in default)
+            {{ t('digest_prompts_empty_note') }}
           </span>
         {% endif %}
       </span>
       <textarea name="template" rows="20" spellcheck="false"
-                placeholder="Paste your own prompt here. Include every placeholder listed above."
+                placeholder="{{ t('digest_prompts_textarea_ph') }}"
                 class="px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm leading-relaxed w-full">{{ monthly_template }}</textarea>
     </label>
 
     <div class="flex items-center justify-between flex-wrap gap-3 pt-4 border-t border-ink-700">
       <div class="text-xs text-zinc-500">
-        Stored in <code class="font-mono">kv_settings.monthly_digest_prompt_template</code>.
-        An empty value falls back to the hard-coded prompt.
+        {{ t('digest_prompts_stored_in') }} <code class="font-mono">kv_settings.monthly_digest_prompt_template</code>{{ t('digest_prompts_empty_fallback') }}
       </div>
       <div class="flex items-center gap-2">
         <button type="submit" formaction="/settings/digest-prompt/monthly/reset"
                 formnovalidate
                 class="px-4 py-2 border border-ink-700 hover:border-rose-500 hover:text-rose-300 rounded text-sm">
-          Reset to default
+          {{ t('digest_prompts_reset_default') }}
         </button>
         <button type="submit"
                 class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
-          Save
+          {{ t('btn_save') }}
         </button>
       </div>
     </div>
@@ -161,7 +153,7 @@
 
   <details class="mt-6 rounded-lg border border-ink-700 bg-ink-800/60 p-4 text-sm">
     <summary class="cursor-pointer text-zinc-300 font-medium">
-      Show the built-in monthly default
+      {{ t('digest_prompts_show_monthly_default') }}
     </summary>
     <pre class="mt-3 whitespace-pre-wrap font-mono text-xs text-zinc-400 leading-relaxed">{{ monthly_default_template }}</pre>
   </details>

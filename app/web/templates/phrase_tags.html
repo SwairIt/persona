@@ -2,13 +2,11 @@
 
 {% block content %}
 <div class="mb-6">
-  <h1 class="text-2xl font-bold tracking-tight">OCR phrase auto-tags</h1>
+  <h1 class="text-2xl font-bold tracking-tight">{{ t('phrase_tags_title') }}</h1>
   <p class="text-zinc-500 text-sm mt-1">
-    Literal phrase rules &mdash; no regex. When OCR text contains the phrase,
-    the screenshot gets the configured tag. Example: phrase
-    <code class="text-zinc-300">daily standup</code> with tag
-    <code class="text-zinc-300">standup</code> auto-tags every screenshot whose
-    OCR text contains the words &ldquo;daily standup&rdquo;.
+    {{ t('phrase_tags_intro_a') }}
+    <code class="text-zinc-300">daily standup</code> {{ t('phrase_tags_intro_b') }}
+    <code class="text-zinc-300">standup</code> {{ t('phrase_tags_intro_c') }}
   </p>
 </div>
 
@@ -17,23 +15,23 @@
       class="rounded-lg border border-ink-700 bg-ink-800 p-4 mb-8">
   <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
     <label class="md:col-span-6 block">
-      <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">Phrase</span>
-      <input name="phrase" required placeholder="daily standup"
+      <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">{{ t('phrase_tags_phrase') }}</span>
+      <input name="phrase" required placeholder="{{ t('phrase_tags_phrase_placeholder') }}"
              class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
     </label>
     <label class="md:col-span-3 block">
-      <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">Tag</span>
-      <input name="tag" required placeholder="standup"
+      <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">{{ t('phrase_tags_tag') }}</span>
+      <input name="tag" required placeholder="{{ t('phrase_tags_tag_placeholder') }}"
              class="w-full px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
     </label>
     <label class="md:col-span-2 flex items-center gap-2 text-sm text-zinc-300 pb-2">
       <input type="checkbox" name="case_sensitive" value="1"
              class="w-4 h-4 rounded bg-ink-900 border-ink-700">
-      <span>Case-sensitive</span>
+      <span>{{ t('phrase_tags_case_sensitive') }}</span>
     </label>
     <button type="submit"
             class="md:col-span-1 px-4 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium">
-      Add
+      {{ t('btn_add') }}
     </button>
   </div>
 </form>
@@ -43,10 +41,10 @@
     <table class="w-full text-sm">
       <thead class="bg-ink-900 text-zinc-500 text-xs uppercase tracking-wider">
         <tr>
-          <th class="text-left py-2 px-4">Phrase</th>
-          <th class="text-left py-2 px-4">Tag</th>
-          <th class="text-left py-2 px-4">Case-sensitive</th>
-          <th class="text-left py-2 px-4">Created</th>
+          <th class="text-left py-2 px-4">{{ t('phrase_tags_phrase') }}</th>
+          <th class="text-left py-2 px-4">{{ t('phrase_tags_tag') }}</th>
+          <th class="text-left py-2 px-4">{{ t('phrase_tags_case_sensitive') }}</th>
+          <th class="text-left py-2 px-4">{{ t('phrase_tags_created') }}</th>
           <th class="py-2 px-4"></th>
         </tr>
       </thead>
@@ -60,7 +58,7 @@
               </span>
             </td>
             <td class="py-2 px-4 text-zinc-400 text-xs">
-              {% if rule.case_sensitive %}yes{% else %}no{% endif %}
+              {% if rule.case_sensitive %}{{ t('val_yes') }}{% else %}{{ t('val_no') }}{% endif %}
             </td>
             <td class="py-2 px-4 text-zinc-400 text-xs">{{ rule.created_at }}</td>
             <td class="py-2 px-4 text-right">
@@ -68,12 +66,12 @@
                     method="post"
                     class="inline"
                     hx-post="/settings/phrase-tags/{{ rule.id }}/delete"
-                    hx-confirm="Remove this phrase rule?"
+                    hx-confirm="{{ t('phrase_tags_confirm_remove') }}"
                     hx-target="body"
                     hx-swap="outerHTML">
                 <button type="submit"
                         class="text-xs px-2 py-1 rounded bg-rose-900/40 hover:bg-rose-900 text-rose-300">
-                  remove
+                  {{ t('btn_remove') }}
                 </button>
               </form>
             </td>
@@ -83,6 +81,6 @@
     </table>
   </div>
 {% else %}
-  <p class="text-zinc-500 text-sm">No phrase rules yet. Add one above.</p>
+  <p class="text-zinc-500 text-sm">{{ t('phrase_tags_none') }}</p>
 {% endif %}
 {% endblock %}

@@ -2,20 +2,18 @@
 
 {% block content %}
 <div class="mb-6">
-  <h1 class="text-2xl font-bold tracking-tight">Per-app capture interval</h1>
+  <h1 class="text-2xl font-bold tracking-tight">{{ t('app_overrides_title') }}</h1>
   <p class="text-zinc-500 text-sm mt-1">
-    Override how often the capture loop fires while a given app is active. Slack might deserve
-    a denser cadence (e.g. <code>2.0</code> seconds), Spotify a sparser one (e.g. <code>30.0</code>).
-    Allowed range: <code>0.5</code>–<code>60.0</code> seconds. App names are case-sensitive — match what shows on the timeline.
+    {{ t('app_overrides_intro_1') }} <code>2.0</code> {{ t('app_overrides_intro_2') }} <code>30.0</code>{{ t('app_overrides_intro_3') }} <code>0.5</code>–<code>60.0</code> {{ t('app_overrides_intro_4') }}
   </p>
 </div>
 
 <form action="/app-overrides" method="post" class="flex gap-2 mb-6">
   <input name="app_name" placeholder="Slack" required
          class="flex-1 px-3 py-2 bg-ink-800 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
-  <input name="interval_seconds" type="number" step="0.1" min="0.5" max="60" placeholder="seconds" required
+  <input name="interval_seconds" type="number" step="0.1" min="0.5" max="60" placeholder="{{ t('app_overrides_ph_seconds') }}" required
          class="w-40 px-3 py-2 bg-ink-800 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500">
-  <button type="submit" class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium">Save</button>
+  <button type="submit" class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium">{{ t('btn_save') }}</button>
 </form>
 
 {% if items %}
@@ -23,8 +21,8 @@
     <table class="w-full text-sm">
       <thead class="bg-ink-900 text-zinc-500 text-xs uppercase tracking-wider">
         <tr>
-          <th class="text-left py-2 px-4">App</th>
-          <th class="text-left py-2 px-4">Interval (s)</th>
+          <th class="text-left py-2 px-4">{{ t('app_overrides_th_app') }}</th>
+          <th class="text-left py-2 px-4">{{ t('app_overrides_th_interval') }}</th>
           <th class="py-2 px-4"></th>
         </tr>
       </thead>
@@ -35,7 +33,7 @@
             <td class="py-2 px-4 font-mono text-xs text-zinc-300">{{ '%.1f'|format(item.interval_seconds) }}</td>
             <td class="py-2 px-4 text-right">
               <form action="/app-overrides/{{ item.app_name }}/delete" method="post" class="inline">
-                <button class="text-xs px-2 py-1 rounded bg-rose-900/40 hover:bg-rose-900 text-rose-300">remove</button>
+                <button class="text-xs px-2 py-1 rounded bg-rose-900/40 hover:bg-rose-900 text-rose-300">{{ t('btn_remove') }}</button>
               </form>
             </td>
           </tr>
@@ -47,16 +45,16 @@
 
 {% if suggested %}
   <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
-    <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">Suggested (your most-captured apps without an override)</h2>
+    <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">{{ t('app_overrides_suggested_heading') }}</h2>
     <div class="space-y-2">
       {% for s in suggested %}
         <form action="/app-overrides" method="post" class="flex gap-2 items-center">
           <input type="hidden" name="app_name" value="{{ s.app_name }}">
           <span class="text-zinc-300 text-sm w-56 truncate">{{ s.app_name }}</span>
           <span class="text-zinc-500 text-xs w-12">{{ s.count }}</span>
-          <input name="interval_seconds" type="number" step="0.1" min="0.5" max="60" placeholder="seconds"
+          <input name="interval_seconds" type="number" step="0.1" min="0.5" max="60" placeholder="{{ t('app_overrides_ph_seconds') }}"
                  class="w-32 px-3 py-1.5 bg-ink-900 border border-ink-700 rounded text-sm font-mono">
-          <button class="px-3 py-1.5 bg-ink-700 hover:bg-ink-600 rounded text-xs">Add</button>
+          <button class="px-3 py-1.5 bg-ink-700 hover:bg-ink-600 rounded text-xs">{{ t('btn_add') }}</button>
         </form>
       {% endfor %}
     </div>

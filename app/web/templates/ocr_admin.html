@@ -2,99 +2,97 @@
 
 {% block content %}
 <div class="mb-6">
-  <h1 class="text-2xl font-bold tracking-tight">OCR admin</h1>
+  <h1 class="text-2xl font-bold tracking-tight">{{ t('ocr_admin_title') }}</h1>
   <p class="text-zinc-500 text-sm mt-1">
-    Flip <code class="font-mono text-xs">skipped</code> or <code class="font-mono text-xs">failed</code>
-    screenshots back to <code class="font-mono text-xs">pending</code> so the OCR worker picks them up
-    on its next sweep. Useful after installing Tesseract, swapping language packs, or fixing a corrupted batch.
-    Rows without a thumbnail are left alone — there's nothing for the worker to read.
+    {{ t('ocr_admin_intro_a') }} <code class="font-mono text-xs">skipped</code> {{ t('ocr_admin_intro_b') }} <code class="font-mono text-xs">failed</code>
+    {{ t('ocr_admin_intro_c') }} <code class="font-mono text-xs">pending</code> {{ t('ocr_admin_intro_d') }}
   </p>
 </div>
 
 <section class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-8">
   <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
-    <div class="text-xs uppercase tracking-widest text-zinc-500">Total</div>
+    <div class="text-xs uppercase tracking-widest text-zinc-500">{{ t('ocr_admin_total') }}</div>
     <div class="text-2xl font-semibold mt-1">{{ counts.total }}</div>
   </div>
   <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
-    <div class="text-xs uppercase tracking-widest text-emerald-400">Done</div>
+    <div class="text-xs uppercase tracking-widest text-emerald-400">{{ t('ocr_admin_done') }}</div>
     <div class="text-2xl font-semibold mt-1 text-emerald-300">{{ counts.done }}</div>
   </div>
   <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
-    <div class="text-xs uppercase tracking-widest text-amber-400">Pending</div>
+    <div class="text-xs uppercase tracking-widest text-amber-400">{{ t('ocr_admin_pending') }}</div>
     <div class="text-2xl font-semibold mt-1 text-amber-300">{{ counts.pending }}</div>
   </div>
   <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
-    <div class="text-xs uppercase tracking-widest text-sky-400">Skipped</div>
+    <div class="text-xs uppercase tracking-widest text-sky-400">{{ t('ocr_admin_skipped') }}</div>
     <div class="text-2xl font-semibold mt-1 text-sky-300">{{ counts.skipped }}</div>
   </div>
   <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
-    <div class="text-xs uppercase tracking-widest text-rose-400">Failed</div>
+    <div class="text-xs uppercase tracking-widest text-rose-400">{{ t('ocr_admin_failed') }}</div>
     <div class="text-2xl font-semibold mt-1 text-rose-300">{{ counts.failed }}</div>
   </div>
 </section>
 
 <section class="grid gap-4 md:grid-cols-3">
   <form action="/ocr-admin/reset-skipped" method="post"
-        onsubmit="return confirm('Move {{ counts.skipped }} skipped screenshot(s) back to pending?');"
+        onsubmit="return confirm('{{ t('ocr_admin_confirm_skipped_a') }} {{ counts.skipped }} {{ t('ocr_admin_confirm_skipped_b') }}');"
         class="rounded-lg border border-ink-700 bg-ink-800 p-5 flex flex-col gap-3">
-    <h2 class="text-lg font-semibold text-sky-300">Re-process skipped</h2>
+    <h2 class="text-lg font-semibold text-sky-300">{{ t('ocr_admin_reprocess_skipped') }}</h2>
     <p class="text-zinc-400 text-sm">
-      Resets every screenshot currently marked <code class="font-mono text-xs">skipped</code>
-      (usually because OCR was disabled at capture time).
+      {{ t('ocr_admin_resets_marked') }} <code class="font-mono text-xs">skipped</code>
+      {{ t('ocr_admin_resets_skipped_b') }}
     </p>
-    <p class="text-zinc-500 text-xs">Affects up to <strong>{{ counts.skipped }}</strong> row(s).</p>
+    <p class="text-zinc-500 text-xs">{{ t('ocr_admin_affects_a') }} <strong>{{ counts.skipped }}</strong> {{ t('ocr_admin_affects_b') }}</p>
     <button type="submit"
             {% if counts.skipped == 0 %}disabled{% endif %}
             class="mt-auto px-5 py-2 rounded text-sm font-medium
                    {% if counts.skipped == 0 %}bg-ink-700 text-zinc-500 cursor-not-allowed
                    {% else %}bg-sky-700 hover:bg-sky-600 text-white{% endif %}">
-      Reset skipped → pending
+      {{ t('ocr_admin_btn_reset_skipped') }}
     </button>
   </form>
 
   <form action="/ocr-admin/reset-failed" method="post"
-        onsubmit="return confirm('Retry {{ counts.failed }} failed screenshot(s)?');"
+        onsubmit="return confirm('{{ t('ocr_admin_confirm_failed_a') }} {{ counts.failed }} {{ t('ocr_admin_confirm_failed_b') }}');"
         class="rounded-lg border border-ink-700 bg-ink-800 p-5 flex flex-col gap-3">
-    <h2 class="text-lg font-semibold text-rose-300">Retry failed</h2>
+    <h2 class="text-lg font-semibold text-rose-300">{{ t('ocr_admin_retry_failed') }}</h2>
     <p class="text-zinc-400 text-sm">
-      Resets every screenshot currently marked <code class="font-mono text-xs">failed</code>
-      (Tesseract returned an error or crashed).
+      {{ t('ocr_admin_resets_marked') }} <code class="font-mono text-xs">failed</code>
+      {{ t('ocr_admin_resets_failed_b') }}
     </p>
-    <p class="text-zinc-500 text-xs">Affects up to <strong>{{ counts.failed }}</strong> row(s).</p>
+    <p class="text-zinc-500 text-xs">{{ t('ocr_admin_affects_a') }} <strong>{{ counts.failed }}</strong> {{ t('ocr_admin_affects_b') }}</p>
     <button type="submit"
             {% if counts.failed == 0 %}disabled{% endif %}
             class="mt-auto px-5 py-2 rounded text-sm font-medium
                    {% if counts.failed == 0 %}bg-ink-700 text-zinc-500 cursor-not-allowed
                    {% else %}bg-rose-700 hover:bg-rose-600 text-white{% endif %}">
-      Reset failed → pending
+      {{ t('ocr_admin_btn_reset_failed') }}
     </button>
   </form>
 
   <form action="/ocr-admin/reset-all" method="post"
-        onsubmit="return confirm('Re-queue {{ counts.skipped + counts.failed }} screenshot(s) (skipped + failed)?');"
+        onsubmit="return confirm('{{ t('ocr_admin_confirm_all_a') }} {{ counts.skipped + counts.failed }} {{ t('ocr_admin_confirm_all_b') }}');"
         class="rounded-lg border border-ink-700 bg-ink-800 p-5 flex flex-col gap-3">
-    <h2 class="text-lg font-semibold text-accent-400">Reset everything</h2>
+    <h2 class="text-lg font-semibold text-accent-400">{{ t('ocr_admin_reset_everything') }}</h2>
     <p class="text-zinc-400 text-sm">
-      Combine both buckets — every <code class="font-mono text-xs">skipped</code> and
-      <code class="font-mono text-xs">failed</code> row goes back to <code class="font-mono text-xs">pending</code>.
+      {{ t('ocr_admin_combine_a') }} <code class="font-mono text-xs">skipped</code> {{ t('ocr_admin_combine_b') }}
+      <code class="font-mono text-xs">failed</code> {{ t('ocr_admin_combine_c') }} <code class="font-mono text-xs">pending</code>.
     </p>
     <p class="text-zinc-500 text-xs">
-      Affects up to <strong>{{ counts.skipped + counts.failed }}</strong> row(s).
+      {{ t('ocr_admin_affects_a') }} <strong>{{ counts.skipped + counts.failed }}</strong> {{ t('ocr_admin_affects_b') }}
     </p>
     <button type="submit"
             {% if (counts.skipped + counts.failed) == 0 %}disabled{% endif %}
             class="mt-auto px-5 py-2 rounded text-sm font-medium
                    {% if (counts.skipped + counts.failed) == 0 %}bg-ink-700 text-zinc-500 cursor-not-allowed
                    {% else %}bg-accent-600 hover:bg-accent-500 text-white{% endif %}">
-      Reset all → pending
+      {{ t('ocr_admin_btn_reset_all') }}
     </button>
   </form>
 </section>
 
 <p class="text-zinc-500 text-xs mt-8">
-  Tip: you can also reset a single screenshot via
-  <code class="font-mono">POST /api/screenshots/&lt;id&gt;/reset-ocr</code>,
-  or from the terminal with <code class="font-mono">persona reset-ocr --scope all</code>.
+  {{ t('ocr_admin_tip_a') }}
+  <code class="font-mono">POST /api/screenshots/&lt;id&gt;/reset-ocr</code>, {{ t('ocr_admin_tip_b') }}
+  <code class="font-mono">persona reset-ocr --scope all</code>.
 </p>
 {% endblock %}

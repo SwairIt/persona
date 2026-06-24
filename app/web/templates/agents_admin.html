@@ -2,54 +2,53 @@
 
 {% block content %}
 <div class="mb-6">
-  <h1 class="text-2xl font-bold tracking-tight">Remote agents</h1>
+  <h1 class="text-2xl font-bold tracking-tight">{{ t('agents_admin_title') }}</h1>
   <p class="text-zinc-500 text-sm mt-1">
-    Bearer tokens for external capture agents hitting Persona's
-    <code class="font-mono">/api/agent/*</code> endpoints. Use the header
+    {{ t('agents_admin_intro_1') }}
+    <code class="font-mono">/api/agent/*</code> {{ t('agents_admin_intro_2') }}
     <code class="font-mono">Authorization: Bearer &lt;token&gt;</code>.
-    Persona stores only the SHA-256 hash &mdash; the raw value is shown
-    <strong>exactly once</strong> below, right after you issue it.
+    {{ t('agents_admin_intro_3') }}
+    <strong>{{ t('agents_admin_exactly_once') }}</strong> {{ t('agents_admin_intro_4') }}
   </p>
 </div>
 
 {% if new_token %}
   <div class="rounded-lg border border-emerald-700/60 bg-emerald-900/20 text-emerald-100 px-4 py-4 mb-6">
-    <div class="text-sm font-semibold mb-2">New agent token issued &mdash; copy it now.</div>
+    <div class="text-sm font-semibold mb-2">{{ t('agents_admin_new_token_issued') }}</div>
     <div class="text-xs text-emerald-300 mb-2">
-      This value is shown <strong>once</strong>. Persona stored only its hash; if you lose
-      this string you must revoke this agent and issue a new one.
+      {{ t('agents_admin_shown_once_pre') }} <strong>{{ t('agents_admin_once') }}</strong>. {{ t('agents_admin_shown_once_post') }}
     </div>
     <div class="flex items-center gap-2">
       <code id="persona-new-agent-token"
             class="flex-1 font-mono text-sm bg-ink-900 border border-ink-700 rounded px-3 py-2 break-all select-all">{{ new_token }}</code>
       <button type="button" id="persona-copy-agent-token"
               class="px-3 py-2 bg-emerald-700 hover:bg-emerald-600 rounded text-xs font-medium">
-        Copy
+        {{ t('btn_copy') }}
       </button>
     </div>
     <div class="mt-3">
       <a href="/admin/agents"
          class="text-xs text-emerald-300 hover:text-emerald-200 underline">
-        I&rsquo;ve saved it &mdash; hide this banner
+        {{ t('agents_admin_saved_hide') }}
       </a>
     </div>
   </div>
 {% endif %}
 
 <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
-  <h2 class="text-lg font-semibold mb-3">Provision a new agent</h2>
+  <h2 class="text-lg font-semibold mb-3">{{ t('agents_admin_provision_heading') }}</h2>
   <form action="/admin/agents" method="post" class="space-y-4">
     <label class="flex flex-col gap-1">
-      <span class="text-xs uppercase tracking-widest text-zinc-500">Name</span>
+      <span class="text-xs uppercase tracking-widest text-zinc-500">{{ t('agents_admin_name_label') }}</span>
       <input type="text" name="name" required maxlength="80"
-             placeholder="e.g. macbook-air, ios-shortcut, secondary-laptop"
+             placeholder="{{ t('agents_admin_name_placeholder') }}"
              class="px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
     </label>
     <label class="flex flex-col gap-1">
-      <span class="text-xs uppercase tracking-widest text-zinc-500">Platform</span>
+      <span class="text-xs uppercase tracking-widest text-zinc-500">{{ t('agents_admin_platform_label') }}</span>
       <select name="platform"
               class="px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
-        <option value="">(unspecified)</option>
+        <option value="">{{ t('agents_admin_unspecified') }}</option>
         {% for p in allowed_platforms %}
           <option value="{{ p }}">{{ p }}</option>
         {% endfor %}
@@ -58,7 +57,7 @@
     <div class="flex justify-end">
       <button type="submit"
               class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
-        Issue agent token
+        {{ t('agents_admin_issue_btn') }}
       </button>
     </div>
   </form>
@@ -69,12 +68,12 @@
     <table class="w-full text-sm">
       <thead class="bg-ink-900 text-zinc-500 text-xs uppercase tracking-wider">
         <tr>
-          <th class="text-left py-2 px-3">Name</th>
-          <th class="text-left py-2 px-3">Platform</th>
-          <th class="text-left py-2 px-3">Last seen</th>
-          <th class="text-left py-2 px-3">Last audio</th>
-          <th class="text-left py-2 px-3">Last screen</th>
-          <th class="text-left py-2 px-3">Status</th>
+          <th class="text-left py-2 px-3">{{ t('agents_admin_name_label') }}</th>
+          <th class="text-left py-2 px-3">{{ t('agents_admin_platform_label') }}</th>
+          <th class="text-left py-2 px-3">{{ t('agents_admin_th_last_seen') }}</th>
+          <th class="text-left py-2 px-3">{{ t('agents_admin_th_last_audio') }}</th>
+          <th class="text-left py-2 px-3">{{ t('agents_admin_th_last_screen') }}</th>
+          <th class="text-left py-2 px-3">{{ t('agents_admin_th_status') }}</th>
           <th class="py-2 px-3"></th>
         </tr>
       </thead>
@@ -91,18 +90,18 @@
             <td class="py-2 px-3 text-xs text-zinc-500 font-mono">{{ a.last_screen_at or '—' }}</td>
             <td class="py-2 px-3 text-xs">
               {% if a.revoked_at %}
-                <span class="text-rose-400 font-mono">revoked {{ a.revoked_at }}</span>
+                <span class="text-rose-400 font-mono">{{ t('agents_admin_revoked') }} {{ a.revoked_at }}</span>
               {% else %}
-                <span class="text-emerald-400 font-mono">active</span>
+                <span class="text-emerald-400 font-mono">{{ t('agents_admin_active') }}</span>
               {% endif %}
             </td>
             <td class="py-2 px-3 text-right">
               {% if not a.revoked_at %}
                 <form action="/admin/agents/{{ a.id }}/revoke" method="post" class="inline"
-                      onsubmit="return confirm('Revoke this agent? Any client using its token will start getting 401 immediately.');">
+                      onsubmit="return confirm('{{ t('agents_admin_confirm_revoke') }}');">
                   <button type="submit"
                           class="text-xs px-2 py-1 rounded bg-rose-900/40 hover:bg-rose-900 text-rose-300">
-                    revoke
+                    {{ t('agents_admin_revoke_btn') }}
                   </button>
                 </form>
               {% else %}
@@ -115,22 +114,22 @@
     </table>
   </div>
 {% else %}
-  <p class="text-zinc-500 text-sm">No remote agents provisioned yet.</p>
+  <p class="text-zinc-500 text-sm">{{ t('agents_admin_empty') }}</p>
 {% endif %}
 
 <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mt-8 text-xs text-zinc-400 space-y-2">
-  <h2 class="text-sm font-semibold text-zinc-200">Endpoints</h2>
+  <h2 class="text-sm font-semibold text-zinc-200">{{ t('agents_admin_endpoints_heading') }}</h2>
   <ul class="space-y-1 font-mono">
-    <li><code>POST /api/agent/heartbeat</code> &mdash; liveness probe</li>
-    <li><code>POST /api/agent/audio-segment</code> &mdash; multipart audio upload (max 10 MB)</li>
-    <li><code>POST /api/agent/screenshot</code> &mdash; multipart image upload (max 5 MB)</li>
-    <li><code>GET  /api/agent/me</code> &mdash; self-check</li>
+    <li><code>POST /api/agent/heartbeat</code> &mdash; {{ t('agents_admin_ep_heartbeat') }}</li>
+    <li><code>POST /api/agent/audio-segment</code> &mdash; {{ t('agents_admin_ep_audio') }}</li>
+    <li><code>POST /api/agent/screenshot</code> &mdash; {{ t('agents_admin_ep_screenshot') }}</li>
+    <li><code>GET  /api/agent/me</code> &mdash; {{ t('agents_admin_ep_me') }}</li>
   </ul>
   <p class="mt-3">
-    Every request must carry an <code class="font-mono">Authorization: Bearer &lt;token&gt;</code>
-    header. Successful requests update the agent&rsquo;s <code class="font-mono">last_seen_at</code>
-    (and the channel-specific <code class="font-mono">last_audio_at</code> /
-    <code class="font-mono">last_screen_at</code> columns) so the table above shows fresh activity.
+    {{ t('agents_admin_footer_1') }} <code class="font-mono">Authorization: Bearer &lt;token&gt;</code>
+    {{ t('agents_admin_footer_2') }} <code class="font-mono">last_seen_at</code>
+    {{ t('agents_admin_footer_3') }} <code class="font-mono">last_audio_at</code> /
+    <code class="font-mono">last_screen_at</code> {{ t('agents_admin_footer_4') }}
   </p>
 </section>
 

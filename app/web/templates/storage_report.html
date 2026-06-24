@@ -18,35 +18,33 @@
 
 <div class="mb-6 flex items-end justify-between flex-wrap gap-3">
   <div>
-    <h1 class="text-2xl font-bold tracking-tight">Storage report</h1>
+    <h1 class="text-2xl font-bold tracking-tight">{{ t('storage_report_title') }}</h1>
     <p class="text-zinc-500 text-sm mt-1">
-      Day-by-day disk footprint for the last <strong class="text-zinc-300">{{ days_window }}</strong> days.
-      Target: <strong class="text-zinc-300">{{ budget_mb }} MB/day</strong>
-      (warn above <strong class="text-amber-400">4 MB</strong>).
+      {{ t('storage_report_intro_1') }}<strong class="text-zinc-300">{{ days_window }}</strong>{{ t('storage_report_intro_2') }}<strong class="text-zinc-300">{{ budget_mb }} MB/day</strong>{{ t('storage_report_intro_3') }}<strong class="text-amber-400">4 MB</strong>{{ t('storage_report_intro_4') }}
     </p>
   </div>
   <a href="/stats" class="text-xs text-zinc-500 hover:text-accent-400 underline">
-    ← back to stats
+    ← {{ t('storage_report_back_to_stats') }}
   </a>
 </div>
 
 {# ---- grand totals ---- #}
 <section class="mb-6 grid grid-cols-2 md:grid-cols-4 gap-3">
   <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
-    <div class="text-xs text-zinc-500">Grand total</div>
+    <div class="text-xs text-zinc-500">{{ t('storage_report_grand_total') }}</div>
     <div class="text-2xl font-bold mt-1">{{ humanize_bytes(grand_total_bytes) }}</div>
-    <div class="text-xs text-zinc-500 mt-1">avg {{ humanize_bytes(avg_total_bytes) }}/day</div>
+    <div class="text-xs text-zinc-500 mt-1">{{ t('storage_report_avg') }}{{ humanize_bytes(avg_total_bytes) }}{{ t('storage_report_per_day') }}</div>
   </div>
   <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
-    <div class="text-xs text-zinc-500">Thumbnails</div>
+    <div class="text-xs text-zinc-500">{{ t('storage_report_thumbnails') }}</div>
     <div class="text-2xl font-bold mt-1">{{ humanize_bytes(grand_thumbnails_bytes) }}</div>
   </div>
   <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
-    <div class="text-xs text-zinc-500">OCR text</div>
+    <div class="text-xs text-zinc-500">{{ t('storage_report_ocr_text') }}</div>
     <div class="text-2xl font-bold mt-1">{{ humanize_bytes(grand_ocr_bytes) }}</div>
   </div>
   <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
-    <div class="text-xs text-zinc-500">Screenshots</div>
+    <div class="text-xs text-zinc-500">{{ t('storage_report_screenshots') }}</div>
     <div class="text-2xl font-bold mt-1">{{ "{:,}".format(grand_screenshots) }}</div>
   </div>
 </section>
@@ -55,9 +53,9 @@
 <section class="mb-8 rounded-lg border border-ink-700 bg-ink-800 p-5">
   <div class="flex items-center justify-between mb-3">
     <div>
-      <h2 class="text-sm font-semibold text-zinc-300">Total bytes per day</h2>
+      <h2 class="text-sm font-semibold text-zinc-300">{{ t('storage_report_total_per_day_heading') }}</h2>
       <p class="text-zinc-500 text-xs mt-0.5">
-        Oldest left → newest right. Peak: <strong class="text-zinc-300">{{ humanize_bytes(max_total) }}</strong>.
+        {{ t('storage_report_oldest_newest') }}<strong class="text-zinc-300">{{ humanize_bytes(max_total) }}</strong>{{ t('storage_report_peak_end') }}
       </p>
     </div>
   </div>
@@ -69,7 +67,7 @@
     {% set warn_y = (svg_h - (warn_bytes / max_total) * svg_h) if max_total >= warn_bytes else -1 %}
 
     <svg viewBox="0 0 {{ svg_w }} {{ svg_h }}" width="{{ svg_w }}" height="{{ svg_h }}"
-         class="block" preserveAspectRatio="none" role="img" aria-label="Daily total bytes sparkline">
+         class="block" preserveAspectRatio="none" role="img" aria-label="{{ t('storage_report_sparkline_aria') }}">
 
       {%- if warn_y >= 0 %}
       <line x1="0" x2="{{ svg_w }}" y1="{{ warn_y | round(2) }}" y2="{{ warn_y | round(2) }}"
@@ -102,7 +100,7 @@
       <span>{{ chrono[-1].date }}</span>
     </div>
   {% else %}
-    <p class="text-zinc-500 text-xs">No data yet — capture some screenshots first.</p>
+    <p class="text-zinc-500 text-xs">{{ t('storage_report_no_data_yet') }}</p>
   {% endif %}
 </section>
 
@@ -111,12 +109,12 @@
   <table class="w-full text-sm">
     <thead class="bg-ink-900/60 text-xs uppercase tracking-wide text-zinc-500">
       <tr>
-        <th class="px-4 py-2 text-left font-medium">Date</th>
-        <th class="px-4 py-2 text-right font-medium">Shots</th>
-        <th class="px-4 py-2 text-right font-medium">Thumbnails (MB)</th>
-        <th class="px-4 py-2 text-right font-medium">OCR (KB)</th>
-        <th class="px-4 py-2 text-right font-medium">Total (MB)</th>
-        <th class="px-4 py-2 text-left font-medium w-40">Bar</th>
+        <th class="px-4 py-2 text-left font-medium">{{ t('storage_report_th_date') }}</th>
+        <th class="px-4 py-2 text-right font-medium">{{ t('storage_report_th_shots') }}</th>
+        <th class="px-4 py-2 text-right font-medium">{{ t('storage_report_th_thumbnails') }}</th>
+        <th class="px-4 py-2 text-right font-medium">{{ t('storage_report_th_ocr') }}</th>
+        <th class="px-4 py-2 text-right font-medium">{{ t('storage_report_th_total') }}</th>
+        <th class="px-4 py-2 text-left font-medium w-40">{{ t('storage_report_th_bar') }}</th>
       </tr>
     </thead>
     <tbody class="divide-y divide-ink-700">
@@ -147,14 +145,13 @@
           </td>
         </tr>
       {% else %}
-        <tr><td colspan="6" class="px-4 py-6 text-center text-zinc-500 text-xs">No data.</td></tr>
+        <tr><td colspan="6" class="px-4 py-6 text-center text-zinc-500 text-xs">{{ t('storage_report_no_data') }}</td></tr>
       {% endfor %}
     </tbody>
   </table>
 </section>
 
 <p class="text-xs text-zinc-500 mt-4">
-  1 KB = 1024 B. Thumbnails measured from <code class="text-zinc-400">data/thumbnails/</code>;
-  OCR storage estimated as <code class="text-zinc-400">LENGTH(ocr_text)</code>.
+  {{ t('storage_report_footer_1') }}<code class="text-zinc-400">data/thumbnails/</code>{{ t('storage_report_footer_2') }}<code class="text-zinc-400">LENGTH(ocr_text)</code>{{ t('storage_report_footer_3') }}
 </p>
 {% endblock %}

@@ -2,17 +2,14 @@
 
 {% block content %}
 <div class="mb-6">
-  <h1 class="text-2xl font-bold tracking-tight">OCR skip-list</h1>
+  <h1 class="text-2xl font-bold tracking-tight">{{ t('ocr_skip_title') }}</h1>
   <p class="text-zinc-500 text-sm mt-1">
-    Some apps generate noisy, useless OCR text — terminal emulators with ANSI codes, video players,
-    fullscreen games. Add them here and the OCR worker will skip them entirely:
-    screenshots are marked <code class="text-zinc-300">done</code> with empty text and never sent to Tesseract.
-    Matching is case-insensitive and ignores surrounding whitespace.
+    {{ t('ocr_skip_intro_a') }} <code class="text-zinc-300">done</code> {{ t('ocr_skip_intro_b') }}
   </p>
 </div>
 
 <form action="/settings/ocr-skip" method="post" class="flex gap-2 mb-6">
-  <input name="app_name" placeholder="e.g. Terminal" required
+  <input name="app_name" placeholder="{{ t('ocr_skip_app_placeholder') }}" required
          list="app-suggestions"
          autocomplete="off"
          class="flex-1 px-3 py-2 bg-ink-800 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
@@ -22,7 +19,7 @@
     {% endfor %}
   </datalist>
   <button type="submit" class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
-    Add app
+    {{ t('ocr_skip_add_app') }}
   </button>
 </form>
 
@@ -31,7 +28,7 @@
     <table class="w-full text-sm">
       <thead class="bg-ink-900 text-zinc-500 text-xs uppercase tracking-wider">
         <tr>
-          <th class="text-left py-2 px-4">App</th>
+          <th class="text-left py-2 px-4">{{ t('ocr_skip_th_app') }}</th>
           <th class="py-2 px-4"></th>
         </tr>
       </thead>
@@ -41,8 +38,8 @@
             <td class="py-2 px-4 font-mono text-zinc-200">{{ name }}</td>
             <td class="py-2 px-4 text-right">
               <form action="/settings/ocr-skip/{{ name|urlencode }}/delete" method="post" class="inline"
-                    onsubmit="return confirm('Remove {{ name }} from the OCR skip-list?')">
-                <button class="text-xs px-2 py-1 rounded bg-rose-900/40 hover:bg-rose-900 text-rose-300">remove</button>
+                    onsubmit="return confirm('{{ t('ocr_skip_confirm_remove_a') }} {{ name }} {{ t('ocr_skip_confirm_remove_b') }}')">
+                <button class="text-xs px-2 py-1 rounded bg-rose-900/40 hover:bg-rose-900 text-rose-300">{{ t('btn_remove') }}</button>
               </form>
             </td>
           </tr>
@@ -51,21 +48,21 @@
     </table>
   </div>
 {% else %}
-  <p class="text-zinc-500 text-sm mb-8">No apps are being skipped — OCR runs for every captured screenshot.</p>
+  <p class="text-zinc-500 text-sm mb-8">{{ t('ocr_skip_none') }}</p>
 {% endif %}
 
 {% if suggestions %}
   <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
-    <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">Apps seen on your timeline</h2>
+    <h2 class="text-sm uppercase tracking-widest text-zinc-500 mb-3">{{ t('ocr_skip_seen_title') }}</h2>
     <p class="text-zinc-500 text-xs mb-3">
-      Click <em>skip</em> next to any app whose OCR you don&rsquo;t need.
+      {{ t('ocr_skip_click') }} <em>{{ t('ocr_skip_skip_action') }}</em> {{ t('ocr_skip_click_rest') }}
     </p>
     <div class="flex flex-wrap gap-2">
       {% for s in suggestions %}
         <form action="/settings/ocr-skip" method="post" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-ink-900 border border-ink-700">
           <input type="hidden" name="app_name" value="{{ s }}">
           <span class="text-zinc-300 text-xs truncate max-w-[14rem]">{{ s }}</span>
-          <button class="text-xs px-1.5 py-0.5 rounded bg-ink-700 hover:bg-accent-600 text-zinc-200">skip</button>
+          <button class="text-xs px-1.5 py-0.5 rounded bg-ink-700 hover:bg-accent-600 text-zinc-200">{{ t('ocr_skip_skip_action') }}</button>
         </form>
       {% endfor %}
     </div>

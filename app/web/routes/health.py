@@ -26,23 +26,20 @@ async def health() -> JSONResponse:
     controller = get_controller()
     settings = get_settings()
     db_ok = True
-    db_error = None
     try:
         async with get_connection() as conn:
             await conn.execute("SELECT 1")
-    except Exception as exc:
+    except Exception:
         db_ok = False
-        db_error = str(exc)[:200]
 
+    # Анонимный /health — минимум для балансировщиков. НЕ отдаём host/port/db_error/
+    # captures_total: это фингерпринт инстанса + утечка внутреннего bind-адреса за
+    # TLS-прокси + текст ошибки БД мог светить путь к файлу/драйвер (low-sev аудита).
     payload = {
         "version": __version__,
         "now": iso(datetime.now(timezone.utc)),
         "db_ok": db_ok,
-        "db_error": db_error,
         "paused": controller.paused,
-        "captures_total": controller.captures_total,
-        "host": settings.host,
-        "port": settings.port,
         "ocr_enabled": settings.ocr_enabled,
         "tesseract_available": probe_tesseract(settings.tesseract_path).available,
     }
