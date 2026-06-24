@@ -84,7 +84,11 @@ def _start() -> None:
     subprocess.Popen(
         [
             PYEXE, "-m", "uvicorn", "app.web.main:create_app",
-            "--factory", "--host", "127.0.0.1", "--port", "8000",
+            # 0.0.0.0: слушать и localhost (watchdog-проба 127.0.0.1), и LAN —
+            # FastPanel на yesbeat (192.168.33.3) проксирует на 192.168.33.214:8000.
+            # Доступ к :8000 из LAN ограничен firewall-правилом (только yesbeat).
+            "--factory", "--host", "0.0.0.0", "--port", "8000",
+            "--proxy-headers", "--forwarded-allow-ips", "192.168.33.3,127.0.0.1",
         ],
         cwd=REPO,
         env=env,
