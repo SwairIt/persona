@@ -9,8 +9,13 @@ from app.web.routes.chat_sessions import _get_recall_mode
 
 
 @pytest.mark.asyncio
-async def test_default_keyword_without_sqlite_vec(db: aiosqlite.Connection) -> None:
-    # На CI sqlite-vec не установлен → дефолт keyword (безопасный fallback).
+async def test_default_keyword_without_sqlite_vec(
+    db: aiosqlite.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Форсим отсутствие sqlite-vec → дефолт keyword (безопасный fallback).
+    # (Монкипатчим, как соседний тест: на машине с установленным sqlite-vec иначе
+    # дефолт стал бы hybrid и тест был бы зависим от окружения.)
+    monkeypatch.setattr("app.storage.db.sqlite_vec_available", lambda: False)
     assert await _get_recall_mode() == "keyword"
 
 

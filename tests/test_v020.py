@@ -99,17 +99,29 @@ async def test_ocr_reset_one(db: aiosqlite.Connection) -> None:
 async def client() -> AsyncIterator[AsyncClient]:
     from fastapi import FastAPI
 
+    from app.auth import SESSION_COOKIE_NAME, issue_session
     from app.web.routes import ocr_admin as ocr_admin_routes
     from app.web.routes import share_collection as share_collection_routes
     from app.web.routes import webhooks_routes
 
     await init_database()
+    # Ф (security, 2026-06-24): share-collection + webhook test-fire — owner-only.
+    # Создаём владельца + сессию и шлём cookie, иначе 303 на логин.
+    async with aiosqlite.connect(get_settings().db_path) as conn:
+        await conn.execute(
+            "INSERT OR IGNORE INTO users(id,email,password_hash) VALUES(1,'t@x.c','x')"
+        )
+        await conn.commit()
+    token, _ = await issue_session(1)
     app = FastAPI()
     app.include_router(share_collection_routes.router)
     app.include_router(ocr_admin_routes.router)
     app.include_router(webhooks_routes.router)
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+    async with AsyncClient(
+        transport=transport, base_url="http://test",
+        cookies={SESSION_COOKIE_NAME: token},
+    ) as ac:
         yield ac
 
 

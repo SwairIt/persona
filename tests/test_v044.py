@@ -13,17 +13,32 @@ from app.storage.db import init_database
 
 @pytest_asyncio.fixture
 async def client() -> AsyncIterator[AsyncClient]:
+    import aiosqlite
     from fastapi import FastAPI
 
+    from app.auth import SESSION_COOKIE_NAME, issue_session
+    from app.settings import get_settings
     from app.web.routes import ocr_near_dup as ocr_near_dup_routes
     from app.web.routes import public_day as public_day_routes
 
     await init_database()
+    # Ф (security, 2026-06-24): /admin/public-days — owner-only
+    # (публичный GET /public/day/{slug} остаётся открытым). Создаём
+    # владельца + сессию и шлём cookie, иначе 303 на логин для admin-роутов.
+    async with aiosqlite.connect(get_settings().db_path) as conn:
+        await conn.execute(
+            "INSERT OR IGNORE INTO users(id,email,password_hash) VALUES(1,'t@x.c','x')"
+        )
+        await conn.commit()
+    token, _ = await issue_session(1)
     app = FastAPI()
     app.include_router(ocr_near_dup_routes.router)
     app.include_router(public_day_routes.router)
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://127.0.0.1") as ac:
+    async with AsyncClient(
+        transport=transport, base_url="http://127.0.0.1",
+        cookies={SESSION_COOKIE_NAME: token},
+    ) as ac:
         yield ac
 
 

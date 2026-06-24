@@ -13,9 +13,12 @@ from app.storage.db import init_database
 @pytest_asyncio.fixture
 async def client() -> AsyncIterator[AsyncClient]:
     # Build a thin app without lifespan (which would start background workers).
+    import aiosqlite
     from fastapi import FastAPI
     from fastapi.staticfiles import StaticFiles
 
+    from app.auth import SESSION_COOKIE_NAME, issue_session
+    from app.settings import get_settings
     from app.web.main import STATIC_DIR
     from app.web.routes import (
         capture_api,
@@ -29,6 +32,14 @@ async def client() -> AsyncIterator[AsyncClient]:
     )
 
     await init_database()
+    # Ф (security, 2026-06-24): /api/capture/pause + /start — owner-only.
+    # Создаём владельца + сессию и шлём cookie, иначе 303 на логин.
+    async with aiosqlite.connect(get_settings().db_path) as conn:
+        await conn.execute(
+            "INSERT OR IGNORE INTO users(id,email,password_hash) VALUES(1,'t@x.c','x')"
+        )
+        await conn.commit()
+    token, _ = await issue_session(1)
 
     app = FastAPI(title="Persona-Test")
     if STATIC_DIR.exists():
@@ -43,7 +54,10 @@ async def client() -> AsyncIterator[AsyncClient]:
     app.include_router(thumbnails_routes.router)
 
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+    async with AsyncClient(
+        transport=transport, base_url="http://test",
+        cookies={SESSION_COOKIE_NAME: token},
+    ) as ac:
         yield ac
 
 

@@ -45,17 +45,31 @@ async def test_doctor_no_critical_failures_on_fresh_db() -> None:
 
 @pytest_asyncio.fixture
 async def client() -> AsyncIterator[AsyncClient]:
+    import aiosqlite
     from fastapi import FastAPI
 
+    from app.auth import SESSION_COOKIE_NAME, issue_session
+    from app.settings import get_settings
     from app.web.routes import doctor as doctor_routes
     from app.web.routes import weekly_digests as weekly_digests_routes
 
     await init_database()
+    # Ф (security, 2026-06-24): /doctor — owner-only.
+    # Создаём владельца + сессию и шлём cookie, иначе 303 на логин.
+    async with aiosqlite.connect(get_settings().db_path) as conn:
+        await conn.execute(
+            "INSERT OR IGNORE INTO users(id,email,password_hash) VALUES(1,'t@x.c','x')"
+        )
+        await conn.commit()
+    token, _ = await issue_session(1)
     app = FastAPI()
     app.include_router(doctor_routes.router)
     app.include_router(weekly_digests_routes.router)
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+    async with AsyncClient(
+        transport=transport, base_url="http://test",
+        cookies={SESSION_COOKIE_NAME: token},
+    ) as ac:
         yield ac
 
 
