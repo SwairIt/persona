@@ -391,6 +391,9 @@ body:not(.js) .big-statement .w{opacity:1}
 
 /* ============================ LOGIN MODAL ============================ */
 .login-modal{position:fixed; inset:0; z-index:200; display:grid; place-items:center; padding:20px}
+/* атрибут hidden ОБЯЗАН прятать модалку: без этого правила авторский display:grid
+   перебивает UA-[hidden]{display:none}, и окно входа «висит» открытым и не закрывается. */
+.login-modal[hidden]{display:none}
 .login-backdrop{position:absolute; inset:0; background:rgba(3,0,20,.7); backdrop-filter:blur(8px)}
 .login-dialog{position:relative; width:100%; max-width:420px; padding:30px;
   background:var(--surface); border-radius:18px; box-shadow:var(--rim-hi), 0 30px 80px -30px rgba(80,70,228,.5)}
@@ -424,6 +427,7 @@ body:not(.js) .big-statement .w{opacity:1}
 .login-submit.loading{opacity:.7}
 .ls-spin{width:16px; height:16px; border-radius:50%; border:2px solid rgba(255,255,255,.4);
   border-top-color:#fff; display:inline-block; animation:spin .7s linear infinite; vertical-align:-3px}
+.ls-spin[hidden]{display:none}  /* спиннер прячется по hidden, не «висит» на кнопке «Войти» */
 .login-msg{margin-top:14px; font-size:14px; padding:10px 13px; border-radius:8px}
 .login-msg.ok{background:rgba(80,70,228,.16); color:#d8d2ff}
 .login-msg.err{background:rgba(255,90,140,.12); color:#ffc4d4}
