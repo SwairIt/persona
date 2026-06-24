@@ -2,70 +2,58 @@
 
 {% block content %}
 <div class="mb-6">
-  <h1 class="text-2xl font-bold tracking-tight">API tokens</h1>
+  <h1 class="text-2xl font-bold tracking-tight">{{ t('api_tokens_title') }}</h1>
   <p class="text-zinc-500 text-sm mt-1">
-    Bearer tokens for external apps hitting Persona's <code class="font-mono">/api/*</code> endpoints.
-    Use the header <code class="font-mono">Authorization: Bearer &lt;token&gt;</code>.
-    Persona stores only the SHA-256 hash &mdash; the raw value is shown
-    <strong>exactly once</strong> below, right after you issue it.
+    {{ t('api_tokens_intro') | safe }}
   </p>
 </div>
 
 {% if api_auth_required %}
   <div class="rounded-lg border border-emerald-700/40 bg-emerald-900/20 text-emerald-200 px-4 py-3 mb-6 text-xs">
-    <strong>Enforcement is ON.</strong> Every <code class="font-mono">/api/*</code> request
-    must supply a valid bearer token. Requests without an
-    <code class="font-mono">Authorization</code> header are rejected with HTTP 401.
+    {{ t('api_tokens_enforce_on') | safe }}
   </div>
 {% else %}
   <div class="rounded-lg border border-amber-700/40 bg-amber-900/20 text-amber-200 px-4 py-3 mb-6 text-xs">
-    <strong>Enforcement is OFF</strong> (default). Tokens are validated when supplied,
-    but <code class="font-mono">/api/*</code> is still reachable without one. Set
-    <code class="font-mono">PERSONA_API_AUTH_REQUIRED=true</code> in your
-    <code class="font-mono">.env</code> to require a token on every API call.
+    {{ t('api_tokens_enforce_off') | safe }}
   </div>
 {% endif %}
 
 {% if new_token %}
   <div class="rounded-lg border border-emerald-700/60 bg-emerald-900/20 text-emerald-100 px-4 py-4 mb-6">
-    <div class="text-sm font-semibold mb-2">New token issued &mdash; copy it now.</div>
+    <div class="text-sm font-semibold mb-2">{{ t('api_tokens_new_issued') }}</div>
     <div class="text-xs text-emerald-300 mb-2">
-      This value is shown <strong>once</strong>. Persona stored only its hash; if you lose
-      this string you must revoke this token and issue a new one.
+      {{ t('api_tokens_new_once_note') | safe }}
     </div>
     <div class="flex items-center gap-2">
       <code id="persona-new-token"
             class="flex-1 font-mono text-sm bg-ink-900 border border-ink-700 rounded px-3 py-2 break-all select-all">{{ new_token }}</code>
       <button type="button" id="persona-copy-token"
               class="px-3 py-2 bg-emerald-700 hover:bg-emerald-600 rounded text-xs font-medium">
-        Copy
+        {{ t('btn_copy') }}
       </button>
     </div>
     <div class="mt-3">
       <a href="/settings/api-tokens"
          class="text-xs text-emerald-300 hover:text-emerald-200 underline">
-        I&rsquo;ve saved it &mdash; hide this banner
+        {{ t('api_tokens_saved_hide') }}
       </a>
     </div>
   </div>
 {% endif %}
 
 <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
-  <h2 class="text-lg font-semibold mb-3">Issue a new token</h2>
+  <h2 class="text-lg font-semibold mb-3">{{ t('api_tokens_issue_heading') }}</h2>
   <form action="/settings/api-tokens" method="post" class="space-y-4">
     <label class="flex flex-col gap-1">
-      <span class="text-xs uppercase tracking-widest text-zinc-500">Name</span>
+      <span class="text-xs uppercase tracking-widest text-zinc-500">{{ t('feed_tokens_name') }}</span>
       <input type="text" name="name" required
-             placeholder="e.g. macbook-cli, browser-extension, dashboards"
+             placeholder="{{ t('api_tokens_name_ph') }}"
              class="px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
     </label>
     <fieldset class="flex flex-col gap-2">
-      <legend class="text-xs uppercase tracking-widest text-zinc-500 mb-1">Scopes</legend>
+      <legend class="text-xs uppercase tracking-widest text-zinc-500 mb-1">{{ t('api_tokens_scopes_legend') }}</legend>
       <p class="text-xs text-zinc-500">
-        Pick what this token may do. <code class="font-mono">admin:bulk</code> implies every
-        <code class="font-mono">write:*</code>, and any <code class="font-mono">write:*</code>
-        implies <code class="font-mono">read</code> &mdash; you don&rsquo;t need to tick those
-        manually. If you tick nothing, the token defaults to <code class="font-mono">read</code>.
+        {{ t('api_tokens_scopes_help') | safe }}
       </p>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
         {% for scope in allowed_scopes %}
@@ -81,7 +69,7 @@
     <div class="flex justify-end">
       <button type="submit"
               class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
-        Issue token
+        {{ t('api_tokens_issue_btn') }}
       </button>
     </div>
   </form>
@@ -92,11 +80,11 @@
     <table class="w-full text-sm">
       <thead class="bg-ink-900 text-zinc-500 text-xs uppercase tracking-wider">
         <tr>
-          <th class="text-left py-2 px-3">Name</th>
-          <th class="text-left py-2 px-3">Scopes</th>
-          <th class="text-left py-2 px-3">Created</th>
-          <th class="text-left py-2 px-3">Last used</th>
-          <th class="text-left py-2 px-3">Status</th>
+          <th class="text-left py-2 px-3">{{ t('feed_tokens_name') }}</th>
+          <th class="text-left py-2 px-3">{{ t('api_tokens_th_scopes') }}</th>
+          <th class="text-left py-2 px-3">{{ t('feed_tokens_th_created') }}</th>
+          <th class="text-left py-2 px-3">{{ t('api_tokens_th_last_used') }}</th>
+          <th class="text-left py-2 px-3">{{ t('feed_tokens_th_status') }}</th>
           <th class="py-2 px-3"></th>
         </tr>
       </thead>
@@ -112,9 +100,9 @@
             <td class="py-2 px-3 text-xs text-zinc-500 font-mono">{{ t.last_used_at or '—' }}</td>
             <td class="py-2 px-3 text-xs">
               {% if t.revoked_at %}
-                <span class="text-rose-400 font-mono">revoked {{ t.revoked_at }}</span>
+                <span class="text-rose-400 font-mono">{{ t('api_tokens_revoked') }} {{ t.revoked_at }}</span>
               {% else %}
-                <span class="text-emerald-400 font-mono">active</span>
+                <span class="text-emerald-400 font-mono">{{ t('feed_tokens_active') }}</span>
               {% endif %}
             </td>
             <td class="py-2 px-3 text-right">
@@ -123,7 +111,7 @@
                       onsubmit="return confirm('Revoke this token? Any client using it will start getting 401 immediately.');">
                   <button type="submit"
                           class="text-xs px-2 py-1 rounded bg-rose-900/40 hover:bg-rose-900 text-rose-300">
-                    revoke
+                    {{ t('feed_tokens_revoke_btn') }}
                   </button>
                 </form>
               {% else %}
@@ -136,19 +124,15 @@
     </table>
   </div>
 {% else %}
-  <p class="text-zinc-500 text-sm">No API tokens issued yet.</p>
+  <p class="text-zinc-500 text-sm">{{ t('api_tokens_none') }}</p>
 {% endif %}
 
 <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mt-8 text-xs text-zinc-400 space-y-2">
-  <h2 class="text-sm font-semibold text-zinc-200">Usage example</h2>
+  <h2 class="text-sm font-semibold text-zinc-200">{{ t('api_tokens_usage_heading') }}</h2>
   <pre class="font-mono bg-ink-900 border border-ink-700 rounded p-3 overflow-x-auto"><code>curl -H "Authorization: Bearer &lt;your-token&gt;" \
      http://127.0.0.1:8765/api/screenshots/recent</code></pre>
   <p>
-    Scopes are enforced per-route via <code class="font-mono">check_scope</code>. Issue
-    read-only tokens by default; add narrow <code class="font-mono">write:*</code> scopes
-    only for the resources a client actually needs, and keep
-    <code class="font-mono">admin:bulk</code> for trusted automation that mutates many
-    records in one shot.
+    {{ t('api_tokens_usage_note') | safe }}
   </p>
 </section>
 

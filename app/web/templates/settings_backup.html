@@ -2,27 +2,21 @@
 
 {% block content %}
 <div class="mb-6">
-  <h1 class="text-2xl font-bold tracking-tight">Settings backup</h1>
+  <h1 class="text-2xl font-bold tracking-tight">{{ t('settings_backup_title') }}</h1>
   <p class="text-zinc-500 text-sm mt-1">
-    Export every preference table (kv settings, redaction rules, auto-collections, OCR
-    skip-list, phrase tags, saved searches, note templates, app capture overrides,
-    webhooks, quiet hours) as a single JSON file you can re-import on another machine.
-    Screenshots, OCR text, audit logs, and the encrypted vault are <em>not</em>
-    included — this is preferences-only.
+    {{ t('settings_backup_intro') | safe }}
   </p>
-  <p class="text-zinc-600 text-xs mt-2 font-mono">schema: {{ schema_version }}</p>
+  <p class="text-zinc-600 text-xs mt-2 font-mono">{{ t('settings_backup_schema') }} {{ schema_version }}</p>
 </div>
 
 <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
-  <h2 class="text-lg font-semibold mb-2">Download backup</h2>
+  <h2 class="text-lg font-semibold mb-2">{{ t('settings_backup_download') }}</h2>
   <p class="text-zinc-400 text-sm mb-4">
-    Streams a <code class="text-zinc-300">persona-settings-YYYY-MM-DD.json</code>
-    attachment. Webhook signing secrets are stripped from the export — you will
-    need to regenerate them on the destination machine.
+    {{ t('settings_backup_download_note') | safe }}
   </p>
   <a href="/settings/backup"
      class="inline-block px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
-    Download backup
+    {{ t('settings_backup_download') }}
   </a>
 </section>
 
@@ -30,24 +24,21 @@
   <div class="flex items-start gap-3">
     <span class="text-amber-400 text-lg leading-none mt-0.5">&#9888;</span>
     <div class="text-sm">
-      <p class="text-amber-300 font-medium mb-1">Replace mode is destructive</p>
+      <p class="text-amber-300 font-medium mb-1">{{ t('settings_backup_replace_warn_title') }}</p>
       <p class="text-zinc-400">
-        Choosing <strong>Replace</strong> below truncates every preference table on
-        this machine before inserting the rows from the uploaded file. Local tweaks
-        that aren't in the backup will be lost. Pick <strong>Merge</strong> if you're
-        unsure — it keeps existing rows and only fills in what's missing.
+        {{ t('settings_backup_replace_warn_body') | safe }}
       </p>
     </div>
   </div>
 </section>
 
 <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
-  <h2 class="text-lg font-semibold mb-3">Upload</h2>
+  <h2 class="text-lg font-semibold mb-3">{{ t('settings_backup_upload_heading') }}</h2>
   <form action="/settings/backup/import" method="post" enctype="multipart/form-data"
         class="space-y-4">
     <label class="block">
       <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">
-        Backup file
+        {{ t('settings_backup_file_label') }}
       </span>
       <input type="file" name="file" accept="application/json,.json" required
              class="block w-full text-sm text-zinc-300
@@ -58,16 +49,15 @@
 
     <fieldset class="space-y-2">
       <legend class="text-xs uppercase tracking-wider text-zinc-500 mb-1">
-        Import mode
+        {{ t('settings_backup_import_mode') }}
       </legend>
       <label class="flex items-start gap-2 text-sm cursor-pointer">
         <input type="radio" name="merge" value="merge" checked
                class="mt-1 accent-accent-500">
         <span>
-          <span class="text-zinc-200 font-medium">Merge</span>
+          <span class="text-zinc-200 font-medium">{{ t('settings_backup_merge') }}</span>
           <span class="block text-zinc-500 text-xs">
-            INSERT OR IGNORE — keeps existing rows, only fills in what's missing.
-            Safe to re-run.
+            {{ t('settings_backup_merge_desc') }}
           </span>
         </span>
       </label>
@@ -75,10 +65,9 @@
         <input type="radio" name="merge" value="replace"
                class="mt-1 accent-rose-500">
         <span>
-          <span class="text-rose-300 font-medium">Replace</span>
+          <span class="text-rose-300 font-medium">{{ t('settings_backup_replace') }}</span>
           <span class="block text-zinc-500 text-xs">
-            Truncate each table first, then insert. Destructive &mdash; overwrites
-            local preferences.
+            {{ t('settings_backup_replace_desc') }}
           </span>
         </span>
       </label>
@@ -87,24 +76,20 @@
     <button type="submit"
             onclick="return confirm('Import settings into this machine?\nReplace mode will overwrite local preferences.');"
             class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
-      Import
+      {{ t('btn_import') }}
     </button>
   </form>
 </section>
 
 <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mt-6">
-  <h2 class="text-lg font-semibold mb-2">Import from URL</h2>
+  <h2 class="text-lg font-semibold mb-2">{{ t('settings_backup_import_url') }}</h2>
   <p class="text-zinc-400 text-sm mb-4">
-    Fetches a backup JSON from a remote <code class="text-zinc-300">http(s)</code>
-    URL and applies it in <strong>merge</strong> mode (additive — existing rows are
-    kept). Handy for syncing preferences across machines: point each instance at
-    the same private gist or internal share, then re-trigger the import after
-    edits. Capped at 1&nbsp;MiB with a 5&nbsp;second timeout.
+    {{ t('settings_backup_import_url_note') | safe }}
   </p>
   <form action="/settings/backup/import-url" method="post" class="space-y-4">
     <label class="block">
       <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">
-        Backup URL
+        {{ t('settings_backup_url_label') }}
       </span>
       <input type="url" name="url" required
              placeholder="https://example.com/persona-settings.json"
@@ -116,7 +101,7 @@
     <button type="submit"
             onclick="return confirm('Fetch and import settings from this URL?');"
             class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
-      Import from URL
+      {{ t('settings_backup_import_url') }}
     </button>
   </form>
 </section>
