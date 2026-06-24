@@ -265,8 +265,10 @@ async def _is_stopped(session_id: int) -> bool:
 # ── Режим памяти по чатам (recall): off / keyword / smart ─────────────────
 # off=выкл, keyword=термины/FTS, smart=ИИ выбирает термины,
 # hybrid/vector=FTS5 bm25 + векторный KNN через RRF (sqlite-vec + Ollama-эмбеддинги;
-# при отсутствии расширения/модели — тихий fallback на keyword recall).
-_RECALL_MODES = ("off", "keyword", "smart", "hybrid", "vector")
+# при отсутствии расширения/модели — тихий fallback на keyword recall),
+# generative=hybrid + Generative-Agents salience-пересортировка (recency·importance·
+# relevance + MMR, score_and_rerank) — opt-in, веса importance/recency активны.
+_RECALL_MODES = ("off", "keyword", "smart", "hybrid", "vector", "generative")
 
 
 async def _get_recall_mode() -> str:
@@ -1010,13 +1012,16 @@ async def api_send_stream(
 
         _rmode = await _get_recall_mode()
         recalled = ""
-        if _rmode in ("hybrid", "vector"):
+        if _rmode in ("hybrid", "vector", "generative"):
             # FTS5 + векторный KNN (RRF). Внутри тихий fallback на recall_relevant,
             # если sqlite-vec/Ollama-эмбеддинги недоступны — поведение как keyword.
+            # generative → salience-пересортировка (importance/recency-веса); для
+            # hybrid/vector salience=False → порядок RRF байт-в-байт прежний.
             from app.chat import hybrid_recall  # noqa: PLC0415
 
             recalled = await hybrid_recall(
-                session["user_id"], question, exclude_session_id=session_id
+                session["user_id"], question, exclude_session_id=session_id,
+                salience=(_rmode == "generative"),
             )
         elif _rmode == "smart":
             _terms = await _smart_recall_terms(question)

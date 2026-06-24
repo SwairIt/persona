@@ -463,6 +463,26 @@ def _recall_terms(question: str) -> list[str]:
     return terms[:6]
 
 
+async def _bump_recall_seen(message_ids: list[int]) -> None:
+    """Rehearsal/decay-reset (Фаза B): на каждом keyword-recall отданным памятям
+    бампим last_seen=now и access_count+1 (питает salience-скоринг). Один UPDATE,
+    без LLM. Best-effort — ошибка не ломает recall (колонки из миграции 192)."""
+    ids = [int(m) for m in (message_ids or []) if m is not None]
+    if not ids:
+        return
+    try:
+        ph = ",".join("?" * len(ids))
+        async with get_connection() as conn:
+            await conn.execute(
+                f"UPDATE chat_message SET last_seen = datetime('now'), "
+                f"access_count = access_count + 1 WHERE id IN ({ph})",
+                ids,
+            )
+            await conn.commit()
+    except Exception as exc:  # noqa: BLE001
+        log.debug("recall.bump_failed", error=str(exc))
+
+
 async def recall_by_terms(
     user_id: int,
     terms: list[str],
@@ -479,7 +499,7 @@ async def recall_by_terms(
     if expr:
         try:
             fsql = (
-                "SELECT m.content, m.role, m.created_at, s.title "
+                "SELECT m.id AS mid, m.content, m.role, m.created_at, s.title "
                 "FROM chat_message_fts "
                 "JOIN chat_message m ON m.id = chat_message_fts.rowid "
                 "JOIN chat_session s ON s.id = m.session_id "
@@ -495,6 +515,7 @@ async def recall_by_terms(
                 frows = await fcur.fetchall()
             fout: list[str] = []
             fseen: set[str] = set()
+            fids: list[int] = []
             for r in frows:
                 txt = " ".join((r["content"] or "").split())
                 if len(txt) < 3:
@@ -503,19 +524,21 @@ async def recall_by_terms(
                 if key in fseen:
                     continue
                 fseen.add(key)
+                fids.append(int(r["mid"]))
                 who = "Ты" if r["role"] == "user" else "Persona"
                 title = r["title"] or "чат"
                 fout.append(f"• [{(r['created_at'] or '')[:10]} · «{title[:24]}»] {who}: {txt[:280]}")
                 if len(fout) >= limit:
                     break
             if fout:
+                await _bump_recall_seen(fids)
                 return "\n".join(fout)
         except Exception as exc:  # noqa: BLE001 — FTS missing/bad expr → LIKE
             log.debug("recall.fts_fallback", error=str(exc))
     where = " OR ".join(["lower(m.content) LIKE ?"] * len(terms))
     params: list[Any] = [user_id, *[f"%{t}%" for t in terms]]
     sql = (
-        "SELECT m.content, m.role, m.created_at, s.title "
+        "SELECT m.id AS mid, m.content, m.role, m.created_at, s.title "
         "FROM chat_message m JOIN chat_session s ON s.id = m.session_id "
         f"WHERE s.user_id = ? AND ({where}) "
     )
@@ -535,6 +558,7 @@ async def recall_by_terms(
     scored.sort(key=lambda x: -x[0])
     out: list[str] = []
     seen: set[str] = set()
+    lids: list[int] = []
     for _hits, r in scored[:limit]:
         txt = " ".join((r["content"] or "").split())
         if len(txt) < 3:
@@ -543,9 +567,11 @@ async def recall_by_terms(
         if key in seen:
             continue
         seen.add(key)
+        lids.append(int(r["mid"]))
         who = "Ты" if r["role"] == "user" else "Persona"
         title = (r["title"] or "чат")
         out.append(f"• [{(r['created_at'] or '')[:10]} · «{title[:24]}»] {who}: {txt[:280]}")
+    await _bump_recall_seen(lids)
     return "\n".join(out)
 
 

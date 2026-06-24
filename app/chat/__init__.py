@@ -59,6 +59,7 @@ except Exception:  # noqa: BLE001 — векторная память не кр�
     async def hybrid_recall(  # type: ignore[misc]
         user_id: int, question: str,
         exclude_session_id: int | None = None, limit: int = 6,
+        *, salience: bool = False,
     ) -> str:
         return ""
 

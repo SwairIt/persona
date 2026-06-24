@@ -286,10 +286,176 @@ def _is_echo(content: str, question: str) -> bool:
     return False
 
 
+# ── Salience-scoring (Generative-Agents) — Фаза B ─────────────────────────
+# docs/MEMORY_RESEARCH.md §2.2. Поверх кандидатов, которые hybrid_recall уже
+# достал (RRF), пересортировка по recency·importance·relevance (min-max нормировка
+# по набору) + MMR-проход (разнообразие). Веса — kv, дефолт 1.0 (как в статье).
+# Активна ТОЛЬКО в recall_mode='generative'; иначе порядок не трогаем.
+_RECENCY_DECAY = 0.995  # ^ часов с последнего доступа (rehearsal греет память)
+
+
+def _kv_float(raw: str | None, default: float) -> float:
+    """kv-вес → float ≥ 0, иначе дефолт (битый/пустой/отрицательный kv безопасен)."""
+    try:
+        v = float((raw or "").strip())
+        return v if v >= 0 else default
+    except Exception:  # noqa: BLE001
+        return default
+
+
+def _parse_dt(s: str | None):
+    """ISO/SQLite-datetime → naive datetime (UTC) или None. datetime('now') в
+    SQLite пишет UTC-наивно — сравниваем с utcnow(), без таймзон."""
+    from datetime import datetime  # noqa: PLC0415
+
+    s = (s or "").strip().replace("T", " ")
+    if not s:
+        return None
+    for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+        try:
+            return datetime.strptime(s[:26], fmt)
+        except Exception:  # noqa: BLE001
+            continue
+    try:
+        return datetime.fromisoformat(s)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _minmax(values: list[float]) -> list[float]:
+    """Min-max нормировка в [0,1] по набору. Вырожденный набор (все равны) →
+    нейтральные 0.5 (компонент не влияет на порядок)."""
+    if not values:
+        return values
+    lo, hi = min(values), max(values)
+    if hi - lo < 1e-12:
+        return [0.5 for _ in values]
+    span = hi - lo
+    return [(v - lo) / span for v in values]
+
+
+def _jaccard(a: str, b: str) -> float:
+    """Лексическая близость (Жаккар по словам) — дёшево, для MMR-разнообразия."""
+    wa, wb = set(_norm_q(a).split()), set(_norm_q(b).split())
+    if not wa or not wb:
+        return 0.0
+    union = len(wa | wb)
+    return (len(wa & wb) / union) if union else 0.0
+
+
+def _mmr_order(rows: list[dict[str, Any]], finals: list[float],
+               lam: float = 0.7) -> list[dict[str, Any]]:
+    """MMR-пересортировка: жадно берём max(λ·score − (1−λ)·max_sim_к_выбранным),
+    чтобы не выдать 5 перефразов одного факта. Возвращает ВЕСЬ набор переупорядоченным."""
+    remaining = list(range(len(rows)))
+    picked: list[int] = []
+    while remaining:
+        best_i, best_score = remaining[0], None
+        for i in remaining:
+            if not picked:
+                mmr = finals[i]
+            else:
+                sim = max(_jaccard(str(rows[i].get("content") or ""),
+                                   str(rows[p].get("content") or "")) for p in picked)
+                mmr = lam * finals[i] - (1.0 - lam) * sim
+            if best_score is None or mmr > best_score:
+                best_score, best_i = mmr, i
+        picked.append(best_i)
+        remaining.remove(best_i)
+    return [rows[i] for i in picked]
+
+
+async def score_and_rerank(rows: list[dict[str, Any]], *,
+                           relevance: dict[int, float] | None = None,
+                           limit: int = 6) -> list[dict[str, Any]]:
+    """Generative-Agents salience-пересортировка кандидатов recall (docs §2.2):
+
+        final = a_recency  · norm(0.995^hours_since_last_seen)
+              + a_importance· norm(importance/10)
+              + a_relevance · norm(rrf_or_cosine)
+
+    каждый компонент min-max нормирован по набору, затем MMR-проход (разнообразие).
+    Веса a_* — kv ``recall_w_recency/_importance/_relevance`` (дефолт 1.0). NULL
+    importance → серединка (5), NULL last_seen → recency из created_at. Питается
+    колонками миграции 192 (importance/last_seen на chat_message).
+
+    Best-effort: ЛЮБАЯ ошибка → возвращаем ``rows`` как есть (текущий порядок),
+    recall не должен падать из-за скоринга."""
+    try:
+        if not rows or len(rows) <= 1:
+            return rows
+        from datetime import datetime  # noqa: PLC0415
+
+        rel = relevance or {}
+        ids = [int(r["message_id"]) for r in rows if r.get("message_id") is not None]
+        meta: dict[int, dict[str, Any]] = {}
+        async with get_connection() as conn:
+            w_rec = _kv_float(await get_kv(conn, "recall_w_recency"), 1.0)
+            w_imp = _kv_float(await get_kv(conn, "recall_w_importance"), 1.0)
+            w_rel = _kv_float(await get_kv(conn, "recall_w_relevance"), 1.0)
+            if ids:
+                ph = ",".join("?" * len(ids))
+                cur = await conn.execute(
+                    f"SELECT id, importance, last_seen, created_at "
+                    f"FROM chat_message WHERE id IN ({ph})",
+                    ids,
+                )
+                for m in await cur.fetchall():
+                    meta[int(m["id"])] = dict(m)
+        now = datetime.utcnow()
+        rec_raw: list[float] = []
+        imp_raw: list[float] = []
+        rel_raw: list[float] = []
+        for r in rows:
+            mid = int(r["message_id"]) if r.get("message_id") is not None else None
+            md = meta.get(mid, {}) if mid is not None else {}
+            ts = md.get("last_seen") or md.get("created_at") or r.get("created_at")
+            dt = _parse_dt(ts)
+            hours = max(0.0, (now - dt).total_seconds() / 3600.0) if dt else 720.0
+            rec_raw.append(_RECENCY_DECAY ** hours)
+            imp = md.get("importance")
+            imp_raw.append((float(imp) if imp is not None else 5.0) / 10.0)
+            rel_raw.append(float(rel.get(mid, 0.0)) if mid is not None else 0.0)
+        nrec, nimp, nrel = _minmax(rec_raw), _minmax(imp_raw), _minmax(rel_raw)
+        finals = [w_rec * nrec[i] + w_imp * nimp[i] + w_rel * nrel[i]
+                  for i in range(len(rows))]
+        return _mmr_order(rows, finals)
+    except Exception as exc:  # noqa: BLE001 — скоринг не должен ломать recall
+        log.debug("memory_vec.score_failed", error=str(exc))
+        return rows
+
+
+async def bump_recall_stats(message_ids: list[int]) -> None:
+    """Rehearsal/decay-reset (эффект Эббингауза): на каждом recall отданным памятям
+    бампим last_seen=now и access_count+1 — частые/свежие памяти сопротивляются
+    забыванию. Один UPDATE, без LLM. Best-effort: ошибка не ломает recall."""
+    ids = [int(m) for m in (message_ids or []) if m is not None]
+    if not ids:
+        return
+    try:
+        ph = ",".join("?" * len(ids))
+        async with get_connection() as conn:
+            await conn.execute(
+                f"UPDATE chat_message SET last_seen = datetime('now'), "
+                f"access_count = access_count + 1 WHERE id IN ({ph})",
+                ids,
+            )
+            await conn.commit()
+    except Exception as exc:  # noqa: BLE001
+        log.debug("memory_vec.bump_failed", error=str(exc))
+
+
 async def hybrid_recall(user_id: int, question: str,
-                        exclude_session_id: int | None = None, limit: int = 6) -> str:
+                        exclude_session_id: int | None = None, limit: int = 6,
+                        *, salience: bool = False) -> str:
     """FTS5 bm25 + векторный KNN через RRF. Fallback на recall_relevant при любой
-    проблеме / отсутствии sqlite-vec / пустом векторном результате."""
+    проблеме / отсутствии sqlite-vec / пустом векторном результате.
+
+    ``salience=True`` (recall_mode='generative') — поверх RRF включает
+    Generative-Agents-пересортировку score_and_rerank (recency·importance·
+    relevance + MMR). При salience=False порядок RRF не трогаем (поведение
+    hybrid/vector байт-в-байт прежнее). На КАЖДОМ recall (независимо от режима)
+    отданным памятям бампим last_seen/access_count (rehearsal)."""
     from app.chat.sessions import recall_relevant  # noqa: PLC0415
 
     try:
@@ -318,6 +484,14 @@ async def hybrid_recall(user_id: int, question: str,
         merged = filtered or merged
         # Опц. финальный cross-encoder реранк top-N → точнее, чем RRF-порядок.
         merged = await _rerank(question, merged, limit)
+        # Salience-пересортировка (Generative-Agents) — только в 'generative'.
+        # relevance = RRF-score кандидата; остальное (recency/importance) из БД.
+        if salience:
+            merged = await score_and_rerank(merged, relevance=scores, limit=limit)
+        # Rehearsal/decay-reset: бампим отданные памяти (best-effort, все режимы).
+        await bump_recall_stats(
+            [int(r["message_id"]) for r in merged[:limit] if r.get("message_id") is not None]
+        )
         block = _fmt(merged, limit)
         return block or await recall_relevant(user_id, question, exclude_session_id, limit)
     except Exception as exc:  # noqa: BLE001 — векторный путь не должен ломать чат
@@ -325,4 +499,5 @@ async def hybrid_recall(user_id: int, question: str,
         return await recall_relevant(user_id, question, exclude_session_id, limit)
 
 
-__all__ = ["backfill_index", "embed", "hybrid_recall", "index_message", "sqlite_vec_available"]
+__all__ = ["backfill_index", "bump_recall_stats", "embed", "hybrid_recall",
+           "index_message", "score_and_rerank", "sqlite_vec_available"]
