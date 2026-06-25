@@ -45,7 +45,7 @@ def subscription_active(sub: dict[str, Any] | None) -> bool:
     """Активна ли Pro-подписка (статус + не истёк период). Использует validate-API и портал."""
     if not sub or sub.get("plan") != "pro":
         return False
-    if sub.get("status") not in ("active", "past_due"):
+    if sub.get("status") not in ("active", "trialing", "past_due"):
         return False
     end = _parse(sub.get("current_period_end"))
     if end is not None and end < datetime.utcnow():

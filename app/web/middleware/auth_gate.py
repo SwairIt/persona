@@ -148,7 +148,13 @@ class AuthGateMiddleware(BaseHTTPMiddleware):
             # surface. Any other authenticated user is sandboxed to /pending
             # so a stranger who registers can NEVER see the owner's data.
             # /pending and /auth/* (logout) stay reachable for them.
-            if path == "/pending" or path.startswith("/auth/"):
+            if (
+                path == "/pending"
+                or path.startswith("/auth/")
+                or path == "/billing"
+                or path.startswith("/billing/")
+            ):
+                # Кабинет подписки/лицензии доступен покупателям (не приложение).
                 return await call_next(request)
             if await is_owner(session.get("user_id")):
                 return await call_next(request)

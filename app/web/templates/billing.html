@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0a0a12" />
+  <meta name="robots" content="noindex" />
+  <title>Подписка — Persona</title>
+  <style>
+    :root{color-scheme:dark}html,body{margin:0;background:#07070d;color:#eef0ff}
+    .lic{font-family:'JetBrains Mono','Courier New',monospace;font-size:1.1rem;letter-spacing:1px;
+      background:#130a2e;border:1px solid rgba(147,130,255,.3);border-radius:12px;padding:14px 16px;
+      color:#e9e3ff;user-select:all;word-break:break-all;text-align:center;margin:.4rem 0}
+    .pill{display:inline-block;padding:5px 14px;border-radius:999px;font-size:.8rem;font-weight:700}
+  </style>
+  <link rel="stylesheet" href="/static/landing/style.css?v={{ app_version }}" />
+  <link rel="stylesheet" href="/static/blog/blog.css?v={{ app_version }}" />
+</head>
+<body>
+  <div class="bg-mesh" aria-hidden="true"></div>
+  <div class="bg-grid" aria-hidden="true"></div>
+
+  <main class="blog-main" style="max-width:620px">
+    <a class="brand" href="/landing" style="justify-content:center;margin:0 auto 24px;display:flex">
+      <span class="brand-dot"></span> Persona
+    </a>
+
+    <div class="glass" style="padding:36px 30px;border-radius:22px">
+      {% if owner %}
+        <h1 style="font-size:1.5rem;font-weight:800;margin:0 0 10px;text-align:center">Ты владелец 👑</h1>
+        <p style="color:var(--ink-dim);text-align:center">Pro включён всегда — это твой магазин Persona.
+          Здесь покупатели видят свой план и лицензионный ключ.</p>
+        <div style="text-align:center;margin-top:18px"><a href="/now" class="btn btn-primary">В кабинет →</a></div>
+      {% else %}
+        <h1 style="font-size:1.5rem;font-weight:800;margin:0 0 4px;text-align:center">Твоя подписка</h1>
+        <p style="color:var(--ink-faint);font-size:.9rem;text-align:center;margin:0 0 20px">{{ email }}</p>
+
+        {% if summary.active %}
+          <div style="text-align:center;margin-bottom:18px">
+            {% if summary.is_trial %}
+              <span class="pill" style="background:rgba(94,234,212,.15);color:#5eead4">🎁 Триал · осталось {{ summary.days_left }} дн.</span>
+            {% else %}
+              <span class="pill" style="background:rgba(124,58,237,.2);color:#c4b5fd">⚡ Pro · активна</span>
+            {% endif %}
+          </div>
+          <p style="color:var(--ink-dim);font-size:.92rem;text-align:center">Твой лицензионный ключ — вставь его
+            в свою Persona (Настройки → Лицензия), чтобы включить Pro:</p>
+          <div class="lic">{{ summary.license_key }}</div>
+        {% else %}
+          <div style="text-align:center;margin-bottom:16px">
+            <span class="pill" style="background:rgba(255,90,140,.15);color:#ffc4d4">Подписка неактивна</span>
+          </div>
+          <p style="color:var(--ink-dim);text-align:center">Триал закончился. Оформи Pro, чтобы продолжить.</p>
+        {% endif %}
+
+        {% if notice %}
+          <p style="margin-top:16px;padding:12px 14px;border-radius:12px;background:rgba(124,58,237,.12);
+             border:1px solid rgba(124,58,237,.3);color:#d8d2ff;font-size:.92rem;text-align:center">{{ notice }}</p>
+        {% endif %}
+
+        <div style="margin-top:22px;display:grid;gap:10px">
+          {% for p in plans %}
+            <form method="post" action="/billing/checkout">
+              <input type="hidden" name="plan" value="{{ p.id }}">
+              <button type="submit" class="btn {% if loop.first %}btn-primary{% else %}btn-secondary{% endif %}" style="width:100%">
+                {% if p.cycle == 'monthly' %}Pro · месяц — {{ p.amount_rub }} ₽/мес{% else %}Pro · год — {{ p.amount_rub }} ₽/год · {{ p.badge }}{% endif %}
+              </button>
+            </form>
+          {% endfor %}
+        </div>
+        {% if not configured %}
+          <p style="color:var(--ink-faint);font-size:.82rem;text-align:center;margin-top:12px">
+            Приём оплаты подключается. Триал уже работает — ключ выше.</p>
+        {% endif %}
+      {% endif %}
+
+      <form method="post" action="/auth/logout" style="margin-top:26px;text-align:center">
+        <button type="submit" class="btn btn-ghost">Выйти</button>
+      </form>
+    </div>
+
+    <p style="margin-top:20px;text-align:center"><a href="/landing" style="color:var(--ink-faint)">← На главную</a></p>
+  </main>
+</body>
+</html>

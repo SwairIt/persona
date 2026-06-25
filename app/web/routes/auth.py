@@ -39,6 +39,7 @@ from app.auth.magic import consume_magic_link, create_magic_link
 from app.auth.owner import is_owner
 from app.auth.sessions import SessionRecord
 from app.auth.users import update_password
+from app.billing import service as billing_service
 from app.logging_setup import get_logger
 from app.mail_branding import branded_email_html
 from app.smtp_delivery import send_email
@@ -346,6 +347,7 @@ async def register_submit(
                 {"ok": False, "error": "Не удалось создать аккаунт, попробуй войти."}, status_code=400
             )
         return RedirectResponse(url="/auth/login", status_code=303)
+    await billing_service.ensure_trial(user["id"])  # новому покупателю — 3-дневный Pro-триал
     text, html = _welcome_email_html(addr, password, f"{base}/auth/login", f"{base}/auth/set-password")
     delivered = (
         await send_email(addr, "Добро пожаловать в Persona — твой пароль", text, html)
@@ -382,8 +384,9 @@ async def _user_id_for_email(email: str) -> int | None:
 
 
 async def _post_auth_dest(user_id: int) -> str:
-    """Owner → cabinet; everyone else → /pending (sandboxed by owner-gate)."""
-    return "/now" if await is_owner(user_id) else "/pending"
+    """Owner → кабинет приложения; остальные → /billing (кабинет подписки/лицензии,
+    вместо тупиковой страницы «ранний доступ»). Данные владельца им недоступны."""
+    return "/now" if await is_owner(user_id) else "/billing"
 
 
 @router.post("/auth/magic", response_class=HTMLResponse, response_model=None)
@@ -565,11 +568,8 @@ async def pending_page(
         return RedirectResponse(url="/landing", status_code=303)
     if await is_owner(session.get("user_id")):
         return RedirectResponse(url="/now", status_code=303)
-    return templates.TemplateResponse(
-        request,
-        "auth_pending.html",
-        {"title": "Аккаунт ожидает доступа", "email": session.get("email")},
-    )
+    # не-владелец → кабинет подписки/лицензии (вместо тупиковой «ранний доступ»)
+    return RedirectResponse(url="/billing", status_code=303)
 
 
 @router.post("/auth/logout")
