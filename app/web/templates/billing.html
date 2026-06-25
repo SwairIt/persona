@@ -36,41 +36,45 @@
         <p style="color:var(--ink-faint);font-size:.9rem;text-align:center;margin:0 0 20px">{{ email }}</p>
 
         {% if summary.active %}
-          <div style="text-align:center;margin-bottom:18px">
+          <div style="text-align:center;margin-bottom:16px">
             {% if summary.is_trial %}
               <span class="pill" style="background:rgba(94,234,212,.15);color:#5eead4">🎁 Триал · осталось {{ summary.days_left }} дн.</span>
             {% else %}
               <span class="pill" style="background:rgba(124,58,237,.2);color:#c4b5fd">⚡ Pro · активна</span>
             {% endif %}
           </div>
-          <p style="color:var(--ink-dim);font-size:.92rem;text-align:center">Твой лицензионный ключ — вставь его
-            в свою Persona (Настройки → Лицензия), чтобы включить Pro:</p>
-          <div class="lic">{{ summary.license_key }}</div>
+          <a href="/now" class="btn btn-primary" style="width:100%">Войти в приложение →</a>
+          {% if summary.is_trial %}
+            <p style="color:var(--ink-faint);font-size:.88rem;text-align:center;margin:16px 0 6px">
+              После триала оформи Pro, чтобы не потерять доступ:</p>
+          {% endif %}
         {% else %}
-          <div style="text-align:center;margin-bottom:16px">
+          <div style="text-align:center;margin-bottom:14px">
             <span class="pill" style="background:rgba(255,90,140,.15);color:#ffc4d4">Подписка неактивна</span>
           </div>
-          <p style="color:var(--ink-dim);text-align:center">Триал закончился. Оформи Pro, чтобы продолжить.</p>
+          <p style="color:var(--ink-dim);text-align:center;margin-bottom:14px">Триал закончился. Оформи Pro, чтобы вернуть доступ.</p>
         {% endif %}
 
         {% if notice %}
-          <p style="margin-top:16px;padding:12px 14px;border-radius:12px;background:rgba(124,58,237,.12);
+          <p style="margin-top:14px;padding:12px 14px;border-radius:12px;background:rgba(124,58,237,.12);
              border:1px solid rgba(124,58,237,.3);color:#d8d2ff;font-size:.92rem;text-align:center">{{ notice }}</p>
         {% endif %}
 
-        <div style="margin-top:22px;display:grid;gap:10px">
-          {% for p in plans %}
-            <form method="post" action="/billing/checkout">
-              <input type="hidden" name="plan" value="{{ p.id }}">
-              <button type="submit" class="btn {% if loop.first %}btn-primary{% else %}btn-secondary{% endif %}" style="width:100%">
-                {% if p.cycle == 'monthly' %}Pro · месяц — {{ p.amount_rub }} ₽/мес{% else %}Pro · год — {{ p.amount_rub }} ₽/год · {{ p.badge }}{% endif %}
-              </button>
-            </form>
-          {% endfor %}
-        </div>
-        {% if not configured %}
-          <p style="color:var(--ink-faint);font-size:.82rem;text-align:center;margin-top:12px">
-            Приём оплаты подключается. Триал уже работает — ключ выше.</p>
+        {% if not summary.active or summary.is_trial %}
+          <div style="margin-top:12px;display:grid;gap:10px">
+            {% for p in plans %}
+              <form method="post" action="/billing/checkout">
+                <input type="hidden" name="plan" value="{{ p.id }}">
+                <button type="submit" class="btn {% if loop.first and not summary.active %}btn-primary{% else %}btn-secondary{% endif %}" style="width:100%">
+                  {% if p.cycle == 'monthly' %}Pro · месяц — {{ p.amount_rub }} ₽/мес{% else %}Pro · год — {{ p.amount_rub }} ₽/год · {{ p.badge }}{% endif %}
+                </button>
+              </form>
+            {% endfor %}
+          </div>
+          {% if not configured %}
+            <p style="color:var(--ink-faint);font-size:.82rem;text-align:center;margin-top:12px">
+              Приём оплаты подключается — скоро.</p>
+          {% endif %}
         {% endif %}
       {% endif %}
 

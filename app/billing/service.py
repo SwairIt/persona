@@ -85,6 +85,13 @@ async def summary(user_id: int) -> dict[str, Any]:
     }
 
 
+async def has_active_sub(user_id: int) -> bool:
+    """Есть ли у пользователя активная подписка (Pro/триал, не истёкшая).
+    Используется гейтом: подписчик пускается в само приложение."""
+    async with get_connection() as conn:
+        return subscription_active(await repo.get_subscription(conn, user_id))
+
+
 async def start_checkout(user_id: int, plan_id: str, return_url: str) -> str:
     """Создать платёж ЮKassa (с привязкой карты для рекуррента), записать pending
     payment, вернуть confirmation_url для редиректа. Требует настроенной ЮKassa."""

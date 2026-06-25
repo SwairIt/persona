@@ -34,6 +34,7 @@ from starlette.responses import RedirectResponse, Response
 
 from app.auth import SESSION_COOKIE_NAME, verify_session
 from app.auth.owner import is_owner
+from app.billing.service import has_active_sub as _has_active_sub
 from app.logging_setup import get_logger
 from app.storage.db import get_connection
 
@@ -156,15 +157,18 @@ class AuthGateMiddleware(BaseHTTPMiddleware):
             ):
                 # Кабинет подписки/лицензии доступен покупателям (не приложение).
                 return await call_next(request)
-            if await is_owner(session.get("user_id")):
+            uid = session.get("user_id")
+            # Владелец ИЛИ активная подписка (Pro/триал) → полный доступ в приложение.
+            if await is_owner(uid) or await _has_active_sub(uid):
                 return await call_next(request)
+            # Нет/истекла подписка → кабинет подписки (не приложение).
             if path.startswith("/api/"):
                 return Response(
-                    content='{"detail":"account pending access"}',
+                    content='{"detail":"subscription required"}',
                     status_code=403,
                     media_type="application/json",
                 )
-            return RedirectResponse(url="/pending", status_code=303)
+            return RedirectResponse(url="/billing", status_code=303)
 
         # Browser nav → 303 to /landing. JSON / agent endpoints get 401
         # so they don't end up with HTML in their response body.

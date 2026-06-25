@@ -384,9 +384,11 @@ async def _user_id_for_email(email: str) -> int | None:
 
 
 async def _post_auth_dest(user_id: int) -> str:
-    """Owner → кабинет приложения; остальные → /billing (кабинет подписки/лицензии,
-    вместо тупиковой страницы «ранний доступ»). Данные владельца им недоступны."""
-    return "/now" if await is_owner(user_id) else "/billing"
+    """Владелец ИЛИ активный подписчик (Pro/триал) → в приложение (/now);
+    без подписки → кабинет подписки (/billing)."""
+    if await is_owner(user_id) or await billing_service.has_active_sub(user_id):
+        return "/now"
+    return "/billing"
 
 
 @router.post("/auth/magic", response_class=HTMLResponse, response_model=None)
