@@ -80,13 +80,14 @@ async def test_billing_page_shows_license_for_buyer(client, db):
     r = await client.get("/billing")
     assert r.status_code == 200
     assert "Триал" in r.text          # бейдж триала
-    assert "Войти в приложение" in r.text  # кнопка входа в приложение
+    assert "PRSN-" in r.text          # лицензионный ключ для self-host показан
     assert "раннем доступе" not in r.text  # старой заглушки больше нет
 
 
 @pytest.mark.asyncio
-async def test_gate_lets_subscriber_into_app(db):
-    """Гейт: владелец и активный подписчик → в приложение; без подписки → /billing."""
+async def test_gate_app_owner_only_until_isolation(db):
+    """Гейт (до изоляции данных): в приложение пускается ТОЛЬКО владелец; подписчик
+    и безбилетник → /billing (иначе увидели бы общие данные владельца)."""
     from fastapi.responses import PlainTextResponse
 
     from app.auth.sessions import SESSION_COOKIE_NAME, issue_session
@@ -108,7 +109,7 @@ async def test_gate_lets_subscriber_into_app(db):
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        for uid, expect in ((owner, "app"), (sub, "app"), (free, "billing")):
+        for uid, expect in ((owner, "app"), (sub, "billing"), (free, "billing")):
             ac.cookies.clear()
             token, _ = await issue_session(uid)
             ac.cookies.set(SESSION_COOKIE_NAME, token)

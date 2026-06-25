@@ -34,7 +34,6 @@ from starlette.responses import RedirectResponse, Response
 
 from app.auth import SESSION_COOKIE_NAME, verify_session
 from app.auth.owner import is_owner
-from app.billing.service import has_active_sub as _has_active_sub
 from app.logging_setup import get_logger
 from app.storage.db import get_connection
 
@@ -157,11 +156,11 @@ class AuthGateMiddleware(BaseHTTPMiddleware):
             ):
                 # Кабинет подписки/лицензии доступен покупателям (не приложение).
                 return await call_next(request)
-            uid = session.get("user_id")
-            # Владелец ИЛИ активная подписка (Pro/триал) → полный доступ в приложение.
-            if await is_owner(uid) or await _has_active_sub(uid):
+            # ВРЕМЕННО (до изоляции данных по юзерам): в приложение пускаем ТОЛЬКО
+            # владельца. Данные/память сейчас ОБЩИЕ — подписчик увидел бы чужое,
+            # поэтому остальные идут в кабинет подписки, а НЕ в приложение.
+            if await is_owner(session.get("user_id")):
                 return await call_next(request)
-            # Нет/истекла подписка → кабинет подписки (не приложение).
             if path.startswith("/api/"):
                 return Response(
                     content='{"detail":"subscription required"}',
