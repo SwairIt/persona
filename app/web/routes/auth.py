@@ -18,6 +18,7 @@ display name. Multi-device data live in a separate ``device`` table
 
 from __future__ import annotations
 
+import html as html_lib
 import secrets
 from typing import Annotated
 
@@ -39,6 +40,7 @@ from app.auth.owner import is_owner
 from app.auth.sessions import SessionRecord
 from app.auth.users import update_password
 from app.logging_setup import get_logger
+from app.mail_branding import branded_email_html
 from app.smtp_delivery import send_email
 from app.storage.db import get_connection
 from app.web.rate_limit import allow as _rate_allow
@@ -60,12 +62,13 @@ def _magic_email_html(link: str) -> tuple[str, str]:
         "Ссылка действует 30 минут и срабатывает один раз. "
         "Если ты не запрашивал вход — просто проигнорируй письмо."
     )
-    html = (
-        "<p>Чтобы войти в Persona, нажми кнопку:</p>"
-        f'<p><a href="{link}" '
-        'style="display:inline-block;padding:12px 22px;border-radius:10px;'
-        'background:#7c3aed;color:#fff;text-decoration:none">Войти в Persona</a></p>'
-        "<p>Ссылка действует 30 минут и срабатывает один раз.</p>"
+    html = branded_email_html(
+        preheader="Ссылка для входа в Persona — 30 минут, один раз.",
+        heading="Вход в Persona",
+        lead="Нажми кнопку — войдёшь без пароля. Ссылка действует 30 минут и срабатывает один раз.",
+        button_label="Войти в Persona",
+        button_url=link,
+        footer="Если ты не запрашивал вход — просто проигнорируй это письмо.",
     )
     return text, html
 
@@ -84,14 +87,26 @@ def _welcome_email_html(addr: str, password: str, login_url: str, setpw_url: str
         f"Сменить пароль (рекомендуем): {setpw_url}\n\n"
         "Если ты не регистрировался — просто проигнорируй это письмо."
     )
-    html = (
-        "<p>Добро пожаловать в <b>Persona</b>!</p>"
-        f"<p>Аккаунт: <b>{addr}</b><br>Пароль: "
-        f"<code style='font-size:16px;background:#f3f0ff;padding:2px 8px;border-radius:6px'>{password}</code></p>"
-        f'<p><a href="{login_url}" style="display:inline-block;padding:12px 22px;border-radius:10px;'
-        'background:#7c3aed;color:#fff;text-decoration:none">Войти в Persona</a></p>'
-        f'<p>Рекомендуем сразу <a href="{setpw_url}">сменить пароль</a> в настройках.</p>'
-        "<p style='color:#888;font-size:13px'>Если ты не регистрировался — проигнорируй письмо.</p>"
+    safe_addr = html_lib.escape(addr)
+    safe_pw = html_lib.escape(password)
+    pwbox = (
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:2px 0 14px;">'
+        '<tr><td style="background:#130a2e;border:1px solid rgba(147,130,255,.25);border-radius:12px;padding:14px 18px;">'
+        '<div style="font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.4;color:#9a90c0;margin-bottom:5px;">Твой пароль</div>'
+        f"<div style=\"font-family:'Courier New',monospace;font-size:21px;font-weight:700;color:#e9e3ff;letter-spacing:1px;\">{safe_pw}</div>"
+        "</td></tr></table>"
+        '<p style="margin:0 0 6px;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.6;color:#9a90c0;">'
+        f'Рекомендуем сразу <a href="{setpw_url}" style="color:#c4b5fd;">сменить пароль</a> в настройках.</p>'
+    )
+    html = branded_email_html(
+        preheader="Твой аккаунт в Persona создан — пароль внутри.",
+        heading="Добро пожаловать 🎉",
+        lead=f'Аккаунт <b style="color:#e9e3ff;">{safe_addr}</b> готов. Вот пароль для входа — '
+        "войди и при желании поменяй его.",
+        button_label="Войти в Persona",
+        button_url=login_url,
+        extra_html=pwbox,
+        footer="Если ты не регистрировался — просто проигнорируй это письмо.",
     )
     return text, html
 
