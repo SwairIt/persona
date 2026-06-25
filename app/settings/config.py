@@ -85,6 +85,19 @@ class Settings(BaseSettings):
     weekly_stats_email_enabled: bool = Field(default=False)
     weekly_stats_email_hour_local: int = Field(default=9, ge=0, le=23)
 
+    # v2.20 — SMTP-доставка писем. Эти поля — ДЕФОЛТ из env/.env
+    # (PERSONA_SMTP_HOST=… и т.д.); kv_settings (UI /settings/smtp) выигрывает
+    # по правилу проекта. Позволяет владельцу положить креды в .env (вне git),
+    # не открывая UI. Читаются в app/smtp_delivery.py как fallback к KV.
+    smtp_enabled: str = Field(default="")
+    smtp_host: str = Field(default="")
+    smtp_port: str = Field(default="")
+    smtp_user: str = Field(default="")
+    smtp_pass: str = Field(default="")
+    smtp_to: str = Field(default="")
+    smtp_from: str = Field(default="")
+    smtp_tls: str = Field(default="")
+
     # v0.72 — day-end auto-summary. When True, a 30-min polling worker
     # generates today's ``day_tldr`` row a bit before midnight so the
     # next morning's ``/timeline/{day}`` and ``/digest`` loads do not

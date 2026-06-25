@@ -18,6 +18,7 @@ display name. Multi-device data live in a separate ``device`` table
 
 from __future__ import annotations
 
+import secrets
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, Request
@@ -67,6 +68,33 @@ def _magic_email_html(link: str) -> tuple[str, str]:
         "<p>Ссылка действует 30 минут и срабатывает один раз.</p>"
     )
     return text, html
+
+
+def _gen_password() -> str:
+    """Случайный читаемый пароль для авто-регистрации (≥8 символов, urlsafe)."""
+    return secrets.token_urlsafe(9)  # ~12 символов
+
+
+def _welcome_email_html(addr: str, password: str, login_url: str, setpw_url: str) -> tuple[str, str]:
+    text = (
+        "Добро пожаловать в Persona!\n\n"
+        f"Аккаунт создан: {addr}\n"
+        f"Пароль: {password}\n\n"
+        f"Войти: {login_url}\n"
+        f"Сменить пароль (рекомендуем): {setpw_url}\n\n"
+        "Если ты не регистрировался — просто проигнорируй это письмо."
+    )
+    html = (
+        "<p>Добро пожаловать в <b>Persona</b>!</p>"
+        f"<p>Аккаунт: <b>{addr}</b><br>Пароль: "
+        f"<code style='font-size:16px;background:#f3f0ff;padding:2px 8px;border-radius:6px'>{password}</code></p>"
+        f'<p><a href="{login_url}" style="display:inline-block;padding:12px 22px;border-radius:10px;'
+        'background:#7c3aed;color:#fff;text-decoration:none">Войти в Persona</a></p>'
+        f'<p>Рекомендуем сразу <a href="{setpw_url}">сменить пароль</a> в настройках.</p>'
+        "<p style='color:#888;font-size:13px'>Если ты не регистрировался — проигнорируй письмо.</p>"
+    )
+    return text, html
+
 
 router = APIRouter(tags=["auth"])
 log = get_logger("persona.auth.routes")
@@ -243,6 +271,85 @@ async def login_submit(
     secure = _cookie_secure(request)
     if _wants_json(request):
         response: Response = JSONResponse({"ok": True, "redirect": dest})
+    else:
+        response = RedirectResponse(url=dest, status_code=303)
+    _set_session_cookie(response, token, secure, 30 * 24 * 3600)
+    return response
+
+
+@router.post("/auth/register", response_class=HTMLResponse, response_model=None)
+async def register_submit(
+    request: Request,
+    email: Annotated[str, Form()],
+) -> Response:
+    """Авто-регистрация по одному email: создаём аккаунт со случайным паролем,
+    шлём пароль на почту и сразу логиним. Существующий email → ссылка для входа
+    (аккаунт НЕ пересоздаём, пароль не палим). Опечатки доменов (gmail.ru и т.п.)
+    блокируются через ``check_email``. Rate-limit как у остальных auth-роутов."""
+    if _rate_limited(request, "register", 5, 3600):
+        return _too_many(request)
+    chk = check_email(email)
+    json_mode = _wants_json(request)
+    if not chk["valid"] or chk["suggestion"]:
+        err = "Похоже, в адресе опечатка." if chk["suggestion"] else "Неверный формат email."
+        if json_mode:
+            return JSONResponse(
+                {"ok": False, "error": err, "suggestion": chk["suggestion"]}, status_code=400
+            )
+        return templates.TemplateResponse(
+            request, "auth_magic_sent.html",
+            {"title": "Проверьте email", "mode": "error", "email": email, "suggestion": chk["suggestion"]},
+            status_code=400,
+        )
+    addr = chk["email"]
+    base = str(request.base_url).rstrip("/")
+    uid = await _user_id_for_email(addr)
+    if uid is not None:
+        # Аккаунт уже есть — не пересоздаём и не палим пароль: шлём ссылку для входа.
+        token = await create_magic_link(addr)
+        text, html = _magic_email_html(f"{base}/auth/magic/{token}")
+        delivered = (await send_email(addr, "Вход в Persona", text, html)).get("status") == "sent"
+        msg = (
+            f"У тебя уже есть аккаунт — отправили ссылку для входа на {addr}."
+            if delivered
+            else "Аккаунт уже существует. Войди по паролю (кнопка «войти паролем»)."
+        )
+        if json_mode:
+            return JSONResponse({"ok": True, "existing": True, "delivered": delivered, "message": msg})
+        return templates.TemplateResponse(
+            request, "auth_magic_sent.html",
+            {"title": "Проверьте почту", "mode": "login", "email": addr, "delivered": delivered},
+        )
+    # Новый аккаунт со случайным паролем.
+    password = _gen_password()
+    try:
+        user = await create_user(addr, password, None)
+    except ValueError:
+        # гонка (кто-то успел зарегать между проверкой и вставкой) — мягко на вход
+        if json_mode:
+            return JSONResponse(
+                {"ok": False, "error": "Не удалось создать аккаунт, попробуй войти."}, status_code=400
+            )
+        return RedirectResponse(url="/auth/login", status_code=303)
+    text, html = _welcome_email_html(addr, password, f"{base}/auth/login", f"{base}/auth/set-password")
+    delivered = (
+        await send_email(addr, "Добро пожаловать в Persona — твой пароль", text, html)
+    ).get("status") == "sent"
+    if not delivered:
+        log.warning("register.not_emailed", email_domain=addr.rpartition("@")[2])
+    ua = _trim_ua(request.headers.get("user-agent"))
+    token, _expires_at = await issue_session(user["id"], user_agent=ua)
+    dest = await _post_auth_dest(user["id"])
+    secure = _cookie_secure(request)
+    if json_mode:
+        msg = (
+            f"Аккаунт создан 🎉 Пароль отправлен на {addr} — сменишь его в настройках."
+            if delivered
+            else "Аккаунт создан 🎉 Письмо с паролем не ушло (SMTP не настроен) — зайди и задай пароль в настройках."
+        )
+        response: Response = JSONResponse(
+            {"ok": True, "registered": True, "delivered": delivered, "redirect": dest, "message": msg}
+        )
     else:
         response = RedirectResponse(url=dest, status_code=303)
     _set_session_cookie(response, token, secure, 30 * 24 * 3600)

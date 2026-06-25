@@ -57,12 +57,27 @@ _MISSING_DEP_HINT = (
 
 
 async def _load_settings() -> dict[str, str]:
-    """Return the eight ``smtp_*`` rows, defaulting absent keys to ``''``."""
+    """``smtp_*`` из ``kv_settings``; пустые ключи добираются из env/.env
+    (``PERSONA_SMTP_*`` через ``Settings``). Правило проекта: kv выигрывает,
+    Settings (env-loaded) — дефолт. Так владелец может положить креды в ``.env``
+    (вне git), не открывая UI ``/settings/smtp``."""
+    from app.settings import get_settings
+
+    settings = get_settings()
     async with get_connection() as conn:
         values: dict[str, str] = {}
         for key in _ALL_KEYS:
             raw = await get_kv(conn, key)
-            values[key] = "" if raw is None else raw
+            if raw is None or not str(raw).strip():
+                raw = getattr(settings, key, "") or ""  # .env fallback (PERSONA_<KEY>)
+            values[key] = "" if raw is None else str(raw)
+    # Gmail-friendly: пустые from/to по умолчанию = user — чтобы для рабочей
+    # отправки хватило заполнить только USER+PASS (smtp_to всё ещё в required-keys).
+    user = values.get("smtp_user", "").strip()
+    if user and not values.get("smtp_from", "").strip():
+        values["smtp_from"] = user
+    if user and not values.get("smtp_to", "").strip():
+        values["smtp_to"] = user
     return values
 
 

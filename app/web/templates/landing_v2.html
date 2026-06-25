@@ -94,14 +94,14 @@
             </form>
           </div>
         {% else %}
-          <form class="hero-cta reveal" method="post" action="/auth/magic" id="magic-form">
+          <form class="hero-cta reveal" method="post" action="/auth/register" id="magic-form">
             <input type="email" name="email" id="quick-email" required
                    placeholder="введи свой email" autocomplete="email" spellcheck="false" />
             <button type="submit" class="btn btn-primary">Начать →</button>
           </form>
           <p class="hero-cta-note reveal">
-            Войдём или создадим аккаунт за секунду · вход по ссылке, без пароля
-            · <a href="#" id="show-pw">войти паролем</a>
+            Введи почту — создадим аккаунт и пришлём пароль на неё
+            · <a href="#" id="show-pw">уже есть аккаунт?</a>
           </p>
           <p class="quick-hint" id="email-hint" aria-live="polite"></p>
           <div class="auth-msg" id="auth-msg" role="status" hidden></div>
@@ -424,7 +424,7 @@
           <a href="/now" class="btn btn-primary btn-lg">Открыть кабинет</a>
         {% else %}
           <p>Введи email — войдём или создадим аккаунт за секунду.</p>
-          <form class="hero-cta cta-form" method="post" action="/auth/magic">
+          <form class="hero-cta cta-form" method="post" action="/auth/register">
             <input type="email" name="email" required placeholder="введи свой email" autocomplete="email" spellcheck="false" />
             <button type="submit" class="btn btn-primary btn-lg">Начать →</button>
           </form>
@@ -505,10 +505,14 @@
     magicForm.addEventListener('submit', async function(e){
       e.preventDefault();
       var email=(input.value||'').trim(); if(!email)return;
-      showMsg('Отправляю…', true);
-      var res=await post('/auth/magic',{email:email});
-      if(res.ok){ showMsg(res.message||'Проверь почту — там ссылка для входа.', true); }
-      else { showMsg((res.error||'Ошибка.')+(res.suggestion?(' Может, '+res.suggestion+'?'):''), false); }
+      showMsg('Создаю аккаунт…', true);
+      var res=await post('/auth/register',{email:email});
+      if(res.ok){
+        showMsg(res.message||'Готово! Проверь почту.', true);
+        if(res.redirect){ setTimeout(function(){ window.location=res.redirect; }, 1300); }
+      } else {
+        showMsg((res.error||'Ошибка.')+(res.suggestion?(' Может, '+res.suggestion+'?'):''), false);
+      }
     });
 
     // ---- модальное окно входа (пароль / ссылка / сброс) ----
@@ -579,11 +583,14 @@
     }); }
 
     // проверка опечаток домена
-    var T={'gmail.ru':'gmail.com','gmail.con':'gmail.com','gmail.co':'gmail.com','gmail.cm':'gmail.com','gmail.om':'gmail.com','gmial.com':'gmail.com','gmai.com':'gmail.com','gmaill.com':'gmail.com','gnail.com':'gmail.com','yandex.com':'yandex.ru','yandx.ru':'yandex.ru','yndex.ru':'yandex.ru','mai.ru':'mail.ru','outlook.con':'outlook.com','hotmail.con':'hotmail.com','hotmial.com':'hotmail.com','icloud.con':'icloud.com','icloud.co':'icloud.com'};
+    var T={'gmail.con':'gmail.com','gmail.cm':'gmail.com','gmail.om':'gmail.com','gmial.com':'gmail.com','gmai.com':'gmail.com','gmaill.com':'gmail.com','gnail.com':'gmail.com','gmail.ocm':'gmail.com','yandex.com':'yandex.ru','yandx.ru':'yandex.ru','yndex.ru':'yandex.ru','yadex.ru':'yandex.ru','mai.ru':'mail.ru','mial.ru':'mail.ru','outlook.con':'outlook.com','outloo.com':'outlook.com','hotmail.con':'hotmail.com','hotmial.com':'hotmail.com','hotmai.com':'hotmail.com','icloud.con':'icloud.com','icloud.co':'icloud.com'};
+    var CANON={'gmail':'gmail.com','googlemail':'gmail.com','icloud':'icloud.com','protonmail':'proton.me'};
+    function fixDom(dom){ if(T[dom])return T[dom]; var sld=dom.split('.')[0]; if(CANON[sld]&&dom!==CANON[sld])return CANON[sld]; return null; }
     function check(){
       if(!input||!hint)return; var v=input.value.trim().toLowerCase(); hint.textContent='';
       var at=v.lastIndexOf('@'); if(at<1)return; var dom=v.slice(at+1),loc=v.slice(0,at);
-      if(T[dom]){ var s=loc+'@'+T[dom];
+      var fx=fixDom(dom);
+      if(fx){ var s=loc+'@'+fx;
         hint.innerHTML='Возможно, вы имели в виду <a href="#" id="fix-email">'+s+'</a>?';
         document.getElementById('fix-email').addEventListener('click',function(e){e.preventDefault();input.value=s;hint.textContent='';input.focus();});
       } else if(v.indexOf('@')>0&&!/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(v)){ hint.textContent='Проверьте адрес: похоже, он введён не полностью.'; }
