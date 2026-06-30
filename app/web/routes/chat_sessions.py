@@ -1276,6 +1276,13 @@ async def api_send_stream(
     async def event_stream() -> Any:
         nonlocal question
 
+        # F6-01 — единый хелпер эмита SSE-кадра (тот же формат, что у delta:
+        # одна строка `data: {json}\n\n`). Используется ТОЛЬКО для новых
+        # структурированных кадров (tool_call/tool_result/plan); старые
+        # delta/done/error/keepalive остаются как были (хирургично, аддитивно).
+        def _sse(obj: dict[str, Any]) -> str:
+            return f"data: {json.dumps(obj, ensure_ascii=False)}\n\n"
+
         try:
             client = make_client(kind="chat_stream")
         except LLMNotConfigured:
@@ -1459,6 +1466,23 @@ async def api_send_stream(
         )
         inner = getattr(client, "_inner", client)
 
+        # F6-01 — в режимах plan/ask инструменты не выполняются: модель выдала
+        # план/намерение текстом (он уже ушёл клиенту как delta). Дополнительно
+        # шлём структурированный кадр type=plan, чтобы UI смог показать его
+        # отдельным свёрнутым блоком «план». Аддитивно: старые клиенты кадр
+        # игнорируют, а текст плана у них уже отрисован обычными delta.
+        try:
+            if (
+                adv["modes"]
+                and _mode in ("plan", "ask")
+                and not stopped
+                and full
+                and full != "(пустой ответ от модели)"
+            ):
+                yield _sse({"type": "plan", "mode": _mode, "text": full})
+        except Exception as exc:  # noqa: BLE001
+            log.debug("chat.stream.plan_frame_failed", error=str(exc))
+
         # T25 — tool-use loop. If LLM emitted <tool>...</tool> calls,
         # parse + execute (max 5 round-trips to avoid infinite loops),
         # then continue the conversation with results in context.
@@ -1484,15 +1508,13 @@ async def api_send_stream(
                 break
             for tc in tool_calls:
                 executed_raws.add(tc.get("raw", ""))
-            # Execute each tool call serially, stream visible markers.
+            # Execute each tool call serially, stream structured frames.
             tool_results: list[str] = []
             for tc in tool_calls:
-                yield (
-                    f"data: {json.dumps({'type': 'delta', 'text': chr(10) + chr(10) + '🔧 ' + tc['name'] + '...' + chr(10)})}\n\n"
-                )
                 # Окно активности: фиксируем вызов инструмента (best-effort —
                 # запись активности НИКОГДА не должна ломать ответ ассистента).
                 _exec_id = None
+                _t_tool = time.perf_counter()
                 try:
                     from app.activity import finish_execution, start_execution  # noqa: PLC0415
                     from app.web.routes.live_sse import publish_activity  # noqa: PLC0415
@@ -1508,12 +1530,23 @@ async def api_send_stream(
                     })
                 except Exception:  # noqa: BLE001
                     pass
+                # F6-01 — структурированный кадр ПЕРЕД вызовом (заменяет сырой
+                # delta-маркер '🔧 name...'). exec_id берём из start_execution.
+                # Старые клиенты этот type не знают и тихо его игнорируют.
+                yield _sse({
+                    "type": "tool_call",
+                    "name": tc["name"],
+                    "args": tc.get("args"),
+                    "seq": _act_seq,
+                    "exec_id": _exec_id,
+                })
                 result = await call_tool(
                     tc["name"], tc["args"],
                     user_id=session["user_id"], session_id=session_id,
                 )
+                _elapsed_tool_ms = int((time.perf_counter() - _t_tool) * 1000)
+                _st = "error" if str(result).lstrip().startswith("[error]") else "done"
                 try:
-                    _st = "error" if str(result).lstrip().startswith("[error]") else "done"
                     await finish_execution(_exec_id, _st, result_text=str(result))
                     await publish_activity({
                         "session_id": session_id, "exec_id": _exec_id,
@@ -1525,11 +1558,24 @@ async def api_send_stream(
                 tool_results.append(
                     f"<tool_result name=\"{tc['name']}\">\n{result}\n</tool_result>"
                 )
+                # В DB-транскрипт по-прежнему пишем человекочитаемый след вызова,
+                # чтобы переоткрытая вкладка/поллинг /live видели, что делал ИИ.
                 chunks.append(f"\n\n🔧 {tc['name']}({json.dumps(tc['args'], ensure_ascii=False)})\n")
                 chunks.append(f"\n```\n{result}\n```\n")
-                yield (
-                    f"data: {json.dumps({'type': 'delta', 'text': chr(10) + '```' + chr(10) + result + chr(10) + '```' + chr(10)})}\n\n"
-                )
+                # F6-01 — структурированный кадр ПОСЛЕ вызова (заменяет сырой
+                # delta с ```result```). result обрезаем до 600 символов.
+                _res_str = str(result)
+                _res_short = _res_str[:600]
+                yield _sse({
+                    "type": "tool_result",
+                    "name": tc["name"],
+                    "status": _st,
+                    "result": _res_short,
+                    "truncated": len(_res_str) > 600,
+                    "exec_id": _exec_id,
+                    "seq": _act_seq,
+                    "elapsed_ms": _elapsed_tool_ms,
+                })
 
             # Continue conversation: ask model to respond after tool results
             follow_up = (

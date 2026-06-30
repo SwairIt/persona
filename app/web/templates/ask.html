@@ -104,6 +104,8 @@ PERSONA_EMBEDDINGS_ENABLED=true   # необязательно, но улучш�
   </article>
 </div>
 
+{# Лёгкий браузерный VAD — авто-стоп записи по тишине на server-STT пути #}
+<script src="/static/vad.js?v={{ app_version }}" defer></script>
 <script>
   // T8 (2026-06-07) — voiceInput() Alpine component.
   //
@@ -125,10 +127,20 @@ PERSONA_EMBEDDINGS_ENABLED=true   # необязательно, но улучш�
       supported: false,
       recording: false,
       _rec: null,
+      // server-STT фолбэк (Safari/Firefox без Web Speech): MediaRecorder +
+      // /api/voice/web/stt, авто-стоп по тишине через браузерный VAD.
+      _useServerStt: false,
+      _mr: null,
+      _chunks: [],
+      _stream: null,
+      _vadDetach: null,
       boot() {
         const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-        this.supported = !!SR;
-        if (!this.supported) return;
+        const hasRecorder = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder);
+        // Без Web Speech, но с MediaRecorder → серверный STT (с VAD-авто-стопом).
+        this._useServerStt = !SR && hasRecorder;
+        this.supported = !!SR || hasRecorder;
+        if (!SR) return; // Web Speech нет — работаем через server-STT в toggle()
         const rec = new SR();
         // Stay-on-while-speaking. continuous=false stops on pause.
         rec.continuous = false;
@@ -162,7 +174,15 @@ PERSONA_EMBEDDINGS_ENABLED=true   # необязательно, но улучш�
         this._rec = rec;
       },
       toggle(ev) {
-        if (!this._rec) return;
+        if (ev) ev.preventDefault();
+        // Нет Web Speech-распознавателя → серверный STT (MediaRecorder + VAD).
+        if (!this._rec) {
+          if (this._useServerStt) {
+            if (this.recording) this._stopRecording();
+            else this._startRecording();
+          }
+          return;
+        }
         if (this.recording) {
           this._rec.stop();
           this.recording = false;
@@ -175,7 +195,60 @@ PERSONA_EMBEDDINGS_ENABLED=true   # необязательно, но улучш�
             this.recording = false;
           }
         }
-        if (ev) ev.preventDefault();
+      },
+      // ——— server-STT фолбэк: запись с авто-стопом по тишине (VAD) ———
+      async _startRecording() {
+        if (!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder)) return;
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          this._stream = stream;
+          const mr = new MediaRecorder(stream);
+          this._mr = mr; this._chunks = [];
+          mr.ondataavailable = (e) => { if (e.data && e.data.size) this._chunks.push(e.data); };
+          mr.onstop = async () => {
+            try { if (this._vadDetach) { this._vadDetach(); this._vadDetach = null; } } catch (e) {}
+            try { stream.getTracks().forEach(t => t.stop()); } catch (e) {}
+            const blob = new Blob(this._chunks, { type: mr.mimeType || 'audio/webm' });
+            this._mr = null; this._stream = null;
+            await this._uploadStt(blob);
+          };
+          mr.start();
+          this.recording = true;
+          // Авто-стоп по тишине; нет WebAudio → тихий no-op (ручной стоп тапом).
+          try {
+            if (window.attachSilenceVad) {
+              this._vadDetach = window.attachSilenceVad(stream, () => {
+                if (this._mr && this._mr.state !== 'inactive') {
+                  try { this._mr.stop(); } catch (e) {}
+                }
+              }, { silenceMs: 1500, threshold: 0.015 });
+            }
+          } catch (e) {}
+        } catch (e) {
+          this.recording = false;
+        }
+      },
+      _stopRecording() {
+        if (this._mr && this._mr.state !== 'inactive') { try { this._mr.stop(); } catch (e) {} }
+        this.recording = false;
+        // onstop выгрузит блоб и впишет распознанный текст в поле вопроса
+      },
+      async _uploadStt(blob) {
+        try {
+          const ext = (blob.type.indexOf('ogg') >= 0) ? 'ogg' : (blob.type.indexOf('mp4') >= 0 ? 'm4a' : 'webm');
+          const fd = new FormData();
+          fd.append('file', blob, 'speech.' + ext);
+          const r = await fetch('/api/voice/web/stt', { method: 'POST', body: fd });
+          const d = await r.json().catch(() => ({}));
+          if (d && d.ok && d.text && d.text.trim()) {
+            // Вписываем распознанное в поле вопроса — как и Web Speech путь.
+            const input = document.querySelector('input[x-model="question"]');
+            if (input) {
+              input.value = d.text.trim();
+              input.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+          }
+        } catch (e) {}
       },
     };
   }

@@ -1275,5 +1275,10 @@
   "settings_profile_import_ok": "Imported: {applied}, skipped: {skipped} (secrets/protected).",
   "settings_profile_err_parse": "Could not read file: not valid JSON.",
   "settings_profile_err_owner": "Profile import is owner-only.",
-  "settings_profile_err_http": "Failed to import profile."
+  "settings_profile_err_http": "Failed to import profile.",
+  "chat_plan_label": "Plan",
+  "chat_tool_running": "running…",
+  "chat_tool_empty": "(empty output)",
+  "chat_tool_ms": "ms",
+  "chat_tool_truncated": "truncated"
 }

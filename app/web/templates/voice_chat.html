@@ -141,6 +141,8 @@
   </p>
 </div>
 
+{# Лёгкий браузерный VAD — авто-стоп записи по тишине на server-STT пути #}
+<script src="/static/vad.js?v={{ app_version }}" defer></script>
 <script>
 function voiceChat() {
   return {
@@ -158,6 +160,7 @@ function voiceChat() {
     _voices: [],
     _mr: null,               // MediaRecorder (фолбэк для Safari)
     _chunks: [],
+    _vadDetach: null,        // отписка браузерного VAD (авто-стоп по тишине)
     _useServerStt: false,    // в Safari Web Speech ненадёжен → серверный Whisper
     // — переключатель модели —
     modelPickerOpen: false,
@@ -339,6 +342,8 @@ function voiceChat() {
         this._mr = mr; this._chunks = [];
         mr.ondataavailable = (e) => { if (e.data && e.data.size) this._chunks.push(e.data); };
         mr.onstop = async () => {
+          // снять VAD до выгрузки (идемпотентно)
+          try { if (this._vadDetach) { this._vadDetach(); this._vadDetach = null; } } catch (e) {}
           try { stream.getTracks().forEach(t => t.stop()); } catch (e) {}
           const blob = new Blob(this._chunks, { type: mr.mimeType || 'audio/webm' });
           this._mr = null;
@@ -346,6 +351,18 @@ function voiceChat() {
         };
         mr.start();
         this.state = 'listening';   // тапни ещё раз, чтобы закончить
+        // Авто-стоп по тишине (server-STT путь): Web Speech не задействован,
+        // поэтому навешиваем лёгкий VAD. Нет WebAudio → тихий no-op (как было).
+        try {
+          if (window.attachSilenceVad) {
+            this._vadDetach = window.attachSilenceVad(stream, () => {
+              // тишина: останавливаем запись так же, как ручной тап «стоп»
+              if (this._mr && this._mr.state !== 'inactive') {
+                try { this._mr.stop(); } catch (e) {}
+              }
+            }, { silenceMs: 1500, threshold: 0.015 });
+          }
+        } catch (e) {}
       } catch (e) {
         this.state = 'idle';
       }

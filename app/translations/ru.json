@@ -1275,5 +1275,10 @@
   "settings_profile_import_ok": "Импортировано: {applied}, пропущено: {skipped} (секреты/защищённые).",
   "settings_profile_err_parse": "Не удалось прочитать файл: это не корректный JSON.",
   "settings_profile_err_owner": "Импорт профиля доступен только владельцу.",
-  "settings_profile_err_http": "Не удалось импортировать профиль."
+  "settings_profile_err_http": "Не удалось импортировать профиль.",
+  "chat_plan_label": "План",
+  "chat_tool_running": "выполняется…",
+  "chat_tool_empty": "(пустой вывод)",
+  "chat_tool_ms": "мс",
+  "chat_tool_truncated": "обрезано"
 }

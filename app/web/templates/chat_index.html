@@ -260,11 +260,28 @@
                      : 'w-full')">
               <div :class="msg.role === 'user' ? 'text-[15px] text-zinc-100' : ''">
                 <template x-if="msg.role === 'assistant'">
-                  <div class="text-[15px] text-zinc-100 leading-relaxed prose prose-invert prose-base max-w-none overflow-x-hidden"
-                       @mouseup="onAssistantSelect($event, msg.id)"
-                       @click="onSpanClick($event, msg.id)"
-                       x-html="renderMsg(msg)"
-                       x-effect="msg.content; $nextTick(() => decorateCode($el))"></div>
+                  <div>
+                    {# F6-01 — свёрнутый блок «план» (режимы plan/ask) над ответом #}
+                    <template x-if="msg.plan && msg.plan.text">
+                      <details class="plan-card" :open="false">
+                        <summary class="plan-head">
+                          <span class="plan-dot"></span>
+                          <span class="plan-label" x-text="t('chat_plan_label')"></span>
+                        </summary>
+                        <div class="plan-body prose prose-invert prose-sm max-w-none"
+                             x-html="renderMd(msg.plan.text)"></div>
+                      </details>
+                    </template>
+                    {# F6-01 — компактные блоки инструментов (живой агент-цикл) #}
+                    <template x-if="msg.toolBlocks && msg.toolBlocks.length">
+                      <div x-html="renderToolBlocks(msg)"></div>
+                    </template>
+                    <div class="text-[15px] text-zinc-100 leading-relaxed prose prose-invert prose-base max-w-none overflow-x-hidden"
+                         @mouseup="onAssistantSelect($event, msg.id)"
+                         @click="onSpanClick($event, msg.id)"
+                         x-html="renderMsg(msg)"
+                         x-effect="msg.content; $nextTick(() => decorateCode($el))"></div>
+                  </div>
                 </template>
                 <template x-if="msg.role === 'user'">
                   {# Show-more collapse — текст >5 строк сворачивается.
@@ -833,6 +850,16 @@
 <script>
   function chatPage(initialSessionId, initialMessages, summary, initialEffort, initialMode, initialAutoPrompt) {
     return {
+      // F6-01 — JS-side i18n для динамических строк агент-цикла (план/инструменты).
+      // Значения локализуются сервером через Jinja t(); t(key) — безопасный доступ.
+      _i18n: {
+        chat_plan_label: {{ t('chat_plan_label') | tojson }},
+        chat_tool_running: {{ t('chat_tool_running') | tojson }},
+        chat_tool_empty: {{ t('chat_tool_empty') | tojson }},
+        chat_tool_ms: {{ t('chat_tool_ms') | tojson }},
+        chat_tool_truncated: {{ t('chat_tool_truncated') | tojson }},
+      },
+      t(key) { return (this._i18n && this._i18n[key]) || key; },
       sessionId: initialSessionId,
       effort: initialEffort || 'normal',
       mode: initialMode || 'auto',
@@ -1633,6 +1660,58 @@
           +   '<div class="cmd-out"><span class="cmd-tag">OUT</span><pre>' + outHtml + '</pre></div>'
           + '</div>';
       },
+      // F6-01 — рендер живых tool-блоков из структурированных SSE-кадров
+      // (tool_call/tool_result). Статус приходит явно с сервера, эвристику
+      // toolCard не используем. Свёрнутый вывод раскрывается по клику.
+      liveToolCard(t, idx) {
+        const status = t.status || 'running';        // running | done | error
+        const argsStr = (typeof t.args === 'string')
+          ? t.args
+          : (t.args ? JSON.stringify(t.args) : '');
+        let cmd = '', shell = '';
+        try {
+          const a = (typeof t.args === 'object' && t.args) ? t.args : JSON.parse(argsStr || '{}');
+          cmd = a.command || a.cmd || a.path || argsStr;
+          shell = (a.shell || '').toLowerCase();
+        } catch (e) { cmd = argsStr; }
+        if (!shell) {
+          shell = (t.name === 'run_mac') ? 'bash'
+                : (t.name === 'run_shell') ? 'powershell' : '';
+        }
+        const badge = shell ? '<span class="shell-badge">' + this.escHtml(shell) + '</span>' : '';
+        const uid = 'cmdlive-' + (t.mid || 'm') + '-' + idx;
+        const inBody = cmd ? this.escHtml(cmd)
+          : ('<span class="cmd-name">' + this.escHtml(t.name) + '</span> ' + this.escHtml(argsStr));
+        const out = (t.out || '').trim();
+        let outHtml;
+        if (status === 'running') {
+          outHtml = '<span class="cmd-wait">' + this.escHtml(this.t('chat_tool_running')) + '</span>';
+        } else {
+          outHtml = out ? this.collapseOutput(out, uid)
+            : '<span class="cmd-wait">' + this.escHtml(this.t('chat_tool_empty')) + '</span>';
+        }
+        const ms = (t.elapsed_ms != null)
+          ? '<span class="cmd-ms">' + (t.elapsed_ms) + ' ' + this.escHtml(this.t('chat_tool_ms')) + '</span>'
+          : '';
+        const trunc = t.truncated
+          ? '<span class="cmd-trunc">' + this.escHtml(this.t('chat_tool_truncated')) + '</span>'
+          : '';
+        return ''
+          + '<div class="cmd-card cmd-' + status + '">'
+          +   '<div class="cmd-head">'
+          +     '<span class="cmd-circle cmd-circle-' + status + '"></span>'
+          +     '<span class="cmd-label">' + this.escHtml(t.name) + '</span>'
+          +     badge + ms + trunc
+          +   '</div>'
+          +   '<div class="cmd-in"><span class="cmd-tag">IN</span><pre>' + inBody + '</pre></div>'
+          +   '<div class="cmd-out"><span class="cmd-tag">OUT</span><pre>' + outHtml + '</pre></div>'
+          + '</div>';
+      },
+      renderToolBlocks(msg) {
+        const blocks = (msg && msg.toolBlocks) || [];
+        return blocks.map((t, i) => this.liveToolCard(
+          Object.assign({ mid: (msg && msg.id) || 'm' }, t), i)).join('');
+      },
       renderMsg(msg) {
         // E8 — не показываем сырой блок persona:choices в тексте (он → меню кнопок)
         let content = (msg && msg.content || '').replace(/```persona:choices[\s\S]*?```/g, '').trim();
@@ -2176,6 +2255,9 @@
           elapsed_ms: null,
           input_tokens: null,
           output_tokens: null,
+          // F6-01 — структурированный агент-цикл: живые блоки инструментов + план
+          toolBlocks: [],
+          plan: null,
         };
         this.messages.push(assistantPlaceholder);
         const assistantIdx = this.messages.length - 1;
@@ -2228,6 +2310,53 @@
                   this.messages[assistantIdx].content += evt.text;
                   // живая оценка токенов вывода (≈ 4 символа на токен)
                   this.streamTokens = Math.ceil((this.messages[assistantIdx].content || '').length / 4);
+                  this.$nextTick(() => this.autoScroll());
+                } else if (evt.type === 'tool_call') {
+                  // F6-01 — ИИ начал вызов инструмента: компактный блок «running».
+                  if (!firstDeltaReceived) {
+                    firstDeltaReceived = true;
+                    this.thinkingSeconds = 0;
+                    this.streamStatus = this.t('chat_tool_running');
+                    this._stopStatusRotation();
+                  }
+                  const m = this.messages[assistantIdx];
+                  if (!m.toolBlocks) m.toolBlocks = [];
+                  m.toolBlocks.push({
+                    exec_id: evt.exec_id != null ? evt.exec_id : ('seq' + evt.seq),
+                    seq: evt.seq,
+                    name: evt.name,
+                    args: evt.args,
+                    status: 'running',
+                    out: '',
+                    elapsed_ms: null,
+                    truncated: false,
+                  });
+                  this.messages.splice(assistantIdx, 1, m);
+                  this.$nextTick(() => this.autoScroll());
+                } else if (evt.type === 'tool_result') {
+                  // F6-01 — результат вызова: обновляем найденный блок по exec_id/seq.
+                  const m = this.messages[assistantIdx];
+                  const blocks = m.toolBlocks || [];
+                  let b = blocks.find(x => evt.exec_id != null && x.exec_id === evt.exec_id);
+                  if (!b) b = blocks.find(x => x.seq === evt.seq && x.status === 'running');
+                  if (!b) b = blocks.filter(x => x.status === 'running').pop();
+                  if (b) {
+                    b.status = evt.status || 'done';
+                    b.out = evt.result || '';
+                    b.elapsed_ms = evt.elapsed_ms != null ? evt.elapsed_ms : null;
+                    b.truncated = !!evt.truncated;
+                    this.messages.splice(assistantIdx, 1, m);
+                  }
+                  this.$nextTick(() => this.autoScroll());
+                } else if (evt.type === 'plan') {
+                  // F6-01 — план/намерение (режимы plan/ask) отдельным блоком.
+                  // Текст плана уже пришёл как delta в content — переносим его в
+                  // свёрнутый блок и очищаем прозу, чтобы не дублировать.
+                  const m = this.messages[assistantIdx];
+                  const planText = evt.text || m.content || '';
+                  m.plan = { mode: evt.mode || '', text: planText };
+                  m.content = '';
+                  this.messages.splice(assistantIdx, 1, m);
                   this.$nextTick(() => this.autoScroll());
                 } else if (evt.type === 'done') {
                   this.messages[assistantIdx].elapsed_ms = evt.elapsed_ms;
@@ -2487,6 +2616,19 @@
   .cmd-expand:hover{border-color:#6366f1;color:#a5b4fc}
   .cmd-wait{color:#818cf8;font-style:italic}
   .cmd-name{color:#a5b4fc}
+  /* F6-01 — длительность вызова + метка обрезки в шапке tool-карточки */
+  .cmd-ms{margin-left:auto;font-size:.66em;font-weight:600;color:#71717a;font-family:ui-monospace,monospace}
+  .shell-badge + .cmd-ms{margin-left:.5em}
+  .cmd-trunc{margin-left:.5em;font-size:.62em;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
+    padding:.08em .4em;border-radius:5px;background:rgba(234,179,8,.15);color:#fde047;font-family:ui-monospace,monospace}
+
+  /* F6-01 — свёрнутый блок «план» (режимы plan/ask) */
+  .plan-card{margin:.6em 0;border:1px solid rgba(129,140,248,.4);border-radius:10px;overflow:hidden;background:#0d0d14}
+  .plan-head{display:flex;align-items:center;gap:.5em;padding:.45em .7em;cursor:pointer;list-style:none;
+    background:#15151e;font-family:ui-monospace,monospace;font-size:.8em;font-weight:600;color:#a5b4fc;user-select:none}
+  .plan-head::-webkit-details-marker{display:none}
+  .plan-dot{width:.7em;height:.7em;border-radius:50%;flex:0 0 auto;background:#818cf8;box-shadow:0 0 0 3px rgba(129,140,248,.12)}
+  .plan-body{padding:.6em .9em;color:#d4d4d8;font-size:.92em}
 
   /* T24 — reasoning/think block */
   .think-block {

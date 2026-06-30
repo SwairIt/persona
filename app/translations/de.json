@@ -1275,5 +1275,10 @@
   "settings_profile_import_ok": "Importiert: {applied}, übersprungen: {skipped} (Geheimnisse/geschützt).",
   "settings_profile_err_parse": "Datei konnte nicht gelesen werden: kein gültiges JSON.",
   "settings_profile_err_owner": "Profilimport ist nur für den Inhaber.",
-  "settings_profile_err_http": "Profil konnte nicht importiert werden."
+  "settings_profile_err_http": "Profil konnte nicht importiert werden.",
+  "chat_plan_label": "Plan",
+  "chat_tool_running": "läuft…",
+  "chat_tool_empty": "(leere Ausgabe)",
+  "chat_tool_ms": "ms",
+  "chat_tool_truncated": "gekürzt"
 }
