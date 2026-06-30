@@ -414,7 +414,16 @@ async def extract_and_store(
 
     # «Без тихого переполнения»: авто-рост памяти ограничен бюджетом.
     if await count_memory(user_id) >= MEMORY_AUTO_CAP:
-        log.info("user_memory.auto_cap_reached", user_id=user_id, cap=MEMORY_AUTO_CAP)
+        log.warning(
+            "user_memory.auto_cap_reached",
+            user_id=user_id,
+            cap=MEMORY_AUTO_CAP,
+            msg=(
+                f"Достигнут лимит авто-извлечения ({MEMORY_AUTO_CAP} слотов) — "
+                "новый факт НЕ сохранён. Почисти память в /settings/memory или "
+                "закрепи важное вручную."
+            ),
+        )
         return 0
     try:
         client = make_client(kind="chat_summary")

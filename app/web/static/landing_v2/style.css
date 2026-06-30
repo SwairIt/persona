@@ -460,3 +460,9 @@ body:not(.js) .big-statement .w{opacity:1}
   .hero-cta .btn{width:100%}
   .bh-scrim{background:radial-gradient(ellipse 80% 60% at 50% 36%, rgba(3,0,20,.7) 0%, rgba(3,0,20,.86) 60%, var(--void) 100%)}
 }
+
+/* очень узкие телефоны (<360px) — не даём hero-CTA переполнить вьюпорт */
+@media (max-width:360px){
+  .hero-cta{flex-direction:column; gap:6px}
+  .hero-cta button{width:100%}
+}

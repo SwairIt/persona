@@ -12,6 +12,7 @@ hybrid_recall = FTS5 bm25 + векторный KNN, слитые через Reci
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import struct
@@ -459,7 +460,17 @@ async def hybrid_recall(user_id: int, question: str,
     from app.chat.sessions import recall_relevant  # noqa: PLC0415
 
     try:
-        qvec = await embed(question, kind="query") if sqlite_vec_available() else None
+        qvec = None
+        if sqlite_vec_available():
+            try:
+                # Холодная embed-модель (особенно через туннель) может грузиться
+                # до 60с и вешать чат. Жёсткий потолок 15с → при таймауте
+                # деградируем на FTS/keyword-путь (qvec=None → vec_hits=[] →
+                # recall_relevant), вместо ожидания холодного старта.
+                qvec = await asyncio.wait_for(embed(question, kind="query"), 15)
+            except (TimeoutError, asyncio.TimeoutError) as exc:
+                log.debug("memory_vec.embed_timeout", error=str(exc))
+                qvec = None
         vec_hits = await _vector_hits(user_id, qvec, exclude_session_id) if qvec else []
         fts_hits = await _fts_hits(user_id, question, exclude_session_id)
         if not vec_hits:

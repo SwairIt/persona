@@ -571,7 +571,9 @@ async def recall_by_terms(
         who = "Ты" if r["role"] == "user" else "Persona"
         title = (r["title"] or "чат")
         out.append(f"• [{(r['created_at'] or '')[:10]} · «{title[:24]}»] {who}: {txt[:280]}")
-    await _bump_recall_seen(lids)
+    # Rehearsal/decay-reset как в FTS-ветке: бампим отданные памяти (best-effort).
+    if lids:
+        await _bump_recall_seen(lids)
     return "\n".join(out)
 
 

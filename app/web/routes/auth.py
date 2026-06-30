@@ -21,6 +21,7 @@ from __future__ import annotations
 import html as html_lib
 import secrets
 from typing import Annotated
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
@@ -120,6 +121,12 @@ log = get_logger("persona.auth.routes")
 # we've seen are around 200 chars; anything beyond is junk.
 _MAX_UA_LEN = 250
 
+# IP-адреса, которым доверяем заголовок X-Forwarded-For: localhost +
+# reverse-proxy FastPanel на yesbeat. Только эти узлы реально стоят перед
+# приложением, поэтому только их XFF имеет смысл (иначе любой клиент мог бы
+# подделать заголовок и обойти rate-limit).
+_TRUSTED_PROXIES = {"127.0.0.1", "192.168.33.3"}
+
 
 def _set_session_cookie(
     response: Response, token: str, secure: bool, max_age_seconds: int
@@ -143,11 +150,15 @@ def _trim_ua(raw: str | None) -> str | None:
 
 
 def _client_ip(request: Request) -> str:
-    """Best-effort client IP, honouring the reverse proxy's X-Forwarded-For."""
-    xff = request.headers.get("x-forwarded-for", "")
-    if xff:
-        return xff.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+    """Best-effort client IP. Доверяем X-Forwarded-For ТОЛЬКО когда прямой
+    peer — известный reverse-proxy (``_TRUSTED_PROXIES``). Иначе берём
+    request.client.host: иначе кто угодно подделал бы XFF и обошёл rate-limit."""
+    peer = request.client.host if request.client else "unknown"
+    if peer in _TRUSTED_PROXIES:
+        xff = request.headers.get("x-forwarded-for", "")
+        if xff:
+            return xff.split(",")[0].strip()
+    return peer
 
 
 def _cookie_secure(request: Request) -> bool:
@@ -493,9 +504,19 @@ async def magic_consume(request: Request, token: str) -> Response:
         )
     ua = _trim_ua(request.headers.get("user-agent"))
     token2, _expires_at = await issue_session(uid, user_agent=ua)
-    # ?next=/safe/path (например, сброс пароля). Только внутренние пути.
+    # ?next=/safe/path (например, сброс пароля). Только внутренние пути:
+    # начинается с одного «/», без «//» и «/\» (protocol-relative / backslash-
+    # обходы), и без scheme/netloc — иначе это open-redirect наружу.
     nxt = request.query_params.get("next", "")
-    dest = nxt if nxt.startswith("/") and not nxt.startswith("//") else await _post_auth_dest(uid)
+    parsed = urlparse(nxt)
+    is_internal = (
+        nxt.startswith("/")
+        and not nxt.startswith("//")
+        and not nxt.startswith("/\\")
+        and parsed.scheme == ""
+        and parsed.netloc == ""
+    )
+    dest = nxt if is_internal else await _post_auth_dest(uid)
     response = RedirectResponse(url=dest, status_code=303)
     secure = _cookie_secure(request)
     _set_session_cookie(response, token2, secure, 30 * 24 * 3600)
@@ -560,6 +581,17 @@ async def set_password_submit(
             request, "auth_set_password.html",
             {"title": "Новый пароль", "email": session.get("email"), "error": msg}, status_code=400,
         )
+    # Пароль сменён → гасим все непогашенные magic-ссылки этого email, чтобы
+    # старая «забыл пароль»-ссылка из почты больше не открывала аккаунт.
+    addr = session.get("email")
+    if addr:
+        async with get_connection() as conn:
+            await conn.execute(
+                "UPDATE magic_link SET used_at = datetime('now') "
+                "WHERE email = ? AND used_at IS NULL",
+                (addr,),
+            )
+            await conn.commit()
     dest = await _post_auth_dest(int(session["user_id"]))
     if _wants_json(request):
         return JSONResponse({"ok": True, "redirect": dest})

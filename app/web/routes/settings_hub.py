@@ -64,7 +64,7 @@ _CATEGORIES: Final[list[dict[str, object]]] = [
             ("/settings/blocklist", "Регекс-блоклист окон/приложений"),
             ("/settings/app-capture-skip", "Список приложений-исключений"),
             ("/settings/app-overrides", "Per-app частота захвата"),
-            ("/settings/quiet-hours", "Quiet hours (часы без захвата)"),
+            ("/quiet-hours", "Quiet hours (часы без захвата)"),
         ],
     },
     {

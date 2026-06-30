@@ -42,7 +42,14 @@ async def create_magic_link(email: str) -> str:
 
 
 async def consume_magic_link(token: str) -> str | None:
-    """Validate + burn a token. Returns the email, or None if invalid."""
+    """Validate + burn a token. Returns the email, or None if invalid.
+
+    Потребление атомарно: один ``UPDATE ... WHERE token=? AND used_at IS NULL``
+    помечает ссылку использованной. Если ``rowcount != 1`` — кто-то уже сжёг
+    ссылку (двойной клик / гонка) или токена нет → возвращаем None. Так
+    одноразовость гарантируется на уровне БД, без TOCTOU между SELECT и UPDATE.
+    Срок (30 мин) проверяем отдельным SELECT, чтобы не «жечь» просроченную.
+    """
     if not token:
         return None
     async with get_connection() as conn:
@@ -59,9 +66,14 @@ async def consume_magic_link(token: str) -> str | None:
             return None
         if datetime.now(UTC) > expires:
             return None
-        await conn.execute(
-            "UPDATE magic_link SET used_at = datetime('now') WHERE token = ?",
+        # Атомарный «burn»: пометим использованной только если ещё не была.
+        upd = await conn.execute(
+            "UPDATE magic_link SET used_at = datetime('now') "
+            "WHERE token = ? AND used_at IS NULL",
             (token,),
         )
         await conn.commit()
+        if upd.rowcount != 1:
+            # Проиграли гонку — ссылку уже сожгли в параллельном запросе.
+            return None
         return str(row["email"])

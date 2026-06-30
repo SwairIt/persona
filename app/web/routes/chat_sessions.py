@@ -1027,12 +1027,24 @@ async def api_send_stream(
                 salience=(_rmode == "generative"),
             )
         elif _rmode == "smart":
-            _terms = await _smart_recall_terms(question)
-            recalled = (
-                await recall_by_terms(session["user_id"], _terms, exclude_session_id=session_id)
-                if _terms
-                else await recall_relevant(session["user_id"], question, exclude_session_id=session_id)
-            )
+            # Падение LLM-выбора терминов НЕ должно обнулять всю память: при любой
+            # ошибке деградируем на keyword-recall (recall_relevant), а не на пусто.
+            try:
+                _terms = await _smart_recall_terms(question)
+                recalled = (
+                    await recall_by_terms(
+                        session["user_id"], _terms, exclude_session_id=session_id
+                    )
+                    if _terms
+                    else await recall_relevant(
+                        session["user_id"], question, exclude_session_id=session_id
+                    )
+                )
+            except Exception as exc:  # noqa: BLE001 — smart-режим не валит recall
+                log.debug("chat.smart_recall_failed", error=str(exc))
+                recalled = await recall_relevant(
+                    session["user_id"], question, exclude_session_id=session_id
+                )
         elif _rmode == "keyword":
             recalled = await recall_relevant(
                 session["user_id"], question, exclude_session_id=session_id
