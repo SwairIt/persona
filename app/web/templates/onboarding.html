@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto px-6 py-10">
+
+  <div class="text-center mb-8">
+    <div class="text-4xl mb-3">🎉</div>
+    <h1 class="text-3xl font-bold tracking-tight">Добро пожаловать в Persona</h1>
+    <p class="text-zinc-400 mt-2">
+      {% if summary.is_trial %}
+        Триал активен — осталось {{ summary.days_left }} дн. полного доступа к ИИ-ассистенту.
+      {% else %}
+        Pro активна. Твой персональный ИИ-ассистент готов.
+      {% endif %}
+    </p>
+  </div>
+
+  <div class="space-y-3 mb-8">
+    <div class="rounded-lg border border-ink-700 bg-ink-800 p-5 flex gap-4">
+      <div class="text-2xl shrink-0">🤖</div>
+      <div>
+        <h2 class="font-semibold text-zinc-100">Твой ИИ-ассистент готов</h2>
+        <p class="text-zinc-400 text-sm mt-1">Отвечает в чате, помогает с задачами, думает рядом.
+          Работает на нашей модели — ничего ставить не нужно.</p>
+      </div>
+    </div>
+    <div class="rounded-lg border border-ink-700 bg-ink-800 p-5 flex gap-4">
+      <div class="text-2xl shrink-0">🧠</div>
+      <div>
+        <h2 class="font-semibold text-zinc-100">Он запоминает тебя</h2>
+        <p class="text-zinc-400 text-sm mt-1">Чем больше общаешься, тем лучше он тебя знает: имена, проекты,
+          предпочтения. Твоя память приватна и видна только тебе — никто другой её не получит.</p>
+      </div>
+    </div>
+    <div class="rounded-lg border border-ink-700 bg-ink-800 p-5 flex gap-4">
+      <div class="text-2xl shrink-0">💬</div>
+      <div>
+        <h2 class="font-semibold text-zinc-100">Начни с первого вопроса</h2>
+        <p class="text-zinc-400 text-sm mt-1">Спроси что угодно или расскажи о себе парой фраз —
+          ассистент сразу начнёт подстраиваться под тебя.</p>
+      </div>
+    </div>
+  </div>
+
+  <form method="post" action="/onboarding/complete" class="text-center">
+    <button type="submit"
+            class="px-6 py-3 rounded-lg bg-accent-600 hover:bg-accent-500 text-white font-semibold transition text-lg">
+      Открыть чат →
+    </button>
+  </form>
+  <p class="text-center text-zinc-500 text-xs mt-4">
+    Управлять подпиской можно в разделе <a href="/billing" class="text-accent-400 hover:text-accent-300">Подписка</a>.
+  </p>
+
+</div>
+{% endblock %}

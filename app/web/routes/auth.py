@@ -44,6 +44,7 @@ from app.logging_setup import get_logger
 from app.mail_branding import branded_email_html
 from app.smtp_delivery import send_email
 from app.storage.db import get_connection
+from app.storage.repository import get_kv
 from app.web.rate_limit import allow as _rate_allow
 from app.web.templates_engine import templates
 
@@ -384,10 +385,16 @@ async def _user_id_for_email(email: str) -> int | None:
 
 
 async def _post_auth_dest(user_id: int) -> str:
-    """Владелец → приложение (/now). Остальные → кабинет подписки (/billing):
-    в приложение их пока НЕ пускаем — данные/память общие (изоляция по юзерам не
-    готова), иначе они увидели бы данные владельца."""
-    return "/now" if await is_owner(user_id) else "/billing"
+    """Владелец → приложение (/now). Активный подписчик → ИИ-ассистент: онбординг
+    при первом входе, иначе сразу чат. Без подписки → кабинет подписки (/billing).
+    Чат/память изолированы по user_id — чужого подписчик не видит."""
+    if await is_owner(user_id):
+        return "/now"
+    if await billing_service.has_active_sub(user_id):
+        async with get_connection() as conn:
+            onboarded = await get_kv(conn, f"onboarded_{user_id}")
+        return "/chat" if (onboarded or "").strip() == "1" else "/onboarding"
+    return "/billing"
 
 
 @router.post("/auth/magic", response_class=HTMLResponse, response_model=None)

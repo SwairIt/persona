@@ -34,6 +34,7 @@ from starlette.responses import RedirectResponse, Response
 
 from app.auth import SESSION_COOKIE_NAME, verify_session
 from app.auth.owner import is_owner
+from app.billing.service import has_active_sub as _has_active_sub
 from app.logging_setup import get_logger
 from app.storage.db import get_connection
 
@@ -124,6 +125,16 @@ def _is_public_path(path: str) -> bool:
     return any(path.startswith(prefix) for prefix in _PUBLIC_PREFIXES)
 
 
+# Пути, доступные НЕ-владельцу с активной подпиской (Pro/триал): только сам
+# ИИ-ассистент (чат) и онбординг. Чат и память изолированы по user_id — он видит
+# лишь СВОЁ. Захват/таймлайн/общие настройки владельца остаются закрытыми.
+_PRO_PREFIXES: tuple[str, ...] = ("/chat", "/api/chat", "/onboarding")
+
+
+def _is_pro_path(path: str) -> bool:
+    return any(path == p or path.startswith(p + "/") for p in _PRO_PREFIXES)
+
+
 class AuthGateMiddleware(BaseHTTPMiddleware):
     """Redirect un-authenticated visitors to /landing once any user exists."""
 
@@ -156,10 +167,13 @@ class AuthGateMiddleware(BaseHTTPMiddleware):
             ):
                 # Кабинет подписки/лицензии доступен покупателям (не приложение).
                 return await call_next(request)
-            # ВРЕМЕННО (до изоляции данных по юзерам): в приложение пускаем ТОЛЬКО
-            # владельца. Данные/память сейчас ОБЩИЕ — подписчик увидел бы чужое,
-            # поэтому остальные идут в кабинет подписки, а НЕ в приложение.
-            if await is_owner(session.get("user_id")):
+            uid = session.get("user_id")
+            if await is_owner(uid):
+                return await call_next(request)
+            # Не-владелец с активной подпиской → ТОЛЬКО ассистент (чат) + онбординг.
+            # Чат/память изолированы по user_id (видит лишь своё). Личные данные
+            # владельца (захват/таймлайн/общие настройки) — закрыты.
+            if _is_pro_path(path) and await _has_active_sub(uid):
                 return await call_next(request)
             if path.startswith("/api/"):
                 return Response(

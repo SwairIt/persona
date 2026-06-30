@@ -80,14 +80,14 @@ async def test_billing_page_shows_license_for_buyer(client, db):
     r = await client.get("/billing")
     assert r.status_code == 200
     assert "Триал" in r.text          # бейдж триала
-    assert "PRSN-" in r.text          # лицензионный ключ для self-host показан
+    assert "Открыть ассистента" in r.text  # кнопка в чат (hosted-модель)
     assert "раннем доступе" not in r.text  # старой заглушки больше нет
 
 
 @pytest.mark.asyncio
-async def test_gate_app_owner_only_until_isolation(db):
-    """Гейт (до изоляции данных): в приложение пускается ТОЛЬКО владелец; подписчик
-    и безбилетник → /billing (иначе увидели бы общие данные владельца)."""
+async def test_gate_pro_user_chat_only(db):
+    """Гейт: владелец → всё; активный подписчик → ТОЛЬКО /chat (ассистент изолирован
+    по user_id), но НЕ /now (личные данные владельца); без подписки → /billing."""
     from fastapi.responses import PlainTextResponse
 
     from app.auth.sessions import SESSION_COOKIE_NAME, issue_session
@@ -105,16 +105,27 @@ async def test_gate_app_owner_only_until_isolation(db):
 
     @app.get("/now")
     async def _now():
-        return PlainTextResponse("APP")
+        return PlainTextResponse("NOW")
+
+    @app.get("/chat")
+    async def _chat():
+        return PlainTextResponse("CHAT")
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        for uid, expect in ((owner, "app"), (sub, "billing"), (free, "billing")):
+        async def hit(uid: int, path: str):
             ac.cookies.clear()
             token, _ = await issue_session(uid)
             ac.cookies.set(SESSION_COOKIE_NAME, token)
-            r = await ac.get("/now", follow_redirects=False)
-            if expect == "app":
-                assert r.status_code == 200 and r.text == "APP"
-            else:
-                assert r.status_code == 303 and r.headers["location"] == "/billing"
+            return await ac.get(path, follow_redirects=False)
+
+        # владелец → всё приложение
+        assert (await hit(owner, "/now")).status_code == 200
+        assert (await hit(owner, "/chat")).status_code == 200
+        # подписчик → /chat можно, /now нельзя (→ /billing)
+        assert (await hit(sub, "/chat")).status_code == 200
+        r = await hit(sub, "/now")
+        assert r.status_code == 303 and r.headers["location"] == "/billing"
+        # без подписки → всё уводит в /billing
+        r = await hit(free, "/chat")
+        assert r.status_code == 303 and r.headers["location"] == "/billing"

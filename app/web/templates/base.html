@@ -151,6 +151,9 @@
         <span class="text-xs text-zinc-500 font-mono hidden sm:inline">v{{ app_version }}</span>
       </a>
 
+      {# owner видит полное приложение; Pro/триал-подписчик — только ассистент + биллинг #}
+      {% set _owner_view = (is_owner if is_owner is defined else True) %}
+      {% if _owner_view %}
       {% set core_items = [
         ('now', '/now', 'nav_now'),
         ('chat', '/chat', 'nav_chat'),
@@ -180,6 +183,13 @@
         ('voice', '/settings/voice', 'nav_voice'),
         ('advanced', '/settings/advanced', 'nav_advanced'),
       ] %}
+      {% else %}
+      {% set core_items = [
+        ('chat', '/chat', 'nav_chat'),
+        ('billing', '/billing', 'nav_billing'),
+      ] %}
+      {% set more_items = [] %}
+      {% endif %}
 
       <nav class="hidden md:flex items-center gap-1 text-sm flex-1 justify-center">
         {% for slug, href, label_key in core_items %}
@@ -189,6 +199,7 @@
             {{ t(label_key) }}
           </a>
         {% endfor %}
+        {% if more_items %}
         <div class="relative">
           <button @click="moreOpen = !moreOpen"
                   class="px-3 py-1.5 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-ink-800 transition whitespace-nowrap">
@@ -205,6 +216,7 @@
             {% endfor %}
           </div>
         </div>
+        {% endif %}
       </nav>
 
       <div x-data="captureStatus()" x-init="bootstrap()" id="status-pill" data-state="paused"

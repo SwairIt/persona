@@ -12,7 +12,7 @@
  * the shell is usable on the very first offline visit.
  */
 
-const CACHE_VERSION = 'persona-v2.20.85';
+const CACHE_VERSION = 'persona-v2.20.86';
 const PRECACHE_URLS = [
   '/static/manifest.json',
   '/static/icon-512.png',

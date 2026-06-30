@@ -55,6 +55,7 @@ from app.web.routes import (
     archive_bundle as archive_bundle_routes,
     archive_browse as archive_browse_routes,
     billing as billing_routes,
+    onboarding as onboarding_routes,
     auto_collections as auto_collections_routes,
     audio_day as audio_day_routes,
     audio_search as audio_search_routes,
@@ -562,6 +563,7 @@ def create_app() -> FastAPI:
     app.include_router(journal_export_routes.router)
     app.include_router(about_routes.router)
     app.include_router(billing_routes.router)
+    app.include_router(onboarding_routes.router)
     app.include_router(range_timeline_routes.router)
     app.include_router(app_overrides_routes.router)
     app.include_router(diff_picker_routes.router)

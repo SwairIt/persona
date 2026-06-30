@@ -20,6 +20,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 
 from app.auth import current_user_required
+from app.auth.owner import is_owner
 from app.auth.sessions import SessionRecord
 from app.chat import (
     add_span_rating,
@@ -443,6 +444,7 @@ async def chat_index(
         {
             "title": "Чат с памятью",
             "active_nav": "chat",
+            "is_owner": await is_owner(session["user_id"]),
             "sessions": sessions,
             "active_session": None,
             "messages": [],
@@ -477,6 +479,7 @@ async def chat_thread(
         {
             "title": thread["title"],
             "active_nav": "chat",
+            "is_owner": await is_owner(session["user_id"]),
             "sessions": sessions,
             "active_session": thread,
             "messages": messages,

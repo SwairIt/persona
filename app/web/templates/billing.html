@@ -43,12 +43,7 @@
               <span class="pill" style="background:rgba(124,58,237,.2);color:#c4b5fd">⚡ Pro · активна</span>
             {% endif %}
           </div>
-          <p style="color:var(--ink-dim);font-size:.92rem;text-align:center;margin:0 0 6px">
-            Твой лицензионный ключ — вставь его в свою Persona (Настройки → Лицензия), чтобы включить Pro:</p>
-          <div class="lic">{{ summary.license_key }}</div>
-          <p style="color:var(--ink-faint);font-size:.85rem;text-align:center;margin:10px 0 0">
-            Persona ставится на твоё устройство — данные остаются у тебя.
-            <a href="/features" style="color:#a78bfa">Как поставить →</a></p>
+          <a href="/chat" class="btn btn-primary" style="display:block;text-align:center;width:100%">Открыть ассистента →</a>
           {% if summary.is_trial %}
             <p style="color:var(--ink-faint);font-size:.88rem;text-align:center;margin:14px 0 6px">
               После триала оформи Pro, чтобы не потерять доступ:</p>
