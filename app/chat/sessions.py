@@ -219,22 +219,53 @@ async def list_messages(session_id: int, limit: int = 500) -> list[ChatMessage]:
     :func:`build_history_for_llm` when piping into the model."""
     safe_limit = max(1, min(2000, int(limit)))
     async with get_connection() as conn:
+        # 1) all messages of the session in one query
         cursor = await conn.execute(
-            "SELECT m.*, "
-            "  (SELECT td.rating FROM training_dataset td "
-            "   WHERE td.asst_message_id = m.id ORDER BY td.id DESC LIMIT 1) "
-            "  AS rating, "
-            "  (SELECT cr.reaction FROM chat_reaction cr "
-            "   WHERE cr.message_id = m.id ORDER BY cr.id DESC LIMIT 1) "
-            "  AS reaction "
-            "FROM chat_message m "
-            "WHERE m.session_id = ? "
-            "ORDER BY m.id ASC "
+            "SELECT * FROM chat_message "
+            "WHERE session_id = ? "
+            "ORDER BY id ASC "
             "LIMIT ?",
             (session_id, safe_limit),
         )
         rows = await cursor.fetchall()
-    return [_row_to_message(r) for r in rows]
+
+        # Perf (was N+1): instead of 2 correlated subqueries per message,
+        # fetch ALL ratings and ALL reactions for the session in ONE query
+        # each, keyed by message_id. Ordering ASC by id and overwriting the
+        # dict keeps the original 'latest row (max id) wins' semantics.
+        ratings: dict[int, int] = {}
+        cursor = await conn.execute(
+            "SELECT asst_message_id, rating FROM training_dataset "
+            "WHERE asst_message_id IS NOT NULL AND session_id = ? "
+            "ORDER BY id ASC",
+            (session_id,),
+        )
+        for r in await cursor.fetchall():
+            ratings[int(r["asst_message_id"])] = r["rating"]
+
+        reactions: dict[int, str] = {}
+        cursor = await conn.execute(
+            "SELECT cr.message_id AS message_id, cr.reaction AS reaction "
+            "FROM chat_reaction cr "
+            "JOIN chat_message m ON m.id = cr.message_id "
+            "WHERE m.session_id = ? "
+            "ORDER BY cr.id ASC",
+            (session_id,),
+        )
+        for r in await cursor.fetchall():
+            reactions[int(r["message_id"])] = r["reaction"]
+
+    out: list[ChatMessage] = []
+    for row in rows:
+        msg = _row_to_message(row)
+        mid = msg["id"]
+        if mid in ratings and ratings[mid] is not None:
+            msg["rating"] = int(ratings[mid])
+        reaction = reactions.get(mid)
+        if reaction is not None:
+            msg["reaction"] = str(reaction)
+        out.append(msg)
+    return out
 
 
 async def append_message(

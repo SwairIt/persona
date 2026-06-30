@@ -20,6 +20,13 @@
    memory via background summariser. #}
 
 <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
+
+{# Подсветка синтаксиса кода: highlight.js + тёмная тема (github-dark) с cdnjs.
+   highlight-колбэк подключается ниже в marked.setOptions (init()). #}
+<link rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+
 <script>
   // T29 — fallback if the CDN is blocked/SRI-mismatched: a wrong integrity
   // hash silently blocks the script and breaks ALL markdown rendering
@@ -29,6 +36,13 @@
       var s = document.createElement('script');
       s.src = 'https://unpkg.com/marked@12.0.0/marked.min.js';
       document.head.appendChild(s);
+    }
+    // Аналогичный fallback для highlight.js — без него код просто не
+    // подсветится (markdown по-прежнему отрендерится).
+    if (typeof hljs === 'undefined') {
+      var h = document.createElement('script');
+      h.src = 'https://unpkg.com/@highlightjs/cdn-assets@11.9.0/highlight.min.js';
+      document.head.appendChild(h);
     }
   });
 </script>
@@ -60,7 +74,7 @@
                placeholder="Поиск по всем чатам…"
                class="w-full bg-ink-800 border border-ink-700 focus:border-accent-500
                       rounded-lg pl-3 pr-7 py-1.5 text-sm text-zinc-100 placeholder-zinc-500
-                      focus:outline-none">
+                      focus-visible:ring-2 focus-visible:ring-accent-500">
         <button type="button" x-show="searchQuery"
                 @click="searchQuery=''; searchResults=[]"
                 class="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300">×</button>
@@ -226,7 +240,8 @@
                   <div class="text-[15px] text-zinc-100 leading-relaxed prose prose-invert prose-base max-w-none overflow-x-hidden"
                        @mouseup="onAssistantSelect($event, msg.id)"
                        @click="onSpanClick($event, msg.id)"
-                       x-html="renderMsg(msg)"></div>
+                       x-html="renderMsg(msg)"
+                       x-effect="msg.content; $nextTick(() => decorateCode($el))"></div>
                 </template>
                 <template x-if="msg.role === 'user'">
                   {# Show-more collapse — текст >5 строк сворачивается. #}
@@ -245,7 +260,7 @@
                 </template>
               </div>
               <template x-if="msg.role === 'assistant'">
-                <div class="mt-2 flex items-center gap-3 text-[11px] text-zinc-500 font-mono">
+                <div class="msg-actions mt-2 flex items-center gap-3 text-[11px] text-zinc-500 font-mono">
                   {# 👍/👎 + meta — единая полоса под assistant ответом #}
                   <button type="button" @click.stop="rateAt(mIdx, 1)"
                           :class="messages[mIdx] && messages[mIdx].rating === 1
@@ -460,10 +475,11 @@
                  class="w-full px-4 pt-3 pb-1 bg-transparent focus:outline-none text-[15px] resize-none max-h-40 placeholder-zinc-500"></textarea>
 
           <div class="flex items-center justify-between px-2 pb-2">
-            <div class="flex items-center gap-1">
+            <div class="composer-controls flex items-center gap-1">
               <label class="p-1.5 rounded-lg hover:bg-ink-700 cursor-pointer text-zinc-400"
                      title="Прикрепить картинку">
-                <input type="file" accept="image/*" class="hidden"
+                <input id="chat-attach-input" type="file" accept="image/*" class="hidden"
+                       aria-label="Прикрепить картинку"
                        @change="handleImage($event)">
                 📎
               </label>
@@ -582,10 +598,11 @@
                Tooltip объясняет все шорткаты. #}
             <button type="button"
                     @click="thinking ? stop() : send()"
-                    :title="thinking ? 'Stop генерацию (Esc)' : 'Отправить (Enter) · Очередь (Ctrl+Enter) · Перенос (Shift+Enter)'"
+                    title="Стоп (Esc)"
+                    :title="thinking ? 'Стоп (Esc)' : 'Отправить (Enter) · Очередь (Ctrl+Enter) · Перенос (Shift+Enter)'"
                     :disabled="!thinking && !question.trim() && !attachedImage"
-                    :class="thinking ? 'bg-rose-600 hover:bg-rose-500 text-white' : 'bg-accent-600 hover:bg-accent-500 disabled:opacity-30 disabled:cursor-not-allowed text-white'"
-                    class="w-8 h-8 flex items-center justify-center rounded-lg text-sm shrink-0 transition-colors"
+                    :class="thinking ? 'bg-rose-600 hover:bg-rose-500 text-white ring-2 ring-rose-400/70 animate-pulse' : 'bg-accent-600 hover:bg-accent-500 disabled:opacity-30 disabled:cursor-not-allowed text-white'"
+                    class="composer-send w-8 h-8 flex items-center justify-center rounded-lg text-sm shrink-0 transition-colors"
                     @keydown.escape.window="if (thinking) stop()">
               <span x-show="!thinking">↑</span>
               <span x-show="thinking">■</span>
@@ -896,7 +913,21 @@
       },
 
       init() {
-        marked.setOptions({ breaks: true, gfm: true });
+        marked.setOptions({
+          breaks: true,
+          gfm: true,
+          // Подсветка синтаксиса: по языку код-фенса, иначе авто-детект.
+          // ignoreIllegals — не падать на неполном/битом коде при стриминге.
+          highlight: (code, lang) => {
+            if (typeof hljs === 'undefined') return code;
+            try {
+              if (lang && hljs.getLanguage(lang)) {
+                return hljs.highlight(code, { language: lang, ignoreIllegals: true }).value;
+              }
+              return hljs.highlightAuto(code).value;
+            } catch (e) { return code; }
+          },
+        });
         this.$nextTick(() => { this.scrollToBottom(); this.autosize(); });
         // T31 E9 — восстановить черновик для этой сессии
         try {
@@ -1574,6 +1605,37 @@
         return html;
       },
 
+      // Кнопка «копировать» в каждый код-блок (<pre>) после рендера markdown.
+      // Идемпотентно: помечаем обработанные <pre> через data-copy-ready.
+      decorateCode(root) {
+        if (!root || !root.querySelectorAll) return;
+        const pres = root.querySelectorAll('pre');
+        pres.forEach((pre) => {
+          if (pre.dataset.copyReady === '1') return;
+          const code = pre.querySelector('code');
+          if (!code) return;  // tool-карточки и пр. — пропускаем
+          pre.dataset.copyReady = '1';
+          pre.classList.add('code-pre');
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'code-copy';
+          btn.textContent = 'копировать';
+          btn.title = 'Скопировать код';
+          btn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            try {
+              await navigator.clipboard.writeText(code.textContent || '');
+              const old = btn.textContent;
+              btn.textContent = '✓ готово';
+              btn.classList.add('code-copied');
+              setTimeout(() => { btn.textContent = old; btn.classList.remove('code-copied'); }, 1200);
+            } catch (err) { /* нет доступа к clipboard — игнор */ }
+          });
+          pre.appendChild(btn);
+        });
+      },
+
       // T31 — клик по подсвеченному фрагменту снимает оценку
       onSpanClick(e, messageId) {
         const mark = e.target && e.target.closest && e.target.closest('.span-rate');
@@ -2145,6 +2207,35 @@
     line-height: 1.5;
     margin: 0.8em 0;
   }
+
+  /* Код-блок с кнопкой «копировать» (вставляется в decorateCode) */
+  .prose-base pre.code-pre, .prose-sm pre.code-pre { position: relative; }
+  .prose-base pre.code-pre:hover .code-copy,
+  .prose-sm pre.code-pre:hover .code-copy { opacity: 1; }
+  .code-copy {
+    position: absolute;
+    top: 0.4rem;
+    right: 0.4rem;
+    padding: 0.15rem 0.5rem;
+    font-size: 0.72em;
+    line-height: 1.2;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas, monospace;
+    color: #c7d2fe;
+    background: rgba(20, 23, 31, 0.92);
+    border: 1px solid #2a2f3a;
+    border-radius: 6px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s, color 0.15s, border-color 0.15s;
+  }
+  .code-copy:hover { color: #fff; border-color: #6366f1; }
+  .code-copy.code-copied { color: #34d399; border-color: #34d399; opacity: 1; }
+  /* На тач-устройствах hover не работает — кнопка всегда видна */
+  @media (pointer: coarse) {
+    .prose-base pre.code-pre .code-copy, .prose-sm pre.code-pre .code-copy { opacity: 0.85; }
+  }
+  /* highlight.js github-dark подсвечивает <code>; убираем его фон в <pre> */
+  .prose-base pre code.hljs, .prose-sm pre code.hljs { background: transparent; padding: 0; }
   .prose-base code, .prose-sm code {
     background: #1c2129;
     padding: 0.12rem 0.35rem;
@@ -2280,5 +2371,20 @@
   }
   .think-block > summary:hover { color: #d4d4d8; }
   .think-block[open] > summary { margin-bottom: 0.4em; border-bottom: 1px solid #2a2f3a; padding-bottom: 0.3em; }
+
+  /* Тач-таргеты >=44px на телефоне (pointer:coarse), не трогая desktop.
+     Кнопки действий под ответом, контролы композера и кнопка отправки/стоп
+     на десктопе остаются 32px (w-8 h-8 / p-1.5). */
+  @media (pointer: coarse) {
+    .msg-actions > button,
+    .composer-controls > button,
+    .composer-controls > label,
+    .composer-send {
+      min-width: 44px;
+      min-height: 44px;
+    }
+    /* select-контролы композера (режим/эффорт) — тоже комфортная высота */
+    .composer-controls > select { min-height: 44px; }
+  }
 </style>
 {% endblock %}

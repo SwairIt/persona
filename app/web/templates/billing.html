@@ -47,6 +47,10 @@
           {% if summary.is_trial %}
             <p style="color:var(--ink-faint);font-size:.88rem;text-align:center;margin:14px 0 6px">
               После триала оформи Pro, чтобы не потерять доступ:</p>
+          {% else %}
+            <form method="post" action="/billing/cancel" style="text-align:center;margin-top:10px">
+              <button type="submit" class="btn btn-ghost" style="font-size:.78rem;opacity:.7;padding:6px 12px">Отменить подписку</button>
+            </form>
           {% endif %}
         {% else %}
           <div style="text-align:center;margin-bottom:14px">

@@ -21,6 +21,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 from app.auth import current_user_required
 from app.auth.sessions import SessionRecord
+from app.i18n import get_ui_language, t
 from app.web.templates_engine import templates
 
 router = APIRouter(tags=["settings-hub"])
@@ -55,9 +56,9 @@ _KEYWORDS: Final[dict[str, str]] = {
 
 _CATEGORIES: Final[list[dict[str, object]]] = [
     {
-        "title": "Захват",
+        "title_key": "settings_cat_capture_title",
+        "desc_key": "settings_cat_capture_desc",
         "icon": "🎥",
-        "description": "Скриншоты, аудио, мик, расписание, throttle бюджета.",
         "pages": [
             ("/settings/capture", "Основное (вкл/выкл, частота, расписание)"),
             ("/settings/audio", "Расширенные параметры аудио (codec, VAD)"),
@@ -68,9 +69,9 @@ _CATEGORIES: Final[list[dict[str, object]]] = [
         ],
     },
     {
-        "title": "OCR и распознавание",
+        "title_key": "settings_cat_ocr_title",
+        "desc_key": "settings_cat_ocr_desc",
         "icon": "🔍",
-        "description": "Tesseract, языки, фразы для тегов, редактирование.",
         "pages": [
             ("/settings/ocr-languages", "Языки OCR"),
             ("/settings/ocr-skip", "Skip-list для OCR"),
@@ -80,9 +81,9 @@ _CATEGORIES: Final[list[dict[str, object]]] = [
         ],
     },
     {
-        "title": "Память и сводки",
+        "title_key": "settings_cat_memory_title",
+        "desc_key": "settings_cat_memory_desc",
         "icon": "🧠",
-        "description": "LLM, дайджесты, обогащение карточек, перевод.",
         "pages": [
             ("/briefing", "🗞 Брифинг — проактивные карточки дня (👍/👎, тихие часы)"),
             ("/graph", "🕸 Граф памяти — промпты, ответы, записи и связи"),
@@ -92,9 +93,9 @@ _CATEGORIES: Final[list[dict[str, object]]] = [
         ],
     },
     {
-        "title": "AI, чат и инструменты",
+        "title_key": "settings_cat_ai_title",
+        "desc_key": "settings_cat_ai_desc",
         "icon": "🤖",
-        "description": "Чат с памятью, MCP-инструменты, workspace, датасет для своей модели.",
         "pages": [
             ("/chat", "Чат с памятью (беседы, модель-пикер, vision)"),
             ("/ai-activity", "🔭 Что делает ИИ — окно активности (инструменты live)"),
@@ -114,9 +115,9 @@ _CATEGORIES: Final[list[dict[str, object]]] = [
         ],
     },
     {
-        "title": "Устройства и синхронизация",
+        "title_key": "settings_cat_devices_title",
+        "desc_key": "settings_cat_devices_desc",
         "icon": "📱",
-        "description": "Mac/iPhone агенты, выбор куда писать код, sync, хранилище.",
         "pages": [
             ("/devices", "Устройства (пауза, интервал, ★ код-таргет)"),
             ("/welcome/install/mac", "Установить / обновить Mac-агент"),
@@ -128,9 +129,9 @@ _CATEGORIES: Final[list[dict[str, object]]] = [
         ],
     },
     {
-        "title": "Приложения и теги",
+        "title_key": "settings_cat_apps_title",
+        "desc_key": "settings_cat_apps_desc",
         "icon": "🏷",
-        "description": "Алиасы, иконки, группы, retention per-app.",
         "pages": [
             ("/settings/app-aliases", "Алиасы названий приложений"),
             ("/settings/app-icons", "Иконки приложений"),
@@ -141,9 +142,9 @@ _CATEGORIES: Final[list[dict[str, object]]] = [
         ],
     },
     {
-        "title": "Уведомления и интеграции",
+        "title_key": "settings_cat_notifications_title",
+        "desc_key": "settings_cat_notifications_desc",
         "icon": "🔔",
-        "description": "SMTP, RSS-токены, webhooks.",
         "pages": [
             ("/settings/integrations", "🔗 Интеграции — экспорт напоминаний в .ics + календари"),
             ("/settings/alice", "🗣️ Алиса (Яндекс) → Персона — голосовой навык с памятью"),
@@ -154,9 +155,9 @@ _CATEGORIES: Final[list[dict[str, object]]] = [
         ],
     },
     {
-        "title": "Внешний вид",
+        "title_key": "settings_cat_appearance_title",
+        "desc_key": "settings_cat_appearance_desc",
         "icon": "🎨",
-        "description": "Тема, плотность, доступность, дашборд.",
         "pages": [
             ("/settings/theme", "Тема (auto / light / dark)"),
             ("/settings/dashboard", "Дашборд (компоновка)"),
@@ -166,9 +167,9 @@ _CATEGORIES: Final[list[dict[str, object]]] = [
         ],
     },
     {
-        "title": "Безопасность и обслуживание",
+        "title_key": "settings_cat_security_title",
+        "desc_key": "settings_cat_security_desc",
         "icon": "🔒",
-        "description": "Токены API, vault, бэкапы, аудит, hibrnation.",
         "pages": [
             ("/settings/privacy", "🔒 Приватность — что локально/в облако, экспорт, удалить всё"),
             ("/settings/api-tokens", "API токены"),
@@ -179,9 +180,9 @@ _CATEGORIES: Final[list[dict[str, object]]] = [
         ],
     },
     {
-        "title": "Диагностика",
+        "title_key": "settings_cat_diagnostics_title",
+        "desc_key": "settings_cat_diagnostics_desc",
         "icon": "📊",
-        "description": "Статистика, бюджет, lab-замеры, фокус.",
         "pages": [
             ("/analytics", "📊 Аналитика — тренды активности и ИИ за 7/30/90 дней"),
             ("/day", "📅 День — обзор одного дня (скрины, звук, ИИ, спросить)"),
@@ -197,12 +198,18 @@ _CATEGORIES: Final[list[dict[str, object]]] = [
 ]
 
 
-def _categories_json() -> list[dict[str, object]]:
+def _categories_json(lang: str | None = None) -> list[dict[str, object]]:
     """JS-friendly зеркало _CATEGORIES (кортежи pages → dict + keywords).
 
     Используется и для клиентского инстант-поиска (палитра в шапке), и для
     серверного ``/api/settings/search``. Один источник правды — _CATEGORIES.
+
+    Заголовок/описание категории хранятся в _CATEGORIES как КЛЮЧИ переводов
+    (``title_key`` / ``desc_key``) и резолвятся здесь через :func:`app.i18n.t`
+    под активный язык интерфейса (``lang`` или ``get_ui_language()``), чтобы
+    EN/DE-пользователь не видел русский текст.
     """
+    effective_lang = lang if lang is not None else get_ui_language()
     out: list[dict[str, object]] = []
     for cat in _CATEGORIES:
         pages = []
@@ -212,9 +219,9 @@ def _categories_json() -> list[dict[str, object]]:
             )
         out.append(
             {
-                "title": cat["title"],
+                "title": t(str(cat["title_key"]), effective_lang),
                 "icon": cat["icon"],
-                "description": cat["description"],
+                "description": t(str(cat["desc_key"]), effective_lang),
                 "pages": pages,
             }
         )
@@ -248,15 +255,21 @@ def search_settings(query: str, limit: int = 30) -> list[dict[str, str]]:
 
 @router.get("/settings/hub", response_class=HTMLResponse)
 async def settings_hub_page(request: Request) -> HTMLResponse:
-    """Render the category catalogue."""
+    """Render the category catalogue.
+
+    Заголовки/описания категорий резолвятся под активный язык интерфейса:
+    шаблон рисует карточки на Alpine.js из ``categories_json``, поэтому в нём
+    уже лежат переведённые ``title`` / ``description`` (см. _categories_json).
+    """
+    resolved = _categories_json()
     return templates.TemplateResponse(
         request,
         "settings_hub.html",
         {
-            "title": "Настройки — категории",
+            "title": t("settings_hub_title"),
             "active_nav": "settings",
-            "categories": _CATEGORIES,
-            "categories_json": _categories_json(),
+            "categories": resolved,
+            "categories_json": resolved,
         },
     )
 

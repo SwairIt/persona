@@ -10,16 +10,20 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from app import __version__
 from app.auth import current_user_required
 from app.auth.owner import is_owner
 from app.auth.sessions import SessionRecord
 from app.billing import config as billing_config
+from app.billing import repo
 from app.billing import service
+from app.billing.licensing import subscription_active
 from app.billing.plans import PRO_MONTHLY, PRO_YEARLY
 from app.logging_setup import get_logger
+from app.storage.db import get_connection
+from app.web import rate_limit
 from app.web.templates_engine import templates
 
 router = APIRouter(tags=["billing"])
@@ -83,3 +87,45 @@ async def billing_checkout(
             request, session, notice="Не удалось начать оплату. Попробуй позже."
         )
     return RedirectResponse(url=url, status_code=303)
+
+
+@router.post("/billing/webhook", response_model=None)
+async def billing_webhook(request: Request) -> Response:
+    """Вебхук ЮKassa. Подписи нет — подлинность гарантирует re-GET платежа через
+    наш secret (см. service.activate_from_payment). ВСЕГДА отвечаем 2xx, иначе
+    ЮKassa будет ретраить; ошибку логируем и глотаем."""
+    try:
+        body = await request.json()
+        pid = body["object"]["id"]
+        await service.activate_from_payment(pid)
+    except Exception as exc:  # noqa: BLE001 — любая ошибка не должна вызвать ретрай-шторм
+        log.warning("billing.webhook_failed", error=str(exc))
+    return Response(status_code=200)
+
+
+@router.post("/billing/cancel", response_model=None)
+async def billing_cancel(
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+) -> Response:
+    """Отменить автопродление подписки (доступ — до конца оплаченного периода)."""
+    await service.cancel_subscription(int(session["user_id"]))
+    return RedirectResponse(url="/billing", status_code=303)
+
+
+@router.get("/api/v1/license/{key}", response_model=None)
+async def license_validate(request: Request, key: str) -> JSONResponse:
+    """Публичная валидация лицензии для чужого self-host. Rate-limit по IP.
+    Не светим чужие данные — только факт активности, план, статус, срок."""
+    ip = request.client.host if request.client else "?"
+    if not rate_limit.allow(f"lic:{ip}", 30, 60):
+        return JSONResponse({"valid": False}, status_code=429)
+    async with get_connection() as conn:
+        sub = await repo.get_subscription_by_license(conn, key)
+    if subscription_active(sub):
+        return JSONResponse({
+            "valid": True,
+            "plan": (sub or {}).get("plan"),
+            "status": (sub or {}).get("status"),
+            "expires_at": (sub or {}).get("current_period_end"),
+        })
+    return JSONResponse({"valid": False})

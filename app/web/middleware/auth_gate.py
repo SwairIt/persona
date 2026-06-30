@@ -97,6 +97,11 @@ _PUBLIC_PREFIXES: tuple[str, ...] = (
     # опрашивает очередь озвучки и подтверждает её с Bearer/X-Agent-Token
     # (без cookie). Эндпоинты сами проверяют токен агента.
     "/api/voice/",
+    # Биллинг: вебхук ЮKassa приходит из интернета без cookie (подлинность —
+    # re-GET платежа через наш secret), а валидацию лицензии дёргает чужой
+    # self-host тоже без сессии (rate-limit по IP в роуте).
+    "/billing/webhook",
+    "/api/v1/license",
     "/favicon.ico",
 )
 
