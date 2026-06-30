@@ -364,6 +364,7 @@ def run(cfg: Config) -> int:
         pass
 
     backoff = _BACKOFF_START
+    idle_polls = 0
     # Один httpx-клиент на весь цикл для запросов К СЕРВЕРУ (keep-alive).
     with httpx.Client() as client:
         while not stopper.stop:
@@ -371,7 +372,13 @@ def run(cfg: Config) -> int:
                 job = _poll_once(client, cfg)
                 backoff = _BACKOFF_START  # успешный контакт — сбрасываем бэкофф
                 if job is None:
-                    continue  # 204 — таймаут long-poll, сразу снова
+                    # 204 — задач нет. Тихий long-poll, но раз в ~N опросов
+                    # пишем heartbeat, чтобы было видно «жив, жду» (а не «завис»).
+                    idle_polls += 1
+                    if idle_polls == 1 or idle_polls % 5 == 0:
+                        log(f"подключён, жду задачи (long-poll активен, опросов: {idle_polls})")
+                    continue
+                idle_polls = 0
                 _process_job(client, cfg, job, stopper)
             except PermissionError as exc:
                 # 401 — фатальная конфиг-ошибка, нет смысла крутиться вечно.
