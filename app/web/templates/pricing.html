@@ -25,48 +25,49 @@
       Честная <span class="grad">цена</span>
     </h1>
     <p style="font-size:1.15rem;color:#aab;line-height:1.6;">
-      Persona открытая и local-first. Нет вечной облачной подписки за инференс и нет vendor
-      lock-in. Платишь только за то, что реально потребляешь у внешнего провайдера — и только если сам захочешь.
+      Начни с <b style="color:#eef0ff">3 дней Pro бесплатно</b> — попробуй ИИ-ассистента прямо в браузере, без карты.
+      Дальше выбирай: Pro-подписка или открытый self-host для максимальной приватности.
     </p>
   </header>
 
   <section style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1.25rem;align-items:stretch;">
 
-    <div class="glass" style="padding:1.6rem;border-radius:18px;border:1px solid rgba(167,139,250,.4);display:flex;flex-direction:column;">
-      <div style="font-size:.8rem;text-transform:uppercase;letter-spacing:.12em;color:#a78bfa;">Локально</div>
-      <div style="font-size:2.4rem;font-weight:800;margin:.4rem 0;">Бесплатно</div>
-      <p style="color:#9aa;font-size:.95rem;line-height:1.55;">Всё ядро Persona на твоём устройстве: захват экрана и звука, OCR, память, граф, чат, голос, брифинги. Своя локальная модель (Ollama) — офлайн и без платы за инференс.</p>
+    <div class="glass" style="padding:1.6rem;border-radius:18px;display:flex;flex-direction:column;">
+      <div style="font-size:.8rem;text-transform:uppercase;letter-spacing:.12em;color:#5eead4;">Триал</div>
+      <div style="font-size:2.4rem;font-weight:800;margin:.4rem 0;">3 дня бесплатно</div>
+      <p style="color:#9aa;font-size:.95rem;line-height:1.55;">Попробуй полноценного ИИ-ассистента прямо в браузере — без карты и без установки. Введи почту и через минуту общаешься.</p>
       <ul class="check" style="margin:1rem 0;flex:1;">
-        <li>Захват + OCR + аудио на устройстве</li>
-        <li>Память, граф, чат, аналитика</li>
-        <li>Локальная модель — офлайн</li>
-        <li>«Вторая копия» (своя дообученная модель)</li>
-        <li>Экспорт без потерь, ноль lock-in</li>
+        <li>Полный доступ к Pro на 3 дня</li>
+        <li>Своя приватная память (только твоя)</li>
+        <li>Ничего ставить не нужно</li>
+        <li>Без карты</li>
       </ul>
-      <a href="/auth/signup" class="btn btn-primary">Начать</a>
+      <a href="/auth/signup" class="btn btn-secondary">Начать бесплатно</a>
+    </div>
+
+    <div class="glass" style="padding:1.6rem;border-radius:18px;border:1px solid rgba(167,139,250,.55);display:flex;flex-direction:column;position:relative;">
+      <div style="position:absolute;top:-11px;left:50%;transform:translateX(-50%);background:#7c3aed;color:#fff;font-size:.7rem;font-weight:700;padding:3px 12px;border-radius:999px;letter-spacing:.05em;">ПОПУЛЯРНОЕ</div>
+      <div style="font-size:.8rem;text-transform:uppercase;letter-spacing:.12em;color:#a78bfa;">Pro</div>
+      <div style="font-size:2.4rem;font-weight:800;margin:.4rem 0;">690&nbsp;₽<span style="font-size:1rem;font-weight:500;color:#9aa;">/мес</span></div>
+      <p style="color:#9aa;font-size:.95rem;line-height:1.55;">Или <b style="color:#eef0ff">5&nbsp;900&nbsp;₽/год</b> (−29%, как 2,5 месяца даром). ИИ-ассистент без лимитов с памятью, которая узнаёт тебя.</p>
+      <ul class="check" style="margin:1rem 0;flex:1;">
+        <li>ИИ-ассистент без лимитов</li>
+        <li>Живая память между чатами — только твоя</li>
+        <li>Приоритетная обработка</li>
+        <li>Оформляется в кабинете за минуту</li>
+      </ul>
+      <a href="/auth/signup" class="btn btn-primary">Оформить Pro</a>
     </div>
 
     <div class="glass" style="padding:1.6rem;border-radius:18px;display:flex;flex-direction:column;">
-      <div style="font-size:.8rem;text-transform:uppercase;letter-spacing:.12em;color:#5eead4;">Облачная модель (по желанию)</div>
-      <div style="font-size:2.4rem;font-weight:800;margin:.4rem 0;">По твоему ключу</div>
-      <p style="color:#9aa;font-size:.95rem;line-height:1.55;">Хочешь мощную облачную LLM (Claude, GPT и др.)? Подключи СВОЙ API-ключ — платишь провайдеру напрямую за использование, без наценки и без посредника. Наружу уходят только запросы, не данные захвата.</p>
-      <ul class="check" style="margin:1rem 0;flex:1;">
-        <li>Любой из 19+ провайдеров</li>
-        <li>Платишь провайдеру напрямую (BYO-key)</li>
-        <li>Переключение модель↔локально в один клик</li>
-        <li>Память и захват остаются локальными</li>
-      </ul>
-      <a href="/auth/signup" class="btn btn-secondary">Подключить ключ</a>
-    </div>
-
-    <div class="glass" style="padding:1.6rem;border-radius:18px;display:flex;flex-direction:column;">
-      <div style="font-size:.8rem;text-transform:uppercase;letter-spacing:.12em;color:#f472b6;">Самостоятельный хостинг</div>
+      <div style="font-size:.8rem;text-transform:uppercase;letter-spacing:.12em;color:#f472b6;">Self-host</div>
       <div style="font-size:2.4rem;font-weight:800;margin:.4rem 0;">Открыто</div>
-      <p style="color:#9aa;font-size:.95rem;line-height:1.55;">Persona открытая — разворачивай и держи у себя. Никакого обязательного облака, никакой подписки, которую могут поднять или отключить за ночь. Твоя инфраструктура — твои правила.</p>
+      <p style="color:#9aa;font-size:.95rem;line-height:1.55;">Нужна максимальная приватность? Persona open-source — поставь к себе, и данные не покидают твоё устройство. Никакого облака и vendor lock-in.</p>
       <ul class="check" style="margin:1rem 0;flex:1;">
-        <li>Полный контроль и данные у тебя</li>
-        <li>Иммунитет к поглощению/смене Terms</li>
-        <li>Mac + Windows агенты</li>
+        <li>Данные только у тебя, можно офлайн</li>
+        <li>Своя локальная модель + «вторая копия»</li>
+        <li>Иммунитет к смене Terms / поглощению</li>
+        <li>Mac + Windows</li>
       </ul>
       <a href="/features" class="btn btn-secondary">Что внутри</a>
     </div>
