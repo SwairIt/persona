@@ -454,10 +454,25 @@ async def hybrid_recall(user_id: int, question: str,
 
     ``salience=True`` (recall_mode='generative') — поверх RRF включает
     Generative-Agents-пересортировку score_and_rerank (recency·importance·
-    relevance + MMR). При salience=False порядок RRF не трогаем (поведение
-    hybrid/vector байт-в-байт прежнее). На КАЖДОМ recall (независимо от режима)
-    отданным памятям бампим last_seen/access_count (rehearsal)."""
+    relevance + MMR). Дополнительно: kv ``recall_use_salience``='1' включает ту же
+    пересортировку НЕЗАВИСИМО от recall_mode (т.е. и для hybrid/vector) — глобальный
+    тумблер из /settings/memory. Дефолт ВЫКЛ: при salience=False и пустом/невыставленном
+    kv порядок RRF не трогаем (поведение hybrid/vector байт-в-байт прежнее). На КАЖДОМ
+    recall (независимо от режима) отданным памятям бампим last_seen/access_count
+    (rehearsal)."""
     from app.chat.sessions import recall_relevant  # noqa: PLC0415
+
+    # Глобальный тумблер: salience во ВСЕХ режимах (kv recall_use_salience). ИЛИ к
+    # явному salience-флагу вызова (generative). Дефолт ВЫКЛ — ошибка чтения kv не
+    # должна включать пересортировку (обратная совместимость).
+    use_salience = salience
+    if not use_salience:
+        try:
+            async with get_connection() as conn:
+                use_salience = (await get_kv(conn, "recall_use_salience") or "").strip() == "1"
+        except Exception as exc:  # noqa: BLE001 — kv недоступен → дефолт ВЫКЛ
+            log.debug("memory_vec.salience_kv_failed", error=str(exc))
+            use_salience = False
 
     try:
         qvec = None
@@ -495,9 +510,10 @@ async def hybrid_recall(user_id: int, question: str,
         merged = filtered or merged
         # Опц. финальный cross-encoder реранк top-N → точнее, чем RRF-порядок.
         merged = await _rerank(question, merged, limit)
-        # Salience-пересортировка (Generative-Agents) — только в 'generative'.
+        # Salience-пересортировка (Generative-Agents): в 'generative' (salience=True)
+        # ИЛИ при глобальном тумблере recall_use_salience (любой режим).
         # relevance = RRF-score кандидата; остальное (recency/importance) из БД.
-        if salience:
+        if use_salience:
             merged = await score_and_rerank(merged, relevance=scores, limit=limit)
         # Rehearsal/decay-reset: бампим отданные памяти (best-effort, все режимы).
         await bump_recall_stats(

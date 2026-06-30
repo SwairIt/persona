@@ -192,6 +192,7 @@ _CATEGORIES: Final[list[dict[str, object]]] = [
             ("/stats/quality-lab", "Качество захвата"),
             ("/activity", "Активность 365 дней"),
             ("/health", "Health-дашборд"),
+            ("/settings/system-monitor", "🖥️ Монитор нагрузки ПК — CPU/RAM/диск/сеть в реальном времени"),
             ("/doctor", "Доктор (диагностика)"),
             ("/settings", "Все настройки одним списком (advanced)"),
         ],

@@ -292,7 +292,77 @@ async def _light_sleep(
             slot["message_ids"].extend(doc.get("message_ids") or [])
             if str(doc.get("latest_at") or "") > str(slot.get("latest_at") or ""):
                 slot["latest_at"] = doc.get("latest_at")
-    return list(cands.values())
+    # Кластеризация близких кандидатов (агломеративно по Jaccard ключевых токенов
+    # ≥ 0.5): дубли-перефразировки сливаем в один representative (самый свежий/
+    # богатый), суммируя счётчики/источники — снижает дубли ДО скоринга/промоута.
+    return _cluster_candidates(list(cands.values()))
+
+
+def _cluster_candidates(cands: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Слить близкие кандидаты (Jaccard ключевых токенов ≥ 0.5) в representative.
+
+    Агломеративно (транзитивное замыкание union-find): a~b, b~c → один кластер.
+    Representative = самый свежий/богатый; count/sources/message_ids/richness
+    объединяются по кластеру (важное всплывает, дубли схлопываются).
+    """
+    n = len(cands)
+    if n < 2:
+        return cands
+    toks = [_key_tokens(c["text"]) for c in cands]
+    parent = list(range(n))
+
+    def find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for i in range(n):
+        if not toks[i]:
+            continue
+        ti = toks[i]
+        for j in range(i + 1, n):
+            if not toks[j]:
+                continue
+            inter = len(ti & toks[j])
+            if not inter:
+                continue
+            union = len(ti | toks[j])
+            if union and inter / union >= 0.5:
+                ri, rj = find(i), find(j)
+                if ri != rj:
+                    parent[rj] = ri
+
+    groups: dict[int, list[int]] = {}
+    for i in range(n):
+        groups.setdefault(find(i), []).append(i)
+
+    merged: list[dict[str, Any]] = []
+    for idxs in groups.values():
+        if len(idxs) == 1:
+            merged.append(cands[idxs[0]])
+            continue
+        # Representative: свежее (latest_at), при равенстве — богаче (richness).
+        rep_i = max(
+            idxs,
+            key=lambda k: (
+                str(cands[k].get("latest_at") or ""),
+                int(cands[k].get("richness") or 0),
+            ),
+        )
+        rep = dict(cands[rep_i])
+        rep["sources"] = set(rep.get("sources") or set())
+        rep["message_ids"] = list(rep.get("message_ids") or [])
+        for k in idxs:
+            if k == rep_i:
+                continue
+            other = cands[k]
+            rep["count"] = rep.get("count", 0) + other.get("count", 0)
+            rep["sources"].update(other.get("sources") or set())
+            rep["message_ids"].extend(other.get("message_ids") or [])
+            rep["richness"] = max(rep.get("richness", 0), other.get("richness", 0))
+        merged.append(rep)
+    return merged
 
 
 # ── Phase 3: Deep Sleep — скоринг + промоут ──────────────────────────────────
@@ -411,30 +481,59 @@ async def run_dream_cycle(user_id: int) -> dict[str, Any]:
         return {"status": "no_data", "candidates": 0, "promoted": 0, "dream": False}
 
     # Phase 2 — REM (нарратив тем недели, недеструктивно).
-    dream_written = await _rem(client, user_id, cands)
+    dream_text = await _rem(client, user_id, cands)
+    dream_written = bool(dream_text)
 
     # Phase 3 — Deep Sleep (скоринг + промоут).
-    promoted = await _deep_sleep(user_id, cands, threshold, min_recall, now)
+    deep = await _deep_sleep(user_id, cands, threshold, min_recall, now)
+    promoted = deep["promoted"]
+    conflicts = deep["conflicts"]
+
+    # Phase 3b — Консолидация: слить дубли среди актуальных фактов user_memory.
+    consolidations = await _consolidate(user_id)
 
     await _set_last_processed(max_msg_id)
+
+    # Отчёт о прогоне (миграция 196) — best-effort, не валит цикл.
+    impact_score = round(promoted / max(1, len(cands)), 4)
+    await _write_report(
+        user_id,
+        candidates=len(cands),
+        promoted=promoted,
+        consolidations=consolidations,
+        conflicts=conflicts,
+        dream_text=dream_text,
+        impact_score=impact_score,
+    )
+
     log.info(
         "reflection.cycle_done",
         user_id=user_id,
         docs=len(docs),
         candidates=len(cands),
         promoted=promoted,
+        consolidations=consolidations,
+        conflicts=conflicts,
         dream=dream_written,
+        impact=impact_score,
     )
     return {
         "status": "ok",
         "candidates": len(cands),
         "promoted": promoted,
+        "consolidations": consolidations,
+        "conflicts": conflicts,
         "dream": dream_written,
+        "impact_score": impact_score,
     }
 
 
-async def _rem(client: Any, user_id: int, cands: list[dict[str, Any]]) -> bool:
-    """REM-фаза: нарратив повторяющихся тем → reflection(kind='dream')."""
+async def _rem(client: Any, user_id: int, cands: list[dict[str, Any]]) -> str:
+    """REM-фаза: нарратив повторяющихся тем → reflection(kind='dream').
+
+    Возвращает текст нарратива (или ``""`` при сбое/пустом) — для записи в
+    ``dream_report.dream_text``. Вызывающий трактует непустую строку как «сон записан».
+    """
     from app.dreams import add_reflection  # noqa: PLC0415
     from app.llm.client import CompletionRequest  # noqa: PLC0415
 
@@ -451,10 +550,10 @@ async def _rem(client: Any, user_id: int, cands: list[dict[str, Any]]) -> bool:
         )
     except Exception as exc:  # noqa: BLE001 — Ollama лёг → REM просто пропускаем
         log.debug("reflection.rem_failed", error=str(exc))
-        return False
+        return ""
     narrative = (narrative or "").strip()
     if len(narrative) < 12:
-        return False
+        return ""
     src_ids: list[int] = []
     for c in top:
         src_ids.extend(c.get("message_ids") or [])
@@ -464,8 +563,8 @@ async def _rem(client: Any, user_id: int, cands: list[dict[str, Any]]) -> bool:
         )
     except Exception as exc:  # noqa: BLE001
         log.debug("reflection.rem_store_failed", error=str(exc))
-        return False
-    return True
+        return ""
+    return narrative
 
 
 async def _deep_sleep(
@@ -474,13 +573,18 @@ async def _deep_sleep(
     threshold: float,
     min_recall: int,
     now: datetime,
-) -> int:
-    """Deep Sleep: скоринг + промоут высоких в user_memory через reconcile_and_add."""
+) -> dict[str, int]:
+    """Deep Sleep: скоринг + промоут высоких в user_memory через reconcile_and_add.
+
+    Возвращает ``{promoted, conflicts}``: ``conflicts`` — сколько промоутов
+    разрешили противоречие (mem0 update/delete старого факта).
+    """
     from app.chat.user_memory import reconcile_and_add  # noqa: PLC0415
 
     relevance = _centrality(cands)
     known = await _already_known(user_id)
     promoted = 0
+    conflicts = 0
     for i, cand in enumerate(cands):
         consolidated = _is_consolidated(_key_tokens(cand["text"]), known)
         score = _score(cand, relevance.get(i, 0.5), consolidated, now)
@@ -492,10 +596,110 @@ async def _deep_sleep(
         except Exception as exc:  # noqa: BLE001 — промоут одного факта не валит цикл
             log.debug("reflection.promote_failed", error=str(exc))
             continue
-        if res.get("action") in ("add", "update"):
+        action = res.get("action")
+        if action in ("add", "update"):
             promoted += 1
             await _reindex_sources(user_id, cand)
-    return promoted
+            # S6: из промоутнутого факта вытащить триплеты и достроить граф знаний
+            # (сущности + рёбра kg_edge). Best-effort — не валит цикл сна.
+            await _extract_graph(user_id, cand["text"])
+        if action in ("update", "delete"):
+            conflicts += 1
+    return {"promoted": promoted, "conflicts": conflicts}
+
+
+async def _extract_graph(user_id: int, fact_text: str) -> None:
+    """Достроить семантический граф знаний из промоутнутого факта (S6, best-effort)."""
+    try:
+        from app.knowledge_graph import extract_entities_and_edges  # noqa: PLC0415
+
+        await extract_entities_and_edges(user_id, fact_text, source_kind="dream")
+    except Exception as exc:  # noqa: BLE001 — граф опционален, не валит цикл сна
+        log.debug("reflection.graph_failed", error=str(exc))
+
+
+# ── Phase 3b: Консолидация — слияние дублей в постоянной памяти ───────────────
+
+
+async def _consolidate(user_id: int) -> int:
+    """Слить дубли среди актуальных фактов user_memory (Jaccard ключевых токенов
+    ≥ 0.5). Старые дубли soft-invalidate (superseded_by representative), новый
+    representative реиндексируем best-effort. Возвращает число слитых фактов.
+    """
+    try:
+        from app.chat.user_memory import consolidate_memories  # noqa: PLC0415
+
+        merges = await consolidate_memories(user_id, threshold=0.5)
+    except Exception as exc:  # noqa: BLE001 — консолидация не валит цикл
+        log.debug("reflection.consolidate_failed", error=str(exc))
+        return 0
+    total = 0
+    for m in merges:
+        merged_ids = m.get("merged_ids") or []
+        total += len(merged_ids)
+        log.info(
+            "reflection.consolidated",
+            user_id=user_id,
+            rep_id=m.get("rep_id"),
+            merged=len(merged_ids),
+        )
+        await _reindex_memory(user_id, int(m.get("rep_id") or 0), str(m.get("rep_text") or ""))
+    return total
+
+
+async def _reindex_memory(user_id: int, mem_id: int, text: str) -> None:
+    """Реиндекс/эмбеддинг слитого representative-факта (best-effort, опц.).
+
+    Сам факт уже в ``user_memory`` (всегда в контексте через ``build_memory_block``),
+    поэтому отдельная векторная строка ему не нужна — векторный recall ходит по
+    ``chat_message`` (JOIN по id), синтетический id туда не ляжет осмысленно. Здесь
+    лишь «прогреваем» эмбеддинг компакт-текста (если sqlite-vec/Ollama доступны),
+    чтобы последующий recall встретил тёплую embed-модель. No-op без зависимостей.
+    """
+    if mem_id <= 0 or len(text) < 6:
+        return
+    try:
+        from app.memory_vec import embed, sqlite_vec_available  # noqa: PLC0415
+
+        if not sqlite_vec_available():
+            return
+        await embed(text)  # тёплый эмбеддинг компакт-факта (без orphan-строк в индексе)
+    except Exception as exc:  # noqa: BLE001 — реиндекс опционален
+        log.debug("reflection.reindex_memory_failed", error=str(exc))
+
+
+# ── Отчёт о прогоне (миграция 196) ───────────────────────────────────────────
+
+
+async def _write_report(
+    user_id: int,
+    candidates: int,
+    promoted: int,
+    consolidations: int,
+    conflicts: int,
+    dream_text: str,
+    impact_score: float,
+) -> None:
+    """Записать строку dream_report (best-effort; на старой БД без таблицы — тихо)."""
+    try:
+        async with get_connection() as conn:
+            await conn.execute(
+                "INSERT INTO dream_report(user_id, candidates, promoted, "
+                "consolidations, conflicts, dream_text, impact_score) "
+                "VALUES(?,?,?,?,?,?,?)",
+                (
+                    user_id,
+                    int(candidates),
+                    int(promoted),
+                    int(consolidations),
+                    int(conflicts),
+                    dream_text or None,
+                    float(impact_score),
+                ),
+            )
+            await conn.commit()
+    except Exception as exc:  # noqa: BLE001 — отчёт опционален, не валит цикл
+        log.debug("reflection.report_failed", error=str(exc))
 
 
 async def _reindex_sources(user_id: int, cand: dict[str, Any]) -> None:

@@ -7,12 +7,14 @@ Server-rendered + form-POST, работает без JS.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from app.auth import current_user_required
+from app.auth.owner import is_owner
 from app.auth.sessions import SessionRecord
 from app.chat.user_memory import (
     add_memory,
@@ -51,7 +53,37 @@ _ENGINE_KEYS: tuple[tuple[str, str], ...] = (
     ("recall_w_recency", "1.0"),  # веса scoring (режим generative)
     ("recall_w_importance", "1.0"),
     ("recall_w_relevance", "1.0"),
+    ("recall_use_salience", "0"),  # salience-ранжирование ВО ВСЕХ режимах — OPT-IN
 )
+
+# kv-флаги ручного прогона ночного «сна» (кнопка «Обучить память сейчас»).
+_TRAIN_KEYS: tuple[str, ...] = (
+    "train_in_progress",   # "1" пока цикл идёт, иначе "0"
+    "train_last_started",  # ISO-метка старта последнего прогона
+    "train_last_finished", # ISO-метка завершения
+    "train_last_result",   # человекочитаемый итог/ошибка
+)
+
+
+async def _require_owner(session: SessionRecord) -> None:
+    """Ручной запуск «сна» — только владелец (доступ к скриншотам/аудио/чату)."""
+    if not await is_owner(session["user_id"]):
+        raise HTTPException(status_code=403, detail="owner only")
+
+
+async def _load_train() -> dict[str, str]:
+    """Текущее состояние ручного прогона (тихий fallback на пустые значения)."""
+    out: dict[str, str] = {k: "" for k in _TRAIN_KEYS}
+    out["train_in_progress"] = "0"
+    try:
+        async with get_connection() as conn:
+            for key in _TRAIN_KEYS:
+                val = await get_kv(conn, key)
+                if val is not None:
+                    out[key] = str(val)
+    except Exception as exc:  # noqa: BLE001
+        log.debug("memory.train_load_failed", error=str(exc))
+    return out
 
 
 async def _load_engine() -> dict[str, str]:
@@ -88,6 +120,8 @@ async def _render(request: Request, user_id: int, *, saved: str = "") -> HTMLRes
         h["superseded_text"] = by_id.get(sb) if sb else None
     engine = await _load_engine()
     reflections = await _load_reflections(user_id)
+    train = await _load_train()
+    owner = await is_owner(user_id)
     return templates.TemplateResponse(
         request,
         "memory_settings.html",
@@ -101,6 +135,8 @@ async def _render(request: Request, user_id: int, *, saved: str = "") -> HTMLRes
             "saved": saved,
             "engine": engine,
             "reflections": reflections,
+            "train": train,
+            "is_owner": owner,
         },
     )
 
@@ -176,6 +212,7 @@ async def memory_engine_save(
     recall_w_recency: str = Form(default="1.0"),
     recall_w_importance: str = Form(default="1.0"),
     recall_w_relevance: str = Form(default="1.0"),
+    recall_use_salience: str = Form(default=""),
 ) -> RedirectResponse:
     """Сохранить настройки движка памяти: режим recall, веса scoring и ночной «сон»."""
     rm = recall_mode if recall_mode in _RECALL_MODES else ""
@@ -197,6 +234,7 @@ async def memory_engine_save(
         await set_kv(conn, "recall_w_recency", _w(recall_w_recency))
         await set_kv(conn, "recall_w_importance", _w(recall_w_importance))
         await set_kv(conn, "recall_w_relevance", _w(recall_w_relevance))
+        await set_kv(conn, "recall_use_salience", "1" if recall_use_salience else "0")
         await conn.commit()
     return RedirectResponse("/settings/memory", status_code=303)
 
@@ -209,3 +247,93 @@ async def memory_reflection_forget(
     """Soft-invalidate рефлексии — «забыть» инсайт ночного «сна» (остаётся в истории)."""
     await invalidate_reflection(session["user_id"], ref_id)
     return RedirectResponse("/settings/memory", status_code=303)
+
+
+# ── Ручной запуск ночного «сна» (кнопка «Обучить память сейчас») ──────────────
+
+
+async def _set_train_kv(**kv: str) -> None:
+    """Записать набор train_*-флагов одной транзакцией (best-effort)."""
+    try:
+        async with get_connection() as conn:
+            for key, val in kv.items():
+                await set_kv(conn, key, val)
+            await conn.commit()
+    except Exception as exc:  # noqa: BLE001 — не валим фоновый прогон из-за БД
+        log.debug("memory.train_kv_failed", error=str(exc))
+
+
+async def _run_train(user_id: int) -> None:
+    """Фоновый прогон run_dream_cycle: пишет понятный итог в train_last_result,
+    всегда сбрасывает train_in_progress (даже при сбое Ollama/исключении)."""
+    from datetime import datetime, timezone
+
+    from app.chat.reflection import run_dream_cycle  # noqa: PLC0415
+
+    result_msg = ""
+    try:
+        result = await run_dream_cycle(user_id)
+        status = (result or {}).get("status")
+        if status == "ok":
+            result_msg = (
+                f"Готово: кандидатов {result.get('candidates', 0)}, "
+                f"запомнено {result.get('promoted', 0)}"
+                + (", записан ночной инсайт" if result.get("dream") else "")
+            )
+        elif status == "quiet":
+            result_msg = "Отложено: недавно была активность в чате, попробуй позже."
+        elif status == "no_data":
+            result_msg = "Нет материала или модель недоступна — запоминать нечего."
+        else:
+            result_msg = f"Завершено со статусом: {status or 'неизвестно'}"
+    except Exception as exc:  # noqa: BLE001 — Ollama/туннель лёг и т.п.
+        log.warning("memory.train_failed", user_id=user_id, error=str(exc))
+        result_msg = f"Ошибка обучения: {exc}"
+    finally:
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        await _set_train_kv(
+            train_in_progress="0",
+            train_last_finished=now,
+            train_last_result=result_msg or "Прогон завершён.",
+        )
+
+
+@router.post("/settings/memory/train", response_model=None)
+async def memory_train(
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+) -> RedirectResponse:
+    """Запустить ночной прогон «сна» вручную, ФОНОМ (не блокируя HTTP-ответ)."""
+    await _require_owner(session)
+    from datetime import datetime, timezone
+
+    # Анти-дубль: если прогон уже идёт — не стартуем второй.
+    train = await _load_train()
+    if train.get("train_in_progress") == "1":
+        return RedirectResponse("/settings/memory", status_code=303)
+
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    await _set_train_kv(
+        train_in_progress="1",
+        train_last_started=now,
+        train_last_result="",
+    )
+    # Фоновая задача: HTTP-ответ возвращается сразу, цикл крутится отдельно.
+    asyncio.create_task(_run_train(session["user_id"]))
+    return RedirectResponse("/settings/memory", status_code=303)
+
+
+@router.get("/settings/memory/train/status", response_model=None)
+async def memory_train_status(
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+) -> JSONResponse:
+    """JSON-состояние ручного прогона (для авто-обновления кнопки на странице)."""
+    await _require_owner(session)
+    train = await _load_train()
+    return JSONResponse(
+        {
+            "in_progress": train.get("train_in_progress") == "1",
+            "last_started": train.get("train_last_started") or "",
+            "last_finished": train.get("train_last_finished") or "",
+            "result": train.get("train_last_result") or "",
+        }
+    )

@@ -338,6 +338,108 @@ async def reconcile_and_add(
     return {"action": "add", "id": new_id}
 
 
+def _jaccard(a: set[str], b: set[str]) -> float:
+    """Жаккар ключевых токенов в [0,1]; 0 при пустом объединении."""
+    if not a or not b:
+        return 0.0
+    inter = len(a & b)
+    if not inter:
+        return 0.0
+    union = len(a | b)
+    return inter / union if union else 0.0
+
+
+def _cluster_by_jaccard(
+    items: list[dict[str, Any]], threshold: float = 0.5
+) -> list[list[dict[str, Any]]]:
+    """Агломеративная кластеризация фактов по Жаккару ключевых токенов.
+
+    Транзитивное замыкание (union-find): если a~b и b~c, то a,b,c — один кластер.
+    ``threshold`` консервативный (0.5) — сливаем только явные дубли.
+    """
+    n = len(items)
+    parent = list(range(n))
+
+    def find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(x: int, y: int) -> None:
+        rx, ry = find(x), find(y)
+        if rx != ry:
+            parent[ry] = rx
+
+    toks = [_key_tokens(it["text"]) for it in items]
+    for i in range(n):
+        if not toks[i]:
+            continue
+        for j in range(i + 1, n):
+            if toks[j] and _jaccard(toks[i], toks[j]) >= threshold:
+                union(i, j)
+
+    groups: dict[int, list[dict[str, Any]]] = {}
+    for i in range(n):
+        groups.setdefault(find(i), []).append(items[i])
+    return [g for g in groups.values() if len(g) >= 2]
+
+
+def _pick_representative(group: list[dict[str, Any]]) -> dict[str, Any]:
+    """Самый полный/свежий факт кластера: длиннее текст, затем больший id (свежее)."""
+    return max(
+        group,
+        key=lambda r: (len(r.get("text") or ""), int(r.get("id") or 0)),
+    )
+
+
+async def consolidate_memories(
+    user_id: int, threshold: float = 0.5
+) -> list[dict[str, Any]]:
+    """Слить дубли среди АКТУАЛЬНЫХ фактов пользователя (ночная Phase 3b).
+
+    Группируем актуальные факты агломеративно по Жаккару ключевых токенов
+    (``>= threshold``); в каждом кластере оставляем самый полный/свежий
+    («representative»), остальные soft-invalidate через существующий механизм
+    (``invalidate_memory`` → ``valid_until=now`` + ``superseded_by=rep_id``). Не
+    создаём новых строк: representative УЖЕ актуален, индекс/эмбеддинг не трогаем
+    повторно. Best-effort, идемпотентно (на чистой памяти — no-op).
+
+    Возвращает список слияний: ``[{rep_id, rep_text, merged_ids:[…]}]`` —
+    вызывающий (``reflection.run_dream_cycle``) логирует и реиндексирует.
+    """
+    rows = await list_memory(user_id, limit=1000)
+    if len(rows) < 2:
+        return []
+    merges: list[dict[str, Any]] = []
+    for group in _cluster_by_jaccard(rows, threshold):
+        rep = _pick_representative(group)
+        rep_id = int(rep["id"])
+        merged_ids: list[int] = []
+        for r in group:
+            rid = int(r["id"])
+            if rid == rep_id:
+                continue
+            try:
+                ok = await invalidate_memory(user_id, rid, superseded_by=rep_id)
+            except Exception as exc:  # noqa: BLE001 — слияние одного факта не валит цикл
+                log.debug("user_memory.consolidate_invalidate_failed", id=rid, error=str(exc))
+                continue
+            if ok:
+                merged_ids.append(rid)
+        if merged_ids:
+            log.info(
+                "user_memory.consolidated",
+                user_id=user_id,
+                rep_id=rep_id,
+                merged=len(merged_ids),
+            )
+            merges.append(
+                {"rep_id": rep_id, "rep_text": str(rep["text"]), "merged_ids": merged_ids}
+            )
+    return merges
+
+
 # Схема извлечения фактов для GBNF (Ollama complete_json) — корень анти-CJK:
 # format=schema физически отрезает мусорные/китайские токены и битый JSON.
 _FACTS_SCHEMA: dict[str, Any] = {

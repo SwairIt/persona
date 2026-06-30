@@ -50,6 +50,47 @@ Once the wizard finishes, click **Start capture** in Settings and the timeline b
 
 ---
 
+## Headless / run anywhere (Docker)
+
+Persona ships a `Dockerfile` and `docker-compose.yml` so you can run the web
+server on any host (a VPS, a NAS, a CI box) without installing Python or `uv`.
+
+```bash
+docker compose up -d
+# → http://localhost:8000
+```
+
+Data lives in the `./data` folder on the host (mounted at `/data` inside the
+container), so the database, thumbnails, inbox, and backups survive container
+rebuilds. Stop with `docker compose down`; your timeline stays put.
+
+**Important caveat — capture does NOT work in a container.** A Docker
+container has no display, no X server, and no Windows desktop session, so
+`mss` cannot grab the screen and `pygetwindow` cannot read the active window.
+There is no screenshot pipeline inside the container. For that reason the image
+runs in **LEAN mode** (`PERSONA_LEAN_MODE=1`): the ~40 background workers
+(capture, OCR, retention, schedulers…) are disabled and only the web server
+runs.
+
+So Docker = **headless / agent-ingest mode**, not the full capture experience:
+
+- Browse and search a `data/` folder produced elsewhere (copy your existing
+  `data/` next to the compose file before `up`).
+- Receive uploads from external agents (e.g. the `mac-agent/` daemon) over
+  HTTP and serve the timeline / API.
+- Run the read-only web UI, exports, feeds, and `/api/*` on a server.
+
+If you want live screen capture, run Persona natively on the machine whose
+screen you want to record (see **Quick start** above) — that is the supported
+capture path.
+
+OCR of *uploaded* images still works inside the container: the base image
+includes `tesseract-ocr` (with the `rus` language pack). An optional `ollama`
+service is included (commented out) in `docker-compose.yml` for BYO local-LLM
+digests/chat.
+
+---
+
 ## Key features
 
 **Timeline & search**

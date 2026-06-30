@@ -1,12 +1,15 @@
 """Transcript search over ``audio_segment.transcript`` rows.
 
 v1.11 feature 3/3, route 4 of 5. The transcript column is filled in
-out-of-band by the Whisper worker (v1.11 feature 2/3), so the search
-surface is a plain ``LIKE %q%`` rather than FTS5: most rows ship with
-zero or one sentence and the data set is small enough that a full
-table scan is fine. When the corpus eventually warrants FTS5 we'll
-back this endpoint with the same ``notes_fts``-style triggers used by
-:mod:`app.web.routes.notes_search`.
+out-of-band by the Whisper worker (v1.11 feature 2/3).
+
+S12: the corpus has grown enough to warrant FTS5. The search now hits
+the ``audio_segment_fts`` external-content index (migration 198,
+``content='audio_segment'``, bm25-ranked) first and only falls back to
+the historical ``LIKE %q%`` full scan when FTS is unavailable
+(pre-migration DB) or the query produces no usable MATCH expression.
+This mirrors the FTS5-then-LIKE pattern in
+:func:`app.chat.sessions._fts_expr` / ``search_messages``.
 
 Both query forms are exposed:
 
@@ -30,6 +33,7 @@ app in :mod:`app.web.main` — the task spec forbids touching
 
 from __future__ import annotations
 
+import re
 from typing import Any, Final
 
 from fastapi import APIRouter, Query, Request
@@ -74,6 +78,26 @@ def _escape_like(term: str) -> str:
     return out
 
 
+def _fts_expr(query: str) -> str | None:
+    """Build a safe FTS5 MATCH expression из произвольного запроса.
+
+    Образец — :func:`app.chat.sessions._fts_expr`: режем на токены, каждый
+    оставляем только из букв/цифр/подчёркивания (FTS-операторы AND/OR/NOT/NEAR
+    обезврежены), даём PREFIX-запрос ``токен*`` чтобы русские окончания тоже
+    матчились (``лекци*`` → ``лекцию``). Токены ``AND`` (неявный пробел) —
+    точный поиск всех слов. Возвращает None, если ничего пригодного не осталось
+    → вызывающий падает в LIKE-fallback.
+    """
+    cleaned: list[str] = []
+    for word in re.findall(r"\w+", query, re.UNICODE):
+        token = re.sub(r"[^0-9A-Za-zА-Яа-яЁё_]", " ", str(word)).strip().lower()
+        if len(token) >= 2:
+            cleaned.append(token + "*")
+    if not cleaned:
+        return None
+    return " ".join(cleaned)
+
+
 def _snippet(transcript: str, query: str, window: int = 80) -> str:
     """Return a ``…before<match>after…`` snippet around the first hit.
 
@@ -102,16 +126,68 @@ def _snippet(transcript: str, query: str, window: int = 80) -> str:
     return f"{prefix}{transcript[start:end]}{suffix}"
 
 
-async def _run_search(query: str) -> list[dict[str, Any]]:
-    """Execute the parametrised LIKE search, return projected rows.
+def _project_row(row: Any, query: str) -> dict[str, Any]:
+    """Спроецировать строку audio_segment в результат поиска (общая форма
+    для FTS- и LIKE-веток)."""
+    transcript = "" if row["transcript"] is None else str(row["transcript"])
+    stored_path = row["path"]
+    has_audio = bool(stored_path is not None and str(stored_path).strip() != "")
+    return {
+        "id": int(row["id"]),
+        "captured_at": str(row["captured_at"]),
+        "duration_seconds": float(row["duration_seconds"] or 0.0),
+        "codec": str(row["codec"] or ""),
+        "bitrate": int(row["bitrate"] or 0),
+        "size_bytes": int(row["size_bytes"] or 0),
+        "transcript": transcript,
+        "snippet": _snippet(transcript, query),
+        "has_audio": has_audio,
+    }
 
-    SQL is parametrised — the user input never goes through string
-    formatting. Wildcards are added by the *query builder*, not the
-    user; user-supplied ``%`` / ``_`` are escaped via
-    :func:`_escape_like` so they search literally.
+
+async def _run_search(query: str) -> list[dict[str, Any]]:
+    """Поиск по транскриптам: FTS5 (bm25) с тихим фолбэком на LIKE.
+
+    SQL параметризован — пользовательский ввод не попадает в строковое
+    форматирование. Сначала пробуем ``audio_segment_fts MATCH`` (миграция
+    198); если FTS-таблицы нет (старая БД) или выражение пустое — падаем на
+    исторический ``LIKE %q%`` полный скан. ``%`` / ``_`` от пользователя
+    экранируются :func:`_escape_like`, чтобы искались буквально.
     """
     if not query:
         return []
+
+    # Fast path: FTS5 (bm25-ranked). External-content таблица 198 хранит rowid==id.
+    expr = _fts_expr(query)
+    if expr:
+        try:
+            async with get_connection() as conn:
+                cursor = await conn.execute(
+                    """
+                    SELECT a.id,
+                           a.captured_at,
+                           a.duration_seconds,
+                           a.codec,
+                           a.bitrate,
+                           a.size_bytes,
+                           a.path,
+                           a.transcript
+                      FROM audio_segment_fts f
+                      JOIN audio_segment a ON a.id = f.rowid
+                     WHERE audio_segment_fts MATCH ?
+                       AND a.transcript IS NOT NULL
+                       AND a.transcript != ''
+                     ORDER BY bm25(audio_segment_fts), a.captured_at DESC, a.id DESC
+                     LIMIT ?
+                    """,
+                    (expr, _MAX_RESULTS),
+                )
+                rows = await cursor.fetchall()
+            return [_project_row(row, query) for row in rows]
+        except Exception as exc:  # noqa: BLE001 — FTS missing/bad expr → LIKE
+            log.debug("audio.search.fts_fallback", error=str(exc))
+
+    # Slow path: исторический LIKE-скан (FTS недоступен или выражение пустое).
     escaped = _escape_like(query)
     pattern = f"%{escaped}%"
     async with get_connection() as conn:
@@ -136,25 +212,7 @@ async def _run_search(query: str) -> list[dict[str, Any]]:
         )
         rows = await cursor.fetchall()
 
-    results: list[dict[str, Any]] = []
-    for row in rows:
-        transcript = "" if row["transcript"] is None else str(row["transcript"])
-        stored_path = row["path"]
-        has_audio = bool(stored_path is not None and str(stored_path).strip() != "")
-        results.append(
-            {
-                "id": int(row["id"]),
-                "captured_at": str(row["captured_at"]),
-                "duration_seconds": float(row["duration_seconds"] or 0.0),
-                "codec": str(row["codec"] or ""),
-                "bitrate": int(row["bitrate"] or 0),
-                "size_bytes": int(row["size_bytes"] or 0),
-                "transcript": transcript,
-                "snippet": _snippet(transcript, query),
-                "has_audio": has_audio,
-            }
-        )
-    return results
+    return [_project_row(row, query) for row in rows]
 
 
 # ---------------------------------------------------------------------------

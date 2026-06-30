@@ -83,6 +83,7 @@ async def build_extended_metrics_text() -> str:
     ocr_queue = await _ocr_queue_depth()
     smart_pin_pending = await _smart_pin_pending_count()
     sessions_today = await _capture_session_today_count()
+    system = _system_metrics()
 
     lines: list[str] = []
 
@@ -162,6 +163,35 @@ async def build_extended_metrics_text() -> str:
         value=sessions_today,
     )
 
+    # --- Host load (psutil via app.system_metrics, слайс S1) -----------------
+    # Серии эмитятся только когда снимок удался: отсутствие psutil/S1 даёт
+    # «нет данных» в Prometheus, что честнее нулевой нагрузки.
+    if system is not None:
+        _emit_gauge_float(
+            lines,
+            name="persona_cpu_percent",
+            help_text="Host CPU utilisation percent (psutil cpu_percent).",
+            value_float=system["cpu_percent"],
+        )
+        _emit_gauge_float(
+            lines,
+            name="persona_memory_percent",
+            help_text="Host RAM utilisation percent (psutil virtual_memory).",
+            value_float=system["memory_percent"],
+        )
+        _emit_gauge_float(
+            lines,
+            name="persona_disk_usage_percent",
+            help_text="Host disk usage percent for the data volume (psutil).",
+            value_float=system["disk_usage_pct"],
+        )
+        _emit_gauge(
+            lines,
+            name="persona_process_count",
+            help_text="Number of running OS processes (psutil).",
+            value=system["process_count"],
+        )
+
     log.info(
         "metrics_extended.served",
         worker_count=len(worker_ticks),
@@ -170,6 +200,7 @@ async def build_extended_metrics_text() -> str:
         ocr_queue_depth=ocr_queue,
         smart_pin_pending=smart_pin_pending,
         sessions_today=sessions_today,
+        system_available=system is not None,
     )
 
     # Concatenate base (already ends with LF) + the extended block + final LF.
@@ -354,6 +385,44 @@ async def _capture_session_today_count() -> int:
     return int(row["n"]) if row is not None else 0
 
 
+def _system_metrics() -> dict[str, float | int] | None:
+    """Снимок нагрузки ПК для Prometheus-гауджей. ``None`` при сбое.
+
+    CPU/RAM/диск берём из слайса S1 (``app.system_metrics``), число
+    процессов — напрямую из psutil (его нет в контракте S1). Любая
+    поломка (psutil не установлен, S1 ещё не подъехал) → ``None``: скрейп
+    тогда просто не эмитит эти серии, не роняя ``/metrics/extended``.
+    """
+    try:
+        # Ленивый импорт: S1 — соседний слайс, его может ещё не быть.
+        from app.system_metrics import collect_system_metrics  # noqa: PLC0415
+
+        raw = collect_system_metrics()
+        data = dict(raw) if isinstance(raw, dict) else {}
+    except Exception as exc:  # noqa: BLE001 — скрейп не должен 500-ить
+        log.warning("metrics_extended.system_metrics_failed", error=str(exc))
+        return None
+
+    process_count = 0
+    try:
+        import psutil  # noqa: PLC0415 — best-effort, может быть не установлен
+
+        process_count = len(psutil.pids())
+    except Exception as exc:  # noqa: BLE001
+        log.debug("metrics_extended.process_count_failed", error=str(exc))
+
+    try:
+        return {
+            "cpu_percent": float(data.get("cpu_percent") or 0.0),
+            "memory_percent": float(data.get("memory_percent") or 0.0),
+            "disk_usage_pct": float(data.get("disk_usage_pct") or 0.0),
+            "process_count": int(process_count),
+        }
+    except (TypeError, ValueError) as exc:
+        log.warning("metrics_extended.system_metrics_coerce_failed", error=str(exc))
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers — text-format 0.0.4 emission
 # ---------------------------------------------------------------------------
@@ -398,6 +467,19 @@ def _emit_gauge(
     lines.append(f"# HELP {name} {help_text}")
     lines.append(f"# TYPE {name} gauge")
     lines.append(f"{name} {int(value)}")
+
+
+def _emit_gauge_float(
+    lines: list[str], *, name: str, help_text: str, value_float: float
+) -> None:
+    """Append HELP/TYPE/value lines for an unlabelled float gauge.
+
+    Используется для процентных нагрузок ПК (CPU/RAM/диск), где целое
+    округление потеряло бы дробную долю.
+    """
+    lines.append(f"# HELP {name} {help_text}")
+    lines.append(f"# TYPE {name} gauge")
+    lines.append(f"{name} {value_float:.2f}")
 
 
 def _emit_gauge_header(

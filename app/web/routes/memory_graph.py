@@ -8,9 +8,11 @@
     (audio_seconds>0 / transcript_excerpt) — узлы «запись» (что говорил);
   * узлы-дни — сообщения/карточки группируются по дате.
 
-Связи — структурные (честно: смысловые/эмбеддинг-связи добавим, когда включим
-эмбеддинги): сообщение↔сессия, промпт→ответ (пара), сообщение/карточка→день,
-сессия→день, summary→сессия.
+Связи — структурные: сообщение↔сессия, промпт→ответ (пара), сообщение/карточка→
+день, сессия→день, summary→сессия; плюс эвристические entity-связи по именам.
+S6: поверх этого — РЕАЛЬНЫЙ семантический граф знаний (узлы-сущности + рёбра
+``kg_edge`` с подписью ``relation_type``), который строит ночная рефлексия из
+durable-фактов (``app/knowledge_graph.py``).
 
 Роуты под owner-gate (auth_gate уже пускает сюда только владельца).
 """
@@ -227,6 +229,39 @@ async def graph_data(
             dn = day_node(hs)
             if dn:
                 links.append({"a": nid, "b": dn})
+
+    # --- семантический граф знаний (S6): РЕАЛЬНЫЕ сущности + рёбра kg_edge ---
+    # Узлы-сущности рисуем типом "memory" (зарегистрирован в TYPES фронта, поэтому
+    # фильтруется/рендерится), а связи — с подписью relation_type (поле rel).
+    try:
+        from app.knowledge_graph import list_edges  # noqa: PLC0415
+
+        kg_edges = await list_edges(uid, limit=400)
+    except Exception:  # noqa: BLE001 — нет таблицы/модуля → граф без рёбер знаний
+        kg_edges = []
+    ent_seen: set[int] = set()
+    for e in kg_edges:
+        for eid, ename in (
+            (e["from_entity_id"], e["from_name"]),
+            (e["to_entity_id"], e["to_name"]),
+        ):
+            if eid in ent_seen:
+                continue
+            ent_seen.add(eid)
+            nodes.append({
+                "id": f"e{eid}", "type": "memory", "entity": True,
+                "label": _short(ename, 30),
+                "at": "", "where": "Сущность графа знаний",
+                "full": str(ename),
+                "href": f"/entity/{eid}",
+            })
+        links.append({
+            "a": f"e{e['from_entity_id']}",
+            "b": f"e{e['to_entity_id']}",
+            "kind": "kg",
+            "rel": e["relation_type"],          # подпись отношения
+            "strength": e["strength"],
+        })
 
     counts: dict[str, int] = {}
     for n in nodes:

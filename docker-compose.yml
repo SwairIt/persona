@@ -1,0 +1,44 @@
+# Persona — headless / agent-ingest стек.
+# Запуск:  docker compose up -d  → http://localhost:8000
+# Напоминание: захват экрана внутри контейнера НЕ работает (нет дисплея),
+# это режим headless/приёма данных (PERSONA_LEAN_MODE=1).
+services:
+  persona:
+    build: .
+    image: persona:latest
+    container_name: persona
+    ports:
+      - "8000:8000"
+    volumes:
+      # Все данные (БД, миниатюры, inbox, бэкапы) — на хосте в ./data.
+      - ./data:/data
+    environment:
+      PERSONA_DATA_DIR: /data
+      PERSONA_LEAN_MODE: "1"
+      PERSONA_HOST: 0.0.0.0
+      PERSONA_PORT: "8000"
+    restart: unless-stopped
+    networks:
+      - persona-net
+
+  # --- Опционально: локальный Ollama для BYO-LLM (чат/дайджесты). ---
+  # Раскомментируй блок и пропиши в .env / окружении persona:
+  #   PERSONA_BYO_API_PROVIDER=ollama
+  #   PERSONA_BYO_API_BASE=http://ollama:11434
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   container_name: ollama
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - ollama-data:/root/.ollama
+  #   restart: unless-stopped
+  #   networks:
+  #     - persona-net
+
+networks:
+  persona-net:
+    driver: bridge
+
+# volumes:
+#   ollama-data:

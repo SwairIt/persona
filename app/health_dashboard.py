@@ -99,6 +99,22 @@ class FeatureFlag(TypedDict):
     value: str
 
 
+class SystemStats(TypedDict):
+    """Снимок нагрузки ПК из :mod:`app.system_metrics` (слайс S1).
+
+    ``available`` = False, когда сбор не удался (psutil не установлен,
+    модуль S1 ещё не подъехал, и т. п.) — плитка тогда показывает «н/д»
+    вместо нулей, которые легко спутать с реальной нулевой нагрузкой.
+    ``top_consumer`` — короткая подпись топ-процесса (имя или ``None``).
+    """
+
+    available: bool
+    cpu_percent: float
+    memory_percent: float
+    disk_usage_pct: float
+    top_consumer: str | None
+
+
 class HealthState(TypedDict):
     """Wire shape returned by :func:`build_health_state`."""
 
@@ -110,6 +126,7 @@ class HealthState(TypedDict):
     recent_audit_actions: list[AuditRow]
     capture_status: CaptureStatus
     feature_flags: list[FeatureFlag]
+    system: SystemStats
 
 
 def _status_for(seconds_since: float) -> str:
@@ -318,6 +335,66 @@ async def _collect_feature_flags() -> list[FeatureFlag]:
     return flags
 
 
+def _normalize_top_consumer(raw: object) -> str | None:
+    """Свести ``top_consumer`` к короткой строке для плитки.
+
+    Слайс S1 может отдать процесс строкой, либо словарём
+    (``{"name": ..., "percent": ...}``). Принимаем оба варианта и
+    остальное игнорируем — плитка не должна падать из-за формата.
+    """
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        text = raw.strip()
+        return text or None
+    if isinstance(raw, dict):
+        name = raw.get("name") or raw.get("process") or raw.get("cmd")
+        if not name:
+            return None
+        pct = raw.get("percent")
+        if pct is None:
+            pct = raw.get("cpu_percent")
+        try:
+            if pct is not None:
+                return f"{name} ({float(pct):.0f}%)"
+        except (TypeError, ValueError):
+            pass
+        return str(name)
+    return None
+
+
+def _collect_system_stats() -> SystemStats:
+    """Best-effort снимок нагрузки ПК через слайс S1.
+
+    Как и ``db_stats``, всё обёрнуто в try/except: отсутствие
+    ``app.system_metrics`` (модуль ещё не подъехал), отсутствие psutil
+    или любой сбой сборщика дают ``available=False`` и нейтральные нули
+    — дашборд обязан отрисоваться даже при поломке.
+    """
+    try:
+        # Ленивый импорт: S1 — соседний слайс, его может ещё не быть.
+        from app.system_metrics import collect_system_metrics  # noqa: PLC0415
+
+        raw = collect_system_metrics()
+        data = dict(raw) if isinstance(raw, dict) else {}
+        return SystemStats(
+            available=True,
+            cpu_percent=round(float(data.get("cpu_percent") or 0.0), 1),
+            memory_percent=round(float(data.get("memory_percent") or 0.0), 1),
+            disk_usage_pct=round(float(data.get("disk_usage_pct") or 0.0), 1),
+            top_consumer=_normalize_top_consumer(data.get("top_consumer")),
+        )
+    except Exception as exc:  # noqa: BLE001 — дашборд не должен падать
+        log.debug("health_dashboard.system_stats_failed", error=str(exc))
+        return SystemStats(
+            available=False,
+            cpu_percent=0.0,
+            memory_percent=0.0,
+            disk_usage_pct=0.0,
+            top_consumer=None,
+        )
+
+
 async def build_health_state() -> HealthState:
     """Build the consolidated health-dashboard payload.
 
@@ -333,6 +410,7 @@ async def build_health_state() -> HealthState:
     recent_audit_actions = await _collect_recent_audit()
     capture_status = _collect_capture_status()
     feature_flags = await _collect_feature_flags()
+    system = _collect_system_stats()
 
     state: HealthState = {
         "now_iso": now_iso,
@@ -343,6 +421,7 @@ async def build_health_state() -> HealthState:
         "recent_audit_actions": recent_audit_actions,
         "capture_status": capture_status,
         "feature_flags": feature_flags,
+        "system": system,
     }
     log.debug(
         "health_dashboard.built",
@@ -365,6 +444,7 @@ __all__ = [
     "DbStats",
     "FeatureFlag",
     "HealthState",
+    "SystemStats",
     "WorkerStatus",
     "build_health_state",
     "parse_iso",

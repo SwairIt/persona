@@ -135,6 +135,7 @@ from app.web.routes import (
     full_export as full_export_routes,
     health,
     health_dashboard as health_dashboard_routes,
+    system_monitor as system_monitor_routes,
     heatmap as heatmap_routes,
     hour_histogram as hour_histogram_routes,
     help as help_routes,
@@ -608,6 +609,7 @@ def create_app() -> FastAPI:
     app.include_router(day_tldr_routes.router)
     app.include_router(settings_backup_routes.router)
     app.include_router(health_dashboard_routes.router)
+    app.include_router(system_monitor_routes.router)
     app.include_router(inbox_routes.router)
     app.include_router(palette_routes.router)
     app.include_router(shot_of_week_routes.router)
@@ -1126,6 +1128,13 @@ async def _run_audio_waveform_worker(controller: object) -> None:
     await run_audio_waveform_worker()
 
 
+async def _run_transcribe_backfill_worker(controller: object) -> None:
+    """Adapter for the S12 daily audio re-transcription backfill worker."""
+    from app.workers.transcribe_backfill_worker import run_transcribe_backfill_worker  # noqa: PLC0415
+
+    await run_transcribe_backfill_worker()
+
+
 async def _run_smart_pin_worker(controller: object) -> None:
     """Adapter for the v1.64 morning smart-pin LLM auto-suggester."""
     from app.workers.smart_pin_worker import run_smart_pin_worker  # noqa: PLC0415
@@ -1308,6 +1317,10 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         asyncio.create_task(
             _run_audio_waveform_worker(controller),
             name="audio-waveform-worker",
+        ),
+        asyncio.create_task(
+            _run_transcribe_backfill_worker(controller),
+            name="transcribe-backfill-worker",
         ),
         asyncio.create_task(
             _run_smart_pin_worker(controller),

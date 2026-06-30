@@ -7,8 +7,25 @@ hang/crash auto-recovers within ~1-2 minutes instead of waiting for a
 human.
 
 The launched uvicorn gets EXPLICIT ``PERSONA_*`` env so it always uses
-the real data dir (C:\\Users\\Yaroslav\\.persona) regardless of which
-account the scheduled task runs as — never a fresh/empty DB.
+the real data dir regardless of which account the scheduled task runs
+as — never a fresh/empty DB.
+
+Портативность (S9): пути НЕ захардкожены — берутся из env с дефолтами,
+которые на текущей машине дают ровно тот же результат, что и раньше:
+
+* ``repo`` — автоопределение от расположения этого файла
+  (``Path(__file__).resolve().parent.parent``); override ``PERSONA_REPO``.
+* ``PERSONA_PYEXE`` — иначе ``<repo>/.venv/Scripts/pythonw.exe`` если есть,
+  иначе ``pythonw.exe`` рядом с ``sys.executable``, иначе ``sys.executable``.
+* ``PERSONA_DATA_DIR`` — иначе из ``<repo>/.env`` → ``%USERPROFILE%/.persona``.
+* ``PERSONA_WATCHDOG_HOST`` / ``PERSONA_WATCHDOG_PORT`` — деф. ``0.0.0.0`` / ``8000``.
+* ``PERSONA_WATCHDOG_FORWARDED_ALLOW_IPS`` — деф. ``192.168.33.3,127.0.0.1``.
+
+``<repo>/.env`` читается (если есть), но ТОЛЬКО как fallback для каталога
+данных. Launch-параметры uvicorn (host/port/forwarded) намеренно НЕ берутся
+из ``.env`` — это конфиг приложения, не watchdog'а; иначе чужой
+``PERSONA_PORT`` в ``.env`` сменил бы порт сервера. Дефолты дают ровно то
+же поведение, что и раньше.
 """
 
 from __future__ import annotations
@@ -16,20 +33,114 @@ from __future__ import annotations
 import datetime
 import os
 import subprocess
+import sys
 import time
 import urllib.request
+from pathlib import Path
 
-REPO = r"C:\www-Yaroslav\Persona"
-# pythonw (GUI-subsystem) — НЕ аллоцирует консоль. С обычным python.exe uv-шим
-# при re-exec плодил чёрное консольное окно при каждом респауне (CREATE_NO_WINDOW
-# его не давил). pythonw + CREATE_NO_WINDOW = тихий фоновый сервер без окна.
-PYEXE = r"C:\www-Yaroslav\Persona\.venv\Scripts\pythonw.exe"
-HOME = r"C:\Users\Yaroslav"
-PERSONA_DIR = r"C:\Users\Yaroslav\.persona"
-URL = "http://127.0.0.1:8000/landing"
-OUT_LOG = r"C:\Users\Yaroslav\.persona\uvicorn.out.log"
-ERR_LOG = r"C:\Users\Yaroslav\.persona\uvicorn.err.log"
-WLOG = r"C:\Users\Yaroslav\.persona\watchdog.log"
+
+# --- репозиторий: от расположения файла (ops/ → корень) -------------------
+def _detect_repo() -> str:
+    env = os.environ.get("PERSONA_REPO")
+    if env:
+        return env
+    # ops/persona_watchdog.py → parent=ops, parent.parent=корень репо
+    return str(Path(__file__).resolve().parent.parent)
+
+
+def _read_dotenv(repo: str) -> dict[str, str]:
+    """Распарсить ``<repo>/.env`` в dict (best-effort, без зависимостей).
+
+    ВАЖНО: НЕ пишем в ``os.environ`` и НЕ трогаем launch-параметры uvicorn
+    (host/port/forwarded). ``.env`` — конфиг ПРИЛОЖЕНИЯ; его читает само
+    приложение при старте (cwd=repo). Watchdog'у из ``.env`` нужен лишь
+    путь к данным (``PERSONA_DATA_DIR``) как fallback для логов/state.
+    Так дефолты дают РОВНО текущее поведение: сервер по-прежнему слушает
+    свой фиксированный host/port, что бы ни стояло в ``.env`` (там может
+    быть, например, иной ``PERSONA_PORT`` для запуска вручную).
+
+    Парсер минимальный: ``KEY=VALUE``, ``#``-комментарии и пустые строки
+    игнорируются, кавычки снимаются.
+    """
+    out: dict[str, str] = {}
+    path = Path(repo) / ".env"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return out
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        key = key.strip()
+        if not key:
+            continue
+        out[key] = val.strip().strip('"').strip("'")
+    return out
+
+
+REPO = _detect_repo()
+_DOTENV = _read_dotenv(REPO)
+
+
+def _detect_pyexe(repo: str) -> str:
+    """pythonw из venv репо → pythonw рядом с текущим интерпретатором → sys.executable.
+
+    pythonw (GUI-subsystem) НЕ аллоцирует консоль. С обычным python.exe uv-шим
+    при re-exec плодил чёрное консольное окно при каждом респауне (CREATE_NO_WINDOW
+    его не давил). pythonw + CREATE_NO_WINDOW = тихий фоновый сервер без окна.
+    """
+    env = os.environ.get("PERSONA_PYEXE")
+    if env:
+        return env
+    venv_pyw = Path(repo) / ".venv" / "Scripts" / "pythonw.exe"
+    if venv_pyw.exists():
+        return str(venv_pyw)
+    # pythonw рядом с активным интерпретатором (если запущены из python.exe)
+    sibling = Path(sys.executable).with_name("pythonw.exe")
+    if sibling.exists():
+        return str(sibling)
+    return sys.executable
+
+
+def _detect_home() -> str:
+    return (
+        os.environ.get("USERPROFILE")
+        or os.environ.get("HOME")
+        or str(Path.home())
+    )
+
+
+def _detect_data_dir(home: str) -> str:
+    # Приоритет: реальный env → .env → дефолт ~/.persona. Все три на текущей
+    # машине указывают на один и тот же каталог.
+    env = os.environ.get("PERSONA_DATA_DIR") or _DOTENV.get("PERSONA_DATA_DIR")
+    if env:
+        return env
+    return str(Path(home) / ".persona")
+
+
+PYEXE = _detect_pyexe(REPO)
+HOME = _detect_home()
+# normpath: ``.env`` отдаёт прямые слэши — приводим к нативным, чтобы
+# производные пути (логи/state) были с единым разделителем.
+PERSONA_DIR = os.path.normpath(_detect_data_dir(HOME))
+
+# Launch-параметры uvicorn — СОБСТВЕННЫЕ watchdog-переменные (НЕ из .env), чтобы
+# конфиг приложения не менял то, как watchdog поднимает сервер. Дефолты = ровно
+# прежние хардкоды (0.0.0.0:8000 + forwarded для FastPanel на yesbeat).
+HOST = os.environ.get("PERSONA_WATCHDOG_HOST", "0.0.0.0")
+PORT = os.environ.get("PERSONA_WATCHDOG_PORT", "8000")
+# FastPanel на yesbeat (192.168.33.3) проксирует на :8000; localhost для пробы.
+FORWARDED_ALLOW_IPS = os.environ.get(
+    "PERSONA_WATCHDOG_FORWARDED_ALLOW_IPS", "192.168.33.3,127.0.0.1"
+)
+
+URL = f"http://127.0.0.1:{PORT}/landing"
+OUT_LOG = os.path.join(PERSONA_DIR, "uvicorn.out.log")
+ERR_LOG = os.path.join(PERSONA_DIR, "uvicorn.err.log")
+WLOG = os.path.join(PERSONA_DIR, "watchdog.log")
 
 _DETACHED = 0x00000008  # DETACHED_PROCESS
 _NO_WINDOW = 0x08000000  # CREATE_NO_WINDOW
@@ -76,6 +187,11 @@ def _start() -> None:
     # This is the stable config: heavy worker churn off, requests
     # parallelised so heavy page renders don't freeze the whole server.
     env["PERSONA_LEAN_MODE"] = "1"
+    # Каталог данных может отсутствовать на свежей машине — логам нужен путь.
+    try:
+        os.makedirs(PERSONA_DIR, exist_ok=True)
+    except OSError:
+        pass
     out = open(OUT_LOG, "ab")  # noqa: SIM115 - handed to the detached child
     err = open(ERR_LOG, "ab")  # noqa: SIM115
     # ОДИН процесс (без --workers): pythonw + uvicorn --workers крашит воркеры
@@ -85,10 +201,10 @@ def _start() -> None:
         [
             PYEXE, "-m", "uvicorn", "app.web.main:create_app",
             # 0.0.0.0: слушать и localhost (watchdog-проба 127.0.0.1), и LAN —
-            # FastPanel на yesbeat (192.168.33.3) проксирует на 192.168.33.214:8000.
+            # FastPanel на yesbeat (192.168.33.3) проксирует на :8000.
             # Доступ к :8000 из LAN ограничен firewall-правилом (только yesbeat).
-            "--factory", "--host", "0.0.0.0", "--port", "8000",
-            "--proxy-headers", "--forwarded-allow-ips", "192.168.33.3,127.0.0.1",
+            "--factory", "--host", HOST, "--port", str(PORT),
+            "--proxy-headers", "--forwarded-allow-ips", FORWARDED_ALLOW_IPS,
         ],
         cwd=REPO,
         env=env,

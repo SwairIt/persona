@@ -1,0 +1,309 @@
+{% extends "base.html" %}
+
+{#
+  Монитор нагрузки ПК (owner-only). Дизайн под «приборную панель»: тёмные
+  стеклянные плитки, мини-спарклайны (inline SVG), цвета по порогам
+  (зелёный <50 / янтарь 50-80 / красный >80). Alpine.js поллит
+  /api/system-monitor.json каждые 4 секунды; начальный снимок приходит из
+  серверного контекста, поэтому страница осмысленна до первого poll.
+#}
+
+{% block head_extra %}
+<style>
+  .sm-grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); }
+  .sm-tile {
+    position: relative;
+    border-radius: 1rem;
+    padding: 1.1rem 1.25rem;
+    background: linear-gradient(160deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01));
+    border: 1px solid rgba(255,255,255,0.08);
+    overflow: hidden;
+    transition: border-color .25s ease, transform .15s ease;
+  }
+  .sm-tile:hover { transform: translateY(-2px); }
+  .sm-tile__label { font-size: .72rem; letter-spacing: .06em; text-transform: uppercase; opacity: .6; }
+  .sm-tile__value { font-size: 2rem; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .sm-tile__sub { font-size: .78rem; opacity: .65; font-variant-numeric: tabular-nums; }
+  /* Дорожка прогресса под значением */
+  .sm-bar { height: 6px; border-radius: 999px; background: rgba(255,255,255,0.08); overflow: hidden; margin-top: .6rem; }
+  .sm-bar__fill { height: 100%; border-radius: 999px; transition: width .5s ease, background-color .3s ease; }
+  /* Пороговые цвета */
+  .sm-good   { color: #34d399; } .sm-good-bg   { background-color: #34d399; } .sm-good-edge   { border-color: rgba(52,211,153,.45); }
+  .sm-warn   { color: #fbbf24; } .sm-warn-bg   { background-color: #fbbf24; } .sm-warn-edge   { border-color: rgba(251,191,36,.45); }
+  .sm-crit   { color: #f87171; } .sm-crit-bg   { background-color: #f87171; } .sm-crit-edge   { border-color: rgba(248,113,113,.5); }
+  .sm-spark { width: 100%; height: 38px; display: block; margin-top: .5rem; }
+  .sm-core { height: 6px; border-radius: 3px; background: rgba(255,255,255,.07); overflow: hidden; }
+  .sm-core__fill { height: 100%; transition: width .5s ease, background-color .3s ease; }
+  .sm-proc-row { display: grid; grid-template-columns: 1fr auto auto; gap: .6rem; align-items: center; padding: .35rem 0; border-top: 1px solid rgba(255,255,255,.05); font-variant-numeric: tabular-nums; }
+  .sm-proc-row:first-child { border-top: 0; }
+  .sm-dot { width: 8px; height: 8px; border-radius: 999px; display: inline-block; }
+  .sm-pulse { animation: sm-pulse 2s ease-in-out infinite; }
+  @keyframes sm-pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+  [data-reduce-motion="1"] .sm-pulse { animation: none; }
+  [data-reduce-motion="1"] .sm-tile { transition: none; }
+  [data-reduce-motion="1"] .sm-tile:hover { transform: none; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div x-data="systemMonitor({{ snapshot|tojson }}, {{ history|tojson }})" x-init="start()">
+
+  <div class="flex items-start justify-between mb-6 gap-4 flex-wrap">
+    <div>
+      <h1 class="text-2xl font-bold tracking-tight">🖥️ {{ t('sysmon_title') }}</h1>
+      <p class="text-zinc-500 text-sm mt-1">{{ t('sysmon_subtitle') }}</p>
+    </div>
+    <div class="flex items-center gap-3 text-xs">
+      <span class="flex items-center gap-1.5 text-zinc-400">
+        <span class="sm-dot sm-good-bg sm-pulse" x-show="!error"></span>
+        <span class="sm-dot sm-crit-bg" x-show="error"></span>
+        <span x-text="error ? t_offline : (lastUpdated || t_live)"></span>
+      </span>
+      <button @click="refresh()"
+              class="px-3 py-1.5 rounded-md text-sm bg-accent-600 hover:bg-accent-500 text-white">
+        {{ t('sysmon_refresh') }}
+      </button>
+      <a href="/api/system-monitor.json"
+         class="px-3 py-1.5 rounded-md border border-ink-700 text-zinc-400 hover:text-zinc-100 hover:bg-ink-800 font-mono">
+        JSON
+      </a>
+    </div>
+  </div>
+
+  {# Сообщение, когда метрики недоступны (psutil не стоит / пустой снимок) #}
+  <div x-show="isEmpty"
+       class="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-200 text-sm px-4 py-3">
+    {{ t('sysmon_unavailable') }}
+  </div>
+
+  <!-- Главные плитки -->
+  <div class="sm-grid mb-4">
+
+    <!-- CPU -->
+    <div class="sm-tile" :class="edge(cpu)">
+      <div class="flex items-center justify-between">
+        <span class="sm-tile__label">{{ t('sysmon_cpu') }}</span>
+        <span class="sm-tile__sub" x-text="coresLabel"></span>
+      </div>
+      <div class="sm-tile__value mt-1" :class="cls(cpu)" x-text="pct(cpu)"></div>
+      <div class="sm-bar"><div class="sm-bar__fill" :class="bg(cpu)" :style="`width:${clamp(cpu)}%`"></div></div>
+      <svg class="sm-spark" viewBox="0 0 100 38" preserveAspectRatio="none" aria-hidden="true">
+        <polyline :points="spark(cpuHist)" fill="none" :stroke="stroke(cpu)" stroke-width="1.6" vector-effect="non-scaling-stroke"/>
+      </svg>
+      <!-- Загрузка по ядрам -->
+      <div class="grid grid-cols-2 gap-x-3 gap-y-1.5 mt-2" x-show="perCore.length">
+        <template x-for="(c, i) in perCore" :key="i">
+          <div class="flex items-center gap-2">
+            <span class="text-[10px] text-zinc-500 w-6" x-text="'#' + (i+1)"></span>
+            <div class="sm-core flex-1"><div class="sm-core__fill" :class="bg(c)" :style="`width:${clamp(c)}%`"></div></div>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- RAM -->
+    <div class="sm-tile" :class="edge(mem)">
+      <div class="flex items-center justify-between">
+        <span class="sm-tile__label">{{ t('sysmon_ram') }}</span>
+        <span class="sm-tile__sub" x-text="memDetail"></span>
+      </div>
+      <div class="sm-tile__value mt-1" :class="cls(mem)" x-text="pct(mem)"></div>
+      <div class="sm-bar"><div class="sm-bar__fill" :class="bg(mem)" :style="`width:${clamp(mem)}%`"></div></div>
+      <svg class="sm-spark" viewBox="0 0 100 38" preserveAspectRatio="none" aria-hidden="true">
+        <polyline :points="spark(memHist)" fill="none" :stroke="stroke(mem)" stroke-width="1.6" vector-effect="non-scaling-stroke"/>
+      </svg>
+    </div>
+
+    <!-- Сеть -->
+    <div class="sm-tile">
+      <span class="sm-tile__label">{{ t('sysmon_net') }}</span>
+      <div class="flex items-end gap-4 mt-2">
+        <div>
+          <div class="sm-tile__sub">▼ {{ t('sysmon_net_down') }}</div>
+          <div class="text-lg font-semibold sm-good" x-text="bytes(net.bytes_recv)"></div>
+        </div>
+        <div>
+          <div class="sm-tile__sub">▲ {{ t('sysmon_net_up') }}</div>
+          <div class="text-lg font-semibold text-sky-400" x-text="bytes(net.bytes_sent)"></div>
+        </div>
+      </div>
+      <div class="sm-tile__sub mt-2" x-show="uptime" x-text="t_uptime + ': ' + uptime"></div>
+      <div class="sm-tile__sub mt-1" x-show="procCount" x-text="t_procs + ': ' + procCount"></div>
+    </div>
+
+    <!-- Питание / температуры / GPU (сводно) -->
+    <div class="sm-tile">
+      <span class="sm-tile__label">{{ t('sysmon_system') }}</span>
+      <div class="mt-2 space-y-1.5">
+        <div class="flex items-center justify-between" x-show="battery && battery.percent != null">
+          <span class="sm-tile__sub">🔋 {{ t('sysmon_battery') }}</span>
+          <span class="font-semibold" :class="cls(100 - (battery ? battery.percent : 100))">
+            <span x-text="battery ? Math.round(battery.percent) + '%' : '—'"></span>
+            <span class="text-xs text-zinc-500" x-show="battery && battery.power_plugged"> ⚡</span>
+          </span>
+        </div>
+        <div class="flex items-center justify-between" x-show="cpuTemp != null">
+          <span class="sm-tile__sub">🌡️ {{ t('sysmon_temp') }}</span>
+          <span class="font-semibold" x-text="cpuTemp != null ? Math.round(cpuTemp) + '°C' : '—'"></span>
+        </div>
+        <div class="flex items-center justify-between" x-show="gpuLabel">
+          <span class="sm-tile__sub">🎮 {{ t('sysmon_gpu') }}</span>
+          <span class="font-semibold text-xs text-right" x-text="gpuLabel"></span>
+        </div>
+        <div class="sm-tile__sub" x-show="!battery && cpuTemp == null && !gpuLabel">{{ t('sysmon_no_sensors') }}</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Диски -->
+  <div class="sm-tile mb-4" x-show="disks.length">
+    <span class="sm-tile__label">{{ t('sysmon_disks') }}</span>
+    <div class="mt-3 space-y-3">
+      <template x-for="d in disks" :key="d.mountpoint || d.device">
+        <div>
+          <div class="flex items-center justify-between text-sm">
+            <span class="font-mono text-zinc-300" x-text="d.mountpoint || d.device"></span>
+            <span class="sm-tile__sub">
+              <span x-text="bytes(d.used)"></span> / <span x-text="bytes(d.total)"></span>
+              · <span :class="cls(d.percent)" x-text="pct(d.percent)"></span>
+            </span>
+          </div>
+          <div class="sm-bar"><div class="sm-bar__fill" :class="bg(d.percent)" :style="`width:${clamp(d.percent)}%`"></div></div>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  <!-- Топ процессов -->
+  <div class="sm-tile" x-show="topProcs.length">
+    <div class="flex items-center justify-between">
+      <span class="sm-tile__label">{{ t('sysmon_top_procs') }}</span>
+      <span class="sm-tile__sub">CPU% · RAM%</span>
+    </div>
+    <div class="mt-3">
+      <template x-for="p in topProcs" :key="p.pid">
+        <div class="sm-proc-row text-sm">
+          <span class="truncate text-zinc-200" :title="p.name" x-text="p.name || ('PID ' + p.pid)"></span>
+          <span :class="cls(p.cpu_percent)" x-text="pct(p.cpu_percent)"></span>
+          <span class="text-zinc-400 w-12 text-right" x-text="(p.memory_percent != null ? p.memory_percent.toFixed(1) : '0.0') + '%'"></span>
+        </div>
+      </template>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function systemMonitor(initialSnap, initialHist) {
+  return {
+    snap: initialSnap || {},
+    history: Array.isArray(initialHist) ? initialHist : [],
+    error: false,
+    lastUpdated: '',
+    timer: null,
+    // Подписи из переводов (через t() прокидываем строки, JS оперирует ими)
+    t_live: {{ t('sysmon_live')|tojson }},
+    t_offline: {{ t('sysmon_offline')|tojson }},
+    t_uptime: {{ t('sysmon_uptime')|tojson }},
+    t_procs: {{ t('sysmon_procs')|tojson }},
+    t_cores: {{ t('sysmon_cores')|tojson }},
+
+    // ---- производные геттеры ----
+    get isEmpty() { return !this.snap || Object.keys(this.snap).length === 0; },
+    get cpu() { return Number(this.snap.cpu_percent) || 0; },
+    get perCore() { return Array.isArray(this.snap.per_core) ? this.snap.per_core.map(Number) : []; },
+    get coresLabel() { const n = this.perCore.length; return n ? (n + ' ' + this.t_cores) : ''; },
+    get mem() { return (this.snap.memory && Number(this.snap.memory.percent)) || 0; },
+    get memDetail() {
+      const m = this.snap.memory; if (!m) return '';
+      const u = m.used != null ? this.bytes(m.used) : null;
+      const t = m.total != null ? this.bytes(m.total) : null;
+      return (u && t) ? (u + ' / ' + t) : '';
+    },
+    get net() { return this.snap.net_io || {}; },
+    get disks() { return Array.isArray(this.snap.disk_usage) ? this.snap.disk_usage : []; },
+    get topProcs() { return Array.isArray(this.snap.top_processes) ? this.snap.top_processes : []; },
+    get procCount() { return this.snap.processes_count || 0; },
+    get battery() { return this.snap.battery || null; },
+    get gpuLabel() {
+      const g = this.snap.gpu;
+      if (!g) return '';
+      const arr = Array.isArray(g) ? g : [g];
+      const first = arr[0]; if (!first) return '';
+      if (first.load != null) return Math.round(first.load * (first.load <= 1 ? 100 : 1)) + '%';
+      if (first.name) return String(first.name).slice(0, 18);
+      return '';
+    },
+    get cpuTemp() {
+      const t = this.snap.temperatures;
+      if (t == null) return null;
+      if (typeof t === 'number') return t;
+      // dict {sensor: value|[{current}]} или плоское число
+      try {
+        for (const k of Object.keys(t)) {
+          const v = t[k];
+          if (typeof v === 'number') return v;
+          if (Array.isArray(v) && v.length && v[0] && v[0].current != null) return v[0].current;
+        }
+      } catch (e) { /* ignore */ }
+      return null;
+    },
+    get uptime() {
+      const s = Number(this.snap.uptime_seconds);
+      if (!s) return '';
+      const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
+      if (d) return d + 'д ' + h + 'ч';
+      if (h) return h + 'ч ' + m + 'м';
+      return m + 'м';
+    },
+    get cpuHist() { return this.history.map(x => Number((x && x.cpu_percent) || 0)); },
+    get memHist() { return this.history.map(x => Number((x && x.memory && x.memory.percent) || 0)); },
+
+    // ---- хелперы форматирования / порогов ----
+    clamp(v) { v = Number(v) || 0; return Math.max(0, Math.min(100, v)); },
+    pct(v) { return (Number(v) || 0).toFixed(0) + '%'; },
+    bytes(n) {
+      n = Number(n) || 0;
+      const u = ['Б','КБ','МБ','ГБ','ТБ']; let i = 0;
+      while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+      return n.toFixed(i ? 1 : 0) + ' ' + u[i];
+    },
+    // Пороги: зелёный <50, янтарь 50-80, красный >80
+    level(v) { v = Number(v) || 0; return v > 80 ? 'crit' : (v >= 50 ? 'warn' : 'good'); },
+    cls(v)   { return 'sm-' + this.level(v); },
+    bg(v)    { return 'sm-' + this.level(v) + '-bg'; },
+    edge(v)  { return 'sm-' + this.level(v) + '-edge'; },
+    stroke(v){ const l = this.level(v); return l === 'crit' ? '#f87171' : (l === 'warn' ? '#fbbf24' : '#34d399'); },
+    // Спарклайн: массив чисел → строка points для SVG 100x38 (0..100% по Y)
+    spark(arr) {
+      if (!arr || arr.length < 2) return '';
+      const n = arr.length;
+      return arr.map((v, i) => {
+        const x = (i / (n - 1)) * 100;
+        const y = 38 - (this.clamp(v) / 100) * 36 - 1;
+        return x.toFixed(1) + ',' + y.toFixed(1);
+      }).join(' ');
+    },
+
+    // ---- поллинг ----
+    async refresh() {
+      try {
+        const r = await fetch('/api/system-monitor.json', { headers: { 'Accept': 'application/json' } });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const data = await r.json();
+        this.snap = data.snapshot || {};
+        if (Array.isArray(data.history)) this.history = data.history;
+        this.error = false;
+        this.lastUpdated = new Date().toLocaleTimeString();
+      } catch (e) {
+        this.error = true;
+      }
+    },
+    start() {
+      // Первый снимок уже отрендерен сервером; поллим каждые 4с.
+      this.timer = setInterval(() => this.refresh(), 4000);
+    },
+  };
+}
+</script>
+{% endblock %}

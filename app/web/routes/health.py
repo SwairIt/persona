@@ -5,11 +5,12 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from app import __version__
 from app.auth import current_user_required
+from app.auth.owner import is_owner
 from app.auth.sessions import SessionRecord
 from app.ocr import probe_tesseract
 from app.settings import get_settings
@@ -45,6 +46,97 @@ async def health() -> JSONResponse:
     }
     status_code = 200 if db_ok else 503
     return JSONResponse(payload, status_code=status_code)
+
+
+@router.get("/api/health/full")
+async def health_full(
+    _user: Annotated[SessionRecord, Depends(current_user_required)],
+) -> JSONResponse:
+    """Полный health-check инфраструктуры — ТОЛЬКО для владельца.
+
+    Не кэшируется и закрыт owner-gate'ом, чтобы не светить наружу состояние
+    БД/Ollama/диска. Каждая проба обёрнута в try/except + таймаут: любой
+    внешний сбой (Ollama офлайн, нет tesseract, нет sqlite-vec) даёт
+    осмысленный False/None, а не 500.
+    """
+    import os  # noqa: PLC0415
+    import shutil  # noqa: PLC0415
+
+    if not await is_owner(int(_user["user_id"])):
+        raise HTTPException(status_code=403, detail="Только владелец")
+
+    settings = get_settings()
+
+    # БД — лёгкий SELECT 1.
+    db_ok = True
+    try:
+        async with get_connection() as conn:
+            await conn.execute("SELECT 1")
+    except Exception:  # noqa: BLE001
+        db_ok = False
+
+    # Ollama — GET <endpoint>/api/tags с коротким таймаутом.
+    ollama_ready = False
+    try:
+        import httpx  # noqa: PLC0415
+
+        from app.mcp.builtin_tools import _resolve_ollama_endpoint  # noqa: PLC0415
+
+        endpoint = (await _resolve_ollama_endpoint()).rstrip("/")
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(f"{endpoint}/api/tags")
+            ollama_ready = resp.status_code == 200
+    except Exception:  # noqa: BLE001
+        ollama_ready = False
+
+    # Tesseract — сначала which(), затем версия через pytesseract.
+    tesseract_found = False
+    try:
+        tesseract_found = bool(probe_tesseract(settings.tesseract_path).available)
+    except Exception:  # noqa: BLE001
+        tesseract_found = False
+    if not tesseract_found:
+        try:
+            tesseract_found = shutil.which("tesseract") is not None
+        except Exception:  # noqa: BLE001
+            tesseract_found = False
+
+    # sqlite-vec — уже загруженный гейт ИЛИ свежая попытка импорта пакета.
+    vec_available = False
+    try:
+        from app.storage.db import sqlite_vec_available  # noqa: PLC0415
+
+        vec_available = bool(sqlite_vec_available())
+    except Exception:  # noqa: BLE001
+        vec_available = False
+    if not vec_available:
+        try:
+            import sqlite_vec  # noqa: F401, PLC0415
+
+            vec_available = True
+        except Exception:  # noqa: BLE001
+            vec_available = False
+
+    # Свободное место на диске под data_dir (в мегабайтах).
+    disk_free_mb: int | None = None
+    try:
+        usage = shutil.disk_usage(settings.data_dir)
+        disk_free_mb = int(usage.free // (1024 * 1024))
+    except Exception:  # noqa: BLE001
+        disk_free_mb = None
+
+    lean_mode = os.environ.get("PERSONA_LEAN_MODE") == "1"
+
+    payload = {
+        "db_ok": db_ok,
+        "ollama_ready": ollama_ready,
+        "tesseract_found": tesseract_found,
+        "vec_available": vec_available,
+        "disk_free_mb": disk_free_mb,
+        "lean_mode": lean_mode,
+        "version": __version__,
+    }
+    return JSONResponse(payload, headers={"Cache-Control": "no-store"})
 
 
 @router.get("/welcome", response_class=HTMLResponse)

@@ -1,0 +1,31 @@
+# Виртуальные окружения и кеши
+.venv
+venv
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.mypy_cache
+.ruff_cache
+
+# Гит и IDE
+.git
+.gitignore
+.idea
+.vscode
+
+# Локальные данные и БД — НЕ тащим в образ (монтируются томом /data)
+data
+*.db
+*.sqlite
+*.db-wal
+*.db-shm
+
+# Секреты и фронтовые зависимости
+.env
+node_modules
+
+# Документация/служебное, не нужное для рантайма
+*.log
+.agents
+.claude

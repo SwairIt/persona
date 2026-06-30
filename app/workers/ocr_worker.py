@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+from concurrent.futures import BrokenExecutor, ProcessPoolExecutor
 from pathlib import Path
 
 import anyio
@@ -59,6 +61,133 @@ Probed once and reused — the schema doesn't change at runtime.
 """
 
 
+# ── Параллельный OCR через процессы ───────────────────────────────────────
+# Tesseract — CPU-bound, поэтому asyncio.to_thread не даёт настоящего
+# параллелизма (упирается в GIL). ProcessPoolExecutor обходит GIL: каждый
+# распознаваемый кадр уходит в отдельный процесс. Аргументы строго
+# picklable (путь к файлу + строки конфига, НЕ объекты PIL) — это важно для
+# Windows, где пул использует spawn и пиклит и функцию, и её аргументы.
+
+_PROCESS_POOL: ProcessPoolExecutor | None = None
+"""Ленивый, переиспользуемый пул процессов (один на воркер).
+
+``None`` до первого использования и после ``shutdown`` сломанного пула.
+:func:`_get_process_pool` создаёт его по требованию; при любой ошибке
+создания возвращает ``None`` → вызывающий код тихо откатывается на
+``asyncio.to_thread`` (старый путь).
+"""
+
+_PROCESS_POOL_DISABLED = False
+"""Флаг «пул недоступен навсегда в этом процессе».
+
+Ставится в ``True``, если создать пул не удалось или он сломался
+(``BrokenExecutor``). После этого все вызовы идут через thread-fallback,
+не пытаясь пересоздать заведомо нерабочий пул.
+"""
+
+
+def _resolve_ocr_workers() -> int:
+    """Сколько процессов держать в OCR-пуле.
+
+    ``PERSONA_OCR_WORKERS`` из env переопределяет дефолт
+    ``min(3, (os.cpu_count() or 2) - 1)``. Нижняя граница — 1 (иначе
+    ``ProcessPoolExecutor`` бросит ``ValueError`` на ``max_workers=0``).
+    Мусор в env → дефолт.
+    """
+    default = min(3, (os.cpu_count() or 2) - 1)
+    default = max(1, default)
+    raw = os.environ.get("PERSONA_OCR_WORKERS")
+    if raw is None:
+        return default
+    try:
+        value = int(raw.strip())
+    except (TypeError, ValueError):
+        log.warning("ocr_worker.bad_workers_env", value=raw, fallback=default)
+        return default
+    return max(1, value)
+
+
+def _get_process_pool() -> ProcessPoolExecutor | None:
+    """Вернуть переиспользуемый пул процессов или ``None``.
+
+    Создаёт пул лениво и кэширует его в :data:`_PROCESS_POOL`. Если пул
+    ранее сломался / отключён (:data:`_PROCESS_POOL_DISABLED`) или его не
+    удаётся создать — возвращает ``None``, и вызывающий код уходит на
+    thread-fallback. Best-effort: ни одна ошибка отсюда не должна ронять
+    воркер.
+    """
+    global _PROCESS_POOL, _PROCESS_POOL_DISABLED  # noqa: PLW0603 — кэш пула
+    if _PROCESS_POOL_DISABLED:
+        return None
+    if _PROCESS_POOL is not None:
+        return _PROCESS_POOL
+    try:
+        workers = _resolve_ocr_workers()
+        _PROCESS_POOL = ProcessPoolExecutor(max_workers=workers)
+    except Exception as exc:
+        log.warning("ocr_worker.pool_create_failed", error=str(exc))
+        _PROCESS_POOL = None
+        _PROCESS_POOL_DISABLED = True
+        return None
+    log.info("ocr_worker.pool_started", workers=workers)
+    return _PROCESS_POOL
+
+
+def _disable_process_pool() -> None:
+    """Пометить пул сломанным и закрыть его — дальше только thread-fallback."""
+    global _PROCESS_POOL, _PROCESS_POOL_DISABLED  # noqa: PLW0603 — кэш пула
+    _PROCESS_POOL_DISABLED = True
+    pool = _PROCESS_POOL
+    _PROCESS_POOL = None
+    if pool is not None:
+        try:
+            pool.shutdown(wait=False, cancel_futures=True)
+        except Exception:  # noqa: BLE001 — закрытие сломанного пула best-effort
+            pass
+
+
+def _shutdown_process_pool() -> None:
+    """Закрыть пул при остановке воркера (не помечая его «навсегда сломанным»).
+
+    В отличие от :func:`_disable_process_pool`, НЕ ставит
+    :data:`_PROCESS_POOL_DISABLED` — если воркер перезапустят в том же
+    процессе, пул создастся заново. Best-effort: ошибки закрытия глушим.
+    """
+    global _PROCESS_POOL  # noqa: PLW0603 — кэш пула
+    pool = _PROCESS_POOL
+    _PROCESS_POOL = None
+    if pool is not None:
+        try:
+            pool.shutdown(wait=False, cancel_futures=True)
+        except Exception:  # noqa: BLE001 — закрытие пула best-effort
+            pass
+
+
+async def _run_in_pool(func, *args):  # noqa: ANN001, ANN002, ANN202 — generic dispatch
+    """Выполнить CPU-bound ``func(*args)`` в пуле процессов.
+
+    Аргументы обязаны быть picklable. Сначала пытается прогнать через
+    :data:`_PROCESS_POOL`; при недоступности пула или ``BrokenExecutor``
+    (сломался mid-flight — типично для Windows spawn-сбоев) тихо
+    откатывается на ``asyncio.to_thread`` (старый путь), чтобы
+    пост-обработка не пострадала. ``OCRNotAvailable`` пробрасывается
+    наверх — это доменная ошибка, её обрабатывает вызывающий код.
+    """
+    pool = _get_process_pool()
+    if pool is not None:
+        loop = asyncio.get_running_loop()
+        try:
+            return await loop.run_in_executor(pool, func, *args)
+        except OCRNotAvailable:
+            raise
+        except (BrokenExecutor, OSError, RuntimeError) as exc:
+            # Сломанный/закрытый пул (Windows spawn-pickling, OOM, гонка на
+            # shutdown). Глушим пул и доигрываем этот кадр в потоке.
+            log.warning("ocr_worker.pool_broken", error=str(exc))
+            _disable_process_pool()
+    return await asyncio.to_thread(func, *args)
+
+
 async def run_ocr_worker(controller: CaptureController | None = None) -> None:
     """Drain pending OCR jobs while the controller is alive."""
     ctrl = controller or get_controller()
@@ -88,19 +217,26 @@ async def run_ocr_worker(controller: CaptureController | None = None) -> None:
 
     log.info("ocr_worker.started", tesseract_path=str(settings.tesseract_path))
 
-    while not ctrl.stop_event.is_set():
-        await beat("ocr-worker")
-        try:
-            await _drain_once()
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            log.exception("ocr_worker.iteration_failed", error=str(exc))
+    try:
+        while not ctrl.stop_event.is_set():
+            await beat("ocr-worker")
+            try:
+                await _drain_once()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                log.exception("ocr_worker.iteration_failed", error=str(exc))
 
-        try:
-            await asyncio.wait_for(ctrl.stop_event.wait(), timeout=POLL_INTERVAL_SECONDS)
-        except asyncio.TimeoutError:
-            continue
+            try:
+                await asyncio.wait_for(
+                    ctrl.stop_event.wait(), timeout=POLL_INTERVAL_SECONDS
+                )
+            except asyncio.TimeoutError:
+                continue
+    finally:
+        # Закрываем пул процессов при выходе (stop / cancel), чтобы не
+        # осиротить дочерние процессы Tesseract на Windows.
+        _shutdown_process_pool()
 
 
 async def _drain_once() -> None:  # noqa: PLR0915 — pipeline orchestration, each step is a single dispatch
@@ -127,7 +263,7 @@ async def _drain_once() -> None:  # noqa: PLR0915 — pipeline orchestration, ea
                 await update_screenshot_ocr(conn, shot.id, ocr_text="", ocr_status="done")
             continue
         try:
-            text = await asyncio.to_thread(
+            text = await _run_in_pool(
                 _extract,
                 Path(shot.thumbnail_path),
                 configured_langs,
@@ -510,7 +646,7 @@ async def _store_word_confidences(
     let an ``image_to_data`` hiccup poison the worker loop.
     """
     try:
-        rows = await asyncio.to_thread(
+        rows = await _run_in_pool(
             _extract_word_data,
             thumbnail_path,
             langs,

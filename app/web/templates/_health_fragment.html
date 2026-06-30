@@ -61,6 +61,31 @@
     </div>
     <div class="text-xs text-zinc-500 mt-2 font-mono">{{ hs.db_stats.total_screenshots }} shots · {{ hs.db_stats.total_notes }} notes</div>
   </div>
+
+  {# Светофор: <50 зелёный, 50-80 янтарь, >80 красный (как у воркеров). #}
+  <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">Система</div>
+    {% if not hs.system.available %}
+      <div class="text-2xl font-bold mt-1 text-zinc-500">н/д</div>
+      <div class="text-xs text-zinc-500 mt-2 font-mono">метрики ПК недоступны</div>
+    {% else %}
+      {% set sys_peak = [hs.system.cpu_percent, hs.system.memory_percent, hs.system.disk_usage_pct] | max %}
+      {% if sys_peak > 80 %}
+        {% set sys_cls = 'text-rose-400' %}
+      {% elif sys_peak >= 50 %}
+        {% set sys_cls = 'text-amber-400' %}
+      {% else %}
+        {% set sys_cls = 'text-emerald-400' %}
+      {% endif %}
+      <div class="text-2xl font-bold mt-1 {{ sys_cls }}">
+        CPU {{ '%.0f'|format(hs.system.cpu_percent) }}%
+      </div>
+      <div class="text-xs text-zinc-500 mt-2 font-mono">
+        RAM {{ '%.0f'|format(hs.system.memory_percent) }}% · диск {{ '%.0f'|format(hs.system.disk_usage_pct) }}%
+        {% if hs.system.top_consumer %}<br>топ: {{ hs.system.top_consumer }}{% endif %}
+      </div>
+    {% endif %}
+  </div>
 </div>
 
 {# --------------------- Workers grid --------------------- #}
