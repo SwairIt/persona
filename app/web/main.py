@@ -1364,9 +1364,17 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     # cancelling here means their bodies never execute. Re-enable workers
     # once each one's blocking ops are moved off the event loop.
     if _os.environ.get("PERSONA_LEAN_MODE") == "1":
+        # Ночной «сон» (Hermes-style) оставляем даже в lean: он лёгкий
+        # (ClockScheduler — опрос раз в 30 мин), opt-in (kv dream_enabled),
+        # с гейтом тишины, а тяжёлый LLM теперь уносится на ПК-воркер (очередь),
+        # не нагружая event loop сервера. Остальные ~40 воркеров глушим.
+        kept = []
         for _t in tasks:
+            if _t.get_name() == "dream-worker":
+                kept.append(_t)
+                continue
             _t.cancel()
-        tasks = []
+        tasks = kept
         from app.logging_setup import get_logger as _gl  # noqa: PLC0415
 
         _gl("persona.web.main").warning("lifespan.lean_mode — background workers DISABLED")
