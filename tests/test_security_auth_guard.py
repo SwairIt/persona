@@ -16,6 +16,7 @@ from httpx import ASGITransport, AsyncClient
 
 from app.storage.db import init_database
 from app.web.routes import about as about_routes
+from app.web.routes import agents_admin as agents_admin_routes
 from app.web.routes import capture_api
 from app.web.routes import diag_bundle as diag_bundle_routes
 from app.web.routes import doctor as doctor_routes
@@ -37,6 +38,7 @@ _CASES = [
     (diag_bundle_routes.router, "GET", "/admin/diagnostics-bundle.zip"),
     (doctor_routes.router, "GET", "/doctor"),
     (about_routes.router, "GET", "/about"),
+    (agents_admin_routes.router, "GET", "/admin/agents"),
     (thumbnails_routes.router, "GET", "/thumbs/2026-06-23/1.webp"),
     (webhooks_routes.router, "POST", "/webhooks"),
     (public_day_routes.router, "POST", "/admin/public-days"),

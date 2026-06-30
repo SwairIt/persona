@@ -24,16 +24,26 @@ from __future__ import annotations
 
 from typing import Annotated, Final
 
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.audit import log_action
+from app.auth import current_user_required
+from app.auth.owner import is_owner
+from app.auth.sessions import SessionRecord
 from app.logging_setup import get_logger
 from app.remote_agents import create_agent, list_agents, revoke_agent
 from app.web.templates_engine import templates
 
 router = APIRouter(tags=["admin-agents"])
 log = get_logger("persona.remote_agent")
+
+
+async def _require_owner(session: SessionRecord) -> None:
+    """Defense-in-depth поверх auth_gate: управлять агентами (доступ к скриншотам/
+    аудио) может ТОЛЬКО владелец. 403 для любого другого аккаунта."""
+    if not await is_owner(session["user_id"]):
+        raise HTTPException(status_code=403, detail="owner only")
 
 # Whitelist for the ``platform`` form field. The DB column itself is
 # free-form TEXT — older rows or future platforms keep validating — but
@@ -60,7 +70,9 @@ def _normalise_platform(raw: str | None) -> str | None:
 
 @router.get("/admin/agents", response_class=HTMLResponse)
 async def agents_page(
-    request: Request, new_token: str | None = None
+    request: Request,
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+    new_token: str | None = None,
 ) -> HTMLResponse:
     """Render the list of provisioned agents plus the create form.
 
@@ -70,6 +82,7 @@ async def agents_page(
     "is it present" so the template can decide whether to show the
     one-time banner.
     """
+    await _require_owner(session)
     agents = await list_agents(include_revoked=True)
     return templates.TemplateResponse(
         request,
@@ -86,6 +99,7 @@ async def agents_page(
 
 @router.post("/admin/agents")
 async def agents_create(
+    session: Annotated[SessionRecord, Depends(current_user_required)],
     name: Annotated[str, Form(...)],
     platform: Annotated[str | None, Form()] = None,
 ) -> RedirectResponse:
@@ -102,6 +116,7 @@ async def agents_create(
     visible in both the audit_log table and the structured log
     pipeline.
     """
+    await _require_owner(session)
     cleaned_name = name.strip()
     if not cleaned_name:
         await log_action(
@@ -130,8 +145,12 @@ async def agents_create(
 
 
 @router.post("/admin/agents/{agent_id}/revoke")
-async def agents_revoke(agent_id: int) -> RedirectResponse:
+async def agents_revoke(
+    agent_id: int,
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+) -> RedirectResponse:
     """Soft-revoke an agent (sets ``revoked_at``) and return to the list."""
+    await _require_owner(session)
     changed = await revoke_agent(agent_id)
     await log_action(
         "remote_agent.revoke",

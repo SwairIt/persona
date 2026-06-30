@@ -86,7 +86,6 @@ _CATEGORIES: Final[list[dict[str, object]]] = [
         "pages": [
             ("/briefing", "🗞 Брифинг — проактивные карточки дня (👍/👎, тихие часы)"),
             ("/graph", "🕸 Граф памяти — промпты, ответы, записи и связи"),
-            ("/settings/llm", "Провайдер + ключ LLM"),
             ("/settings/digest-prompt", "Промпт для дайджестов"),
             ("/memory", "Tier 1+5: hourly cards + daily pins"),
             ("/memory/weeks", "Tier 2: weekly cards"),

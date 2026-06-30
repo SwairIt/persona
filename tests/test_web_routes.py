@@ -79,7 +79,8 @@ async def test_search_empty(client: AsyncClient) -> None:
 async def test_stats_renders(client: AsyncClient) -> None:
     resp = await client.get("/stats")
     assert resp.status_code == 200
-    assert "Captures total" in resp.text
+    # страница локализована (дефолт ru) — проверяем заголовок t('stats_title')
+    assert "Статистика" in resp.text
 
 
 async def test_stats_json(client: AsyncClient) -> None:
