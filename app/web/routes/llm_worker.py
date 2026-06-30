@@ -12,10 +12,11 @@ status) — наоборот, через current_user_required + is_owner.
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, PlainTextResponse, Response
 
 from app.auth import current_user_required
 from app.auth.owner import is_owner
@@ -23,6 +24,58 @@ from app.auth.sessions import SessionRecord
 from app.llm import worker_queue
 
 router = APIRouter(tags=["llm-worker"])
+
+# Исходник ПК-агента (для self-host one-command установки). app/web/routes → repo root.
+_AGENT_PY = Path(__file__).resolve().parents[3] / "ops" / "persona_llm_worker.py"
+
+# Публичный one-shot установщик для PowerShell: поднимает Ollama+модели, ставит
+# httpx, качает агент с сайта и крутит его с авто-рестартом. Токен и адрес —
+# из env ($env:PERSONA_WORKER_TOKEN обязателен; PERSONA_SERVER опц.). ASCII-only,
+# чтобы безопасно пройти через `irm ... | iex`.
+_INSTALL_PS1 = r"""$ErrorActionPreference = 'Continue'
+$server = if ($env:PERSONA_SERVER) { $env:PERSONA_SERVER } else { 'https://persona.getdoday.ru' }
+if (-not $env:PERSONA_WORKER_TOKEN) {
+  Write-Host 'ERROR: set $env:PERSONA_WORKER_TOKEN before running this.' -ForegroundColor Red
+  return
+}
+Write-Host '[Persona] LLM worker setup...' -ForegroundColor Cyan
+if (-not (Get-Process ollama -ErrorAction SilentlyContinue)) {
+  Write-Host '[Persona] starting ollama serve...' -ForegroundColor Cyan
+  Start-Process ollama -ArgumentList 'serve'; Start-Sleep -Seconds 3
+}
+Write-Host '[Persona] pulling models (gemma3:4b, nomic-embed-text)...' -ForegroundColor Cyan
+ollama pull gemma3:4b
+ollama pull nomic-embed-text
+Write-Host '[Persona] installing httpx...' -ForegroundColor Cyan
+python -m pip install -q httpx
+$dir = Join-Path $env:LOCALAPPDATA 'persona-worker'
+New-Item -ItemType Directory -Force -Path $dir | Out-Null
+$py = Join-Path $dir 'persona_llm_worker.py'
+Invoke-WebRequest -Uri "$server/api/llm/worker/agent.py" -OutFile $py -UseBasicParsing
+$env:PERSONA_SERVER = $server
+Write-Host "[Persona] worker running -> $server (Ctrl+C to stop)" -ForegroundColor Green
+while ($true) {
+  try { python $py } catch { }
+  Write-Host '[Persona] worker exited, restarting in 3s...' -ForegroundColor Yellow
+  Start-Sleep -Seconds 3
+}
+"""
+
+
+@router.get("/api/llm/worker/agent.py")
+async def worker_agent_py() -> PlainTextResponse:
+    """Публично отдаёт исходник ПК-агента (не секрет — токен задаёт пользователь)."""
+    try:
+        src = _AGENT_PY.read_text(encoding="utf-8")
+    except Exception:  # noqa: BLE001
+        raise HTTPException(status_code=404, detail="agent script not found") from None
+    return PlainTextResponse(src, media_type="text/x-python; charset=utf-8")
+
+
+@router.get("/api/llm/worker/install.ps1")
+async def worker_install_ps1() -> PlainTextResponse:
+    """Публичный one-shot установщик: `irm <site>/api/llm/worker/install.ps1 | iex`."""
+    return PlainTextResponse(_INSTALL_PS1, media_type="text/plain; charset=utf-8")
 
 # Шаг опроса очереди внутри long-poll — мягкий, чтобы не жечь loop.
 _POLL_STEP_SECONDS = 0.3
