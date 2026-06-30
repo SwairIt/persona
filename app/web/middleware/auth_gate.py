@@ -37,6 +37,7 @@ from app.auth.owner import is_owner
 from app.billing.service import has_active_sub as _has_active_sub
 from app.logging_setup import get_logger
 from app.storage.db import get_connection
+from app.storage.repository import get_kv
 
 log = get_logger("persona.auth_gate")
 
@@ -146,6 +147,106 @@ def _is_pro_path(path: str) -> bool:
     return any(path == p or path.startswith(p + "/") for p in _PRO_PREFIXES)
 
 
+# ── Роле-основанная маршрутизация (F6-12) — ЗА ФИЧА-ФЛАГОМ, DEFAULT OFF ─────────
+#
+# Включается ТОЛЬКО когда kv ``role_gate_enabled == '1'``. По умолчанию (флаг
+# отсутствует/любое другое значение) этот блок НЕ исполняется: гейт работает
+# ровно как раньше (owner-based). Деплой без правки kv ничего не меняет.
+#
+# При ВКЛ флаге роль определяет, какие зоны видны:
+#   * owner  — всё (суперсет; см. owner-gate ниже, он остаётся fallback);
+#   * admin  — приложение + /admin/*, но НЕ /root (это зона владельца);
+#   * member — приложение, но НЕ /admin/* и НЕ /root;
+#   * viewer — только безопасные (GET/HEAD/OPTIONS) запросы.
+# owner-gate (приватные данные) остаётся последним рубежом: даже при ВКЛ флаге
+# не-владелец без подписки не получает приватную поверхность владельца.
+
+# Кэш флага role_gate (как _FLAG_TTL у активности гейта). 60с.
+_role_gate_cache: dict[str, float | bool] = {"value": False, "checked_at": 0.0}
+
+# Префиксы зон по ролям.
+_ADMIN_PREFIXES: tuple[str, ...] = ("/admin",)
+_OWNER_ONLY_PREFIXES: tuple[str, ...] = ("/root",)
+# Методы, разрешённые viewer (read-only). Всё остальное (POST/PUT/...) — 403.
+_SAFE_METHODS: frozenset[str] = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+async def _role_gate_enabled() -> bool:
+    """True, если kv ``role_gate_enabled == '1'``. Fail-safe → False (OFF).
+
+    Кэшируется на 60с, чтобы не бить в БД на каждый запрос. Любой сбой БД/чтения
+    трактуется как «флаг ВЫКЛ» — то есть поведение остаётся текущим (owner-based),
+    а не блокирующим. Это держит инвариант: ошибка резолва не отнимает доступ.
+    """
+    now = time.monotonic()
+    if now - float(_role_gate_cache["checked_at"]) < _FLAG_TTL:
+        return bool(_role_gate_cache["value"])
+    enabled = False
+    try:
+        async with get_connection() as conn:
+            raw = await get_kv(conn, "role_gate_enabled")
+        enabled = str(raw).strip() == "1"
+    except Exception as exc:  # noqa: BLE001 — сбой → OFF (старое поведение)
+        log.debug("auth_gate.role_flag_failed", error=str(exc))
+        enabled = False
+    _role_gate_cache["value"] = enabled
+    _role_gate_cache["checked_at"] = now
+    return enabled
+
+
+def _matches(path: str, prefixes: tuple[str, ...]) -> bool:
+    """Точное совпадение зоны или вход в неё (``/admin`` либо ``/admin/...``)."""
+    if ".." in path:
+        # Нормализационный обход (/admin/../root): не считаем «своей» зоной —
+        # пусть провалится в owner-gate fallback ниже (безопаснее).
+        return False
+    return any(path == p or path.startswith(p + "/") for p in prefixes)
+
+
+async def _role_route_allows(uid: int | None, path: str, method: str) -> bool | None:
+    """Решение роле-гейта для аутентифицированного НЕ-владельца.
+
+    Возвращает:
+      * ``True``  — роль явно разрешает этот путь (пропустить);
+      * ``None``  — роле-гейт не выносит вердикт (отдать решение owner-gate
+        fallback ниже: приватные данные владельца остаются защищены);
+      * (``False`` сейчас не используется — отказ выражаем через ``None`` +
+        fallback, чтобы НИКОГДА не отнять доступ, который даёт старый путь).
+
+    Fail-safe: при сбое резолва роли → ``None`` (не блокируем, отдаём в fallback).
+    """
+    # Импорт локальный: избегаем циклов на старте и держим owner-gate автономным.
+    from app.auth.guards import resolve_role
+
+    try:
+        role = await resolve_role(uid)
+    except Exception as exc:  # noqa: BLE001 — сбой роли → отдать в fallback
+        log.debug("auth_gate.role_resolve_failed", error=str(exc))
+        return None
+
+    # /root — только владелец. Не-владелец сюда не попадает по роли (owner идёт
+    # отдельной веткой выше). admin/member/viewer — мимо, отдаём в fallback.
+    if _matches(path, _OWNER_ONLY_PREFIXES):
+        return None
+
+    # viewer — только безопасные методы. Небезопасный метод → нет вердикта
+    # (fallback решит; для приватных данных это всё равно отказ).
+    if role == "viewer":
+        return True if method in _SAFE_METHODS else None
+
+    # admin — приложение + /admin/*. Разрешаем admin-зону явно.
+    if role == "admin":
+        return True
+
+    # member — приложение, но НЕ /admin/* и НЕ /root. В admin-зону — нет вердикта
+    # (отдаём fallback → отказ). В остальное приложение — пропускаем.
+    if role == "member":
+        return None if _matches(path, _ADMIN_PREFIXES) else True
+
+    # Неизвестная роль → нет вердикта (fallback, безопасный путь).
+    return None
+
+
 class AuthGateMiddleware(BaseHTTPMiddleware):
     """Redirect un-authenticated visitors to /landing once any user exists."""
 
@@ -180,7 +281,18 @@ class AuthGateMiddleware(BaseHTTPMiddleware):
                 return await call_next(request)
             uid = session.get("user_id")
             if await is_owner(uid):
+                # Владелец — суперсет: видит всё, всегда (и при ВКЛ роле-гейте).
                 return await call_next(request)
+            # Роле-основанная маршрутизация — ТОЛЬКО при kv role_gate_enabled=='1'.
+            # При ВЫКЛ (дефолт) этот блок пропускается целиком → дальше идёт
+            # СТАРЫЙ код-путь (owner-gate / pro), решения доступа не меняются.
+            # При ВКЛ блок может лишь ДОПОЛНИТЕЛЬНО разрешить (admin→/admin и т.п.);
+            # вердикт «нет» означает падение в тот же owner-gate fallback ниже,
+            # поэтому никто не теряет доступ, который давал старый путь.
+            if await _role_gate_enabled():
+                verdict = await _role_route_allows(uid, path, request.method)
+                if verdict is True:
+                    return await call_next(request)
             # Не-владелец с активной подпиской → ТОЛЬКО ассистент (чат) + онбординг.
             # Чат/память изолированы по user_id (видит лишь своё). Личные данные
             # владельца (захват/таймлайн/общие настройки) — закрыты.

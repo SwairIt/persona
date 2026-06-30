@@ -26,6 +26,16 @@ VALID_STATUS = frozenset({"pending", "active", "suspended"})
 _DEFAULT_ROLE = "member"
 
 
+def role_rank(role: str | None) -> int:
+    """Числовой ранг роли по иерархии viewer<member<admin<owner.
+
+    Неизвестная/пустая роль → 0 (ниже любого валидного уровня), чтобы сравнения
+    были безопасны. ``owner`` — старший ранг (суперсет). Чисто read-функция, БД
+    не трогает; для сравнения уже резолвленных ролей.
+    """
+    return ROLE_RANK.get(role or "", 0)
+
+
 async def get_role(user_id: int | None) -> str:
     """Роль пользователя. Fail-open к 'member' при сбое/отсутствии колонки."""
     if user_id is None:
@@ -153,6 +163,6 @@ async def list_users() -> list[dict[str, Any]]:
 
 __all__ = [
     "ROLE_RANK", "VALID_ROLES", "VALID_STATUS",
-    "get_role", "has_permission", "list_users",
+    "role_rank", "get_role", "has_permission", "list_users",
     "owner_count", "set_status", "set_role", "delete_user",
 ]
