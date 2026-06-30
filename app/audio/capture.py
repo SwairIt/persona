@@ -129,6 +129,24 @@ class _RingBuffer:
             self.write_pos = end % self.capacity
             self.filled = min(self.capacity, self.filled + n)
 
+    def _snapshot_unlocked(self) -> np.ndarray:
+        """Build the snapshot copy **assuming the caller already holds the lock**.
+
+        Split out from :meth:`snapshot` so a caller can take the snapshot
+        and drain the buffer inside one critical section (see
+        :meth:`snapshot_and_drain`) without releasing and re-acquiring the
+        lock in between — that gap is where a PortAudio callback write
+        would otherwise be silently discarded by the drain.
+        """
+        assert np is not None
+        if self.filled < self.capacity:
+            return self.data[: self.filled].copy()
+        # Roll so the oldest sample sits at index 0.
+        return np.concatenate(
+            (self.data[self.write_pos :], self.data[: self.write_pos]),
+            axis=0,
+        ).copy()
+
     def snapshot(self) -> np.ndarray:
         """Return a contiguous copy of the most recent ``capacity`` samples.
 
@@ -137,15 +155,25 @@ class _RingBuffer:
         wait for the next tick.
         """
         with self.lock:
-            if self.filled < self.capacity:
-                assert np is not None
-                return self.data[: self.filled].copy()
-            assert np is not None
-            # Roll so the oldest sample sits at index 0.
-            return np.concatenate(
-                (self.data[self.write_pos :], self.data[: self.write_pos]),
-                axis=0,
-            ).copy()
+            return self._snapshot_unlocked()
+
+    def snapshot_and_drain(self, target: int) -> "np.ndarray | None":
+        """Atomically snapshot and, if full enough, drain the ring.
+
+        Returns the snapshot copy when at least ``target`` samples are
+        available and resets the ring in the **same** critical section so
+        no callback write can land between the read and the reset (which
+        would lose those frames). Returns ``None`` while still warming up,
+        leaving the ring untouched so it keeps accumulating.
+        """
+        with self.lock:
+            if self.filled < target:
+                return None
+            snap = self._snapshot_unlocked()
+            # Drain so the next chunk doesn't overlap with this one.
+            self.filled = 0
+            self.write_pos = 0
+            return snap
 
 
 @dataclass
@@ -253,15 +281,13 @@ async def record_chunk() -> np.ndarray | dict[str, Any]:
     assert ring is not None and np is not None
     target = int(SAMPLE_RATE * CHUNK_SECONDS)
     while True:
-        snap = ring.snapshot()
-        if snap.shape[0] >= target:
-            # Drain the buffer so the next chunk doesn't overlap with this one.
-            # We snapshot a copy then zero the fill counter to force a fresh
-            # 30-s window — overlap would inflate audio_segment row counts
-            # without adding speech information.
-            with ring.lock:
-                ring.filled = 0
-                ring.write_pos = 0
+        # Snapshot + size-check + drain happen inside one critical section
+        # (``snapshot_and_drain``) so a PortAudio callback can't write
+        # between the read and the reset and have those frames discarded.
+        # A fresh 30-s window is forced — overlap would inflate
+        # audio_segment row counts without adding speech information.
+        snap = ring.snapshot_and_drain(target)
+        if snap is not None:
             return snap[:target]
         await asyncio.sleep(0.5)
 

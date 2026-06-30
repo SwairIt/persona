@@ -13,6 +13,13 @@
   .span-rate:hover{outline:1px dashed rgba(255,255,255,.5);outline-offset:1px}
   .span-rate.span-like{background:rgba(34,197,94,.28);box-shadow:inset 0 -2px 0 rgba(34,197,94,.75)}
   .span-rate.span-dislike{background:rgba(244,63,94,.28);box-shadow:inset 0 -2px 0 rgba(244,63,94,.75)}
+  /* Мобильная читаемость: мелкие text-[10px]/text-[11px] на узких экранах
+     плохо читаются — поднимаем до ~12px. Desktop (>640px) не трогаем.
+     Аддитивно: целимся в arbitrary-value утилиты Tailwind по классу. */
+  @media (max-width:640px){
+    [class~="text-[10px]"]{font-size:12px;line-height:1.35}
+    [class~="text-[11px]"]{font-size:12.5px;line-height:1.4}
+  }
 </style>
 {# T21 (2026-06-07): chat UI redesign — markdown rendering of replies,
    per-message timing badge, context usage indicator, image attachments

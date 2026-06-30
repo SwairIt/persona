@@ -16,6 +16,72 @@ from app.storage.db import get_connection
 
 TRIAL_DAYS = 3
 
+# Публичный адрес сайта для ссылок в письме (вебхук без request.base_url).
+_PUBLIC_BASE = "https://persona.getdoday.ru"
+
+
+async def _send_payment_receipt_email(
+    user_id: int, amount: str, cycle: str, period_end: str
+) -> None:
+    """Брендированное письмо «Оплата получена» подписчику. Никогда не роняет
+    активацию — все ошибки (нет email / SMTP выключен / сеть) глотаются.
+
+    Вызывать ТОЛЬКО при первой успешной активации (не при ретрае вебхука)."""
+    try:
+        async with get_connection() as conn:
+            cur = await conn.execute(
+                "SELECT email FROM users WHERE id = ?", (user_id,)
+            )
+            row = await cur.fetchone()
+        email = (dict(row).get("email") if row else None) or ""
+        email = email.strip()
+        if not email:
+            return
+
+        from app.mail_branding import branded_email_html
+        from app.smtp_delivery import send_email
+
+        cycle_human = {"yearly": "год", "monthly": "месяц"}.get(cycle, cycle)
+        chat_url = f"{_PUBLIC_BASE}/chat"
+        billing_url = f"{_PUBLIC_BASE}/billing"
+
+        text = (
+            "Оплата получена — спасибо!\n\n"
+            f"Сумма: {amount} ₽ · период: {cycle_human}\n"
+            f"Доступ открыт до: {period_end}\n\n"
+            f"Перейти в чат: {chat_url}\n"
+            f"Кабинет подписки: {billing_url}\n"
+        )
+        extra = (
+            '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+            'style="margin:2px 0 14px;"><tr><td style="background:#130a2e;'
+            'border:1px solid rgba(147,130,255,.25);border-radius:12px;padding:14px 18px;">'
+            '<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;'
+            'line-height:1.7;color:#c5bde0;">'
+            f"<b style=\"color:#e9e3ff;\">Сумма:</b> {amount} &#8381; · "
+            f"<b style=\"color:#e9e3ff;\">период:</b> {cycle_human}<br>"
+            f"<b style=\"color:#e9e3ff;\">Доступ открыт до:</b> {period_end}"
+            "</div></td></tr></table>"
+            '<p style="margin:0 0 4px;font-family:Arial,Helvetica,sans-serif;'
+            'font-size:13px;line-height:1.6;color:#9a90c0;">'
+            f'Кабинет подписки и ключ лицензии — на странице '
+            f'<a href="{billing_url}" style="color:#c4b5fd;">/billing</a>.</p>'
+        )
+        html = branded_email_html(
+            preheader="Оплата получена — Persona Pro активирован.",
+            heading="Оплата получена 🎉",
+            lead="Спасибо! Подписка Persona Pro активна. Можешь сразу открывать чат "
+            "с памятью — всё включено.",
+            button_label="Открыть чат",
+            button_url=chat_url,
+            extra_html=extra,
+            footer="Это автоматическое письмо о платеже. Управлять подпиской можно "
+            "в кабинете /billing.",
+        )
+        await send_email(email, "Оплата получена — Persona Pro", text, html)
+    except Exception:  # noqa: BLE001 — письмо не должно ломать активацию
+        pass
+
 
 def _utcnow() -> datetime:
     # naive-UTC, как хранится в БД (datetime('now') / isoformat без tz)
@@ -136,6 +202,12 @@ async def activate_from_payment(payment_id: str) -> bool:
         pm = payment.get("payment_method") or {}
         method_id = pm.get("id") if pm.get("saved") else None
         now = _utcnow()
+        # Дедуп письма: если этот платёж уже был "succeeded" — это повторный
+        # вебхук (ЮKassa ретраит), письмо НЕ слать второй раз.
+        async with get_connection() as conn:
+            prior = await repo.get_payment_by_provider_id(conn, payment_id)
+        already_succeeded = bool(prior and prior.get("status") == "succeeded")
+        period_end_iso = _iso(now + timedelta(days=period_days))
         async with get_connection() as conn:
             sub = await repo.get_subscription(conn, user_id)
             license_key = (sub or {}).get("license_key") or generate_license_key()
@@ -163,8 +235,15 @@ async def activate_from_payment(payment_id: str) -> bool:
                 amount=(plan.amount if plan else payment["amount"]["value"]),
                 currency="RUB", status="succeeded",
                 period_start=_iso(now),
-                period_end=_iso(now + timedelta(days=period_days)),
+                period_end=period_end_iso,
                 description=f"Pro {plan.cycle}" if plan else "Pro",
+            )
+        if not already_succeeded:
+            await _send_payment_receipt_email(
+                user_id,
+                amount=str(plan.amount if plan else payment["amount"]["value"]),
+                cycle=(plan.cycle if plan else "monthly"),
+                period_end=period_end_iso,
             )
         return True
 

@@ -177,6 +177,7 @@ _CATEGORIES: Final[list[dict[str, object]]] = [
             ("/settings/backup/manage", "Резервные копии БД"),
             ("/audit", "Audit log"),
             ("/admin/agents", "Remote agents (Mac)"),
+            ("/settings/billing-admin", "💳 Биллинг — все подписки, ручной грант (owner)"),
         ],
     },
     {

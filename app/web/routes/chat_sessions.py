@@ -61,6 +61,31 @@ log = get_logger("persona.chat.routes")
 _LOCAL_PROVIDERS = {"ollama", "llamacpp", "localai", "lmstudio"}
 
 
+def _humanize_llm_error(raw: str) -> str:
+    """Короткая понятная подсказка по сырому тексту ошибки LLM.
+
+    Общий except в send-stream раньше отдавал в error-фрейм сырой текст
+    провайдера (часто английский стек-трейд/JSON) — пользователю непонятно.
+    Распарсиваем текст на типичные признаки и добавляем человекочитаемую
+    подсказку ПЕРЕД сырым текстом. Если ничего не распознали — отдаём как было.
+    """
+    low = (raw or "").lower()
+    hint: str | None = None
+    if "rate" in low or "429" in low:
+        hint = "Слишком много запросов, подожди немного и повтори."
+    elif "timeout" in low or "timed out" in low:
+        hint = "Таймаут — модель не ответила вовремя, повтори запрос."
+    elif "out of memory" in low or "cuda" in low:
+        hint = "Модели не хватило памяти (VRAM) — выбери модель полегче."
+    elif "not found" in low or "model" in low:
+        hint = "Модель недоступна — попробуй выбрать другую модель внизу."
+    elif "connection" in low or "refused" in low:
+        hint = "Нет связи с моделью — проверь, что провайдер запущен."
+    if not hint:
+        return raw
+    return f"{hint}\n\n{raw}" if raw else hint
+
+
 async def _provider_badge() -> dict[str, object]:
     """Активный LLM-провайдер для бейджа приватности в шапке чата.
 
@@ -1335,8 +1360,9 @@ async def api_send_stream(
                     yield f"data: {json.dumps({'type': 'delta', 'text': payload})}\n\n"
                 elif kind == "error":
                     log.warning("chat.stream.failed", error=payload)
-                    err = f"Ошибка LLM: {payload}"
-                    yield f"data: {json.dumps({'type': 'error', 'detail': payload})}\n\n"
+                    friendly = _humanize_llm_error(payload)
+                    err = f"Ошибка LLM: {friendly}"
+                    yield f"data: {json.dumps({'type': 'error', 'detail': friendly})}\n\n"
                     await append_message(session_id, "system", err)
                     return
         except asyncio.CancelledError:
