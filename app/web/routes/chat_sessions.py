@@ -1157,13 +1157,18 @@ async def api_send_stream(
 
         try:
             client = make_client(kind="chat_stream")
-        except LLMNotConfigured as exc:
-            yield f"data: {json.dumps({'type': 'error', 'detail': str(exc)})}\n\n"
-            await append_message(
-                session_id,
-                "system",
-                "LLM не настроен. Открой /settings/llm и выбери провайдера.",
-            )
+        except LLMNotConfigured:
+            # Грациозно: владельцу — actionable, Pro-юзеру — понятное «офлайн»
+            # (настройки LLM ему недоступны, так что не зовём в /settings/llm).
+            if await is_owner(session["user_id"]):
+                msg = ("ИИ-модель не подключена. Открой /settings/llm и выбери провайдера "
+                       "или включи свой локальный LLM (Ollama).")
+                sys_note = "LLM не настроен. Открой /settings/llm и выбери провайдера."
+            else:
+                msg = "Ассистент сейчас офлайн — модель временно недоступна. Загляни чуть позже 🙏"
+                sys_note = "Ассистент временно офлайн (модель недоступна)."
+            yield f"data: {json.dumps({'type': 'error', 'detail': msg})}\n\n"
+            await append_message(session_id, "system", sys_note)
             return
 
         # T22.10 — actually use the session-pinned model.
