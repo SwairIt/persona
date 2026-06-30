@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Биллинг — админ 👑</h1>
+  <p class="text-zinc-500 text-sm mt-1">Все подписки и ручная выдача Pro. Видно только владельцу.</p>
+</div>
+
+{% if notice %}
+  {% set _msg = {
+    'granted': 'Pro-грант выдан.',
+    'not_found': 'Пользователь с таким email не найден.',
+    'bad_email': 'Некорректный email.'
+  } %}
+  <div class="mb-5 rounded-lg border border-accent-500/40 bg-accent-600/10 px-4 py-3 text-sm text-accent-300">
+    {{ _msg.get(notice, notice) }}
+  </div>
+{% endif %}
+
+<div class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-8">
+  <h2 class="text-sm font-semibold uppercase tracking-widest text-zinc-400 mb-3">Выдать Pro вручную</h2>
+  <form method="post" action="/settings/billing-admin/grant" class="flex flex-col sm:flex-row gap-3 sm:items-end">
+    <label class="flex-1">
+      <span class="block text-xs text-zinc-500 mb-1">Email пользователя</span>
+      <input type="email" name="email" required placeholder="user@example.com"
+             class="w-full rounded-md border border-ink-700 bg-ink-900 px-3 py-2 text-sm text-zinc-100 focus:border-accent-500 focus:outline-none">
+    </label>
+    <label class="sm:w-32">
+      <span class="block text-xs text-zinc-500 mb-1">Дней</span>
+      <input type="number" name="days" required min="1" value="30"
+             class="w-full rounded-md border border-ink-700 bg-ink-900 px-3 py-2 text-sm text-zinc-100 focus:border-accent-500 focus:outline-none">
+    </label>
+    <button type="submit"
+            class="rounded-md bg-accent-600 hover:bg-accent-500 px-4 py-2 text-sm font-medium text-white transition">
+      Выдать Pro
+    </button>
+  </form>
+</div>
+
+<div class="rounded-lg border border-ink-700 bg-ink-800 overflow-hidden">
+  <div class="px-5 py-3 border-b border-ink-700 flex items-center justify-between">
+    <h2 class="text-sm font-semibold uppercase tracking-widest text-zinc-400">Все подписки</h2>
+    <span class="text-xs text-zinc-500">{{ subscriptions | length }}</span>
+  </div>
+  {% if subscriptions %}
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="text-left text-xs uppercase tracking-wider text-zinc-500 border-b border-ink-700">
+          <th class="px-4 py-2 font-medium">Email</th>
+          <th class="px-4 py-2 font-medium">План</th>
+          <th class="px-4 py-2 font-medium">Статус</th>
+          <th class="px-4 py-2 font-medium">Действует до</th>
+          <th class="px-4 py-2 font-medium">Провайдер</th>
+          <th class="px-4 py-2 font-medium">Лицензия</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in subscriptions %}
+        <tr class="border-b border-ink-700/50 hover:bg-ink-700/30">
+          <td class="px-4 py-2 text-zinc-200">{{ s.email }}</td>
+          <td class="px-4 py-2 text-zinc-300">{{ s.plan }}</td>
+          <td class="px-4 py-2">
+            <span class="inline-block rounded-full px-2 py-0.5 text-xs
+              {% if s.status == 'active' %}bg-emerald-500/15 text-emerald-300
+              {% elif s.status == 'trialing' %}bg-teal-500/15 text-teal-300
+              {% elif s.status in ('pending', 'past_due') %}bg-amber-500/15 text-amber-300
+              {% else %}bg-rose-500/15 text-rose-300{% endif %}">{{ s.status }}</span>
+          </td>
+          <td class="px-4 py-2 text-zinc-400 font-mono text-xs">{{ (s.current_period_end or '—')[:16] }}</td>
+          <td class="px-4 py-2 text-zinc-400">{{ s.provider }}</td>
+          <td class="px-4 py-2 font-mono text-xs text-zinc-400 break-all" style="max-width:200px">{{ s.license_key or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="px-5 py-6 text-sm text-zinc-500 text-center">Подписок пока нет.</p>
+  {% endif %}
+</div>
+{% endblock %}

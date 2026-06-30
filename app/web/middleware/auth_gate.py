@@ -137,6 +137,12 @@ _PRO_PREFIXES: tuple[str, ...] = ("/chat", "/api/chat", "/onboarding")
 
 
 def _is_pro_path(path: str) -> bool:
+    # Защита от обхода нормализацией: если в пути есть ".." / "/../" — это попытка
+    # вырваться из pro-префикса (напр. /chat/../now). НЕ считаем pro-путём, чтобы
+    # такой путь не получил доступ по подписке. Легитимные /chat, /api/chat,
+    # /onboarding точек-сегментов не содержат и не затрагиваются.
+    if ".." in path:
+        return False
     return any(path == p or path.startswith(p + "/") for p in _PRO_PREFIXES)
 
 

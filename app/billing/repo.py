@@ -46,6 +46,22 @@ async def upsert_subscription(conn: aiosqlite.Connection, user_id: int, **fields
     await conn.commit()
 
 
+async def list_all_subscriptions(conn: aiosqlite.Connection) -> list[dict[str, Any]]:
+    """Все подписки + email/план пользователя — для биллинг-админки владельца."""
+    cur = await conn.execute(
+        """
+        SELECT u.id AS user_id, u.email AS email,
+               s.plan AS plan, s.status AS status,
+               s.current_period_end AS current_period_end,
+               s.provider AS provider, s.license_key AS license_key
+        FROM subscription s
+        JOIN users u ON u.id = s.user_id
+        ORDER BY s.current_period_end DESC
+        """
+    )
+    return [dict(r) for r in await cur.fetchall()]
+
+
 async def due_for_renewal(conn: aiosqlite.Connection, now_iso: str) -> list[dict[str, Any]]:
     """Активные Pro-подписки с истёкшим периодом, которые надо продлить списанием."""
     cur = await conn.execute(

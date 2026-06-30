@@ -72,6 +72,20 @@ async def _provider_badge() -> dict[str, object]:
     return {"provider": provider, "is_local": provider in _LOCAL_PROVIDERS}
 
 
+async def _llm_configured() -> bool:
+    """Подключён ли LLM-провайдер (для empty-state «ассистент офлайн»).
+    Дёшево: пробуем собрать клиента; LLMNotConfigured → False. Любая иная
+    ошибка не должна ронять страницу — считаем, что настроен (UI всё равно
+    покажет реальную ошибку при отправке)."""
+    try:
+        make_client(kind="chat")
+        return True
+    except LLMNotConfigured:
+        return False
+    except Exception:  # noqa: BLE001
+        return True
+
+
 async def _find_vision_model_for_provider(provider: str | None) -> str | None:
     """T24 — return the first vision-capable installed model for the
     given provider, or None if none available. Used by auto-switch when
@@ -450,6 +464,7 @@ async def chat_index(
             "messages": [],
             "adv": await get_advanced_flags(),
             "provider_badge": await _provider_badge(),
+            "llm_configured": await _llm_configured(),
         },
     )
 
@@ -488,6 +503,7 @@ async def chat_thread(
             "auto_prompt": auto_prompt,
             "adv": await get_advanced_flags(),
             "provider_badge": await _provider_badge(),
+            "llm_configured": await _llm_configured(),
         },
     )
 
@@ -1837,6 +1853,78 @@ async def api_react_message(
         return JSONResponse({"ok": False, "error": "unknown reaction"}, status_code=400)
     await set_reaction(message_id, session["user_id"], reaction)
     return JSONResponse({"ok": True, "reaction": reaction})
+
+
+async def _owned_message(message_id: int, user_id: int) -> dict[str, Any] | None:
+    """Изоляция по user_id: вернуть строку сообщения ТОЛЬКО если она
+    принадлежит чату этого пользователя (message → session_id →
+    chat_session.user_id == user_id). Иначе None — чтобы вызывающий отдал
+    404 и нельзя было трогать чужие сообщения."""
+    from app.storage.db import get_connection  # noqa: PLC0415
+
+    async with get_connection() as conn:
+        cursor = await conn.execute(
+            "SELECT m.id AS id, m.session_id AS session_id, m.role AS role "
+            "FROM chat_message m "
+            "JOIN chat_session s ON s.id = m.session_id "
+            "WHERE m.id = ? AND s.user_id = ?",
+            (message_id, user_id),
+        )
+        row = await cursor.fetchone()
+    if row is None:
+        return None
+    return {"id": int(row["id"]), "session_id": int(row["session_id"]), "role": row["role"]}
+
+
+@router.delete("/api/chat/messages/{message_id}", response_class=JSONResponse)
+async def api_delete_message(
+    message_id: int,
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+) -> JSONResponse:
+    """Удалить одно сообщение. Изоляция по user_id: проверяем, что сообщение
+    принадлежит чату этого пользователя (message → session → user_id), иначе
+    404 — чужое удалять нельзя."""
+    owned = await _owned_message(message_id, session["user_id"])
+    if owned is None:
+        raise HTTPException(status_code=404, detail="message not found")
+    from app.storage.db import get_connection  # noqa: PLC0415
+
+    async with get_connection() as conn:
+        await conn.execute("DELETE FROM chat_message WHERE id = ?", (message_id,))
+        await conn.commit()
+    return JSONResponse({"ok": True, "id": message_id})
+
+
+@router.patch("/api/chat/messages/{message_id}", response_class=JSONResponse)
+async def api_edit_message(
+    message_id: int,
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+    body: Annotated[dict[str, Any], Body(default_factory=dict)],
+) -> JSONResponse:
+    """Правка СВОЕГО сообщения (role=='user'). Та же изоляция по user_id; править
+    можно только пользовательские реплики и только в своём чате (иначе 404)."""
+    new_content = str(body.get("content") or "").strip() if isinstance(body, dict) else ""
+    if not new_content:
+        raise HTTPException(status_code=400, detail="content required")
+    owned = await _owned_message(message_id, session["user_id"])
+    if owned is None:
+        raise HTTPException(status_code=404, detail="message not found")
+    if owned["role"] != "user":
+        raise HTTPException(status_code=403, detail="only user messages can be edited")
+    from app.storage.db import get_connection  # noqa: PLC0415
+
+    # Кап по размеру: режем по байтам в UTF-8 как append_message (32 КиБ),
+    # чтобы правка не разъехалась с тем, что принимает остальной чат.
+    encoded = new_content.encode("utf-8")
+    if len(encoded) > 32 * 1024:
+        new_content = encoded[: 32 * 1024].decode("utf-8", errors="ignore")
+    async with get_connection() as conn:
+        await conn.execute(
+            "UPDATE chat_message SET content = ? WHERE id = ?",
+            (new_content, message_id),
+        )
+        await conn.commit()
+    return JSONResponse({"ok": True, "id": message_id, "content": new_content})
 
 
 @router.post("/api/chat/sessions/{session_id}/effort", response_class=JSONResponse)

@@ -212,6 +212,22 @@
         </div>
       {% endif %}
 
+      {# Empty-state без LLM: провайдер не подключён — дружелюбная плашка.
+         {% if not llm_configured %} приходит из роутера (make_client → LLMNotConfigured). #}
+      {% if not llm_configured %}
+        <div class="px-4 sm:px-8 pt-4 max-w-3xl mx-auto w-full">
+          <div class="rounded-xl border border-amber-700/40 bg-amber-900/15 px-4 py-3 text-sm text-amber-200/90 flex items-start gap-3">
+            <span class="text-lg leading-none mt-0.5">🌙</span>
+            <div>
+              <div class="font-semibold text-amber-200">ИИ-ассистент пока офлайн</div>
+              <div class="text-amber-200/80 mt-0.5">Модель ещё не подключена — загляни чуть позже, я скоро вернусь 🙏
+                {% if is_owner %}<a href="/settings/llm" class="underline hover:text-amber-100">Подключить провайдера →</a>{% endif %}
+              </div>
+            </div>
+          </div>
+        </div>
+      {% endif %}
+
       <div id="chat-scroll" class="flex-1 overflow-y-auto overflow-x-hidden px-4 sm:px-8 py-6 space-y-6 max-w-3xl mx-auto w-full"
            x-ref="scroll">
         <template x-for="(msg, mIdx) in messages" :key="msg.id">
@@ -244,21 +260,56 @@
                        x-effect="msg.content; $nextTick(() => decorateCode($el))"></div>
                 </template>
                 <template x-if="msg.role === 'user'">
-                  {# Show-more collapse — текст >5 строк сворачивается. #}
+                  {# Show-more collapse — текст >5 строк сворачивается.
+                     Инлайн-правка своего сообщения (карандаш ниже). #}
                   <div x-data="{ expanded: false, get isLong() { return (msg.content || '').length > 280 || (msg.content || '').split('\n').length > 5; } }">
-                    <div :class="!expanded && isLong ? 'line-clamp-5' : ''"
-                         class="whitespace-pre-wrap break-words"
-                         x-text="msg.content"></div>
-                    <button type="button" x-show="isLong" @click="expanded = !expanded"
-                            class="text-[11px] text-zinc-400 hover:text-accent-400 mt-1.5">
-                      <span x-text="expanded ? 'свернуть' : 'развернуть'"></span>
-                    </button>
+                    {# режим просмотра #}
+                    <template x-if="editingId !== msg.id">
+                      <div>
+                        <div :class="!expanded && isLong ? 'line-clamp-5' : ''"
+                             class="whitespace-pre-wrap break-words"
+                             x-text="msg.content"></div>
+                        <button type="button" x-show="isLong" @click="expanded = !expanded"
+                                class="text-[11px] text-zinc-400 hover:text-accent-400 mt-1.5">
+                          <span x-text="expanded ? 'свернуть' : 'развернуть'"></span>
+                        </button>
+                      </div>
+                    </template>
+                    {# режим инлайн-правки #}
+                    <template x-if="editingId === msg.id">
+                      <div>
+                        <textarea x-model="editText"
+                                  @keydown.escape.stop="cancelEdit()"
+                                  @keydown.enter="(($e)=>{ if(!$e.shiftKey){ $e.preventDefault(); saveEdit(mIdx); } })($event)"
+                                  rows="2"
+                                  class="w-full bg-ink-900 border border-ink-600 focus:border-accent-500 rounded-lg px-3 py-2 text-[15px] text-zinc-100 resize-y focus:outline-none"></textarea>
+                        <div class="flex items-center gap-3 mt-1.5 text-[11px]">
+                          <button type="button" @click="saveEdit(mIdx)"
+                                  class="text-emerald-400 hover:text-emerald-300">сохранить</button>
+                          <button type="button" @click="cancelEdit()"
+                                  class="text-zinc-400 hover:text-zinc-200">отмена</button>
+                          <span class="text-zinc-600">Enter — сохранить · Esc — отмена</span>
+                        </div>
+                      </div>
+                    </template>
                   </div>
                 </template>
                 <template x-if="msg.role === 'system'">
                   <span x-text="msg.content"></span>
                 </template>
               </div>
+              {# Действия над СВОИМ сообщением: правка (карандаш) + удаление (корзина).
+                 Скрыты в режиме правки, чтобы не мешали. #}
+              <template x-if="msg.role === 'user' && editingId !== msg.id">
+                <div class="msg-actions mt-1.5 flex items-center gap-2 text-[11px] text-zinc-500 font-mono">
+                  <button type="button" @click.stop="startEdit(msg)"
+                          class="opacity-50 hover:opacity-100 hover:bg-ink-800 cursor-pointer select-none inline-flex items-center justify-center w-7 h-7 rounded-lg text-sm transition-all"
+                          title="изменить сообщение">✏️</button>
+                  <button type="button" @click.stop="deleteMessage(mIdx)"
+                          class="opacity-50 hover:opacity-100 hover:bg-rose-500/15 hover:text-rose-300 cursor-pointer select-none inline-flex items-center justify-center w-7 h-7 rounded-lg text-sm transition-all"
+                          title="удалить сообщение">🗑</button>
+                </div>
+              </template>
               <template x-if="msg.role === 'assistant'">
                 <div class="msg-actions mt-2 flex items-center gap-3 text-[11px] text-zinc-500 font-mono">
                   {# 👍/👎 + meta — единая полоса под assistant ответом #}
@@ -299,6 +350,12 @@
                           class="opacity-60 hover:opacity-100 hover:bg-ink-800 cursor-pointer select-none inline-flex items-center justify-center w-8 h-8 rounded-lg text-base transition-all"
                           title="перегенерировать ответ">
                     🔄
+                  </button>
+                  {# удалить это сообщение #}
+                  <button type="button" @click.stop="deleteMessage(mIdx)"
+                          class="opacity-60 hover:opacity-100 hover:bg-rose-500/15 hover:text-rose-300 cursor-pointer select-none inline-flex items-center justify-center w-8 h-8 rounded-lg text-base transition-all"
+                          title="удалить сообщение">
+                    🗑
                   </button>
                   {# озвучить ответ (браузерный синтез речи) #}
                   <button type="button" x-show="ttsAvailable" @click.stop="speakMsg(mIdx)"
@@ -619,6 +676,14 @@
           Начни с примера ниже или жми «Новый чат» слева.
         </p>
 
+        {% if not llm_configured %}
+        <div class="mt-5 rounded-xl border border-amber-700/40 bg-amber-900/15 px-4 py-3 text-sm text-amber-200/90 max-w-md">
+          🌙 <span class="font-semibold text-amber-200">ИИ-ассистент пока офлайн.</span>
+          Модель ещё не подключена — загляни чуть позже 🙏
+          {% if is_owner %}<a href="/settings/llm" class="underline hover:text-amber-100">Подключить →</a>{% endif %}
+        </div>
+        {% endif %}
+
         {# Онбординг: примеры-кейсы. Клик → создаём чат и кладём текст в композер. #}
         <div class="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full max-w-xl">
           <template x-for="ex in onboardCases" :key="ex.text">
@@ -844,6 +909,10 @@
       compareOpen: false,
       compareLoading: false,
       compareResults: [],
+
+      // Инлайн-правка своего сообщения: id правимого + буфер текста
+      editingId: null,
+      editText: '',
 
       get currentModelLabel() {
         if (this.current.model) return this.current.model;
@@ -1830,6 +1899,63 @@
             body: JSON.stringify({ pinned: next }),
           });
         } catch (e) { /* keep local state */ }
+      },
+
+      // Удалить сообщение: подтверждение → DELETE → убрать из DOM.
+      // Сервер проверяет принадлежность (message → session → user_id), 404 = чужое.
+      async deleteMessage(idx) {
+        const msg = this.messages[idx];
+        if (!msg || !msg.id) return;
+        if (!confirm('Удалить это сообщение? Отменить не получится.')) return;
+        try {
+          const r = await fetch(`/api/chat/messages/${msg.id}`, { method: 'DELETE' });
+          if (r.ok) {
+            // убрать из DOM по id (индекс мог сдвинуться)
+            const i = this.messages.findIndex(m => m.id === msg.id);
+            if (i >= 0) this.messages.splice(i, 1);
+            if (this.editingId === msg.id) this.cancelEdit();
+          } else if (r.status === 404) {
+            alert('Сообщение не найдено (или уже удалено).');
+          } else {
+            alert('Не получилось удалить (' + r.status + ').');
+          }
+        } catch (e) { alert(e); }
+      },
+
+      // Инлайн-правка своего сообщения (только role==='user').
+      startEdit(msg) {
+        if (!msg || msg.role !== 'user' || !msg.id) return;
+        this.editingId = msg.id;
+        this.editText = msg.content || '';
+      },
+      cancelEdit() { this.editingId = null; this.editText = ''; },
+      async saveEdit(idx) {
+        const id = this.editingId;
+        if (id == null) return;
+        const text = (this.editText || '').trim();
+        if (!text) { alert('Пустое сообщение нельзя сохранить.'); return; }
+        try {
+          const r = await fetch(`/api/chat/messages/${id}`, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content: text }),
+          });
+          if (r.ok) {
+            const d = await r.json().catch(() => ({}));
+            const i = this.messages.findIndex(m => m.id === id);
+            if (i >= 0) {
+              const m = this.messages[i];
+              m.content = (d && d.content) ? d.content : text;
+              this.messages.splice(i, 1, m);
+            }
+            this.cancelEdit();
+          } else if (r.status === 404) {
+            alert('Сообщение не найдено.'); this.cancelEdit();
+          } else if (r.status === 403) {
+            alert('Править можно только свои сообщения.'); this.cancelEdit();
+          } else {
+            alert('Не удалось сохранить (' + r.status + ').');
+          }
+        } catch (e) { alert(e); }
       },
 
       onAssistantSelect(e, messageId) {

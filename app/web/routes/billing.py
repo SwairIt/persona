@@ -9,13 +9,14 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from app import __version__
 from app.auth import current_user_required
 from app.auth.owner import is_owner
 from app.auth.sessions import SessionRecord
+from app.auth.users import normalise_email
 from app.billing import config as billing_config
 from app.billing import repo
 from app.billing import service
@@ -38,6 +39,8 @@ async def _render_portal(
     status_code: int = 200,
 ) -> HTMLResponse:
     uid = int(session["user_id"])
+    async with get_connection() as conn:
+        payments = await repo.list_payments(conn, uid, limit=10)
     return templates.TemplateResponse(
         request,
         "billing.html",
@@ -51,6 +54,7 @@ async def _render_portal(
             "configured": billing_config.is_configured(),
             "email": session.get("email"),
             "notice": notice,
+            "payments": payments,
         },
         status_code=status_code,
     )
@@ -110,6 +114,56 @@ async def billing_cancel(
     """Отменить автопродление подписки (доступ — до конца оплаченного периода)."""
     await service.cancel_subscription(int(session["user_id"]))
     return RedirectResponse(url="/billing", status_code=303)
+
+
+@router.get("/settings/billing-admin", response_class=HTMLResponse, response_model=None)
+async def billing_admin(
+    request: Request,
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+    notice: str | None = None,
+) -> HTMLResponse:
+    """Биллинг-админка владельца: все подписки + ручной грант Pro. Только owner."""
+    uid = int(session["user_id"])
+    if not await is_owner(uid):
+        raise HTTPException(status_code=403, detail="Только владелец")
+    async with get_connection() as conn:
+        subscriptions = await repo.list_all_subscriptions(conn)
+    return templates.TemplateResponse(
+        request,
+        "billing_admin.html",
+        {
+            "title": "Биллинг — админ",
+            "app_version": __version__,
+            "active_nav": "settings",
+            "is_owner": True,
+            "session": session,
+            "subscriptions": subscriptions,
+            "notice": notice,
+        },
+    )
+
+
+@router.post("/settings/billing-admin/grant", response_model=None)
+async def billing_admin_grant(
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+    email: Annotated[str, Form()],
+    days: Annotated[int, Form()],
+) -> Response:
+    """Выдать пользователю (по email) ручной Pro-грант на N дней. Только owner."""
+    uid = int(session["user_id"])
+    if not await is_owner(uid):
+        raise HTTPException(status_code=403, detail="Только владелец")
+    try:
+        norm = normalise_email(email)
+    except ValueError:
+        return RedirectResponse(url="/settings/billing-admin?notice=bad_email", status_code=303)
+    async with get_connection() as conn:
+        cur = await conn.execute("SELECT id FROM users WHERE email = ?", (norm,))
+        row = await cur.fetchone()
+    if row is None:
+        return RedirectResponse(url="/settings/billing-admin?notice=not_found", status_code=303)
+    await service.grant_pro(int(row["id"]), max(1, int(days)))
+    return RedirectResponse(url="/settings/billing-admin?notice=granted", status_code=303)
 
 
 @router.get("/api/v1/license/{key}", response_model=None)

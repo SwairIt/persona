@@ -35,6 +35,14 @@
         <h1 style="font-size:1.5rem;font-weight:800;margin:0 0 4px;text-align:center">Твоя подписка</h1>
         <p style="color:var(--ink-faint);font-size:.9rem;text-align:center;margin:0 0 20px">{{ email }}</p>
 
+        {# Лицензионный ключ виден ВСЕГДА — self-host клиенту он нужен и при
+           неактивной подписке (доступ к /chat по-прежнему гейтится отдельно). #}
+        {% if summary.license_key %}
+          <p style="color:var(--ink-faint);font-size:.8rem;text-align:center;margin:0 0 4px;text-transform:uppercase;letter-spacing:1px">Лицензионный ключ</p>
+          <div class="lic" title="Вставь этот ключ в свой self-host">{{ summary.license_key }}</div>
+          <p style="color:var(--ink-faint);font-size:.78rem;text-align:center;margin:6px 0 18px">Вставь его в свою Persona (self-host).</p>
+        {% endif %}
+
         {% if summary.active %}
           <div style="text-align:center;margin-bottom:16px">
             {% if summary.is_trial %}
@@ -80,6 +88,21 @@
               Приём оплаты подключается — скоро.</p>
           {% endif %}
         {% endif %}
+      {% endif %}
+
+      {% if payments %}
+        <div style="margin-top:24px;border-top:1px solid rgba(147,130,255,.12);padding-top:16px">
+          <p style="color:var(--ink-faint);font-size:.8rem;text-align:center;margin:0 0 10px;text-transform:uppercase;letter-spacing:1px">История платежей</p>
+          <ul style="list-style:none;margin:0;padding:0;font-size:.86rem">
+            {% for p in payments %}
+              <li style="display:flex;justify-content:space-between;gap:12px;align-items:center;padding:7px 2px;border-bottom:1px solid rgba(147,130,255,.07)">
+                <span style="color:var(--ink-faint)">{{ (p.created_at or '')[:10] }}</span>
+                <span style="color:var(--ink-dim)">{{ p.amount }} {{ p.currency }}</span>
+                <span style="font-size:.78rem;color:{% if p.status == 'succeeded' %}#5eead4{% elif p.status == 'pending' %}#fbbf24{% else %}#ffc4d4{% endif %}">{{ p.status }}</span>
+              </li>
+            {% endfor %}
+          </ul>
+        </div>
       {% endif %}
 
       <form method="post" action="/auth/logout" style="margin-top:26px;text-align:center">

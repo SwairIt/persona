@@ -66,11 +66,20 @@ def _detect_profile(flags: dict[str, object]) -> str:
     return ""
 
 
-# режимы поиска памяти по всем чатам
+# режимы поиска памяти по всем чатам (показываемые на этой странице)
 _RECALL_MODES: tuple[tuple[str, str, str], ...] = (
     ("off", "Выключена", "ИИ помнит только текущий чат."),
     ("keyword", "По ключевым словам", "Быстро ищет прошлые сообщения по именам и словам из вопроса. (по умолчанию)"),
     ("smart", "Умная (ИИ сам ищет)", "ИИ сам решает, что искать — имена, темы, синонимы, падежи. Точнее, но чуть медленнее (доп. запрос к модели)."),
+)
+
+# Согласованный набор валидных значений recall_mode по ВСЕМ страницам настроек.
+# advanced_settings показывает off/keyword/smart, а memory_settings — keyword/hybrid/
+# vector/generative; раньше валидаторы расходились и значение, сохранённое на одной
+# странице, считалось «невалидным» на другой и тихо сбрасывалось. Объединяем оба
+# набора, чтобы любое легитимно сохранённое значение оставалось валидным везде.
+_VALID_RECALL_MODES: frozenset[str] = frozenset(
+    {m[0] for m in _RECALL_MODES} | {"hybrid", "vector", "generative"}
 )
 
 
@@ -80,7 +89,7 @@ async def _read_raw() -> dict[str, object]:
         for key, _t, _d in _FEATURES:
             out[key] = (await get_kv(conn, f"feat_{key}") or "1").strip() == "1"
         rm = (await get_kv(conn, "recall_mode") or "keyword").strip()
-        out["recall_mode"] = rm if rm in {m[0] for m in _RECALL_MODES} else "keyword"
+        out["recall_mode"] = rm if rm in _VALID_RECALL_MODES else "keyword"
     return out
 
 
@@ -126,7 +135,7 @@ async def advanced_save(
     user: Annotated[SessionRecord, Depends(current_user_required)],
 ) -> RedirectResponse:
     form = await request.form()
-    valid_modes = {m[0] for m in _RECALL_MODES}
+    valid_modes = _VALID_RECALL_MODES
     rm = str(form.get("recall_mode", "keyword"))
     async with get_connection() as conn:
         await set_kv(conn, "advanced_mode", "1" if form.get("master") else "0")

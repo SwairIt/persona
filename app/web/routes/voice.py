@@ -22,6 +22,7 @@ import tempfile
 from pathlib import Path
 from typing import Annotated, Any
 
+import aiosqlite
 from fastapi import (
     APIRouter,
     Body,
@@ -46,6 +47,15 @@ router = APIRouter(tags=["voice"])
 log = get_logger("persona.voice")
 
 _WAKE_RE = re.compile(r"^\s*(персона|persona)[\s,.:!?—-]*", re.IGNORECASE | re.UNICODE)
+
+# Озвучка: ограничиваем длину текста, уходящего в TTS, иначе огромный ответ
+# (десятки КБ) превращается в десятки минут речи. Чат хранит полный ответ —
+# режем только то, что отдаётся на say/SAPI.
+_TTS_MAX_CHARS = 4000
+
+# Имя голоса уходит в shell-команду `say -v …` / SAPI — допускаем только
+# безопасный набор символов (буквы/цифры/пробел/подчёркивание/дефис).
+_VOICE_NAME_RE = re.compile(r"^[A-Za-z0-9_\- ]*$")
 
 
 # ---------------------------------------------------------------------------
@@ -197,7 +207,14 @@ async def voice_settings_save(
     form = await request.form()
     enabled = "1" if form.get("enabled") else "0"
     session_id = str(form.get("session_id", "")).strip()
-    voice_name = str(form.get("voice", "")).strip()
+    # Имя голоса уходит в shell `say -v …` / SAPI — жёстко санитизируем:
+    # обрезаем до 50 символов и разрешаем только безопасный набор символов.
+    # Кавычки/escape/любой посторонний символ → имя сбрасывается в пустое
+    # (агент возьмёт дефолтный голос), а не уходит в команду.
+    voice_name = str(form.get("voice", "")).strip()[:50]
+    if not _VOICE_NAME_RE.match(voice_name):
+        log.warning("voice.invalid_voice_name", value=voice_name)
+        voice_name = ""
     async with get_connection() as conn:
         await set_kv(conn, "voice_enabled", enabled)
         await set_kv(conn, "voice_session_id", session_id if session_id.isdigit() else "")
@@ -265,9 +282,26 @@ async def voice_utterance(
 
     try:
         answer = await _generate_reply(user_id, session_id, phrase)
+    except aiosqlite.IntegrityError as exc:
+        # FK-гонка: сессию удалили между owner-check и записью ответа.
+        # Не падаем в 502 — это ожидаемое состояние, агент просто пропустит.
+        log.warning("voice.session_deleted", session_id=session_id, error=str(exc))
+        return JSONResponse(
+            {"ok": False, "skipped": "session_deleted"}, status_code=410
+        )
     except Exception as exc:  # noqa: BLE001
         log.warning("voice.generate_failed", error=str(exc))
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
+
+    # TTS-длина: режем то, что уходит в озвучку (чат уже хранит полный ответ).
+    if len(answer) > _TTS_MAX_CHARS:
+        log.warning(
+            "voice.tts_truncated",
+            session_id=session_id,
+            original_len=len(answer),
+            limit=_TTS_MAX_CHARS,
+        )
+        answer = answer[:_TTS_MAX_CHARS]
 
     tts_id = await _enqueue_tts(user_id, session_id, answer, settings["voice"])
     return JSONResponse(

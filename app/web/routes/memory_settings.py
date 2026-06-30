@@ -35,7 +35,13 @@ log = get_logger("persona.memory.settings")
 # Мягкий бюджет (инсайт Hermes: видимый лимит дисциплинирует, не даёт свалке расти).
 _BUDGET = 60
 
-_RECALL_MODES = ("keyword", "hybrid", "vector", "generative")
+# Согласованный набор валидных значений recall_mode по ВСЕМ страницам настроек.
+# Эта страница показывает keyword/hybrid/vector/generative, а /settings/advanced —
+# off/keyword/smart. Раньше валидаторы расходились: значение, сохранённое на advanced
+# (off/smart), считалось здесь невалидным и тихо сбрасывалось в "". Объединяем оба
+# набора, чтобы любое легитимно сохранённое значение оставалось валидным везде.
+# Пустая строка "" (= авто) валидна отдельно (см. fallback в memory_engine_save).
+_RECALL_MODES = ("keyword", "hybrid", "vector", "generative", "off", "smart")
 
 # kv-настройки движка памяти (recall + ночной «сон») с дефолтами.
 _ENGINE_KEYS: tuple[tuple[str, str], ...] = (
