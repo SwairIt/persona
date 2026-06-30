@@ -1248,5 +1248,14 @@
   "mem_train_btn": "Speicher jetzt trainieren",
   "mem_train_running": "Training läuft…",
   "mem_salience_all_title": "Salience-Ranking in allen Modi",
-  "mem_salience_all_hint": "Erinnerungen nach Wichtigkeit, Aktualität und Relevanz neu sortieren (wie im Generative-Modus) — auch für hybrid/vector. Etwas langsamer, aber genauer. Standardmäßig aus."
+  "mem_salience_all_hint": "Erinnerungen nach Wichtigkeit, Aktualität und Relevanz neu sortieren (wie im Generative-Modus) — auch für hybrid/vector. Etwas langsamer, aber genauer. Standardmäßig aus.",
+  "llmmon_title": "LLM / Modellauslastung",
+  "llmmon_total": "gesamt",
+  "llmmon_vram_total": "VRAM gesamt",
+  "llmmon_idle": "Kein Modell resident (lädt bei erster Anfrage)",
+  "llmmon_installed": "installiert",
+  "llmmon_unreachable": "Ollama nicht erreichbar — Modell auf dem PC und Tunnel starten",
+  "llmmon_embed": "Embedding-Modell",
+  "llmmon_online": "online",
+  "llmmon_offline": "offline"
 }

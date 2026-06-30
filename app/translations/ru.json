@@ -1248,5 +1248,14 @@
   "mem_train_btn": "Обучить память сейчас",
   "mem_train_running": "Идёт обучение…",
   "mem_salience_all_title": "Salience-ранжирование во всех режимах",
-  "mem_salience_all_hint": "Пересортировывать память по важности, свежести и релевантности (как в режиме generative) даже для hybrid/vector. Чуть медленнее, но точнее. По умолчанию выключено."
+  "mem_salience_all_hint": "Пересортировывать память по важности, свежести и релевантности (как в режиме generative) даже для hybrid/vector. Чуть медленнее, но точнее. По умолчанию выключено.",
+  "llmmon_title": "LLM / нагрузка модели",
+  "llmmon_total": "всего",
+  "llmmon_vram_total": "VRAM суммарно",
+  "llmmon_idle": "Модель не в памяти (загрузится при первом запросе)",
+  "llmmon_installed": "установлено",
+  "llmmon_unreachable": "Ollama недоступна — подними модель на ПК и туннель",
+  "llmmon_embed": "модель эмбеддингов",
+  "llmmon_online": "онлайн",
+  "llmmon_offline": "офлайн"
 }

@@ -30,6 +30,7 @@ from app.logging_setup import get_logger
 # Зависимость от слайса S1. Сбор метрик — best-effort, поэтому при любой
 # проблеме внутри возвращаем безопасный пустой снимок (см. _safe_snapshot).
 from app.system_metrics import collect_system_metrics, get_history
+from app.llm_monitor import collect_llm_status
 from app.web.templates_engine import templates
 
 router = APIRouter(tags=["system-monitor"])
@@ -68,6 +69,15 @@ def _safe_history() -> list[object]:
         return []
 
 
+async def _safe_llm() -> dict[str, object]:
+    """Статус LLM (Ollama: что загружено + VRAM/RAM) с тихим fallback."""
+    try:
+        return await collect_llm_status()
+    except Exception as exc:  # noqa: BLE001 — мониторинг модели опционален
+        log.warning("system_monitor.llm_failed", error=str(exc))
+        return {"reachable": False, "running": [], "installed": [], "error": "сбой опроса"}
+
+
 @router.get("/settings/system-monitor", response_class=HTMLResponse, response_model=None)
 async def system_monitor_page(
     request: Request,
@@ -86,6 +96,7 @@ async def system_monitor_page(
             "session": session,
             "snapshot": _safe_snapshot(),
             "history": _safe_history(),
+            "llm": await _safe_llm(),
         },
     )
 
@@ -100,6 +111,7 @@ async def system_monitor_json(
         {
             "snapshot": _safe_snapshot(),
             "history": _safe_history(),
+            "llm": await _safe_llm(),
         }
     )
 

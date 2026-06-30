@@ -1248,5 +1248,14 @@
   "mem_train_btn": "Train memory now",
   "mem_train_running": "Training…",
   "mem_salience_all_title": "Salience ranking in all modes",
-  "mem_salience_all_hint": "Re-rank memory by importance, recency and relevance (like generative mode) even for hybrid/vector. Slightly slower but more accurate. Off by default."
+  "mem_salience_all_hint": "Re-rank memory by importance, recency and relevance (like generative mode) even for hybrid/vector. Slightly slower but more accurate. Off by default.",
+  "llmmon_title": "LLM / model load",
+  "llmmon_total": "total",
+  "llmmon_vram_total": "VRAM total",
+  "llmmon_idle": "No model resident (loads on first request)",
+  "llmmon_installed": "installed",
+  "llmmon_unreachable": "Ollama unreachable — start the model on your PC and the tunnel",
+  "llmmon_embed": "embedding model",
+  "llmmon_online": "online",
+  "llmmon_offline": "offline"
 }

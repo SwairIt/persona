@@ -46,7 +46,7 @@
 {% endblock %}
 
 {% block content %}
-<div x-data="systemMonitor({{ snapshot|tojson }}, {{ history|tojson }})" x-init="start()">
+<div x-data="systemMonitor({{ snapshot|tojson }}, {{ history|tojson }}, {{ llm|tojson }})" x-init="start()">
 
   <div class="flex items-start justify-between mb-6 gap-4 flex-wrap">
     <div>
@@ -174,6 +174,49 @@
     </div>
   </div>
 
+  <!-- 🧠 LLM / нагрузка модели на ПК (Ollama /api/ps) -->
+  <div class="sm-tile mb-4" :class="llmReachable ? 'sm-good-edge' : 'sm-crit-edge'">
+    <div class="flex items-center justify-between flex-wrap gap-2">
+      <span class="sm-tile__label">🧠 {{ t('llmmon_title') }}</span>
+      <span class="flex items-center gap-1.5 text-xs">
+        <span class="sm-dot" :class="llmReachable ? 'sm-good-bg sm-pulse' : 'sm-crit-bg'"></span>
+        <span :class="llmReachable ? 'sm-good' : 'sm-crit'" x-text="llmReachable ? t_llm_online : t_llm_offline"></span>
+      </span>
+    </div>
+    <div class="sm-tile__sub mt-1 font-mono truncate" x-text="llmEndpoint"></div>
+
+    <!-- загруженные (резидентные) модели = реальная нагрузка на ПК -->
+    <div class="mt-3 space-y-2" x-show="llmRunning.length">
+      <template x-for="m in llmRunning" :key="m.name">
+        <div class="rounded-lg border border-white/5 px-3 py-2">
+          <div class="flex items-center justify-between gap-2">
+            <span class="font-semibold text-zinc-100 truncate" :title="m.name" x-text="m.name"></span>
+            <span class="text-xs px-2 py-0.5 rounded-full bg-white/5" x-text="m.processor"></span>
+          </div>
+          <div class="sm-tile__sub mt-1 flex flex-wrap gap-x-4 gap-y-0.5">
+            <span x-show="m.vram_mb != null">VRAM: <b class="sm-good" x-text="mb(m.vram_mb)"></b></span>
+            <span x-show="m.ram_mb">RAM: <b x-text="mb(m.ram_mb)"></b></span>
+            <span x-show="m.size_mb != null">{{ t('llmmon_total') }}: <b x-text="mb(m.size_mb)"></b></span>
+            <span x-show="m.params" x-text="m.params"></span>
+            <span x-show="m.quant" class="text-zinc-500" x-text="m.quant"></span>
+          </div>
+        </div>
+      </template>
+      <div class="sm-tile__sub" x-show="llm.vram_total_mb">{{ t('llmmon_vram_total') }}: <b class="sm-good" x-text="mb(llm.vram_total_mb)"></b></div>
+    </div>
+
+    <!-- Ollama есть, но модель не в памяти -->
+    <div class="sm-tile__sub mt-3" x-show="llmReachable && !llmRunning.length">
+      {{ t('llmmon_idle') }} · {{ t('llmmon_installed') }}: <span x-text="(llm && llm.installed_count) || 0"></span>
+    </div>
+
+    <!-- Ollama недоступна -->
+    <div class="mt-3 text-sm rounded-lg border border-red-500/30 bg-red-500/10 text-red-200 px-3 py-2" x-show="!llmReachable">
+      {{ t('llmmon_unreachable') }}<span x-show="llm && llm.error" class="text-red-300/70"> (<span x-text="llm && llm.error"></span>)</span>
+    </div>
+    <div class="sm-tile__sub mt-2">{{ t('llmmon_embed') }}: <span class="font-mono" x-text="(llm && llm.embed_model) || '—'"></span></div>
+  </div>
+
   <!-- Топ процессов -->
   <div class="sm-tile" x-show="topProcs.length">
     <div class="flex items-center justify-between">
@@ -194,10 +237,11 @@
 </div>
 
 <script>
-function systemMonitor(initialSnap, initialHist) {
+function systemMonitor(initialSnap, initialHist, initialLlm) {
   return {
     snap: initialSnap || {},
     history: Array.isArray(initialHist) ? initialHist : [],
+    llm: initialLlm || {},
     error: false,
     lastUpdated: '',
     timer: null,
@@ -207,6 +251,8 @@ function systemMonitor(initialSnap, initialHist) {
     t_uptime: {{ t('sysmon_uptime')|tojson }},
     t_procs: {{ t('sysmon_procs')|tojson }},
     t_cores: {{ t('sysmon_cores')|tojson }},
+    t_llm_online: {{ t('llmmon_online')|tojson }},
+    t_llm_offline: {{ t('llmmon_offline')|tojson }},
 
     // ---- производные геттеры ----
     get isEmpty() { return !this.snap || Object.keys(this.snap).length === 0; },
@@ -265,6 +311,10 @@ function systemMonitor(initialSnap, initialHist) {
     },
     get cpuHist() { return this.history.map(x => Number((x && x.cpu_percent) || 0)); },
     get memHist() { return this.history.map(x => Number((x && x.memory && x.memory.percent) || 0)); },
+    // ---- LLM / нагрузка модели ----
+    get llmReachable() { return !!(this.llm && this.llm.reachable); },
+    get llmRunning() { return (this.llm && Array.isArray(this.llm.running)) ? this.llm.running : []; },
+    get llmEndpoint() { return (this.llm && this.llm.endpoint) || ''; },
 
     // ---- хелперы форматирования / порогов ----
     clamp(v) { v = Number(v) || 0; return Math.max(0, Math.min(100, v)); },
@@ -277,6 +327,8 @@ function systemMonitor(initialSnap, initialHist) {
     },
     // Готовое число гигабайт (из disk_usage: free_gb/total_gb) → «X ГБ»
     gb(v) { return (Number(v) || 0).toFixed(1) + ' ГБ'; },
+    // Мегабайты (из /api/ps: vram_mb/ram_mb/size_mb) → «X МБ» / «X.X ГБ»
+    mb(v) { v = Number(v) || 0; return v >= 1024 ? (v / 1024).toFixed(1) + ' ГБ' : v.toFixed(0) + ' МБ'; },
     // Пороги: зелёный <50, янтарь 50-80, красный >80
     level(v) { v = Number(v) || 0; return v > 80 ? 'crit' : (v >= 50 ? 'warn' : 'good'); },
     cls(v)   { return 'sm-' + this.level(v); },
@@ -302,6 +354,7 @@ function systemMonitor(initialSnap, initialHist) {
         const data = await r.json();
         this.snap = data.snapshot || {};
         if (Array.isArray(data.history)) this.history = data.history;
+        if (data.llm) this.llm = data.llm;
         this.error = false;
         this.lastUpdated = new Date().toLocaleTimeString();
       } catch (e) {
