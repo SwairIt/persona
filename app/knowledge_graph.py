@@ -3,8 +3,15 @@
 Слайс S6. Поверх курируемой памяти (``app/chat/user_memory.py``) добавляет
 СВЯЗИ между сущностями: из durable-факта вытаскивается триплет
 ``(субъект)-[отношение]->(объект)`` через GBNF-схему Ollama (как ``_extract_facts``),
-сущности апсертятся в таблицу ``entity`` (UNIQUE ``user_id+name``, миграция 197),
-а связь — строкой ``kg_edge`` с ``relation_type``/``strength``.
+сущности апсертятся в ОТДЕЛЬНУЮ таблицу ``kg_entity`` (UNIQUE ``user_id+name``,
+миграция 199), а связь — строкой ``kg_edge`` с ``relation_type``/``strength``.
+
+ВАЖНО (фикс потери рёбер): сущности графа знаний живут в своей таблице
+``kg_entity``, а НЕ в глобальной ``entity``. У ``entity`` параллельно действуют
+два UNIQUE — старый ``(name, kind)`` (миграция 110, глобальный extractor) и
+``(user_id, name)`` (миграция 197); апсерт ``ON CONFLICT(user_id, name)`` не ловил
+конфликт по старому ключу → ``IntegrityError`` → ребро молча терялось. Своя
+таблица убирает пересечение констрейнтов.
 
 bi-temporal как у ``user_memory``: ребро не удаляется, а soft-invalidate
 (``valid_until=datetime('now')``) — история сохраняется, актуальные =
@@ -70,6 +77,17 @@ def _norm_name(text: str) -> str:
     return " ".join((text or "").split())[:_MAX_NAME]
 
 
+def _norm_relation(rel: str) -> str:
+    """Нормализовать тип отношения для сравнения/вставки (фикс дубль-рёбер).
+
+    Trim + схлопнуть пробелы + lower + '_'→' ', чтобы «работает в», «Работает_В»
+    и «работает  в» считались ОДНИМ отношением (иначе плодятся дубль-рёбра вместо
+    усиления strength). Обрезаем до ``_MAX_RELATION``.
+    """
+    rel = (rel or "").replace("_", " ").lower()
+    return " ".join(rel.split())[:_MAX_RELATION]
+
+
 def _classify(name: str) -> str:
     """Грубо классифицировать сущность (entity.kind ограничен CHECK'ом миграции 110).
 
@@ -121,26 +139,25 @@ async def _extract_triples(client: Any, fact_text: str) -> list[dict[str, str]]:
 
 
 async def _upsert_entity(conn: Any, user_id: int, name: str) -> int:
-    """Апсерт сущности графа знаний по (user_id, name). Возвращает entity.id.
+    """Апсерт сущности графа знаний по (user_id, name). Возвращает kg_entity.id.
 
-    Использует UNIQUE-индекс ``idx_entity_user_name`` (миграция 197). Существующий
-    глобальный extractor (UNIQUE name+kind, user_id NULL) не затрагивается — у нас
-    свой ключ (user_id, name).
+    Пишем в ОТДЕЛЬНУЮ таблицу ``kg_entity`` (UNIQUE(user_id, name), миграция 199),
+    а не в глобальную ``entity`` — у той параллельно действует старый
+    UNIQUE(name, kind), из-за которого ``ON CONFLICT(user_id, name)`` ловил не тот
+    конфликт и ребро терялось. Своя таблица убирает пересечение констрейнтов.
     """
     kind = _classify(name)
     await conn.execute(
-        "INSERT INTO entity(name, kind, user_id, first_seen, last_seen, mention_count) "
-        "VALUES(?,?,?,datetime('now'),datetime('now'),1) "
-        "ON CONFLICT(user_id, name) DO UPDATE SET "
-        "mention_count = mention_count + 1, last_seen = datetime('now')",
-        (name, kind, user_id),
+        "INSERT INTO kg_entity(user_id, name, kind) VALUES(?,?,?) "
+        "ON CONFLICT(user_id, name) DO NOTHING",
+        (user_id, name, kind),
     )
     cur = await conn.execute(
-        "SELECT id FROM entity WHERE user_id = ? AND name = ?", (user_id, name)
+        "SELECT id FROM kg_entity WHERE user_id = ? AND name = ?", (user_id, name)
     )
     row = await cur.fetchone()
     if row is None:  # pragma: no cover — только что вставили
-        raise RuntimeError("entity upsert produced no row")
+        raise RuntimeError("kg_entity upsert produced no row")
     return int(row["id"])
 
 
@@ -155,12 +172,15 @@ async def _upsert_edge(
 ) -> None:
     """Апсерт ребра: повтор того же триплета усиливает (strength += 1), не дублирует.
 
-    Сравнение по relation_type регистронезависимо среди АКТУАЛЬНЫХ рёбер
-    (``valid_until IS NULL``).
+    relation_type нормализуется через ``_norm_relation`` (trim/схлоп/lower/'_'→' ')
+    И при сравнении, И при вставке — чтобы «работает в» и «Работает_В» считались
+    одним отношением и усиливали strength, а не плодили дубль-ребро. Сравнение
+    среди АКТУАЛЬНЫХ рёбер (``valid_until IS NULL``).
     """
+    relation = _norm_relation(relation)
     cur = await conn.execute(
         "SELECT id FROM kg_edge WHERE user_id = ? AND from_entity_id = ? "
-        "AND to_entity_id = ? AND lower(relation_type) = lower(?) "
+        "AND to_entity_id = ? AND relation_type = ? "
         "AND valid_until IS NULL LIMIT 1",
         (user_id, from_id, to_id, relation),
     )
@@ -220,7 +240,9 @@ async def extract_entities_and_edges(
                     )
                     edges += 1
                 except Exception as exc:  # noqa: BLE001 — одно ребро не валит транзакцию-факт
-                    log.debug("knowledge_graph.edge_failed", error=str(exc))
+                    # warning (а не debug): сбой записи ребра = тихая потеря данных
+                    # графа, это надо видеть в логах, а не молча проглатывать.
+                    log.warning("knowledge_graph.edge_failed", error=str(exc))
     except Exception as exc:  # noqa: BLE001 — нет таблиц (старая БД) / БД занята → no-op
         log.debug("knowledge_graph.store_failed", error=str(exc))
         return 0
@@ -240,8 +262,8 @@ async def list_edges(user_id: int, limit: int = 400) -> list[dict[str, Any]]:
                 "SELECT e.id, e.from_entity_id, e.to_entity_id, e.relation_type, "
                 "       e.strength, ef.name AS from_name, et.name AS to_name "
                 "FROM kg_edge e "
-                "JOIN entity ef ON ef.id = e.from_entity_id "
-                "JOIN entity et ON et.id = e.to_entity_id "
+                "JOIN kg_entity ef ON ef.id = e.from_entity_id "
+                "JOIN kg_entity et ON et.id = e.to_entity_id "
                 "WHERE e.user_id = ? AND e.valid_until IS NULL "
                 "ORDER BY e.strength DESC, e.id DESC LIMIT ?",
                 (user_id, max(1, min(2000, int(limit)))),

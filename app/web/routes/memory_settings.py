@@ -34,6 +34,11 @@ from app.web.templates_engine import templates
 router = APIRouter(tags=["settings"])
 log = get_logger("persona.memory.settings")
 
+# Жёсткие ссылки на фоновые задачи прогона «сна»: без них незавершённую
+# задачу может собрать GC (asyncio держит лишь WEAK-ссылку на запущенную
+# create_task). Колбэк на завершение убирает задачу из множества.
+_bg_tasks: set[asyncio.Task] = set()
+
 # Мягкий бюджет (инсайт Hermes: видимый лимит дисциплинирует, не даёт свалке расти).
 _BUDGET = 60
 
@@ -263,6 +268,44 @@ async def _set_train_kv(**kv: str) -> None:
         log.debug("memory.train_kv_failed", error=str(exc))
 
 
+async def _claim_train_slot() -> bool:
+    """Атомарно «занять» прогон: вернуть True, если слот был свободен и теперь
+    наш, False — если прогон уже идёт.
+
+    Анти-TOCTOU: вместо «прочитал → проверил → записал» (между чтением и записью
+    второй запрос успевал стартовать дубль) делаем атомарный UPDATE с условием
+    ``value != '1'`` и смотрим ``rowcount``. set_kv() rowcount не отдаёт (это
+    upsert), поэтому идём прямым conn.execute. Сначала INSERT OR IGNORE гарантирует
+    наличие строки (на первом запуске её ещё нет — иначе UPDATE матчил бы 0 строк).
+    """
+    try:
+        async with get_connection() as conn:
+            await conn.execute(
+                "INSERT OR IGNORE INTO kv_settings(key, value, updated_at) "
+                "VALUES('train_in_progress', '0', datetime('now'))"
+            )
+            cur = await conn.execute(
+                "UPDATE kv_settings SET value = '1', updated_at = datetime('now') "
+                "WHERE key = 'train_in_progress' AND value != '1'"
+            )
+            await conn.commit()
+            return (cur.rowcount or 0) > 0
+    except Exception as exc:  # noqa: BLE001 — сбой БД → не даём стартовать (безопаснее)
+        log.warning("memory.train_claim_failed", error=str(exc))
+        return False
+
+
+def _on_train_done(task: asyncio.Task) -> None:
+    """Колбэк завершения фоновой задачи: снять жёсткую ссылку и не потерять
+    исключение (иначе оно молча проглатывается до GC задачи)."""
+    _bg_tasks.discard(task)
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        log.warning("memory.train_task_crashed", error=str(exc))
+
+
 async def _run_train(user_id: int) -> None:
     """Фоновый прогон run_dream_cycle: пишет понятный итог в train_last_result,
     всегда сбрасывает train_in_progress (даже при сбое Ollama/исключении)."""
@@ -287,38 +330,51 @@ async def _run_train(user_id: int) -> None:
         else:
             result_msg = f"Завершено со статусом: {status or 'неизвестно'}"
     except Exception as exc:  # noqa: BLE001 — Ollama/туннель лёг и т.п.
+        # Подробности (URL/IP/путь туннеля) — только в server-side лог; пользователю
+        # отдаём обобщённый текст, чтобы не светить инфраструктуру через UI.
         log.warning("memory.train_failed", user_id=user_id, error=str(exc))
-        result_msg = f"Ошибка обучения: {exc}"
+        result_msg = "Ошибка подключения к LLM"
     finally:
         now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-        await _set_train_kv(
-            train_in_progress="0",
-            train_last_finished=now,
-            train_last_result=result_msg or "Прогон завершён.",
-        )
+        # finally НЕ должен затирать исходную ошибку прогона, если БД легла на
+        # сбросе флага — глушим сбой записи отдельно.
+        try:
+            await _set_train_kv(
+                train_in_progress="0",
+                train_last_finished=now,
+                train_last_result=result_msg or "Прогон завершён.",
+            )
+        except Exception as exc:  # noqa: BLE001 — сбой БД в finally не валит задачу
+            log.warning("memory.train_finalize_failed", user_id=user_id, error=str(exc))
 
 
 @router.post("/settings/memory/train", response_model=None)
 async def memory_train(
+    request: Request,
     session: Annotated[SessionRecord, Depends(current_user_required)],
-) -> RedirectResponse:
+) -> RedirectResponse | HTMLResponse:
     """Запустить ночной прогон «сна» вручную, ФОНОМ (не блокируя HTTP-ответ)."""
     await _require_owner(session)
     from datetime import datetime, timezone
 
-    # Анти-дубль: если прогон уже идёт — не стартуем второй.
-    train = await _load_train()
-    if train.get("train_in_progress") == "1":
-        return RedirectResponse("/settings/memory", status_code=303)
+    # Анти-дубль БЕЗ TOCTOU: атомарно «занимаем» слот одним UPDATE с условием.
+    # Если слот уже занят (прогон идёт) — claim вернёт False, второй прогон не стартуем.
+    if not await _claim_train_slot():
+        return await _render(
+            request, session["user_id"], saved="Прогон уже идёт — дождись завершения."
+        )
 
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    # Метка старта/очистка прошлого результата (флаг уже выставлен в '1' атомарно).
     await _set_train_kv(
-        train_in_progress="1",
         train_last_started=now,
         train_last_result="",
     )
     # Фоновая задача: HTTP-ответ возвращается сразу, цикл крутится отдельно.
-    asyncio.create_task(_run_train(session["user_id"]))
+    # Держим жёсткую ссылку (см. _bg_tasks), иначе GC может убить задачу до конца.
+    task = asyncio.create_task(_run_train(session["user_id"]))
+    _bg_tasks.add(task)
+    task.add_done_callback(_on_train_done)
     return RedirectResponse("/settings/memory", status_code=303)
 
 

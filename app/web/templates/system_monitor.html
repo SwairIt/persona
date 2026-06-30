@@ -159,12 +159,12 @@
   <div class="sm-tile mb-4" x-show="disks.length">
     <span class="sm-tile__label">{{ t('sysmon_disks') }}</span>
     <div class="mt-3 space-y-3">
-      <template x-for="d in disks" :key="d.mountpoint || d.device">
+      <template x-for="d in disks" :key="d.mount">
         <div>
           <div class="flex items-center justify-between text-sm">
-            <span class="font-mono text-zinc-300" x-text="d.mountpoint || d.device"></span>
+            <span class="font-mono text-zinc-300" x-text="d.mount"></span>
             <span class="sm-tile__sub">
-              <span x-text="bytes(d.used)"></span> / <span x-text="bytes(d.total)"></span>
+              <span x-text="gb(d.free_gb)"></span> свободно из <span x-text="gb(d.total_gb)"></span>
               · <span :class="cls(d.percent)" x-text="pct(d.percent)"></span>
             </span>
           </div>
@@ -222,7 +222,14 @@ function systemMonitor(initialSnap, initialHist) {
     },
     get net() { return this.snap.net_io || {}; },
     get disks() { return Array.isArray(this.snap.disk_usage) ? this.snap.disk_usage : []; },
-    get topProcs() { return Array.isArray(this.snap.top_processes) ? this.snap.top_processes : []; },
+    get topProcs() {
+      // top_processes — dict {by_cpu, by_memory}; берём by_cpu (top-5 по CPU).
+      // Старый формат (массив) поддерживаем как fallback на всякий случай.
+      const tp = this.snap.top_processes;
+      if (Array.isArray(tp)) return tp.slice(0, 5);
+      const byCpu = tp && Array.isArray(tp.by_cpu) ? tp.by_cpu : [];
+      return byCpu.slice(0, 5);
+    },
     get procCount() { return this.snap.processes_count || 0; },
     get battery() { return this.snap.battery || null; },
     get gpuLabel() {
@@ -268,6 +275,8 @@ function systemMonitor(initialSnap, initialHist) {
       while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
       return n.toFixed(i ? 1 : 0) + ' ' + u[i];
     },
+    // Готовое число гигабайт (из disk_usage: free_gb/total_gb) → «X ГБ»
+    gb(v) { return (Number(v) || 0).toFixed(1) + ' ГБ'; },
     // Пороги: зелёный <50, янтарь 50-80, красный >80
     level(v) { v = Number(v) || 0; return v > 80 ? 'crit' : (v >= 50 ? 'warn' : 'good'); },
     cls(v)   { return 'sm-' + this.level(v); },

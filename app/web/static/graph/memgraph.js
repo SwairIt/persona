@@ -22,6 +22,7 @@
     day:       { c: '96,165,250',  r: 9,   label: 'день' },
     session:   { c: '240,171,252', r: 8,   label: 'чат' },
     summary:   { c: '252,165,165', r: 7,   label: 'конспект (сжато)' },
+    entity:    { c: '52,211,153',  r: 7,   label: 'сущность (граф)' },
   };
 
   // --- настройки (с дефолтами) ---
@@ -35,11 +36,11 @@
   // по умолчанию включено только «нужное»: чаты, промпты, ответы, конспекты
   const SHOW_DEFAULT = {
     prompt: true, answer: true, session: true, summary: true,
-    memory: false, recording: false, day: false,
+    memory: false, recording: false, day: false, entity: true,
   };
   const MAX_FOCUS = 60;   // фокус-режим: сколько вершин показываем по умолчанию
   // важность для отбора в фокусе: структурные узлы — якоря, потом по свежести
-  const TYPE_RANK = { day: 0, session: 1, summary: 2, memory: 3, recording: 4, answer: 5, prompt: 6 };
+  const TYPE_RANK = { day: 0, session: 1, entity: 2, summary: 2, memory: 3, recording: 4, answer: 5, prompt: 6 };
   const LS = 'persona_graph_cfg_v2';  // v2 — новые дефолты физики + фокус-режим
   let cfg = { phys: { ...PHYS_DEFAULT }, show: { ...SHOW_DEFAULT }, focus: true };
   try {
@@ -66,7 +67,13 @@
 
   fetch('/api/graph.json', { headers: { 'Accept': 'application/json' } })
     .then((r) => r.json())
-    .then((data) => { RAW = data; setupControls(); build(); })
+    .then((data) => {
+      // S6: узлы-сущности приходят с entity=true (type=memory для совместимости со
+      // старым фронтом) — нормализуем в собственный тип 'entity', чтобы фильтр/
+      // цвет/легенда работали и граф знаний был визуально отличим.
+      if (data && data.nodes) data.nodes.forEach((n) => { if (n.entity) n.type = 'entity'; });
+      RAW = data; setupControls(); build();
+    })
     .catch(() => { if (statsEl) statsEl.textContent = 'Не удалось загрузить граф.'; });
 
   // размеры canvas
@@ -116,7 +123,7 @@
     shownRaw.forEach((n) => { idx.set(n.id, nodes.length); nodes.push(makeNode(n)); });
     const links = ((RAW && RAW.links) || [])
       .filter((l) => idx.has(l.a) && idx.has(l.b))
-      .map((l) => ({ a: idx.get(l.a), b: idx.get(l.b) }));
+      .map((l) => ({ a: idx.get(l.a), b: idx.get(l.b), kind: l.kind || '', rel: l.rel || '', strength: l.strength || 1 }));
 
     // легенда + статистика (по видимым)
     const counts = {};
@@ -129,6 +136,7 @@
       const cards = (counts.memory || 0) + (counts.recording || 0);
       if (cards) parts.push(cards + ' карточек');
       if (counts.day) parts.push(counts.day + ' дней');
+      if (counts.entity) parts.push(counts.entity + ' сущностей');
       let txt = parts.join(' · ') || 'нет узлов выбранных типов';
       if (hiddenCount > 0) txt += ' · скрыто ' + hiddenCount + ' (клик по узлу → «Связи»)';
       statsEl.textContent = txt + (RAW.truncated ? ' · показаны недавние' : '');
@@ -397,9 +405,24 @@
     for (const l of links) {
       const a = nodes[l.a], b = nodes[l.b];
       const on = hover >= 0 && (l.a === hover || l.b === hover);
-      ctx.strokeStyle = on ? 'rgba(167,139,250,.8)' : 'rgba(255,255,255,.07)';
-      ctx.lineWidth = on ? 1.5 : 0.6;
+      const kg = l.kind === 'kg';  // ребро графа знаний (триплет subject→object)
+      if (kg) {
+        ctx.strokeStyle = on ? 'rgba(52,211,153,.95)' : 'rgba(52,211,153,.30)';
+        ctx.lineWidth = on ? 2 : Math.min(2.2, 0.7 + (l.strength || 1) * 0.5);
+      } else {
+        ctx.strokeStyle = on ? 'rgba(167,139,250,.8)' : 'rgba(255,255,255,.07)';
+        ctx.lineWidth = on ? 1.5 : 0.6;
+      }
       ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+      // подпись отношения (relation_type) на рёбрах графа знаний — когда узел в фокусе
+      if (kg && on && l.rel) {
+        const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+        ctx.font = '10px system-ui, sans-serif';
+        ctx.fillStyle = 'rgba(167,243,208,.95)';
+        ctx.textAlign = 'center';
+        ctx.fillText(l.rel, mx, my - 3);
+        ctx.textAlign = 'left';
+      }
     }
     const q = sim.searchQ, hits = sim.searchHits;
     for (let i = 0; i < nodes.length; i++) {
@@ -437,7 +460,7 @@
     // пресеты
     const preset = (show) => { cfg.show = { ...show }; saveCfg(); build(); syncControls(); };
     bind('mg-preset-need', () => preset(SHOW_DEFAULT));
-    bind('mg-preset-all', () => preset({ prompt: true, answer: true, session: true, summary: true, memory: true, recording: true, day: true }));
+    bind('mg-preset-all', () => preset({ prompt: true, answer: true, session: true, summary: true, memory: true, recording: true, day: true, entity: true }));
     bind('mg-preset-prompts', () => preset({ prompt: true, answer: false, session: false, summary: false, memory: false, recording: false, day: false }));
 
     // слайдеры физики

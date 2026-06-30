@@ -146,21 +146,39 @@ def _disable_process_pool() -> None:
             pass
 
 
-def _shutdown_process_pool() -> None:
+async def _shutdown_process_pool() -> None:
     """Закрыть пул при остановке воркера (не помечая его «навсегда сломанным»).
 
     В отличие от :func:`_disable_process_pool`, НЕ ставит
     :data:`_PROCESS_POOL_DISABLED` — если воркер перезапустят в том же
-    процессе, пул создастся заново. Best-effort: ошибки закрытия глушим.
+    процессе, пул создастся заново.
+
+    Сначала пытаемся ГРАЦИОЗНО (``wait=True``) дождаться, пока запущенные
+    tesseract-кадры доедут, но не дольше таймаута; только при таймауте бьём
+    жёстко (``wait=False, cancel_futures=True``). Это важно на Windows: при
+    голом ``wait=False`` дочерние процессы tesseract могут осиротеть, если их
+    не дождаться. Сам ``shutdown`` синхронно блокирует — уводим его в поток,
+    чтобы не вешать event loop. Best-effort: любые ошибки глушим.
     """
     global _PROCESS_POOL  # noqa: PLW0603 — кэш пула
     pool = _PROCESS_POOL
     _PROCESS_POOL = None
-    if pool is not None:
+    if pool is None:
+        return
+    try:
+        await asyncio.wait_for(
+            asyncio.to_thread(pool.shutdown, True), timeout=10
+        )
+    except (asyncio.TimeoutError, TimeoutError):
+        # Грациозное завершение не уложилось в таймаут — рубим принудительно,
+        # чтобы остановка воркера не зависла из-за застрявшего кадра.
+        log.warning("ocr_worker.pool_shutdown_timeout")
         try:
             pool.shutdown(wait=False, cancel_futures=True)
-        except Exception:  # noqa: BLE001 — закрытие пула best-effort
+        except Exception:  # noqa: BLE001 — принудительное закрытие best-effort
             pass
+    except Exception:  # noqa: BLE001 — закрытие пула best-effort
+        pass
 
 
 async def _run_in_pool(func, *args):  # noqa: ANN001, ANN002, ANN202 — generic dispatch
@@ -235,8 +253,9 @@ async def run_ocr_worker(controller: CaptureController | None = None) -> None:
                 continue
     finally:
         # Закрываем пул процессов при выходе (stop / cancel), чтобы не
-        # осиротить дочерние процессы Tesseract на Windows.
-        _shutdown_process_pool()
+        # осиротить дочерние процессы Tesseract на Windows. Грациозно с
+        # таймаутом — см. _shutdown_process_pool.
+        await _shutdown_process_pool()
 
 
 async def _drain_once() -> None:  # noqa: PLR0915 — pipeline orchestration, each step is a single dispatch

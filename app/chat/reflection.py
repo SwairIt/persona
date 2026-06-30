@@ -293,17 +293,20 @@ async def _light_sleep(
             if str(doc.get("latest_at") or "") > str(slot.get("latest_at") or ""):
                 slot["latest_at"] = doc.get("latest_at")
     # Кластеризация близких кандидатов (агломеративно по Jaccard ключевых токенов
-    # ≥ 0.5): дубли-перефразировки сливаем в один representative (самый свежий/
+    # ≥ 0.6): дубли-перефразировки сливаем в один representative (самый свежий/
     # богатый), суммируя счётчики/источники — снижает дубли ДО скоринга/промоута.
     return _cluster_candidates(list(cands.values()))
 
 
 def _cluster_candidates(cands: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Слить близкие кандидаты (Jaccard ключевых токенов ≥ 0.5) в representative.
+    """Слить близкие кандидаты (Jaccard ключевых токенов ≥ 0.6) в representative.
 
     Агломеративно (транзитивное замыкание union-find): a~b, b~c → один кластер.
     Representative = самый свежий/богатый; count/sources/message_ids/richness
     объединяются по кластеру (важное всплывает, дубли схлопываются).
+
+    Порог 0.6 (был 0.5) консистентен с ``user_memory.consolidate_memories`` и
+    ``_is_consolidated``: меньше ложных слияний коротких перефразировок.
     """
     n = len(cands)
     if n < 2:
@@ -328,7 +331,7 @@ def _cluster_candidates(cands: list[dict[str, Any]]) -> list[dict[str, Any]]:
             if not inter:
                 continue
             union = len(ti | toks[j])
-            if union and inter / union >= 0.5:
+            if union and inter / union >= 0.6:
                 ri, rj = find(i), find(j)
                 if ri != rj:
                     parent[rj] = ri
@@ -615,7 +618,9 @@ async def _extract_graph(user_id: int, fact_text: str) -> None:
 
         await extract_entities_and_edges(user_id, fact_text, source_kind="dream")
     except Exception as exc:  # noqa: BLE001 — граф опционален, не валит цикл сна
-        log.debug("reflection.graph_failed", error=str(exc))
+        # INFO (а не DEBUG): сбой построения графа должен быть виден в проде
+        # при уровне INFO — иначе деградация графа знаний остаётся незамеченной.
+        log.info("reflection.graph_failed", error=str(exc))
 
 
 # ── Phase 3b: Консолидация — слияние дублей в постоянной памяти ───────────────
@@ -623,13 +628,14 @@ async def _extract_graph(user_id: int, fact_text: str) -> None:
 
 async def _consolidate(user_id: int) -> int:
     """Слить дубли среди актуальных фактов user_memory (Jaccard ключевых токенов
-    ≥ 0.5). Старые дубли soft-invalidate (superseded_by representative), новый
-    representative реиндексируем best-effort. Возвращает число слитых фактов.
+    ≥ 0.6, консистентно с ``_cluster_candidates``/``_is_consolidated``). Старые
+    дубли soft-invalidate (superseded_by representative), новый representative
+    реиндексируем best-effort. Возвращает число слитых фактов.
     """
     try:
         from app.chat.user_memory import consolidate_memories  # noqa: PLC0415
 
-        merges = await consolidate_memories(user_id, threshold=0.5)
+        merges = await consolidate_memories(user_id, threshold=0.6)
     except Exception as exc:  # noqa: BLE001 — консолидация не валит цикл
         log.debug("reflection.consolidate_failed", error=str(exc))
         return 0

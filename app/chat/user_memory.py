@@ -394,16 +394,18 @@ def _pick_representative(group: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 async def consolidate_memories(
-    user_id: int, threshold: float = 0.5
+    user_id: int, threshold: float = 0.6
 ) -> list[dict[str, Any]]:
     """Слить дубли среди АКТУАЛЬНЫХ фактов пользователя (ночная Phase 3b).
 
     Группируем актуальные факты агломеративно по Жаккару ключевых токенов
-    (``>= threshold``); в каждом кластере оставляем самый полный/свежий
-    («representative»), остальные soft-invalidate через существующий механизм
-    (``invalidate_memory`` → ``valid_until=now`` + ``superseded_by=rep_id``). Не
-    создаём новых строк: representative УЖЕ актуален, индекс/эмбеддинг не трогаем
-    повторно. Best-effort, идемпотентно (на чистой памяти — no-op).
+    (``>= threshold``, по умолчанию 0.6 — выше прежних 0.5: короткие факты с
+    1-2 общими токенами больше НЕ сливаются ложно, нужно реальное пересечение);
+    в каждом кластере оставляем самый полный/свежий («representative»), остальные
+    soft-invalidate через существующий механизм (``invalidate_memory`` →
+    ``valid_until=now`` + ``superseded_by=rep_id``). Не создаём новых строк:
+    representative УЖЕ актуален, индекс/эмбеддинг не трогаем повторно.
+    Best-effort, идемпотентно (на чистой памяти — no-op).
 
     Возвращает список слияний: ``[{rep_id, rep_text, merged_ids:[…]}]`` —
     вызывающий (``reflection.run_dream_cycle``) логирует и реиндексирует.
@@ -427,6 +429,15 @@ async def consolidate_memories(
                 continue
             if ok:
                 merged_ids.append(rid)
+            else:
+                # invalidate вернул False: факт уже не актуален (гонка/повторный
+                # прогон) или не наш — не сливаем, но фиксируем для диагностики.
+                log.warning(
+                    "user_memory.consolidate_invalidate_incomplete",
+                    user_id=user_id,
+                    id=rid,
+                    rep_id=rep_id,
+                )
         if merged_ids:
             log.info(
                 "user_memory.consolidated",

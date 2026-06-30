@@ -281,6 +281,33 @@ def get_history() -> list[dict[str, Any]]:
     return list(_history)
 
 
+def _disk_usage_pct(disk_usage: list[dict[str, Any]]) -> float:
+    """Плоский % самого заполненного раздела (для дашборда/Prometheus).
+
+    Потребители (`health_dashboard`, `metrics_extended`) читают единое
+    число, а вложенный `disk_usage` — список разделов. Берём максимум
+    `percent` по всем разделам (самый «горящий» том). Пусто → 0.0.
+    """
+    if not disk_usage:
+        return 0.0
+    return max((float(d.get("percent") or 0.0) for d in disk_usage), default=0.0)
+
+
+def _top_consumer(top_processes: dict[str, list[dict[str, Any]]]) -> str:
+    """Плоская подпись топ-процесса по CPU вида ``'name (NN%)'``.
+
+    Берём первый элемент из `top_processes['by_cpu']`. Если списка нет
+    или он пуст — возвращаем ``''`` (потребители трактуют как «нет данных»).
+    """
+    by_cpu = top_processes.get("by_cpu") if isinstance(top_processes, dict) else None
+    if not by_cpu:
+        return ""
+    first = by_cpu[0]
+    name = first.get("name") or "?"
+    cpu = float(first.get("cpu_percent") or 0.0)
+    return f"{name} ({cpu:.0f}%)"
+
+
 def collect_system_metrics() -> dict[str, Any]:
     """Собрать полный снимок метрик ПК (кэш TTL ~1.5 c).
 
@@ -291,8 +318,14 @@ def collect_system_metrics() -> dict[str, Any]:
     * ``cpu_count``         — int | None, число логических ядер
     * ``memory``            — dict: ``used``, ``available``, ``percent``,
                               ``total`` (байты/проценты) + ``swap_percent``
+    * ``memory_percent``    — float, плоский % ОЗУ (= ``memory['percent']``,
+                              читают health_dashboard/metrics_extended)
     * ``disk_usage``        — list[dict]: ``mount``, ``percent``,
                               ``free_gb``, ``total_gb`` (по разделам)
+    * ``disk_usage_pct``    — float, плоский % самого заполненного тома
+                              (читают health_dashboard/metrics_extended)
+    * ``top_consumer``      — str, подпись топ-процесса по CPU ``'name (NN%)'``
+                              или ``''`` (читает health_dashboard)
     * ``disk_io``           — dict: ``read_bytes``, ``write_bytes``
     * ``net_io``            — dict: ``bytes_sent``, ``bytes_recv``
     * ``processes_count``   — int, число процессов
@@ -328,11 +361,14 @@ def collect_system_metrics() -> dict[str, Any]:
                 "total": 0,
                 "swap_percent": 0.0,
             },
+            "memory_percent": 0.0,
             "disk_usage": [],
+            "disk_usage_pct": 0.0,
             "disk_io": {"read_bytes": 0, "write_bytes": 0},
             "net_io": {"bytes_sent": 0, "bytes_recv": 0},
             "processes_count": 0,
             "top_processes": {"by_cpu": [], "by_memory": []},
+            "top_consumer": "",
             "battery": None,
             "uptime_seconds": None,
             "load_avg": None,
@@ -345,16 +381,24 @@ def collect_system_metrics() -> dict[str, Any]:
         return snapshot
 
     memory = _memory()
+    disk_usage = _disk_usage()
+    top_processes = _top_processes()
     snapshot = {
         "cpu_percent": _cpu_percent(),
         "per_core": _per_core(),
         "cpu_count": _cpu_count(),
         "memory": memory,
-        "disk_usage": _disk_usage(),
+        # Плоское зеркало memory['percent'] — для дашборда/Prometheus
+        "memory_percent": float(memory.get("percent") or 0.0),
+        "disk_usage": disk_usage,
+        # Плоский % самого заполненного тома — для дашборда/Prometheus
+        "disk_usage_pct": _disk_usage_pct(disk_usage),
         "disk_io": _disk_io(),
         "net_io": _net_io(),
         "processes_count": _processes_count(),
-        "top_processes": _top_processes(),
+        "top_processes": top_processes,
+        # Плоская подпись топ-процесса по CPU — для дашборда
+        "top_consumer": _top_consumer(top_processes),
         "battery": _battery(),
         "uptime_seconds": _uptime_seconds(),
         "load_avg": _load_avg(),
