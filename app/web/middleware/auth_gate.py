@@ -103,6 +103,10 @@ _PUBLIC_PREFIXES: tuple[str, ...] = (
     # self-host тоже без сессии (rate-limit по IP в роуте).
     "/billing/webhook",
     "/api/v1/license",
+    # LLM-воркер: ПК-агент дозванивается без cookie, авторизуется X-Worker-Token
+    # (валидация в самом роуте). rotate-token/status — owner-only через свои
+    # зависимости роута, поэтому открытие префикса в гейте безопасно.
+    "/api/llm/worker",
     "/favicon.ico",
 )
 

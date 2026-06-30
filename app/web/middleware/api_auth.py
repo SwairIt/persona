@@ -54,6 +54,9 @@ _BEARER_PREFIX = "Bearer "
 # the route handler ever ran.
 _AUTH_BYPASS_PREFIXES: tuple[str, ...] = (
     "/api/agent/",
+    # LLM-воркер: ПК-агент шлёт X-Worker-Token (не api_token-Bearer) — роут
+    # авторизует сам, эта middleware не должна отбивать раньше.
+    "/api/llm/worker/",
 )
 
 
