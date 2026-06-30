@@ -1313,5 +1313,12 @@
   "llmmon_worker_mode": "Режим: ПК-воркер",
   "llmmon_worker_online": "воркер онлайн",
   "llmmon_worker_offline": "воркер офлайн",
-  "llmmon_worker_last_seen": "последний пинг"
+  "llmmon_worker_last_seen": "последний пинг",
+  "acct_account": "Аккаунт",
+  "acct_memory": "Память",
+  "acct_monitor": "Монитор системы",
+  "acct_llm": "Модель (LLM)",
+  "acct_logout": "Выйти",
+  "acct_worker_online": "ИИ-воркер онлайн",
+  "acct_worker_offline": "ИИ-воркер офлайн"
 }

@@ -1313,5 +1313,12 @@
   "llmmon_worker_mode": "Modus: PC-Worker",
   "llmmon_worker_online": "Worker online",
   "llmmon_worker_offline": "Worker offline",
-  "llmmon_worker_last_seen": "letzter Ping"
+  "llmmon_worker_last_seen": "letzter Ping",
+  "acct_account": "Konto",
+  "acct_memory": "Speicher",
+  "acct_monitor": "Systemmonitor",
+  "acct_llm": "Modell (LLM)",
+  "acct_logout": "Abmelden",
+  "acct_worker_online": "KI-Worker online",
+  "acct_worker_offline": "KI-Worker offline"
 }

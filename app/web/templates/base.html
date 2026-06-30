@@ -287,6 +287,45 @@
                 class="px-3 py-2 rounded bg-ink-800 hover:bg-ink-700 text-zinc-300 hidden md:inline-block whitespace-nowrap"
                 x-text="paused ? &quot;{{ t('btn_start') }}&quot; : &quot;{{ t('btn_pause') }}&quot;"></button>
 
+        {# Аккаунт-чип (правый верхний угол): аватар-инициал + меню. Данные
+           тянутся клиентски из /api/account.json (email/роль/статус ИИ-воркера),
+           т.к. они не глобальные Jinja-переменные. #}
+        <div x-data="accountChip()" x-init="load()" class="relative shrink-0">
+          <button @click="open = !open"
+                  class="w-9 h-9 rounded-full bg-accent-600/30 text-accent-300 font-semibold
+                         flex items-center justify-center hover:bg-accent-600/50 transition relative"
+                  :title="email || '{{ t('acct_account') }}'" aria-label="{{ t('acct_account') }}">
+            <span x-text="initial">●</span>
+            {# точка статуса ИИ-воркера — только у владельца #}
+            <span x-show="isOwner" x-cloak
+                  class="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-ink-900"
+                  :class="workerOnline ? 'bg-emerald-400' : 'bg-zinc-600'"
+                  :title="workerOnline ? '{{ t('acct_worker_online') }}' : '{{ t('acct_worker_offline') }}'"></span>
+          </button>
+          <div x-show="open" @click.outside="open = false" x-cloak
+               class="absolute right-0 mt-2 w-64 rounded-lg border border-ink-700 bg-ink-900 shadow-xl py-1.5 z-50">
+            <div class="px-3 py-2 border-b border-ink-700">
+              <div class="text-sm font-medium text-zinc-100 truncate" x-text="email || '—'"></div>
+              <div x-show="isOwner" x-cloak class="text-xs text-zinc-500 flex items-center gap-1.5 mt-1">
+                <span class="w-1.5 h-1.5 rounded-full" :class="workerOnline ? 'bg-emerald-400 animate-pulse' : 'bg-zinc-600'"></span>
+                <span x-text="workerOnline ? ('{{ t('acct_worker_online') }}' + (workerModel ? (' · ' + workerModel) : '')) : '{{ t('acct_worker_offline') }}'"></span>
+              </div>
+            </div>
+            <template x-if="isOwner">
+              <div>
+                <a href="/settings/hub" class="block px-3 py-2 text-sm text-zinc-300 hover:bg-ink-800">⚙️ {{ t('nav_settings') }}</a>
+                <a href="/settings/memory" class="block px-3 py-2 text-sm text-zinc-300 hover:bg-ink-800">🧠 {{ t('acct_memory') }}</a>
+                <a href="/settings/system-monitor" class="block px-3 py-2 text-sm text-zinc-300 hover:bg-ink-800">🖥️ {{ t('acct_monitor') }}</a>
+                <a href="/settings/llm" class="block px-3 py-2 text-sm text-zinc-300 hover:bg-ink-800">🤖 {{ t('acct_llm') }}</a>
+              </div>
+            </template>
+            <a href="/billing" class="block px-3 py-2 text-sm text-zinc-300 hover:bg-ink-800">💳 {{ t('nav_billing') }}</a>
+            <form method="post" action="/auth/logout" class="border-t border-ink-700 mt-1 pt-1">
+              <button type="submit" class="w-full text-left px-3 py-2 text-sm text-rose-300 hover:bg-rose-900/30">⎋ {{ t('acct_logout') }}</button>
+            </form>
+          </div>
+        </div>
+
         {# Hamburger — visible only below md. #}
         <button @click="drawerOpen = true"
                 class="md:hidden p-2 sm:p-2.5 rounded bg-ink-800 hover:bg-ink-700 text-zinc-300"
@@ -508,6 +547,47 @@
      * worker reads the kv flag each iteration and skips record_chunk
      * within ~5s. No daemon restart. Boot state read from /api/audio/mic.
      */
+    /*
+     * accountChip — аккаунт-меню в правом верхнем углу.
+     * Тянет email/роль/статус ИИ-воркера из /api/account.json (один раз на
+     * загрузку + раз в 30с обновляем точку статуса воркера). Всё best-effort:
+     * ошибка сети → чип просто показывает «●», меню работает.
+     */
+    function accountChip() {
+      return {
+        open: false,
+        email: '',
+        initial: '●',
+        isOwner: false,
+        workerOnline: false,
+        workerModel: '',
+        async load() {
+          try {
+            const r = await fetch('/api/account.json', { headers: { 'Accept': 'application/json' } });
+            if (!r.ok) return;
+            const d = await r.json();
+            this.email = d.email || '';
+            this.initial = (this.email || '●').trim().charAt(0).toUpperCase() || '●';
+            this.isOwner = !!d.is_owner;
+            this.workerOnline = !!d.worker_online;
+            this.workerModel = d.worker_model || '';
+          } catch (e) { /* офлайн — оставляем дефолты */ }
+          // лёгкий рефреш статуса воркера (точка online/offline)
+          if (this.isOwner && !this._timer) {
+            this._timer = setInterval(async () => {
+              try {
+                const r = await fetch('/api/account.json', { headers: { 'Accept': 'application/json' } });
+                if (!r.ok) return;
+                const d = await r.json();
+                this.workerOnline = !!d.worker_online;
+                this.workerModel = d.worker_model || '';
+              } catch (e) { /* ignore */ }
+            }, 30000);
+          }
+        },
+      };
+    }
+
     /*
      * headerNav — v1.17
      *

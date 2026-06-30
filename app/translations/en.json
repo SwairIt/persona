@@ -1313,5 +1313,12 @@
   "llmmon_worker_mode": "Mode: PC worker",
   "llmmon_worker_online": "worker online",
   "llmmon_worker_offline": "worker offline",
-  "llmmon_worker_last_seen": "last ping"
+  "llmmon_worker_last_seen": "last ping",
+  "acct_account": "Account",
+  "acct_memory": "Memory",
+  "acct_monitor": "System monitor",
+  "acct_llm": "Model (LLM)",
+  "acct_logout": "Log out",
+  "acct_worker_online": "AI worker online",
+  "acct_worker_offline": "AI worker offline"
 }
