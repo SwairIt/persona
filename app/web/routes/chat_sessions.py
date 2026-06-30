@@ -1824,6 +1824,10 @@ async def api_rate_message(
     rating = int(body.get("rating") or 0)
     if rating not in (-1, 0, 1):
         raise HTTPException(status_code=400, detail="rating must be -1, 0, or 1")
+    # Изоляция по user_id: рейтинг можно ставить только своему сообщению (иначе
+    # перебором message_id метили бы чужие чаты). 404, как в delete/edit.
+    if await _owned_message(message_id, session["user_id"]) is None:
+        raise HTTPException(status_code=404)
     from app.storage.db import get_connection  # noqa: PLC0415
     async with get_connection() as conn:
         cursor = await conn.execute(
@@ -1848,6 +1852,13 @@ async def api_rate_span(
     session_id = int(body.get("session_id") or 0)
     if rating not in (-1, 1) or not selected:
         raise HTTPException(status_code=400, detail="selected_text + rating(-1|1) required")
+    # Изоляция: session_id приходит из тела — и сессия, и сообщение должны
+    # принадлежать этому пользователю, иначе можно заинжектить спан-рейтинги в
+    # чужой диалог. Обе проверки → 404 при чужом id.
+    if await get_session(session["user_id"], session_id) is None:
+        raise HTTPException(status_code=404)
+    if await _owned_message(message_id, session["user_id"]) is None:
+        raise HTTPException(status_code=404)
     await add_span_rating(message_id, session_id, selected, rating)
     return JSONResponse({"ok": True})
 
@@ -1860,6 +1871,10 @@ async def api_pin_message(
 ) -> JSONResponse:
     """T29 — pin/unpin a message so it stays in context after trimming."""
     pinned = bool(body.get("pinned"))
+    # Изоляция: пинить/анпинить можно только своё сообщение (пин влияет на
+    # контекст чата — чужой трогать нельзя).
+    if await _owned_message(message_id, session["user_id"]) is None:
+        raise HTTPException(status_code=404)
     await set_message_pinned(message_id, pinned)
     return JSONResponse({"ok": True, "pinned": pinned})
 
@@ -1877,6 +1892,10 @@ async def api_react_message(
     reaction = str(body.get("reaction") or "").strip()
     if reaction and reaction not in _ALLOWED_REACTIONS:
         return JSONResponse({"ok": False, "error": "unknown reaction"}, status_code=400)
+    # Изоляция: реакция только на своё сообщение (latest_reaction идёт в контекст
+    # чата — чужой message_id трогать нельзя).
+    if await _owned_message(message_id, session["user_id"]) is None:
+        raise HTTPException(status_code=404)
     await set_reaction(message_id, session["user_id"], reaction)
     return JSONResponse({"ok": True, "reaction": reaction})
 

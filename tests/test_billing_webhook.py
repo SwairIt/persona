@@ -68,6 +68,21 @@ async def test_activate_skips_unsucceeded(db, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_claim_receipt_is_once(db):
+    """Волна 5: атомарный claim_receipt — победитель один (дубль письма закрыт)."""
+    uid = await _add_user(db, "receipt@example.io")
+    async with get_connection() as conn:
+        await repo.record_payment(
+            conn, user_id=uid, subscription_id=None, provider_payment_id="pay_r",
+            idempotence_key=None, kind="initial", amount="690.00", status="succeeded",
+        )
+        first = await repo.claim_receipt(conn, "pay_r")
+        second = await repo.claim_receipt(conn, "pay_r")
+    assert first is True
+    assert second is False
+
+
+@pytest.mark.asyncio
 async def test_cancel_subscription(db):
     uid = await _add_user(db, "cancel@example.io")
     await service.grant_pro(uid, 30)

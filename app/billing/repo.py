@@ -129,6 +129,19 @@ async def set_payment_status(
     await conn.commit()
 
 
+async def claim_receipt(conn: aiosqlite.Connection, provider_payment_id: str) -> bool:
+    """Атомарно «застолбить» отправку письма об оплате. Возвращает True ТОЛЬКО для
+    победителя гонки (этот вызов перевёл receipt_sent 0→1). Параллельные ретраи
+    вебхука ЮKassa сериализуются SQLite, поэтому письмо уйдёт ровно один раз."""
+    cur = await conn.execute(
+        "UPDATE payment SET receipt_sent = 1 "
+        "WHERE provider_payment_id = ? AND receipt_sent = 0",
+        (provider_payment_id,),
+    )
+    await conn.commit()
+    return cur.rowcount == 1
+
+
 async def list_payments(
     conn: aiosqlite.Connection, user_id: int, limit: int = 50
 ) -> list[dict[str, Any]]:

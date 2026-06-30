@@ -60,6 +60,40 @@ async def test_cannot_delete_or_edit_others_message(client, db):
 
 
 @pytest.mark.asyncio
+async def test_cannot_rate_pin_react_span_others_message(client, db):
+    """Волна 5: rate/pin/react/rate-span чужого сообщения → 404 (IDOR-фикс)."""
+    a = await _add_user(db, "rate-a@example.io")
+    b = await _add_user(db, "rate-b@example.io")
+    sa = await create_session(a, "A")
+    sb = await create_session(b, "B")
+    ma = await append_message(sa["id"], "assistant", "answer A")
+    mb = await append_message(sb["id"], "assistant", "answer B")
+
+    token, _ = await issue_session(a)
+    client.cookies.set(SESSION_COOKIE_NAME, token)
+
+    # A не может трогать сообщение B ни одним из эндпоинтов
+    assert (await client.post(f"/api/chat/messages/{mb['id']}/rate", json={"rating": 1})).status_code == 404
+    assert (await client.post(f"/api/chat/messages/{mb['id']}/pin", json={"pinned": True})).status_code == 404
+    assert (await client.post(f"/api/chat/messages/{mb['id']}/react", json={"reaction": "fire"})).status_code == 404
+    # rate-span с чужим session_id (B) — тоже 404, даже на якобы своё сообщение
+    r = await client.post(
+        f"/api/chat/messages/{ma['id']}/rate-span",
+        json={"rating": 1, "selected_text": "x", "session_id": sb["id"]},
+    )
+    assert r.status_code == 404
+
+    # A МОЖЕТ оценить/закрепить своё
+    assert (await client.post(f"/api/chat/messages/{ma['id']}/rate", json={"rating": 1})).status_code == 200
+    assert (await client.post(f"/api/chat/messages/{ma['id']}/pin", json={"pinned": True})).status_code == 200
+    r = await client.post(
+        f"/api/chat/messages/{ma['id']}/rate-span",
+        json={"rating": 1, "selected_text": "x", "session_id": sa["id"]},
+    )
+    assert r.status_code == 200
+
+
+@pytest.mark.asyncio
 async def test_can_edit_own_user_message(client, db):
     a = await _add_user(db, "owner-edit@example.io")
     sa = await create_session(a, "A")

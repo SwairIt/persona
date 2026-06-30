@@ -202,11 +202,6 @@ async def activate_from_payment(payment_id: str) -> bool:
         pm = payment.get("payment_method") or {}
         method_id = pm.get("id") if pm.get("saved") else None
         now = _utcnow()
-        # Дедуп письма: если этот платёж уже был "succeeded" — это повторный
-        # вебхук (ЮKassa ретраит), письмо НЕ слать второй раз.
-        async with get_connection() as conn:
-            prior = await repo.get_payment_by_provider_id(conn, payment_id)
-        already_succeeded = bool(prior and prior.get("status") == "succeeded")
         period_end_iso = _iso(now + timedelta(days=period_days))
         async with get_connection() as conn:
             sub = await repo.get_subscription(conn, user_id)
@@ -238,7 +233,10 @@ async def activate_from_payment(payment_id: str) -> bool:
                 period_end=period_end_iso,
                 description=f"Pro {plan.cycle}" if plan else "Pro",
             )
-        if not already_succeeded:
+            # Письмо «Оплата получена» — атомарно ровно один раз: победитель
+            # гонки двух вебхуков перевёл receipt_sent 0→1 (см. repo.claim_receipt).
+            should_email = await repo.claim_receipt(conn, payment_id)
+        if should_email:
             await _send_payment_receipt_email(
                 user_id,
                 amount=str(plan.amount if plan else payment["amount"]["value"]),

@@ -93,11 +93,33 @@ async def billing_checkout(
     return RedirectResponse(url=url, status_code=303)
 
 
+def _webhook_ip_allowed(request: Request) -> bool:
+    """Defense-in-depth: пускаем вебхук только из IP-диапазонов ЮKassa. Подписи у
+    вебхука нет, и без этого фильтра кто угодно слал бы произвольные payment_id,
+    заставляя нас дёргать аутентифицированный GET к ЮKassa (SSRF-усилитель + DoS).
+    Реальный IP берём через trusted-proxy XFF (`_client_ip`) — за devtunnel прямой
+    peer = 127.0.0.1, настоящий адрес ЮKassa приходит в X-Forwarded-For."""
+    from ipaddress import ip_address, ip_network  # noqa: PLC0415
+
+    from app.billing.yookassa import WEBHOOK_IP_RANGES  # noqa: PLC0415
+    from app.web.routes.auth import _client_ip  # noqa: PLC0415
+
+    try:
+        addr = ip_address(_client_ip(request))
+    except ValueError:
+        return False
+    return any(addr in ip_network(cidr) for cidr in WEBHOOK_IP_RANGES)
+
+
 @router.post("/billing/webhook", response_model=None)
 async def billing_webhook(request: Request) -> Response:
     """Вебхук ЮKassa. Подписи нет — подлинность гарантирует re-GET платежа через
-    наш secret (см. service.activate_from_payment). ВСЕГДА отвечаем 2xx, иначе
-    ЮKassa будет ретраить; ошибку логируем и глотаем."""
+    наш secret (см. service.activate_from_payment) + IP-allowlist ЮKassa (см.
+    _webhook_ip_allowed). Для разрешённых IP ВСЕГДА отвечаем 2xx, иначе ЮKassa
+    будет ретраить; ошибку логируем и глотаем."""
+    if not _webhook_ip_allowed(request):
+        log.warning("billing.webhook_forbidden_ip")
+        return Response(status_code=403)
     try:
         body = await request.json()
         pid = body["object"]["id"]
