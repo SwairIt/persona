@@ -1298,5 +1298,20 @@
   "activity_empty": "Noch leer. Sobald der Assistent Werkzeuge nutzt (Suche, Dateien, Web), erscheinen die Schritte hier.",
   "activity_empty_filtered": "Keine Treffer für diese Filter.",
   "mcp_timeout_placeholder": "Timeout, ms",
-  "mcp_timeout_hint": "Timeout des Tool-Aufrufs in Millisekunden. Leer = Standard."
+  "mcp_timeout_hint": "Timeout des Tool-Aufrufs in Millisekunden. Leer = Standard.",
+  "worker_section_title": "PC-Worker (ohne Tunnel)",
+  "worker_section_desc": "Dein PC holt sich Aufgaben vom Server und rechnet sie auf lokalem Ollama — kein Tunnel (devtunnel) nötig. Wähle oben den Provider «Persona LLM Worker», erzeuge ein Token und starte persona_llm_worker auf dem PC.",
+  "worker_rotate_btn": "Worker-Token erzeugen",
+  "worker_token_once": "Token wird nur einmal angezeigt — jetzt kopieren, danach nicht mehr sichtbar.",
+  "worker_token_hint": "Trage diesen Wert in PERSONA_WORKER_TOKEN auf dem PC ein (env oder .env neben persona_llm_worker) und starte den Worker neu.",
+  "worker_copy": "Kopieren",
+  "worker_online": "Worker online",
+  "worker_offline": "Worker offline",
+  "worker_last_seen": "zuletzt gesehen",
+  "worker_token_empty": "Server lieferte ein leeres Token",
+  "worker_token_fail": "Token konnte nicht erzeugt werden",
+  "llmmon_worker_mode": "Modus: PC-Worker",
+  "llmmon_worker_online": "Worker online",
+  "llmmon_worker_offline": "Worker offline",
+  "llmmon_worker_last_seen": "letzter Ping"
 }

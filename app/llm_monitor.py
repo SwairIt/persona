@@ -58,6 +58,40 @@ async def _embed_model() -> str:
         return _DEFAULT_EMBED_MODEL
 
 
+async def _active_provider() -> str:
+    """Активный LLM-провайдер (kv ``llm_provider`` → fallback ``byo_api_provider``)."""
+    try:
+        async with get_connection() as conn:
+            new = (await get_kv(conn, "llm_provider") or "").strip().lower()
+            legacy = (await get_kv(conn, "byo_api_provider") or "").strip().lower()
+        return new or legacy or ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+async def _worker_block() -> dict[str, Any] | None:
+    """Статус ПК-воркера для секции монитора — best-effort, ленивый импорт.
+
+    W-D: если провайдер 'worker', добавляем блок ``worker`` с online/model/
+    last_seen из :func:`app.llm.worker_queue.worker_status` (модуль приходит
+    из слайса W-A). Если модуля ещё нет или вызов упал — тихо None, чтобы не
+    ломать Ollama-direct рендер.
+    """
+    try:
+        from app.llm.worker_queue import worker_status  # noqa: PLC0415
+
+        st = await worker_status()
+        online = bool(st.get("online"))
+        return {
+            "online": online,
+            "model": st.get("model"),
+            "last_seen": st.get("last_seen"),
+            "mode": "worker" if online else "direct",
+        }
+    except Exception:  # noqa: BLE001 — W-A может быть ещё не приземлён
+        return {"online": False, "model": None, "last_seen": None, "mode": "direct"}
+
+
 def _mb(n: Any) -> float | None:
     """Байты → МБ (округлённо), None при мусоре."""
     try:
@@ -158,6 +192,15 @@ async def collect_llm_status() -> dict[str, Any]:
 
     if not status["reachable"] and not status["error"]:
         status["error"] = "Ollama недоступна (туннель не поднят?)"
+
+    # W-D: если активный провайдер — ПК-воркер, дополнительно отдаём блок
+    # worker:{online,model,last_seen,mode}. Аддитивно: ключ появляется только
+    # для провайдера 'worker', Ollama-direct рендер не трогаем.
+    try:
+        if (await _active_provider()) == "worker":
+            status["worker"] = await _worker_block()
+    except Exception:  # noqa: BLE001 — статус воркера опционален
+        pass
 
     _cache, _cache_ts = status, now
     return status

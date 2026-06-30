@@ -154,6 +154,7 @@ from app.web.routes import (
     live_sse as live_sse_routes,
     llm_switcher as llm_switcher_routes,
     llm_usage as llm_usage_routes,
+    llm_worker as llm_worker_routes,
     mobile as mobile_routes,
     monthly_digest_card as monthly_digest_card_routes,
     monthly_digests as monthly_digests_routes,
@@ -702,6 +703,8 @@ def create_app() -> FastAPI:
     app.include_router(shot_lock_routes.router)
     app.include_router(rss_index_routes.router)
     app.include_router(llm_switcher_routes.router)
+    # W-A — серверное ядро очереди «Persona LLM Worker» (worker-token + owner).
+    app.include_router(llm_worker_routes.router)
     app.include_router(multi_day_diff_routes.router)
     app.include_router(screenshot_frame_routes.router)
     app.include_router(settings_diff_routes.router)

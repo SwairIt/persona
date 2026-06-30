@@ -44,6 +44,8 @@ from fastapi.responses import HTMLResponse
 
 from app.audit import log_action
 from app.auth import current_user_required
+from app.auth.owner import is_owner
+from app.auth.sessions import SessionRecord
 from app.llm.client import CompletionRequest, LLMNotConfigured, make_client
 from app.logging_setup import get_logger
 from app.storage.db import get_connection
@@ -67,6 +69,10 @@ log = get_logger("persona.llm.switcher")
 PROVIDERS: Final[tuple[tuple[str, str, str], ...]] = (
     # === Бесплатно на твоём ПК ===
     ("ollama", "🏠 Локально через Ollama (бесплатно навсегда, твой ПК)", "http://localhost:11434 (или пусто для дефолта)"),
+    # W-D: «обратный» воркер — ПК сам ходит на сервер за задачами (без туннеля).
+    # Ключ-поле не используется (авторизация через токен воркера, см. кнопку ниже),
+    # но провайдер должен быть в списке, чтобы его можно было выбрать радио-кнопкой.
+    ("worker", "🖥️ Persona LLM Worker — твой ПК (без туннеля)", "ключ не нужен — токен генерируется кнопкой ниже"),
 
     # === Агрегаторы (один ключ → много моделей) ===
     # T12 (2026-06-07) — агрегаторы это лучший компромисс между
@@ -189,6 +195,26 @@ async def _key_status_per_provider(
 
 
 # ---------------------------------------------------------------------------
+# W-D: статус ПК-воркера (best-effort, ленивый импорт — зависит от W-A)
+# ---------------------------------------------------------------------------
+
+
+async def _worker_status_safe() -> dict[str, object] | None:
+    """Текущий статус ПК-воркера (online/model/last_seen) или None.
+
+    Ленивый импорт ``app.llm.worker_queue`` (модуль приходит из слайса W-A):
+    если его ещё нет или вызов упал — тихо возвращаем None, чтобы страница
+    провайдеров не падала из-за неприземлившейся зависимости.
+    """
+    try:
+        from app.llm.worker_queue import worker_status  # noqa: PLC0415
+
+        return await worker_status()
+    except Exception:  # noqa: BLE001 — W-A может быть ещё не приземлён
+        return None
+
+
+# ---------------------------------------------------------------------------
 # Persistence
 # ---------------------------------------------------------------------------
 
@@ -243,6 +269,9 @@ def _render(
     notice: str | None = None,
     error: str | None = None,
     test_result: str | None = None,
+    worker_token: str | None = None,
+    worker_status: dict[str, object] | None = None,
+    is_owner_user: bool = False,
     status_code: int = 200,
 ) -> HTMLResponse:
     """Single render entry-point so every code path uses the same context."""
@@ -264,6 +293,11 @@ def _render(
             "notice": notice,
             "error": error,
             "test_result": test_result,
+            # W-D: разовый показ свежесгенерированного токена воркера +
+            # текущий онлайн-статус ПК-воркера (для секции «worker»).
+            "worker_token": worker_token,
+            "worker_status": worker_status,
+            "is_owner": is_owner_user,
         },
         status_code=status_code,
     )
@@ -274,8 +308,11 @@ def _render(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/settings/llm", response_class=HTMLResponse)
-async def llm_switcher_page(request: Request) -> HTMLResponse:
+@router.get("/settings/llm", response_class=HTMLResponse, response_model=None)
+async def llm_switcher_page(
+    request: Request,
+    session: SessionRecord = Depends(current_user_required),
+) -> HTMLResponse:
     """Render the provider/key picker.
 
     No query parameters — the master password is never accepted via GET
@@ -283,16 +320,26 @@ async def llm_switcher_page(request: Request) -> HTMLResponse:
     """
     current = await _current_provider()
     keys = await _key_status_per_provider(master_password=None)
+    owner = await is_owner(int(session["user_id"]))
     log.info(
         "llm.switcher.render",
         current_provider=current,
         configured=[slug for slug, info in keys.items() if info["configured"] == "true"],
     )
-    return _render(request, current_provider=current, keys=keys)
+    return _render(
+        request,
+        current_provider=current,
+        keys=keys,
+        worker_status=await _worker_status_safe(),
+        is_owner_user=owner,
+    )
 
 
-@router.post("/settings/llm", response_class=HTMLResponse)
-async def llm_switcher_save(request: Request) -> HTMLResponse:
+@router.post("/settings/llm", response_class=HTMLResponse, response_model=None)
+async def llm_switcher_save(
+    request: Request,
+    session: SessionRecord = Depends(current_user_required),
+) -> HTMLResponse:
     """Persist the chosen provider and any newly-typed keys.
 
     T19 (2026-06-07): rewritten to read form data dynamically instead of
@@ -311,6 +358,7 @@ async def llm_switcher_save(request: Request) -> HTMLResponse:
     form = await request.form()
     provider = str(form.get("provider", "")).strip().lower()
     master_password = str(form.get("master_password", ""))
+    owner = await is_owner(int(session["user_id"]))
 
     if provider not in _VALID_PROVIDERS:
         current = await _current_provider()
@@ -327,6 +375,8 @@ async def llm_switcher_save(request: Request) -> HTMLResponse:
             current_provider=current,
             keys=keys,
             error=f"Неизвестный провайдер «{provider}».",
+            worker_status=await _worker_status_safe(),
+            is_owner_user=owner,
             status_code=400,
         )
 
@@ -358,6 +408,11 @@ async def llm_switcher_save(request: Request) -> HTMLResponse:
         notice = "AI выключен. Ключи сохранены, но не используются."
     elif provider == "ollama":
         notice = "Сохранено: Ollama. Запросы идут на твой локальный сервер."
+    elif provider == "worker":
+        notice = (
+            "Сохранено: Persona LLM Worker. Сгенерируй токен ниже и запусти "
+            "persona_llm_worker на ПК — он сам будет забирать задачи (без туннеля)."
+        )
     elif written:
         slug_written = ", ".join(written.keys())
         notice = (
@@ -375,13 +430,16 @@ async def llm_switcher_save(request: Request) -> HTMLResponse:
         current_provider=provider,
         keys=keys,
         notice=notice,
+        worker_status=await _worker_status_safe(),
+        is_owner_user=owner,
     )
 
 
-@router.post("/settings/llm/test", response_class=HTMLResponse)
+@router.post("/settings/llm/test", response_class=HTMLResponse, response_model=None)
 async def llm_switcher_test(
     request: Request,
     master_password: str = Form(""),
+    session: SessionRecord = Depends(current_user_required),
 ) -> HTMLResponse:
     """Build a real client from the saved provider/key and send one prompt.
 
@@ -391,6 +449,8 @@ async def llm_switcher_test(
     """
     current = await _current_provider()
     keys = await _key_status_per_provider(master_password=master_password or None)
+    owner = await is_owner(int(session["user_id"]))
+    wstatus = await _worker_status_safe()
 
     if current == "none":
         return _render(
@@ -398,6 +458,8 @@ async def llm_switcher_test(
             current_provider=current,
             keys=keys,
             test_result="AI features are disabled (provider=none).",
+            worker_status=wstatus,
+            is_owner_user=owner,
         )
 
     try:
@@ -415,6 +477,8 @@ async def llm_switcher_test(
             current_provider=current,
             keys=keys,
             test_result=f"Not configured: {exc}",
+            worker_status=wstatus,
+            is_owner_user=owner,
         )
 
     # T19 fix (2026-06-07) — bound the test call with asyncio timeout
@@ -447,6 +511,8 @@ async def llm_switcher_test(
                 "вопрос (можно ждать), потом нажми Тест ещё раз — будет "
                 "быстро."
             ),
+            worker_status=wstatus,
+            is_owner_user=owner,
         )
     except Exception as exc:
         log.warning(
@@ -465,6 +531,8 @@ async def llm_switcher_test(
             current_provider=current,
             keys=keys,
             test_result=f"Failed: {type(exc).__name__}",
+            worker_status=wstatus,
+            is_owner_user=owner,
         )
 
     log.info("llm.switcher.test.ok", provider=current)
@@ -479,4 +547,6 @@ async def llm_switcher_test(
         current_provider=current,
         keys=keys,
         test_result=f"OK — {current} responded.",
+        worker_status=wstatus,
+        is_owner_user=owner,
     )

@@ -42,6 +42,12 @@ Provider = Literal[
     "xai",          # Grok (Elon's), works fine for non-rude prompts
     "proxyapi",     # Russian gateway to OpenAI/Anthropic/Gemini/Claude in RUB
     "aitunnel",     # Russian aggregator alternative to proxyapi
+    # W-B (2026-06-30) — «Persona LLM Worker»: вместо devtunnel ПК делает
+    # ИСХОДЯЩИЕ запросы к серверу и забирает задачи из очереди в БД, считает
+    # на локальной Ollama без туннеля и шлёт результат обратно по HTTP.
+    # С точки зрения сервера это ещё один провайдер: задачи кладутся в очередь
+    # (app.llm.worker_queue), а WorkerLLMClient.stream поллит готовые чанки.
+    "worker",
 ]
 
 log = get_logger("persona.llm.switcher")
@@ -1043,6 +1049,157 @@ class OllamaClient:
                         )
 
 
+class WorkerLLMClient:
+    """«Persona LLM Worker» — провайдер, считающий на ПК через очередь в БД.
+
+    Архитектура убирает devtunnel: сервер НЕ ходит на ПК. Вместо этого
+    ``stream()`` кладёт задачу ``kind='chat'`` в очередь (таблица ``llm_job``
+    через :mod:`app.llm.worker_queue`), а ПК-агент (``ops/persona_llm_worker.py``)
+    сам делает ИСХОДЯЩИЙ long-poll к серверу, забирает задачу, гоняет локальную
+    Ollama и шлёт чанки/результат ОБРАТНО по HTTP. Здесь мы лишь поллим готовые
+    чанки из БД и yield-им их в ТОМ ЖЕ формате, что :class:`OllamaClient.stream`
+    — голые строки-дельты (новый кусок текста, не накопленный ответ), чтобы
+    ``event_stream`` / ``_UsageRecordingClient`` работали без изменений.
+
+    Все импорты ``worker_queue`` ленивые (внутри методов): модуль может ещё не
+    приземлиться на момент сборки соседних слайсов, и провайдер не должен падать
+    при импорте :mod:`app.llm.client`.
+    """
+
+    provider: Provider = "worker"
+
+    #: Между опросами очереди — короткий сон, чтобы первые токены приходили
+    #: почти сразу, но не жечь CPU тайтовым циклом.
+    _POLL_INTERVAL = 0.04
+    #: Если за это время нет НИ одного нового чанка и задача не завершилась —
+    #: считаем, что ПК-воркер завис/умер, и отдаём понятную ошибку.
+    _STALL_TIMEOUT = 120.0
+
+    def __init__(self, model: str | None = None) -> None:
+        # Модель, которую попросим посчитать на ПК. Берём ту же kv ``ollama_model``,
+        # что и для прямого Ollama — на ПК крутится та же локальная модель.
+        self._model = (model or "").strip() or OllamaClient._DEFAULT_MODEL
+        # Совместимость с :class:`_UsageRecordingClient`: он читает эти поля после
+        # стрима. Воркер токены не считает (Ollama на ПК), оставляем None.
+        self.last_input_tokens: int | None = None
+        self.last_output_tokens: int | None = None
+
+    def _messages(self, request: CompletionRequest) -> list[dict[str, object]]:
+        """system+user → формат сообщений Ollama /api/chat (как у OllamaClient).
+
+        Картинку, если есть, кладём как нативный Ollama-формат (raw base64 в
+        ``images``) — ПК-агент передаёт payload.messages в /api/chat как есть.
+        """
+        user_msg: dict[str, object] = {"role": "user", "content": request.user or ""}
+        if request.image_data_url:
+            normalised = _normalise_image_for_ollama(request.image_data_url)
+            user_msg["content"] = request.user or "describe this image"
+            user_msg["images"] = [normalised.split(",", 1)[-1]]
+        return [
+            {"role": "system", "content": request.system},
+            user_msg,
+        ]
+
+    async def complete(self, request: CompletionRequest) -> str:
+        """Неблокирующий путь поверх :meth:`stream` — собрать дельты в строку.
+
+        Часть кодовой базы зовёт ``complete`` (не ``stream``); реализуем его
+        через стрим, чтобы не дублировать логику очереди.
+        """
+        chunks: list[str] = []
+        async for delta in self.stream(request):
+            chunks.append(delta)
+        return "".join(chunks).strip()
+
+    async def stream(self, request: CompletionRequest) -> AsyncIterator[str]:
+        self.last_input_tokens = None
+        self.last_output_tokens = None
+        # Ленивые импорты: worker_queue (слайс W-A) может ещё не существовать
+        # на момент сборки — тогда даём понятную ошибку, а не ImportError при
+        # импорте модуля клиента.
+        try:
+            from app.llm.worker_queue import (  # noqa: PLC0415
+                enqueue_job,
+                get_job,
+                read_chunks,
+                worker_online,
+            )
+        except Exception as exc:  # noqa: BLE001 — модуль очереди ещё не приземлился
+            msg = (
+                "ПК-воркер недоступен — модуль очереди не установлен "
+                "(app.llm.worker_queue)."
+            )
+            raise LLMNotConfigured(msg) from exc
+
+        if not await worker_online():
+            msg = (
+                "ПК-воркер офлайн — запусти persona_llm_worker на ПК "
+                "(Ollama без туннеля)."
+            )
+            raise LLMNotConfigured(msg)
+
+        # Опции считаем грубо как у OllamaClient — ПК-агент передаёт их в
+        # /api/chat. num_ctx/num_predict защищают слабый GPU от старвейшна.
+        options = {
+            "num_predict": request.max_tokens,
+            "temperature": request.temperature,
+        }
+        payload = {"messages": self._messages(request), "options": options}
+        # user_id=0 — задача системная (без привязки к пользователю-владельцу).
+        job_id = await enqueue_job(0, "chat", self._model, payload)
+
+        last_seq = 0
+        last_progress = _loop_time()
+        while True:
+            chunks = await read_chunks(job_id, last_seq)
+            for c in chunks:
+                # c — {seq, content}; seq монотонно растёт, content — дельта.
+                seq = int(c["seq"])
+                if seq > last_seq:
+                    last_seq = seq
+                content = c.get("content")
+                if isinstance(content, str) and content:
+                    yield content
+            if chunks:
+                last_progress = _loop_time()
+
+            job = await get_job(job_id)
+            status = (job or {}).get("status") if job else None
+            if status == "done":
+                # Дочитываем хвост чанков, появившихся между read_chunks и get_job.
+                tail = await read_chunks(job_id, last_seq)
+                for c in tail:
+                    seq = int(c["seq"])
+                    if seq > last_seq:
+                        last_seq = seq
+                    content = c.get("content")
+                    if isinstance(content, str) and content:
+                        yield content
+                return
+            if status == "error":
+                err = (job or {}).get("error") or "ПК-воркер вернул ошибку"
+                raise LLMNotConfigured(f"ПК-воркер: {err}")
+
+            # Сторож зависания: нет новых чанков и задача не финиширована.
+            if _loop_time() - last_progress > self._STALL_TIMEOUT:
+                msg = (
+                    "ПК-воркер не отвечает (таймаут ожидания токенов) — "
+                    "проверь persona_llm_worker на ПК."
+                )
+                raise LLMNotConfigured(msg)
+            await asyncio.sleep(self._POLL_INTERVAL)
+
+
+def _loop_time() -> float:
+    """Монотонные секунды текущего loop (для таймаутов внутри стрима)."""
+    try:
+        return asyncio.get_running_loop().time()
+    except RuntimeError:
+        import time  # noqa: PLC0415
+
+        return time.monotonic()
+
+
 class _OpenAICompatibleClient:
     """Shared implementation for the dozen "OpenAI-compatible Bearer-token
     chat-completions" providers.
@@ -1659,7 +1816,9 @@ def make_client(
             "+ PERSONA_BYO_API_KEY in .env."
         )
         raise LLMNotConfigured(msg)
-    if not use_key and use_provider != "ollama":
+    # W-B — Ollama и worker не требуют API-ключа: Ollama локален, а worker
+    # считает на ПК через очередь (ключ воркера живёт в kv, не в use_key).
+    if not use_key and use_provider not in ("ollama", "worker"):
         msg = (
             "LLM not configured. Pick a provider + paste a key at "
             "/settings/llm, or set PERSONA_BYO_API_PROVIDER "
@@ -1693,6 +1852,12 @@ def make_client(
         # An optional model override lives in kv ``ollama_model``.
         model_override = _read_kv_sync("ollama_model") or None
         inner = OllamaClient(use_key, model=model_override)
+    elif use_provider == "worker":
+        # W-B — «Persona LLM Worker». Ключа нет: задачи кладём в очередь, ПК
+        # сам забирает их long-poll'ом. Модель — та же kv ``ollama_model``
+        # (на ПК крутится локальная Ollama), иначе дефолт OllamaClient.
+        model_override = _read_kv_sync("ollama_model") or None
+        inner = WorkerLLMClient(model=model_override)
     elif use_provider == "openrouter":
         # OpenRouter — the user picks which underlying model in kv
         # ``openrouter_model``. If unset, fall back to the free Llama 3.1.

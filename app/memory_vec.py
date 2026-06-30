@@ -38,6 +38,69 @@ async def _embed_model() -> str:
         return _DEFAULT_EMBED_MODEL
 
 
+async def _active_provider() -> str:
+    """Активный LLM-провайдер из kv (как в app.llm.client._resolve_provider_and_key).
+
+    Порядок: kv ``llm_provider`` (v0.71 switcher) → kv ``byo_api_provider``
+    (v0.50 wizard) → "" (неизвестно). Нужен, чтобы при провайдере 'worker'
+    гнать эмбеддинги через очередь, а не по HTTP на localhost сервера (где
+    Ollama нет). Любая ошибка чтения kv → "" (тихий fallback на HTTP-путь)."""
+    try:
+        async with get_connection() as conn:
+            p = (await get_kv(conn, "llm_provider") or "").strip().lower()
+            if not p:
+                p = (await get_kv(conn, "byo_api_provider") or "").strip().lower()
+        return p
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+async def _embed_via_worker(model: str, prompt: str) -> list[float] | None:
+    """Эмбеддинг через очередь ПК-воркера (провайдер 'worker').
+
+    Кладём задачу ``kind='embed'`` в очередь, ПК-агент считает её на локальной
+    Ollama (/api/embeddings) и кладёт JSON-вектор в ``result``. Здесь — короткий
+    поллинг ``get_job`` до ``status='done'`` (таймаут ~60с). Best-effort: любая
+    проблема (воркер офлайн, таймаут, битый результат) → None, как и HTTP-путь.
+
+    Импорты ``worker_queue`` ленивые — модуль очереди (слайс W-A) может ещё не
+    приземлиться, тогда тихо None (без падения).
+    """
+    try:
+        from app.llm.worker_queue import (  # noqa: PLC0415
+            enqueue_job,
+            get_job,
+            worker_online,
+        )
+    except Exception:  # noqa: BLE001 — модуль очереди ещё не установлен
+        return None
+    try:
+        if not await worker_online():
+            return None
+        # payload по контракту: embed = {prompt, options:{}}.
+        job_id = await enqueue_job(0, "embed", model, {"prompt": prompt, "options": {}})
+        deadline = asyncio.get_event_loop().time() + 60.0
+        while True:
+            job = await get_job(job_id)
+            status = (job or {}).get("status") if job else None
+            if status == "done":
+                raw = (job or {}).get("result")
+                if not raw:
+                    return None
+                vec = json.loads(raw)
+                if isinstance(vec, list) and vec:
+                    return [float(x) for x in vec]
+                return None
+            if status == "error":
+                return None
+            if asyncio.get_event_loop().time() > deadline:
+                return None
+            await asyncio.sleep(0.1)
+    except Exception as exc:  # noqa: BLE001 — best-effort, не ломаем recall
+        log.debug("memory_vec.embed_worker_failed", error=str(exc))
+        return None
+
+
 async def _ollama_endpoint() -> str:
     """Тот же эндпоинт Ollama, что у чата (kv ``byo_api_key_ollama``) — чтобы
     эмбеддинги шли в ту же модель-машину (например, devtunnel на ПК), а не в
@@ -71,11 +134,15 @@ async def embed(text: str, kind: str = "document") -> list[float] | None:
     except Exception:  # noqa: BLE001
         return None
     model = await _embed_model()
-    endpoint = await _ollama_endpoint()
     prompt = text[:8000]
     if "nomic" in model.lower():
         prefix = "search_query: " if kind == "query" else "search_document: "
         prompt = prefix + prompt
+    # W-B — провайдер 'worker': эмбеддинги идут через очередь на ПК (Ollama без
+    # туннеля), а не по HTTP на localhost сервера. Иначе — текущий HTTP-путь.
+    if await _active_provider() == "worker":
+        return await _embed_via_worker(model, prompt)
+    endpoint = await _ollama_endpoint()
     try:
         # timeout щедрый: первый embed после простоя грузит модель (cold start)
         # через туннель; keep_alive держит её тёплой, чтобы дальше было быстро.

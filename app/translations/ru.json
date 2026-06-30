@@ -1298,5 +1298,20 @@
   "activity_empty": "Пока пусто. Когда ассистент использует инструменты (поиск, чтение файлов, веб) — шаги появятся здесь.",
   "activity_empty_filtered": "Ничего не найдено по этим фильтрам.",
   "mcp_timeout_placeholder": "таймаут, мс",
-  "mcp_timeout_hint": "Таймаут вызова инструмента в миллисекундах. Пусто = значение по умолчанию."
+  "mcp_timeout_hint": "Таймаут вызова инструмента в миллисекундах. Пусто = значение по умолчанию.",
+  "worker_section_title": "ПК-воркер (без туннеля)",
+  "worker_section_desc": "Твой ПК сам ходит на сервер за задачами и считает на локальной Ollama — туннель (devtunnel) больше не нужен. Выбери провайдер «Persona LLM Worker» выше, сгенерируй токен и запусти persona_llm_worker на ПК.",
+  "worker_rotate_btn": "Сгенерировать токен воркера",
+  "worker_token_once": "Токен показан один раз — скопируй сейчас, повторно его увидеть нельзя.",
+  "worker_token_hint": "Вставь это значение в PERSONA_WORKER_TOKEN на ПК (env или .env рядом с persona_llm_worker) и перезапусти воркер.",
+  "worker_copy": "Копировать",
+  "worker_online": "Воркер онлайн",
+  "worker_offline": "Воркер офлайн",
+  "worker_last_seen": "последний раз",
+  "worker_token_empty": "Сервер вернул пустой токен",
+  "worker_token_fail": "Не удалось сгенерировать токен",
+  "llmmon_worker_mode": "Режим: ПК-воркер",
+  "llmmon_worker_online": "воркер онлайн",
+  "llmmon_worker_offline": "воркер офлайн",
+  "llmmon_worker_last_seen": "последний пинг"
 }

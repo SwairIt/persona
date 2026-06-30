@@ -185,6 +185,28 @@
     </div>
     <div class="sm-tile__sub mt-1 font-mono truncate" x-text="llmEndpoint"></div>
 
+    <!-- W-D: режим ПК-воркера (Persona LLM Worker без туннеля).
+         Показываем только когда сервер прислал блок llm.worker. -->
+    <template x-if="llmWorker">
+      <div class="mt-3 rounded-lg border px-3 py-2"
+           :class="llmWorkerOnline ? 'border-emerald-500/30 bg-emerald-500/10' : 'border-amber-500/30 bg-amber-500/10'">
+        <div class="flex items-center justify-between gap-2">
+          <span class="text-sm font-semibold" :class="llmWorkerOnline ? 'sm-good' : 'sm-warn'">
+            <span class="sm-dot" :class="llmWorkerOnline ? 'sm-good-bg sm-pulse' : 'sm-warn-bg'"></span>
+            <span x-text="t_worker_mode"></span>
+          </span>
+          <span class="text-xs" :class="llmWorkerOnline ? 'sm-good' : 'sm-warn'"
+                x-text="llmWorkerOnline ? t_worker_online : t_worker_offline"></span>
+        </div>
+        <div class="sm-tile__sub mt-1 flex flex-wrap gap-x-4 gap-y-0.5">
+          <span x-show="llmWorker.model">model: <b class="font-mono" x-text="llmWorker.model"></b></span>
+          <span x-show="llmWorker.last_seen" class="text-zinc-500">
+            <span x-text="t_worker_last_seen"></span>: <span class="font-mono" x-text="llmWorker.last_seen"></span>
+          </span>
+        </div>
+      </div>
+    </template>
+
     <!-- загруженные (резидентные) модели = реальная нагрузка на ПК -->
     <div class="mt-3 space-y-2" x-show="llmRunning.length">
       <template x-for="m in llmRunning" :key="m.name">
@@ -253,6 +275,10 @@ function systemMonitor(initialSnap, initialHist, initialLlm) {
     t_cores: {{ t('sysmon_cores')|tojson }},
     t_llm_online: {{ t('llmmon_online')|tojson }},
     t_llm_offline: {{ t('llmmon_offline')|tojson }},
+    t_worker_mode: {{ t('llmmon_worker_mode')|tojson }},
+    t_worker_online: {{ t('llmmon_worker_online')|tojson }},
+    t_worker_offline: {{ t('llmmon_worker_offline')|tojson }},
+    t_worker_last_seen: {{ t('llmmon_worker_last_seen')|tojson }},
 
     // ---- производные геттеры ----
     get isEmpty() { return !this.snap || Object.keys(this.snap).length === 0; },
@@ -315,6 +341,9 @@ function systemMonitor(initialSnap, initialHist, initialLlm) {
     get llmReachable() { return !!(this.llm && this.llm.reachable); },
     get llmRunning() { return (this.llm && Array.isArray(this.llm.running)) ? this.llm.running : []; },
     get llmEndpoint() { return (this.llm && this.llm.endpoint) || ''; },
+    // W-D: блок ПК-воркера (есть только когда провайдер = 'worker')
+    get llmWorker() { return (this.llm && this.llm.worker) || null; },
+    get llmWorkerOnline() { return !!(this.llmWorker && this.llmWorker.online); },
 
     // ---- хелперы форматирования / порогов ----
     clamp(v) { v = Number(v) || 0; return Math.max(0, Math.min(100, v)); },
