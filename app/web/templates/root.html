@@ -178,6 +178,7 @@
         <div class="flex gap-2 whitespace-pre-wrap break-all">
           <span class="text-zinc-600 shrink-0" x-text="(r.ts || '').slice(11,19)"></span>
           <span class="shrink-0 w-12" :class="levelClass(r.level)" x-text="r.level"></span>
+          <span class="text-zinc-700 shrink-0" x-show="r.worker_id" x-text="'w'+r.worker_id"></span>
           <span class="text-zinc-500 shrink-0" x-text="r.logger"></span>
           <span class="text-zinc-200" x-text="r.event + extraStr(r.extra)"></span>
         </div>
@@ -186,7 +187,7 @@
     </div>
   </div>
   <p class="text-zinc-600 text-xs mt-3">
-    При нескольких воркерах (--workers) показываются логи обслужившего запрос воркера. Durable system_log — позже.
+    Сводные логи (warning+) собираются из всех воркеров в durable system_log (хранение 7 дней); метка <span class="font-mono">w&lt;pid&gt;</span> показывает воркер-источник. Live-поток ниже warning идёт из памяти обслужившего запрос воркера.
   </p>
 </div>
 

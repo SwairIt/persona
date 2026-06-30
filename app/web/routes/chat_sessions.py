@@ -248,6 +248,53 @@ _MODE_HINT: dict[str, str] = {
 }
 
 
+def _apply_turn_command(
+    question: str,
+    *,
+    body_mode: str | None = None,
+    body_effort: str | None = None,
+) -> tuple[str, str | None, str | None]:
+    """F6-03 — серверная развёртка турн-команды из текста сообщения.
+
+    Чистая (без I/O) логика, чтобы её можно было покрыть юнит-тестом отдельно
+    от HTTP. Зеркалит то, что фронт делает на клиенте: снимает префикс
+    ``/plan`` / ``/fast`` / ``/web`` и применяет режим/эффорт на ОДИН ход.
+
+    Возвращает ``(send_text, force_mode, force_effort)``:
+      * ``send_text`` — что отправить модели (без префикса). Для нераспознанного
+        слэша и для не-turn / overlay-команд — исходный текст (НЕ съедаем).
+      * ``force_mode`` — режим-override на этот ход или None.
+      * ``force_effort`` — эффорт-override на этот ход или None.
+
+    Приоритет у явного ``body_mode``/``body_effort`` (фронт уже выставил режим):
+    override от команды применяется только если соответствующий body не задан.
+    Запись в kv тут НЕ делается — липкий режим сессии не трогаем.
+    """
+    from app.chat.commands import expand_command  # noqa: PLC0415
+
+    bm = body_mode if body_mode in _MODES else None
+    be = body_effort if body_effort in _EFFORT_TOKENS else None
+    force_mode: str | None = bm
+    force_effort: str | None = be
+
+    exp = expand_command(question) if question else None
+    if not (exp and exp.get("recognized")):
+        # Не команда / нераспознанный слэш / overlay-команда без директив —
+        # текст не трогаем, он уходит как есть (overlay идёт через body['cmd']).
+        return question, force_mode, force_effort
+
+    send_text = question
+    if "send_text" in exp:  # turn-директива режима/эффорта/web — снимаем префикс
+        send_text = str(exp.get("send_text") or "").strip()
+    fm = exp.get("force_mode")
+    fe = exp.get("force_effort")
+    if fm in _MODES and force_mode is None:
+        force_mode = fm
+    if fe in _EFFORT_TOKENS and force_effort is None:
+        force_effort = fe
+    return send_text, force_mode, force_effort
+
+
 async def _get_mode(session_id: int) -> str:
     from app.storage.db import get_connection  # noqa: PLC0415
     from app.storage.repository import get_kv  # noqa: PLC0415
@@ -965,6 +1012,23 @@ async def api_send_stream(
     )
     if not question and not image_data_url:
         raise HTTPException(status_code=400, detail="question or image required")
+
+    # F6-03 — серверная развёртка турн-команд (/plan /ask /fast /deep /web …).
+    # Фронт обычно сам снимает префикс и шлёт чистый текст, но если команда
+    # дошла «сырой» (API/голос/сбой JS), _apply_turn_command применит режим/
+    # эффорт на ЭТОТ ход и отдаст текст для модели без префикса. Override —
+    # локальные (без записи в kv: липкий режим сессии не трогаем). Явный body
+    # mode/effort имеет приоритет. Нераспознанный слэш и overlay-команды
+    # (/review…) НЕ съедаются: первый уходит как есть, вторые — через body['cmd'].
+    _body_mode = str(body.get("mode") or "").strip() if isinstance(body, dict) else ""
+    _body_effort = str(body.get("effort") or "").strip() if isinstance(body, dict) else ""
+    question, _force_mode, _force_effort = _apply_turn_command(
+        question, body_mode=_body_mode or None, body_effort=_body_effort or None
+    )
+    # После развёртки текст мог опустеть (например, «/plan» без аргумента) —
+    # тогда отправлять нечего (если нет картинки).
+    if not question and not image_data_url:
+        raise HTTPException(status_code=400, detail="question or image required")
     if not question:
         question = "Опиши прикреплённую картинку."
 
@@ -1120,6 +1184,10 @@ async def api_send_stream(
     # Phase 2 — all_enabled_tool_names = builtin (browser-agent gated by
     # browser_backend) + discovered external MCP tools (mcp__server__tool).
     _mode = await _get_mode(session_id) if adv["modes"] else "auto"
+    # F6-03 — турн-override режима (/plan /ask /auto /bypass) на ЭТОТ ход,
+    # без записи в kv. Работает только когда режимы вообще включены.
+    if adv["modes"] and _force_mode in _MODES:
+        _mode = _force_mode
     enabled_tools = await all_enabled_tool_names()
     _tools_on = adv["tools"] and (not adv["modes"] or _mode in ("auto", "bypass"))
     if _tools_on:
@@ -1270,7 +1338,9 @@ async def api_send_stream(
         if not adv["master"]:
             eff = "fast"
         elif adv["effort"]:
-            eff = await _get_effort(session_id)
+            # F6-03 — турн-override эффорта (/fast /normal /deep) на ЭТОТ ход,
+            # без записи в kv; иначе — липкий эффорт сессии.
+            eff = _force_effort if _force_effort in _EFFORT_TOKENS else await _get_effort(session_id)
         else:
             eff = "normal"
         completion_req = CompletionRequest(

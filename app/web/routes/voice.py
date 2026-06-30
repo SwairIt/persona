@@ -439,3 +439,69 @@ async def voice_web_stt(
             status_code=503,
         )
     return JSONResponse({"ok": True, "text": text})
+
+
+# ---------------------------------------------------------------------------
+# Контекст сессии для fullscreen /voice — чтобы юзер не «говорил вслепую»
+# ---------------------------------------------------------------------------
+@router.get("/api/voice/web/context")
+async def voice_web_context(
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+    session_id: int = 0,
+    limit: int = 3,
+) -> JSONResponse:
+    """Лёгкий контекст разговора для орб-страницы /voice.
+
+    Возвращает заголовок выбранной сессии, закреплённые на ней provider/model
+    (чтобы пикер модели показывал состояние ИМЕННО этой сессии) и последние
+    ``limit`` реплик диалога — фронт рисует их над орбом, чтобы было видно
+    контекст. Best-effort: при отсутствии/чужой сессии — пустой ответ, а не
+    ошибка (страница работает и без контекста).
+    """
+    from app.chat import get_session, list_messages  # noqa: PLC0415
+
+    # 2–4 реплики достаточно для контекста; жёстко ограничиваем сверху.
+    take = max(1, min(8, int(limit) if limit else 3))
+
+    # session_id=0 → берём самую свежую сессию пользователя.
+    sid = int(session_id) if session_id else 0
+    thread = None
+    if sid:
+        thread = await get_session(session["user_id"], sid)
+    else:
+        from app.chat import list_sessions  # noqa: PLC0415
+
+        recent = await list_sessions(session["user_id"], limit=1)
+        if recent:
+            thread = recent[0]
+            sid = int(thread["id"])
+
+    if thread is None:
+        return JSONResponse(
+            {"ok": True, "session_id": None, "title": None, "messages": []}
+        )
+
+    # Последние ``take`` реплик в хронологическом порядке (старые → новые).
+    rows = await list_messages(sid, limit=500)
+    tail = rows[-take:] if len(rows) > take else rows
+
+    def _preview(text: str, limit: int = 160) -> str:
+        # Превью-строка над орбом: одна строка, без переносов, обрезаем длинное.
+        s = " ".join(str(text).split())
+        return (s[: limit - 1] + "…") if len(s) > limit else s
+
+    messages = [
+        {"role": str(m["role"]), "text": _preview(m["content"])}
+        for m in tail
+        if m["role"] in ("user", "assistant")
+    ]
+    return JSONResponse(
+        {
+            "ok": True,
+            "session_id": sid,
+            "title": str(thread["title"]),
+            "provider": thread["provider"],
+            "model": thread["model"],
+            "messages": messages,
+        }
+    )

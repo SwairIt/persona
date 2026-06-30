@@ -9,6 +9,32 @@
     </p>
   </div>
 
+  {# Контекст текущей сессии — чтобы юзер не «говорил вслепую» #}
+  <div class="mx-auto max-w-lg mb-6" x-show="contextLoaded" x-cloak>
+    <div class="rounded-2xl border border-ink-700 bg-ink-900/60 px-4 py-3">
+      <div class="flex items-center gap-2 mb-2">
+        <span class="text-[10px] uppercase tracking-widest text-zinc-500">{{ t('voice_context_label') }}</span>
+        <span class="truncate text-sm font-medium text-zinc-200" x-text="sessionTitle || '{{ t('voice_context_untitled') }}'"></span>
+      </div>
+      <template x-if="contextMessages.length">
+        <div class="space-y-1.5">
+          <template x-for="(c, ci) in contextMessages" :key="ci">
+            <div class="text-xs leading-snug">
+              <span class="font-semibold"
+                    :class="c.role==='user' ? 'text-zinc-400' : 'text-accent-400'"
+                    x-text="c.role==='user' ? '{{ t('voice_role_you') }}' : '{{ t('voice_role_assistant') }}'"></span>
+              <span class="text-zinc-400">: </span>
+              <span class="text-zinc-300" x-text="c.text"></span>
+            </div>
+          </template>
+        </div>
+      </template>
+      <template x-if="!contextMessages.length">
+        <p class="text-xs text-zinc-500 italic">{{ t('voice_context_empty') }}</p>
+      </template>
+    </div>
+  </div>
+
   {# Орб-микрофон #}
   <div class="flex flex-col items-center gap-4 my-8">
     <button type="button" @click="onOrbTap()"
@@ -120,6 +146,9 @@ function voiceChat() {
   return {
     state: 'idle',           // idle | listening | thinking | speaking
     sessionId: null,
+    sessionTitle: '',        // заголовок выбранной сессии (контекст над орбом)
+    contextLoaded: false,    // показывать панель контекста только после загрузки
+    contextMessages: [],     // последние 2-3 реплики диалога [{role,text}]
     turns: [],
     interim: '',
     handsFree: false,
@@ -162,7 +191,29 @@ function voiceChat() {
         load(); try { window.speechSynthesis.onvoiceschanged = load; } catch (e) {}
       }
       await this.resolveSession();
-      this.loadModels();  // подтянуть текущую модель для лейбла (не блокируя UI)
+      // Сначала список моделей (для пикера), затем контекст — он перетирает
+      // current моделью ИМЕННО этой сессии, поэтому идёт последним.
+      await this.loadModels();
+      this.loadContext();   // заголовок сессии + последние реплики над орбом
+    },
+    // Контекст разговора: заголовок выбранной сессии + 2-3 последних реплики,
+    // плюс синхронизация пикера модели с моделью ИМЕННО этой сессии.
+    async loadContext() {
+      try {
+        const sid = this.sessionId ? ('&session_id=' + this.sessionId) : '';
+        const r = await fetch('/api/voice/web/context?limit=3' + sid, { headers: { 'Accept':'application/json' } });
+        if (r.ok) {
+          const d = await r.json();
+          if (d && d.session_id) this.sessionId = d.session_id;
+          this.sessionTitle = d && d.title ? d.title : '';
+          this.contextMessages = (d && Array.isArray(d.messages)) ? d.messages : [];
+          // пикер модели — состояние этой сессии (а не глобальное)
+          if (d && (d.provider || d.model)) {
+            this.current = { provider: d.provider || '', model: d.model || '' };
+          }
+        }
+      } catch (e) {}
+      this.contextLoaded = true;
     },
     saveHF() { try { localStorage.setItem('persona.voice.handsFree', this.handsFree ? '1':'0'); } catch (e) {} },
     // ——— выбор модели (тот же API, что у чата) ———
@@ -361,6 +412,8 @@ function voiceChat() {
       this._streaming = false;
       if (this.ttsSupported) { this._drainTts(true); }
       else { this.state = 'idle'; if (this.handsFree && this.sttSupported) this._delayListen(); }
+      // обновим панель контекста новыми репликами (не блокируя озвучку)
+      this.loadContext();
     },
     // Вытягивает из буфера завершённые предложения и сразу отправляет их в
     // синтез. Длинное предложение без точки режем по пробелу (~220 симв.),

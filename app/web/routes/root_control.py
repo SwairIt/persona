@@ -147,13 +147,32 @@ async def root_logs_recent(
     session: Annotated[SessionRecord, Depends(current_user_required)],
     limit: int = 300,
     level: str = "",
+    since: str = "",
 ) -> JSONResponse:
-    await _require_owner(session)
-    from app.log_buffer import buffer_size, get_recent  # noqa: PLC0415
+    """Сводные логи по всем воркерам из durable system_log (F6-06).
 
-    return JSONResponse(
-        {"logs": get_recent(limit=limit, level=level or None), "buffered": buffer_size()}
-    )
+    Фильтры: ``level`` (порог уровня), ``since`` (ISO-таймстемп — только новее).
+    Durable-таблица хранит только warning+; для уровней ниже (или если БД пуста)
+    тихо доливаем из in-memory deque текущего воркера, чтобы пульт не выглядел
+    пустым на свежей инсталляции.
+    """
+    await _require_owner(session)
+    from app.log_buffer import buffer_size, get_recent, get_recent_durable  # noqa: PLC0415
+
+    lvl = level or None
+    src = "system_log"
+    try:
+        logs = await get_recent_durable(limit=limit, level=lvl, since=since or None)
+    except Exception as exc:  # noqa: BLE001 — durable-чтение best-effort
+        log.warning("root.logs_durable_failed", error=str(exc))
+        logs = []
+    # Fallback на локальный кольцевой буфер: durable хранит лишь warning+,
+    # а для info/debug или пустой таблицы показываем хотя бы текущий воркер.
+    floor_low = (lvl or "").lower() not in {"warning", "warn", "error", "critical"}
+    if not logs and floor_low:
+        logs = get_recent(limit=limit, level=lvl)
+        src = "memory"
+    return JSONResponse({"logs": logs, "buffered": buffer_size(), "source": src})
 
 
 __all__ = ["router"]

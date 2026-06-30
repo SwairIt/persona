@@ -20,6 +20,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from app.auth import current_user_required
+from app.auth.owner import is_owner
 from app.auth.sessions import SessionRecord
 from app.i18n import get_ui_language, t
 from app.web.templates_engine import templates
@@ -256,14 +257,22 @@ def search_settings(query: str, limit: int = 30) -> list[dict[str, str]]:
 
 
 @router.get("/settings/hub", response_class=HTMLResponse)
-async def settings_hub_page(request: Request) -> HTMLResponse:
+async def settings_hub_page(
+    request: Request,
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+) -> HTMLResponse:
     """Render the category catalogue.
 
     Заголовки/описания категорий резолвятся под активный язык интерфейса:
     шаблон рисует карточки на Alpine.js из ``categories_json``, поэтому в нём
     уже лежат переведённые ``title`` / ``description`` (см. _categories_json).
+
+    ``is_owner`` управляет видимостью блока экспорт/импорт профиля настроек:
+    эти операции owner-only (см. settings_api.py), поэтому подписчику/триалу
+    кнопки даже не рисуем.
     """
     resolved = _categories_json()
+    owner = await is_owner(session["user_id"])
     return templates.TemplateResponse(
         request,
         "settings_hub.html",
@@ -272,6 +281,7 @@ async def settings_hub_page(request: Request) -> HTMLResponse:
             "active_nav": "settings",
             "categories": resolved,
             "categories_json": resolved,
+            "is_owner": owner,
         },
     )
 

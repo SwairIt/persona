@@ -64,6 +64,26 @@
           </div>
         </template>
 
+        <!-- F6-05: артефакты (скриншоты браузер-агента и др. файлы) -->
+        <template x-if="artifactList(it).length">
+          <div class="mt-2.5 flex flex-wrap gap-2">
+            <template x-for="a in artifactList(it)" :key="a.url">
+              <div>
+                <a x-show="isImage(a)" :href="a.url" target="_blank" rel="noopener"
+                   class="block rounded-lg overflow-hidden border border-ink-700 hover:border-accent-300 transition"
+                   title="{{ t('activity_artifact_open') }}">
+                  <img :src="a.url" loading="lazy" alt=""
+                       class="h-28 w-auto max-w-[14rem] object-cover bg-ink-900" />
+                </a>
+                <a x-show="!isImage(a)" :href="a.url" target="_blank" rel="noopener"
+                   class="inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-md border border-ink-700 text-zinc-300 hover:bg-ink-800 hover:text-accent-300 transition">
+                  📎 <span x-text="artifactLabel(a)"></span>
+                </a>
+              </div>
+            </template>
+          </div>
+        </template>
+
         <template x-if="it.session_id">
           <a :href="'/chat?session=' + it.session_id"
              class="mt-2 inline-block text-[11px] text-zinc-600 hover:text-accent-300">
@@ -121,6 +141,11 @@ function activityFeed() {
         error: p.error ?? (idx >= 0 ? this.items[idx].error : null),
         elapsed_ms: p.elapsed_ms ?? (idx >= 0 ? this.items[idx].elapsed_ms : null),
         started_at: (idx >= 0 ? this.items[idx].started_at : null),
+        // F6-05: артефакты приходят либо списком (из /recent), либо одиночным
+        // url в SSE-фрейме (publish_activity). Безопасно сводим к списку.
+        artifacts: (Array.isArray(p.artifacts) ? p.artifacts
+                    : (idx >= 0 ? (this.items[idx].artifacts || []) : [])),
+        artifact: p.artifact ?? (idx >= 0 ? this.items[idx].artifact : null),
       };
       if (idx >= 0) {
         // сохраняем уже известные поля, обновляем статус/результат
@@ -129,6 +154,37 @@ function activityFeed() {
         this.items.unshift(next);
         if (this.items.length > 200) this.items.pop();
       }
+    },
+    // F6-05 — артефакты. Безопасность: показываем ТОЛЬКО ссылки под
+    // /workspace/file/ (workspace-only). Чужие/абсолютные url отбрасываем.
+    _safeUrl(u) {
+      u = String(u == null ? '' : u);
+      return u.startsWith('/workspace/file/') ? u : null;
+    },
+    artifactList(it) {
+      const out = [];
+      const seen = new Set();
+      const push = (a) => {
+        if (!a) return;
+        const url = this._safeUrl(typeof a === 'string' ? a : a.url);
+        if (!url || seen.has(url)) return;
+        seen.add(url);
+        out.push({ url, type: (a && a.type) || '', mime_type: (a && a.mime_type) || '' });
+      };
+      if (Array.isArray(it.artifacts)) it.artifacts.forEach(push);
+      if (it.artifact) push(it.artifact);   // одиночный из SSE
+      return out;
+    },
+    isImage(a) {
+      const m = String(a.mime_type || '').toLowerCase();
+      if (m.startsWith('image/')) return true;
+      if (a.type === 'screenshot' || a.type === 'image') return true;
+      return /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(a.url || '');
+    },
+    artifactLabel(a) {
+      const u = String(a.url || '');
+      const name = u.split('/').pop() || u;
+      return name.length > 40 ? name.slice(0, 39) + '…' : name;
     },
     kindIcon(k) { return k === 'browser' ? '🌐' : (k === 'mcp' ? '🔌' : '🔧'); },
     statusLabel(s) { return s === 'error' ? 'ошибка' : (s === 'running' ? 'выполняется…' : 'готово'); },

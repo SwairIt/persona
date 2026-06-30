@@ -13,7 +13,8 @@ Protocol — line-delimited JSON (one compact object per line):
         {"id": 2, "cmd": "click", "selector": "text=Войти"}
         {"id": 3, "cmd": "type",  "selector": "#q", "text": "hi", "enter": true}
         {"id": 4, "cmd": "read",  "selector": "main"}      # selector optional
-        {"id": 5, "cmd": "screenshot", "path": "C:/.../shot.png", "full_page": true}
+        {"id": 5, "cmd": "screenshot", "path": "C:/.../shot.png", "full_page": true,
+         "exec_id": 42, "rel_path": "browse/agent-1-...png"}   # exec_id/rel_path опц.
         {"id": 6, "cmd": "close"}
         {"id": 7, "cmd": "ping"}
 
@@ -48,6 +49,27 @@ def _emit(obj: dict[str, Any]) -> None:
     """Write one compact JSON line to stdout and flush immediately."""
     sys.stdout.write(json.dumps(obj, ensure_ascii=False, separators=(",", ":")) + "\n")
     sys.stdout.flush()
+
+
+def _record_artifact(req: dict[str, Any], art_type: str, mime_type: str) -> None:
+    """Best-effort: привязать файл-артефакт к строке журнала активности (F6-05).
+
+    Воркер — отдельный синхронный процесс без event-loop, поэтому пишет напрямую
+    через ``add_artifact_sync`` (обычный sqlite3). Линковка к строке журнала идёт
+    через ``exec_id`` + относительный ``rel_path`` внутри воркспейса — оба
+    приходят из родителя в запросе (опционально). Любой сбой — тихий no-op,
+    скриншот и ответ воркеру не ломаются.
+    """
+    exec_id = req.get("exec_id")
+    rel_path = req.get("rel_path")
+    if exec_id is None or not rel_path:
+        return
+    try:
+        from app.activity.store import add_artifact_sync  # noqa: PLC0415
+
+        add_artifact_sync(int(exec_id), art_type, mime_type, str(rel_path))
+    except Exception:  # noqa: BLE001, S110 — best-effort, воркер живёт дальше
+        pass
 
 
 def main() -> int:  # noqa: PLR0915, C901 — long but flat dispatch loop
@@ -163,7 +185,11 @@ def main() -> int:  # noqa: PLR0915, C901 — long but flat dispatch loop
                     _emit({"id": rid, "ok": False, "error": "нужен path"})
                     continue
                 page.screenshot(path=out, full_page=bool(req.get("full_page", True)))
+                # F6-05: best-effort линк артефакта к строке активности (exec_id).
+                # Не влияет на ответ воркеру/SSE — при сбое просто нет превью.
+                _record_artifact(req, "screenshot", "image/png")
                 _emit({"id": rid, "ok": True, "path": out,
+                       "rel_path": req.get("rel_path"),
                        "title": page.title(), "url": page.url})
 
             elif cmd == "close":

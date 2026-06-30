@@ -85,6 +85,18 @@
   <script src="/static/cal_nav.js?v={{ app_version }}" defer></script>
   <script defer src="/static/js/keyboard.js"></script>
   <script defer src="/static/js/palette.js"></script>
+  {# Палитра настроек (Ctrl+Shift+P) — поиск по всем /settings/* через
+     /api/settings/search. Отдельна от навигационной палитры Ctrl+K выше.
+     Переводимые строки прокидываем глобалом до подключения скрипта. #}
+  <script>
+    window.PERSONA_SETTINGS_PALETTE_I18N = {
+      placeholder: "{{ t('settings_palette_placeholder') }}",
+      hint_type: "{{ t('settings_palette_hint_type') }}",
+      no_matches: "{{ t('settings_palette_no_matches') }}",
+      footer_hint: "{{ t('settings_palette_footer_hint') }}"
+    };
+  </script>
+  <script src="/static/settings_palette.js?v={{ app_version }}" defer></script>
   <script defer src="https://cdn.jsdelivr.net/npm/markdown-it@14.1.0/dist/markdown-it.min.js"></script>
   <script defer src="/static/js/notes.js"></script>
   <script src="/static/live_status.js" defer></script>

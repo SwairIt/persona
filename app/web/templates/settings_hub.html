@@ -35,6 +35,38 @@
     </div>
   </div>
 
+  {# Экспорт/импорт профиля настроек — только владелец (owner-only бэкенд). #}
+  {% if is_owner %}
+  <div x-show="!q" x-data="settingsProfile()"
+       class="mb-6 rounded-xl border border-ink-700 bg-ink-800 p-4">
+    <div class="flex items-start gap-3">
+      <span class="text-xl leading-none">📦</span>
+      <div class="flex-1 min-w-0">
+        <p class="text-sm text-zinc-100 font-medium">{{ t('settings_profile_title') }}</p>
+        <p class="text-xs text-zinc-500 mt-0.5">{{ t('settings_profile_desc') }}</p>
+        <div class="flex flex-wrap items-center gap-2 mt-3">
+          <a href="/api/settings/profile/export.json" download="persona-settings.json"
+             class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm
+                    bg-accent-600/20 text-accent-300 border border-accent-500/40
+                    hover:bg-accent-600/30 transition">
+            ⬇ {{ t('settings_profile_export_btn') }}
+          </a>
+          <button type="button" @click="$refs.file.click()" :disabled="busy"
+                  class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm
+                         bg-ink-900 text-zinc-300 border border-ink-700
+                         hover:bg-ink-700 transition disabled:opacity-50">
+            ⬆ {{ t('settings_profile_import_btn') }}
+          </button>
+          <input type="file" x-ref="file" accept="application/json,.json"
+                 class="hidden" @change="doImport($event)">
+        </div>
+        <p x-show="msg" x-cloak class="text-xs mt-2"
+           :class="ok ? 'text-emerald-400' : 'text-rose-400'" x-text="msg"></p>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
   <p x-show="q && visibleCount === 0" x-cloak class="text-zinc-500 text-sm text-center py-10">
     Ничего не найдено по «<span x-text="q"></span>». Попробуй другое слово или
     <a href="/features" class="underline">полный feature-index</a>.
@@ -106,6 +138,50 @@ function settingsHub(categories) {
         } catch (e) { /* ignore */ }
       }
       return s;
+    },
+  };
+}
+
+// Импорт профиля настроек (owner-only). Читаем JSON-файл локально, шлём в
+// POST /api/settings/profile/import; бэкенд режет секреты/защищённые ключи и
+// возвращает сводку applied/skipped, которую и показываем пользователю.
+function settingsProfile() {
+  return {
+    busy: false,
+    msg: '',
+    ok: false,
+    async doImport(ev) {
+      const file = ev.target.files && ev.target.files[0];
+      ev.target.value = ''; // сброс — чтобы повторный выбор того же файла сработал
+      if (!file) return;
+      this.busy = true; this.msg = ''; this.ok = false;
+      try {
+        const text = await file.text();
+        let parsed;
+        try { parsed = JSON.parse(text); }
+        catch (e) { throw new Error("{{ t('settings_profile_err_parse') }}"); }
+        const r = await fetch('/api/settings/profile/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify(parsed),
+        });
+        if (!r.ok) {
+          if (r.status === 403) throw new Error("{{ t('settings_profile_err_owner') }}");
+          throw new Error("{{ t('settings_profile_err_http') }} (" + r.status + ")");
+        }
+        const j = await r.json();
+        const applied = (j && j.applied) || 0;
+        const skipped = j && j.skipped ? Object.keys(j.skipped).length : 0;
+        this.ok = true;
+        this.msg = "{{ t('settings_profile_import_ok') }}"
+          .replace('{applied}', applied).replace('{skipped}', skipped);
+      } catch (e) {
+        this.ok = false;
+        this.msg = (e && e.message) || "{{ t('settings_profile_err_http') }}";
+      } finally {
+        this.busy = false;
+      }
     },
   };
 }
