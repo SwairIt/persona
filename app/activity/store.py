@@ -284,16 +284,51 @@ async def list_session_activity(
         return await _attach_artifacts(conn, items)
 
 
-async def list_recent_activity(user_id: int, limit: int = 100) -> list[dict[str, Any]]:
-    """Глобальная лента активности пользователя (для страницы /activity), новые → старые."""
+async def list_recent_activity(
+    user_id: int,
+    limit: int = 100,
+    *,
+    tool: str | None = None,
+    status: str | None = None,
+    session_id: int | None = None,
+) -> list[dict[str, Any]]:
+    """Глобальная лента активности пользователя (для страницы /activity), новые → старые.
+
+    Фильтры (F6-10) аддитивны — без них поведение как раньше:
+    * ``tool``       — подстрока в имени инструмента (LIKE, регистронезависимо);
+    * ``status``     — точное совпадение (running/done/error);
+    * ``session_id`` — только указанная сессия.
+    """
+    where = ["user_id = ?"]
+    params: list[Any] = [user_id]
+    if tool:
+        where.append("tool_name LIKE ? ESCAPE '\\'")
+        params.append(f"%{_like_escape(tool)}%")
+    if status:
+        where.append("status = ?")
+        params.append(str(status))
+    if session_id is not None:
+        where.append("session_id = ?")
+        params.append(int(session_id))
+    params.append(max(1, min(500, int(limit))))
     async with get_connection() as conn:
         cur = await conn.execute(
             "SELECT id, session_id, seq, kind, tool_name, args_json, status, "
             "       result_text, error_text, started_at, finished_at, elapsed_ms "
-            "FROM tool_execution WHERE user_id = ? "
+            "FROM tool_execution WHERE " + " AND ".join(where) + " "
             "ORDER BY id DESC LIMIT ?",
-            (user_id, max(1, min(500, int(limit)))),
+            params,
         )
         rows = await cur.fetchall()
         items = [_row_to_dict(r) for r in rows]
         return await _attach_artifacts(conn, items)
+
+
+def _like_escape(value: str) -> str:
+    """Экранировать спецсимволы LIKE (%, _, \\), чтобы фильтр искал буквально."""
+    return (
+        str(value)
+        .replace("\\", "\\\\")
+        .replace("%", "\\%")
+        .replace("_", "\\_")
+    )

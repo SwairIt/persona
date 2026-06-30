@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 
 from app.auth import current_user_required
@@ -664,11 +664,32 @@ async def api_chat_activity(
 @router.get("/api/activity/recent", response_class=JSONResponse)
 async def api_activity_recent(
     session: Annotated[SessionRecord, Depends(current_user_required)],
+    tool: str = "",
+    status: str = "",
+    session_filter: Annotated[str, Query(alias="session")] = "",
 ) -> JSONResponse:
-    """Глобальная лента активности пользователя (страница /activity)."""
+    """Глобальная лента активности пользователя (страница /activity).
+
+    F6-10: аддитивная фильтрация по query-параметрам (без них — как раньше):
+    ``?tool=`` (LIKE по имени инструмента), ``?status=`` (точное),
+    ``?session=`` (по id сессии). Пустые/кривые значения игнорируются.
+    """
     from app.activity import list_recent_activity  # noqa: PLC0415
 
-    items = await list_recent_activity(session["user_id"], limit=150)
+    sid: int | None = None
+    raw_sid = (session_filter or "").strip()
+    if raw_sid:
+        try:
+            sid = int(raw_sid)
+        except (TypeError, ValueError):
+            sid = None
+    items = await list_recent_activity(
+        session["user_id"],
+        limit=150,
+        tool=(tool or "").strip() or None,
+        status=(status or "").strip() or None,
+        session_id=sid,
+    )
     return JSONResponse({"items": items})
 
 

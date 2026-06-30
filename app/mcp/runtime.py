@@ -58,6 +58,35 @@ def _server_slug(name: str) -> str:
     return "".join(c if (c.isalnum() or c == "_") else "_" for c in name).strip("_").lower()
 
 
+async def _load_timeouts() -> dict[int, int]:
+    """Пер-серверные timeout_ms одним запросом → {server_id: timeout_ms}.
+
+    Best-effort: колонка timeout_ms (миграция 202) могла не примениться на
+    старой БД — тогда возвращаем пустую карту, и runtime берёт дефолтный
+    _RPC_TIMEOUT на каждый сервер (поведение как раньше, ничего не ломаем).
+    """
+    from app.storage.db import get_connection  # noqa: PLC0415
+
+    try:
+        async with get_connection() as conn:
+            cur = await conn.execute(
+                "SELECT id, timeout_ms FROM mcp_server WHERE timeout_ms IS NOT NULL"
+            )
+            rows = await cur.fetchall()
+        out: dict[int, int] = {}
+        for r in rows:
+            try:
+                val = int(r["timeout_ms"])
+            except (TypeError, ValueError):
+                continue
+            if val > 0:
+                out[int(r["id"])] = val
+        return out
+    except Exception as exc:  # noqa: BLE001 — нет колонки/таблицы → дефолт
+        log.debug("mcp.runtime.timeouts_unavailable", error=str(exc))
+        return {}
+
+
 def _launcher_allowed(command: str) -> bool:
     """First token of the launch command must be on the allowlist."""
     try:
@@ -78,11 +107,19 @@ def _launcher_allowed(command: str) -> bool:
 class MCPServerProcess:
     """One stdio MCP server subprocess (JSON-RPC 2.0)."""
 
-    def __init__(self, server_id: int, name: str, command: str) -> None:
+    def __init__(
+        self, server_id: int, name: str, command: str, timeout_ms: int | None = None
+    ) -> None:
         self.server_id = server_id
         self.name = name
         self.slug = _server_slug(name)
         self.command = command
+        # Пер-серверный таймаут вызова (мс). None/<=0 → дефолтный _RPC_TIMEOUT.
+        self.rpc_timeout = (
+            float(timeout_ms) / 1000.0
+            if (timeout_ms is not None and int(timeout_ms) > 0)
+            else _RPC_TIMEOUT
+        )
         self.proc: subprocess.Popen[str] | None = None
         self._q: Queue[dict[str, Any]] = Queue()
         self._reader: threading.Thread | None = None
@@ -214,7 +251,7 @@ class MCPServerProcess:
                 return f"[error] MCP-сервер '{self.name}' не запущен"
             resp = await asyncio.to_thread(
                 self._rpc_blocking, "tools/call",
-                {"name": tool, "arguments": arguments or {}}, _RPC_TIMEOUT,
+                {"name": tool, "arguments": arguments or {}}, self.rpc_timeout,
             )
         if "error" in resp:
             return f"[error] MCP {self.name}.{tool}: {resp['error'].get('message', '?')}"
@@ -272,6 +309,10 @@ class MCPSupervisor:
             self._started = True
         from app.mcp.servers import list_servers  # noqa: PLC0415
 
+        # Пер-серверные таймауты (миграция 202). Колонка timeout_ms могла ещё
+        # не примениться (старая БД) — тогда тихо работаем на дефолте.
+        timeouts = await _load_timeouts()
+
         for row in await list_servers():
             command = str(row.get("command", ""))
             if not row.get("enabled") or command.startswith("builtin:"):
@@ -283,7 +324,8 @@ class MCPSupervisor:
                 log.warning("mcp.runtime.launcher_blocked",
                             server=row.get("name"), command=command[:80])
                 continue
-            proc = MCPServerProcess(int(row["id"]), str(row["name"]), command)
+            sid = int(row["id"])
+            proc = MCPServerProcess(sid, str(row["name"]), command, timeouts.get(sid))
             try:
                 if await proc.start():
                     async with self._lock:

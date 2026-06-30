@@ -184,6 +184,15 @@ COMMAND_SPECS: list[dict[str, Any]] = [
      "args": "", "desc": "Список всех команд"},
 ]
 
+# Бэкфилл подсказок по аргументу для overlay-команд (эксперт-навыки). Делаем
+# аккуратно/идемпотентно: только если поля ещё нет, чтобы не ломать формат и не
+# затирать ручную настройку конкретной команды. argHint — синтаксис аргумента
+# для палитры; argRequired — обязателен ли аргумент (overlay без текста бессмыслен).
+for _spec in COMMAND_SPECS:
+    if _spec.get("overlay"):
+        _spec.setdefault("argHint", _spec.get("args") or "<код | текст>")
+        _spec.setdefault("argRequired", True)
+
 # name|alias → spec
 _BY_TOKEN: dict[str, dict[str, Any]] = {}
 for _spec in COMMAND_SPECS:
@@ -200,7 +209,9 @@ def commands_json() -> list[dict[str, Any]]:
     """Сериализуемый реестр для GET /api/chat/commands и палитры.
 
     ``overlay`` — флаг: turn-команда с экспертной накладкой (клиент тогда шлёт
-    имя команды в send-stream, сам текст накладки берётся на сервере)."""
+    имя команды в send-stream, сам текст накладки берётся на сервере).
+    ``argHint`` — синтаксис аргумента (для подсказки в палитре), ``argRequired``
+    — обязателен ли аргумент. Один источник правды: фронт берёт их отсюда."""
     return [
         {
             "name": s["name"],
@@ -210,6 +221,8 @@ def commands_json() -> list[dict[str, Any]]:
             "args": s["args"],
             "desc": s["desc"],
             "overlay": bool(s.get("overlay")),
+            "argHint": s.get("argHint", ""),
+            "argRequired": bool(s.get("argRequired")),
         }
         for s in COMMAND_SPECS
     ]

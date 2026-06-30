@@ -525,9 +525,17 @@
                       :class="i === cmdIndex ? 'bg-accent-600/20' : 'hover:bg-ink-800'">
                 <span class="font-mono text-sm" :class="i === cmdIndex ? 'text-accent-300' : 'text-zinc-300'"
                       x-text="'/' + c.name"></span>
-                <span class="text-[11px] text-zinc-500 font-mono" x-text="c.args"></span>
+                <span class="text-[11px] text-zinc-500 font-mono" x-text="(c.overlay && c.argHint) ? c.argHint : c.args"></span>
                 <span class="ml-auto text-[11px] text-zinc-500 truncate" x-text="c.desc"></span>
               </button>
+            </template>
+            {# F6-09 — для выбранной overlay-команды: синтаксис аргумента + «вставь код/текст». #}
+            <template x-if="cmdMatches[cmdIndex] && cmdMatches[cmdIndex].overlay">
+              <div class="px-3 pt-1.5 pb-0.5 text-[11px] text-accent-300/90 border-t border-ink-800 mt-1">
+                <span class="font-mono text-zinc-400"
+                      x-text="'/' + cmdMatches[cmdIndex].name + ' ' + (cmdMatches[cmdIndex].argHint || cmdMatches[cmdIndex].args || '')"></span>
+                <span x-text="' — ' + t('chat_cmd_arg_paste')"></span>
+              </div>
             </template>
             <div class="px-3 pt-1 pb-0.5 text-[10px] text-zinc-600 border-t border-ink-800 mt-1">
               ↑↓ выбрать · Tab/Enter подставить · Esc закрыть
@@ -858,6 +866,13 @@
         chat_tool_empty: {{ t('chat_tool_empty') | tojson }},
         chat_tool_ms: {{ t('chat_tool_ms') | tojson }},
         chat_tool_truncated: {{ t('chat_tool_truncated') | tojson }},
+        // F6-09 — палитра слэш-команд: подсказки по аргументу + /help <команда>
+        chat_cmd_arg_paste: {{ t('chat_cmd_arg_paste') | tojson }},
+        chat_cmd_arg_required: {{ t('chat_cmd_arg_required') | tojson }},
+        chat_cmd_aliases: {{ t('chat_cmd_aliases') | tojson }},
+        chat_cmd_syntax: {{ t('chat_cmd_syntax') | tojson }},
+        chat_cmd_help_unknown: {{ t('chat_cmd_help_unknown') | tojson }},
+        chat_cmd_help_hint: {{ t('chat_cmd_help_hint') | tojson }},
       },
       t(key) { return (this._i18n && this._i18n[key]) || key; },
       sessionId: initialSessionId,
@@ -1210,9 +1225,16 @@
             this.question = arg ? ('Найди в интернете актуальную информацию и ответь: ' + arg) : '';
             await this._sendIfText(); return true;
           }
-          // overlay-команды (эксперт-навыки): сервер подставит инструкцию по имени
+          // overlay-команды (эксперт-навыки): сервер подставит инструкцию по имени.
           if (spec.overlay) {
-            if (!arg) { this.question = '/' + real + ' '; return true; }  // нет текста — оставим для ввода
+            // Обязательный, но пустой аргумент → не шлём пустую overlay-команду:
+            // оставляем «/имя » в поле, фокус на ввод и подсказываем что вставить.
+            if (!arg && (spec.argRequired !== false)) {
+              this.question = '/' + real + ' ';
+              this._sysNote('/' + real + ' ' + (spec.argHint || spec.args || '') + ' — ' + this.t('chat_cmd_arg_required'));
+              this.$nextTick(() => { try { this.$refs.composer.focus(); this.autosize(); } catch (e) {} });
+              return true;
+            }
             this._cmdName = real;
             this.question = arg;
             await this._sendIfText(); return true;
@@ -1238,7 +1260,7 @@
           case 'activity': this.question = ''; this.toggleActivity(); return true;
           case 'voice': window.location.href = '/voice'; return true;
           case 'theme': window.location.href = '/settings/theme'; return true;
-          case 'help': case 'commands': this.question = ''; this._showHelp(); return true;
+          case 'help': case 'commands': this.question = ''; this._showHelp(arg); return true;
           default: return false;
         }
       },
@@ -1272,13 +1294,29 @@
           this._sysNote('🗑 Забыл записей: ' + (d.removed != null ? d.removed : '?'));
         } catch (e) { /* best-effort */ }
       },
-      _showHelp() {
+      // /help — без арга список групп/команд; /help <команда> — подробная справка
+      // (description + синтаксис аргумента + aliases) из commands_json, без хода модели.
+      _showHelp(arg) {
+        const q = (arg || '').trim().toLowerCase().replace(/^\//, '');
+        if (q) {
+          const spec = this.commands.find(c => c.name === q || (c.aliases || []).includes(q));
+          if (!spec) { this._sysNote(this.t('chat_cmd_help_unknown') + ' /' + q); return; }
+          const syntax = (spec.overlay && spec.argHint) ? spec.argHint : (spec.args || '');
+          let lines = ['/' + spec.name + (syntax ? ' ' + syntax : ''), spec.desc || ''];
+          if (syntax) lines.push(this.t('chat_cmd_syntax') + ' /' + spec.name + ' ' + syntax);
+          if (spec.aliases && spec.aliases.length) {
+            lines.push(this.t('chat_cmd_aliases') + ' ' + spec.aliases.map(a => '/' + a).join(', '));
+          }
+          this._sysNote(lines.filter(Boolean).join('\n'));
+          return;
+        }
         const groups = {};
         for (const c of this.commands) { (groups[c.group] = groups[c.group] || []).push(c); }
         let lines = ['Доступные команды:'];
         for (const g of Object.keys(groups)) {
           lines.push(g + ': ' + groups[g].map(c => '/' + c.name).join(', '));
         }
+        lines.push(this.t('chat_cmd_help_hint'));
         this._sysNote(lines.join('\n'));
       },
       _sysNote(text) {

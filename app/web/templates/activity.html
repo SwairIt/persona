@@ -18,15 +18,36 @@
       </span>
       <button @click="reload()"
               class="px-2.5 py-1 rounded-md border border-ink-700 text-zinc-300 hover:bg-ink-800 transition">
-        ↻ Обновить
+        ↻ {{ t('activity_refresh') }}
       </button>
     </div>
   </div>
 
+  <!-- F6-10: фильтр/поиск ленты активности (инструмент / статус / сессия) -->
+  <div class="mb-4 flex flex-wrap items-center gap-2 text-xs">
+    <input type="text" x-model.debounce.300ms="f.tool" @input="applyFilters()"
+           placeholder="{{ t('activity_filter_tool') }}"
+           class="flex-1 min-w-[10rem] px-2.5 py-1.5 rounded-md border border-ink-700 bg-ink-800 text-zinc-200 placeholder-zinc-600 focus:border-accent-300 outline-none">
+    <select x-model="f.status" @change="applyFilters()"
+            class="px-2.5 py-1.5 rounded-md border border-ink-700 bg-ink-800 text-zinc-200 focus:border-accent-300 outline-none">
+      <option value="">{{ t('activity_filter_status_any') }}</option>
+      <option value="running">{{ t('activity_status_running') }}</option>
+      <option value="done">{{ t('activity_status_done') }}</option>
+      <option value="error">{{ t('activity_status_error') }}</option>
+    </select>
+    <input type="number" min="1" x-model.debounce.300ms="f.session" @input="applyFilters()"
+           placeholder="{{ t('activity_filter_session') }}"
+           class="w-32 px-2.5 py-1.5 rounded-md border border-ink-700 bg-ink-800 text-zinc-200 placeholder-zinc-600 focus:border-accent-300 outline-none">
+    <button x-show="hasFilters()" @click="clearFilters()"
+            class="px-2.5 py-1.5 rounded-md border border-ink-700 text-zinc-400 hover:bg-ink-800 transition">
+      ✕ {{ t('activity_filter_clear') }}
+    </button>
+  </div>
+
   <template x-if="items.length === 0">
     <div class="rounded-xl border border-ink-700 bg-ink-800 p-8 text-center text-zinc-500 text-sm">
-      Пока пусто. Когда ассистент использует инструменты (поиск, чтение файлов,
-      веб) — шаги появятся здесь.
+      <span x-show="!hasFilters()">{{ t('activity_empty') }}</span>
+      <span x-show="hasFilters()">{{ t('activity_empty_filtered') }}</span>
     </div>
   </template>
 
@@ -101,13 +122,49 @@ function activityFeed() {
     items: [],
     connected: false,
     _es: null,
+    _t: null,                       // F6-10: дебаунс перезагрузки по фильтрам
+    f: { tool: '', status: '', session: '' },  // F6-10: активные фильтры
     async init() {
       await this.reload();
       this.connect();
     },
+    // F6-10 — собрать query-строку из активных фильтров (аддитивно).
+    _query() {
+      const p = new URLSearchParams();
+      if (this.f.tool && this.f.tool.trim()) p.set('tool', this.f.tool.trim());
+      if (this.f.status) p.set('status', this.f.status);
+      if (this.f.session && String(this.f.session).trim()) p.set('session', String(this.f.session).trim());
+      const qs = p.toString();
+      return qs ? ('?' + qs) : '';
+    },
+    hasFilters() {
+      return !!(this.f.tool && this.f.tool.trim()) || !!this.f.status
+             || !!(this.f.session && String(this.f.session).trim());
+    },
+    clearFilters() {
+      this.f = { tool: '', status: '', session: '' };
+      this.reload();
+    },
+    // Дебаунс — не дёргаем сервер на каждый символ.
+    applyFilters() {
+      if (this._t) clearTimeout(this._t);
+      this._t = setTimeout(() => this.reload(), 250);
+    },
+    // F6-10 — соответствует ли SSE-элемент текущим фильтрам (для live-ленты).
+    matchesFilters(p) {
+      if (this.f.tool && this.f.tool.trim()) {
+        const tn = String(p.tool || '').toLowerCase();
+        if (!tn.includes(this.f.tool.trim().toLowerCase())) return false;
+      }
+      if (this.f.status && String(p.status || '') !== this.f.status) return false;
+      if (this.f.session && String(this.f.session).trim()) {
+        if (String(p.session_id ?? '') !== String(this.f.session).trim()) return false;
+      }
+      return true;
+    },
     async reload() {
       try {
-        const r = await fetch('/api/activity/recent', { headers: { 'Accept': 'application/json' } });
+        const r = await fetch('/api/activity/recent' + this._query(), { headers: { 'Accept': 'application/json' } });
         if (!r.ok) return;
         const data = await r.json();
         this.items = (data.items || []);
@@ -130,6 +187,9 @@ function activityFeed() {
       const id = p.exec_id;
       if (id == null) return;
       const idx = this.items.findIndex(x => x.id === id);
+      // F6-10: при активном фильтре НОВЫЕ несовпадающие элементы не вставляем
+      // (уже показанные продолжаем обновлять — иначе running→done «зависнет»).
+      if (idx < 0 && this.hasFilters() && !this.matchesFilters(p)) return;
       const next = {
         id: id,
         session_id: p.session_id ?? null,
