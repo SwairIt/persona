@@ -1189,6 +1189,56 @@ class WorkerLLMClient:
                 raise LLMNotConfigured(msg)
             await asyncio.sleep(self._POLL_INTERVAL)
 
+    async def complete_json(
+        self, request: CompletionRequest, schema: dict[str, object]
+    ) -> dict[str, object]:
+        """Структурный вывод (GBNF/format) через ПК-воркер.
+
+        Кладём задачу с полем ``format`` (JSON-схема); ПК-агент гонит Ollama
+        /api/chat с этим ``format`` и ``stream=false`` и возвращает готовый JSON
+        в ``result``. Благодаря этому граф-триплеты (knowledge_graph) и mem0-
+        реконсиляция фактов (user_memory) работают и через воркер, а не только
+        у прямого OllamaClient. Парсим result в dict.
+        """
+        import json as _json  # noqa: PLC0415
+
+        self.last_input_tokens = None
+        self.last_output_tokens = None
+        try:
+            from app.llm.worker_queue import (  # noqa: PLC0415
+                enqueue_job,
+                get_job,
+                worker_online,
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise LLMNotConfigured("ПК-воркер недоступен (нет очереди).") from exc
+
+        if not await worker_online():
+            raise LLMNotConfigured("ПК-воркер офлайн — структурный вывод недоступен.")
+
+        options = {"num_predict": request.max_tokens, "temperature": request.temperature}
+        payload = {"messages": self._messages(request), "options": options, "format": schema}
+        job_id = await enqueue_job(0, "chat", self._model, payload)
+
+        last_progress = _loop_time()
+        while True:
+            job = await get_job(job_id)
+            status = (job or {}).get("status") if job else None
+            if status == "done":
+                raw = (job or {}).get("result") or ""
+                try:
+                    parsed = _json.loads(raw)
+                except Exception as exc:  # noqa: BLE001
+                    raise LLMNotConfigured("ПК-воркер вернул не-JSON.") from exc
+                if not isinstance(parsed, dict):
+                    raise LLMNotConfigured("структурный вывод не является объектом JSON")
+                return parsed
+            if status == "error":
+                raise LLMNotConfigured(f"ПК-воркер: {(job or {}).get('error') or 'ошибка'}")
+            if _loop_time() - last_progress > self._STALL_TIMEOUT:
+                raise LLMNotConfigured("ПК-воркер не ответил на структурный запрос (таймаут).")
+            await asyncio.sleep(self._POLL_INTERVAL)
+
 
 def _loop_time() -> float:
     """Монотонные секунды текущего loop (для таймаутов внутри стрима)."""

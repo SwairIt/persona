@@ -213,6 +213,23 @@ def _handle_chat(client: httpx.Client, cfg: Config, job: dict, stopper: _Stopper
     payload = job.get("payload") or {}
     messages = payload.get("messages") or []
     options = payload.get("options") or {}
+    fmt = payload.get("format")
+
+    # Структурный вывод (knowledge_graph-триплеты / user_memory-реконсиляция):
+    # format + stream=false → готовый JSON одним ответом, шлём в result (не чанки).
+    if fmt is not None:
+        body: dict[str, object] = {"model": model, "messages": messages, "format": fmt, "stream": False}
+        if options:
+            body["options"] = options
+        timeout = httpx.Timeout(_OLLAMA_READ_TIMEOUT, connect=_OLLAMA_CONNECT_TIMEOUT)
+        with httpx.Client(timeout=timeout) as ollama:
+            resp = ollama.post(f"{cfg.ollama}/api/chat", json=body)
+            resp.raise_for_status()
+            data = resp.json()
+        content = (data.get("message") or {}).get("content", "")
+        _send_done(client, cfg, job_id, result=content)
+        log(f"chat-json job #{job_id} готов (model={model}, {len(content)} симв)")
+        return
 
     ollama_body: dict[str, object] = {
         "model": model,
