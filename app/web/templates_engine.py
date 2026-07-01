@@ -584,6 +584,18 @@ def get_voice_default_on() -> str:
     return _read_kv_flag("voice_default_on", "1")
 
 
+def get_ai_everywhere() -> str:
+    """«1», если включён мастер-режим «ИИ везде» (деф. ВЫКЛ).
+
+    Когда «1» — по всему сайту оживают ИИ-фичи (копилот справа снизу, ИИ-
+    календарь, поиск настроек ИИ, саммари экранов). Дефолт «0» → сайт работает
+    как обычно. Читается тем же безопасным sync-паттерном, что и остальные
+    Jinja-флаги, поэтому доступен в ЛЮБОМ шаблоне без правки роутов.
+    """
+    return _read_kv_flag("ai_everywhere", "0")
+
+
+templates.env.globals["get_ai_everywhere"] = get_ai_everywhere
 templates.env.globals["get_voice_default_on"] = get_voice_default_on
 templates.env.globals["get_theme"] = get_theme
 templates.env.globals["get_compact_mode"] = get_compact_mode

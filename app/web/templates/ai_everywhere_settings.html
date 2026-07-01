@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{# Мастер-режим «ИИ везде» — один крупный тумблер, оживляющий весь сайт. #}
+
+{% block content %}
+<div class="max-w-2xl mx-auto">
+  <div class="mb-6">
+    <h1 class="text-2xl font-bold tracking-tight">🤖 {{ t('aiev_title') }}</h1>
+    <p class="text-zinc-500 text-sm mt-1">{{ t('aiev_subtitle') }}</p>
+  </div>
+
+  <form method="post" action="/settings/ai-everywhere"
+        class="rounded-2xl border p-5 mb-5 transition-colors
+               {% if enabled %}border-accent-500/50 bg-accent-600/10{% else %}border-ink-700 bg-ink-900/60{% endif %}">
+    <label class="flex items-start gap-4 cursor-pointer">
+      <input type="checkbox" name="ai_everywhere" value="1" {% if enabled %}checked{% endif %}
+             onchange="this.form.submit()"
+             class="mt-1 w-6 h-6 rounded accent-accent-500 shrink-0">
+      <span>
+        <span class="block text-lg font-semibold text-zinc-100">{{ t('aiev_toggle_label') }}</span>
+        <span class="block text-sm text-zinc-400 mt-1">{{ t('aiev_toggle_hint') }}</span>
+        <span class="inline-block mt-2 text-xs px-2 py-0.5 rounded-full
+                     {% if enabled %}bg-accent-600/30 text-accent-300{% else %}bg-ink-800 text-zinc-500{% endif %}">
+          {% if enabled %}● {{ t('aiev_state_on') }}{% else %}○ {{ t('aiev_state_off') }}{% endif %}
+        </span>
+      </span>
+    </label>
+    <noscript><button type="submit" class="mt-3 px-4 py-2 rounded-md bg-accent-600 text-white text-sm">OK</button></noscript>
+  </form>
+
+  <div class="rounded-xl border border-ink-700 bg-ink-900/40 p-5">
+    <div class="text-sm font-medium text-zinc-300 mb-3">{{ t('aiev_whatson') }}</div>
+    <ul class="space-y-2.5 text-sm text-zinc-400">
+      <li class="flex gap-2"><span>💬</span><span><b class="text-zinc-200">{{ t('aiev_f_copilot') }}</b> — {{ t('aiev_f_copilot_d') }}</span></li>
+      <li class="flex gap-2"><span>🔎</span><span><b class="text-zinc-200">{{ t('aiev_f_findset') }}</b> — {{ t('aiev_f_findset_d') }}</span></li>
+      <li class="flex gap-2"><span>📅</span><span><b class="text-zinc-200">{{ t('aiev_f_calendar') }}</b> — {{ t('aiev_f_calendar_d') }}</span></li>
+      <li class="flex gap-2"><span>🕑</span><span><b class="text-zinc-200">{{ t('aiev_f_timeline') }}</b> — {{ t('aiev_f_timeline_d') }}</span></li>
+      <li class="flex gap-2"><span>📊</span><span><b class="text-zinc-200">{{ t('aiev_f_dash') }}</b> — {{ t('aiev_f_dash_d') }}</span></li>
+      <li class="flex gap-2"><span>🔦</span><span><b class="text-zinc-200">{{ t('aiev_f_search') }}</b> — {{ t('aiev_f_search_d') }}</span></li>
+    </ul>
+    <p class="text-xs text-zinc-600 mt-4">{{ t('aiev_note_worker') }}</p>
+  </div>
+</div>
+{% endblock %}

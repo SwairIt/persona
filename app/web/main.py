@@ -36,6 +36,7 @@ from app.web.middleware.auth_gate import AuthGateMiddleware
 from app.web.routes import (
     about as about_routes,
     account as account_routes,
+    ai_everywhere_settings as ai_everywhere_settings_routes,
     analysis as analysis_routes,
     annotations as annotations_routes,
     annotations_csv as annotations_csv_routes,
@@ -613,6 +614,7 @@ def create_app() -> FastAPI:
     app.include_router(health_dashboard_routes.router)
     app.include_router(system_monitor_routes.router)
     app.include_router(account_routes.router)
+    app.include_router(ai_everywhere_settings_routes.router)
     app.include_router(inbox_routes.router)
     app.include_router(palette_routes.router)
     app.include_router(shot_of_week_routes.router)

@@ -34,6 +34,7 @@ _KEYWORDS: Final[dict[str, str]] = {
     "/settings/theme": "тема оформление цвет dark light внешний вид appearance",
     "/settings/voice": "голос микрофон озвучка tts stt voice речь",
     "/settings/memory": "память факты помнит memory знает обо мне",
+    "/settings/ai-everywhere": "ии везде копилот ai everywhere оживить сайт помощник ассистент везде мастер тумблер магия",
     "/settings/system-prompt": "характер роль личность промпт persona system prompt",
     "/settings/llm": "модель провайдер ключ api llm gpt ollama claude",
     "/settings/smtp": "почта email письмо уведомления smtp",
@@ -98,6 +99,7 @@ _CATEGORIES: Final[list[dict[str, object]]] = [
         "desc_key": "settings_cat_ai_desc",
         "icon": "🤖",
         "pages": [
+            ("/settings/ai-everywhere", "🤖 ИИ везде — мастер-тумблер: оживить сайт (копилот, ИИ-календарь, поиск ИИ)"),
             ("/chat", "Чат с памятью (беседы, модель-пикер, vision)"),
             ("/ai-activity", "🔭 Что делает ИИ — окно активности (инструменты live)"),
             ("/voice", "🎙️ Голосовой разговор (hands-free, орб-микрофон)"),
