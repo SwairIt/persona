@@ -1192,52 +1192,48 @@ class WorkerLLMClient:
     async def complete_json(
         self, request: CompletionRequest, schema: dict[str, object]
     ) -> dict[str, object]:
-        """Структурный вывод (GBNF/format) через ПК-воркер.
+        """Структурный вывод через ПК-воркер БЕЗ зависимости от GBNF/format.
 
-        Кладём задачу с полем ``format`` (JSON-схема); ПК-агент гонит Ollama
-        /api/chat с этим ``format`` и ``stream=false`` и возвращает готовый JSON
-        в ``result``. Благодаря этому граф-триплеты (knowledge_graph) и mem0-
-        реконсиляция фактов (user_memory) работают и через воркер, а не только
-        у прямого OllamaClient. Парсим result в dict.
+        Промптим модель вернуть ТОЛЬКО JSON по схеме и парсим обычный стрим —
+        так это работает с ЛЮБЫМ агентом, включая уже запущенный старый (не
+        требует перезапуска воркера на ПК). Менее жёстко, чем format-constrained
+        GBNF, но с temperature=0 + извлечением объекта {...} надёжно для граф-
+        триплетов (knowledge_graph) и mem0-реконсиляции фактов (user_memory).
         """
         import json as _json  # noqa: PLC0415
+        import re  # noqa: PLC0415
 
-        self.last_input_tokens = None
-        self.last_output_tokens = None
+        schema_hint = _json.dumps(schema, ensure_ascii=False)
+        sys_prompt = (request.system or "").rstrip()
+        sys_prompt += (
+            "\n\nВЕРНИ ТОЛЬКО валидный JSON строго по этой JSON-схеме, без "
+            "markdown-обёрток и без пояснений. Схема: " + schema_hint
+        )
+        req2 = CompletionRequest(
+            system=sys_prompt,
+            user=request.user,
+            max_tokens=request.max_tokens,
+            temperature=0.0,
+            image_data_url=request.image_data_url,
+        )
+        # self.complete → self.stream → обычная chat-задача (без format), которую
+        # умеет уже запущенный агент. Собираем текст, достаём JSON.
+        raw = (await self.complete(req2)).strip()
+
+        if raw.startswith("```"):  # снять ```json ... ``` обёртку
+            raw = re.sub(r"^```[a-zA-Z0-9]*\s*", "", raw)
+            raw = re.sub(r"\s*```$", "", raw).strip()
+        start = raw.find("{")
+        end = raw.rfind("}")
+        if start != -1 and end != -1 and end > start:  # вырезать объект {...}
+            raw = raw[start : end + 1]
         try:
-            from app.llm.worker_queue import (  # noqa: PLC0415
-                enqueue_job,
-                get_job,
-                worker_online,
-            )
+            parsed = _json.loads(raw)
         except Exception as exc:  # noqa: BLE001
-            raise LLMNotConfigured("ПК-воркер недоступен (нет очереди).") from exc
-
-        if not await worker_online():
-            raise LLMNotConfigured("ПК-воркер офлайн — структурный вывод недоступен.")
-
-        options = {"num_predict": request.max_tokens, "temperature": request.temperature}
-        payload = {"messages": self._messages(request), "options": options, "format": schema}
-        job_id = await enqueue_job(0, "chat", self._model, payload)
-
-        last_progress = _loop_time()
-        while True:
-            job = await get_job(job_id)
-            status = (job or {}).get("status") if job else None
-            if status == "done":
-                raw = (job or {}).get("result") or ""
-                try:
-                    parsed = _json.loads(raw)
-                except Exception as exc:  # noqa: BLE001
-                    raise LLMNotConfigured("ПК-воркер вернул не-JSON.") from exc
-                if not isinstance(parsed, dict):
-                    raise LLMNotConfigured("структурный вывод не является объектом JSON")
-                return parsed
-            if status == "error":
-                raise LLMNotConfigured(f"ПК-воркер: {(job or {}).get('error') or 'ошибка'}")
-            if _loop_time() - last_progress > self._STALL_TIMEOUT:
-                raise LLMNotConfigured("ПК-воркер не ответил на структурный запрос (таймаут).")
-            await asyncio.sleep(self._POLL_INTERVAL)
+            raise LLMNotConfigured("не удалось распарсить JSON от ПК-воркера") from exc
+        if not isinstance(parsed, dict):
+            raise LLMNotConfigured("структурный вывод не является объектом JSON")
+        return parsed
 
 
 def _loop_time() -> float:
