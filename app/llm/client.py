@@ -1148,7 +1148,11 @@ class WorkerLLMClient:
         # user_id=0 — задача системная (без привязки к пользователю-владельцу).
         job_id = await enqueue_job(0, "chat", self._model, payload)
 
-        last_seq = 0
+        # ВАЖНО: агент шлёт первый чанк с seq=0, а read_chunks фильтрует seq>after_seq.
+        # Стартуем с -1, иначе seq=0 (первый токен-батч) теряется — для чата это
+        # съедало первый символ, а для JSON-вывода — открывающую ``` / '{', ломая
+        # парсинг графа/фактов.
+        last_seq = -1
         last_progress = _loop_time()
         while True:
             chunks = await read_chunks(job_id, last_seq)
