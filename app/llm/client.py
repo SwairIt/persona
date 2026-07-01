@@ -1702,6 +1702,16 @@ class _UsageRecordingClient:
         # underlying client.
         self.provider: Provider = inner.provider
 
+    def __getattr__(self, name: str) -> object:
+        # Проксируем на inner возможности, которых нет у самой обёртки — прежде
+        # всего ``complete_json`` (структурный GBNF-вывод для граф-триплетов и
+        # mem0-реконсиляции). Без этого обёртка СКРЫВАЛА complete_json, и
+        # ``hasattr(client, 'complete_json')`` был False → извлечение триплетов
+        # графа всегда возвращало пусто (граф не строился ни через воркер, ни
+        # напрямую). __getattr__ зовётся только для НЕнайденных атрибутов, так
+        # что complete/stream/provider/_inner идут обычным путём и не проксируются.
+        return getattr(object.__getattribute__(self, "_inner"), name)
+
     async def complete(self, request: CompletionRequest) -> str:
         try:
             text = await self._inner.complete(request)
