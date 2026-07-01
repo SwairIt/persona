@@ -157,6 +157,39 @@ async def _list_ollama_models(endpoint: str) -> list[dict[str, object]]:
     return out
 
 
+# Known-installed local Ollama models on the user's PC. Used for the WORKER
+# provider (outbound long-poll — the server cannot reach the PC's /api/tags,
+# so we can't enumerate live) and as a fallback for OLLAMA when its endpoint
+# is unreachable. Overridable via kv ``worker_models`` (comma-separated) so
+# the list stays editable without a code change / when new models are pulled.
+_DEFAULT_WORKER_MODELS: tuple[str, ...] = (
+    "gemma3:4b",
+    "qwen2.5:3b",
+    "qwen2.5:7b",
+)
+
+
+def _installed_models_struct(names: list[str]) -> list[dict[str, object]]:
+    """Build picker model structs from a list of installed model names,
+    attaching descriptions (from ``_OLLAMA_DESCRIPTIONS``) and a vision flag."""
+    out: list[dict[str, object]] = []
+    seen: set[str] = set()
+    for raw in names:
+        name = raw.strip()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        is_vision = any(
+            kw in name.lower() for kw in ("vl", "vision", "llava", "moondream")
+        )
+        out.append({
+            "name": name,
+            "description": _OLLAMA_DESCRIPTIONS.get(name, ""),
+            "vision": is_vision,
+        })
+    return out
+
+
 @router.get("/api/llm/models", response_class=JSONResponse)
 async def list_models(
     session: Annotated[SessionRecord, Depends(current_user_required)],
@@ -181,12 +214,25 @@ async def list_models(
         provider_keys: dict[str, bool] = {}
         for slug, _label, _placeholder in PROVIDERS_TUPLE:
             key = await get_kv(conn, f"byo_api_key_{slug}") or ""
-            provider_keys[slug] = bool(key.strip()) or slug == "ollama"
+            # Ollama и worker (ПК-воркер) не требуют ключа — они локальные.
+            provider_keys[slug] = bool(key.strip()) or slug in ("ollama", "worker")
+
+        # Список локально установленных моделей (kv worker_models, через
+        # запятую) с фолбэком на дефолт. Общий для ollama и worker.
+        worker_models_raw = (await get_kv(conn, "worker_models") or "").strip()
+        installed_names = (
+            [n for n in worker_models_raw.replace(";", ",").split(",") if n.strip()]
+            if worker_models_raw
+            else list(_DEFAULT_WORKER_MODELS)
+        )
 
         # Current model per provider (kv-stored if user explicitly set).
+        # ollama и worker делят одну kv ``ollama_model`` (её читает
+        # WorkerLLMClient/OllamaClient), поэтому для них берём именно её.
         current_models: dict[str, str | None] = {}
         for slug, _label, _placeholder in PROVIDERS_TUPLE:
-            current_models[slug] = await get_kv(conn, f"{slug}_model") or None
+            model_kv = "ollama_model" if slug in ("ollama", "worker") else f"{slug}_model"
+            current_models[slug] = await get_kv(conn, model_kv) or None
 
     # Build response array.
     providers_out: list[dict[str, object]] = []
@@ -200,8 +246,19 @@ async def list_models(
                 m["description"] = _OLLAMA_DESCRIPTIONS.get(
                     str(m.get("name", "")), ""
                 )
+            if not ollama_models:
+                # Endpoint недоступен (напр. работаем через outbound-воркер,
+                # LAN-Ollama на сервере нет) — показываем известный список
+                # установленных моделей, чтобы пикер не был пустым.
+                ollama_models = _installed_models_struct(installed_names)
             models_struct = ollama_models
-            configured = bool(ollama_models)
+            configured = True
+        elif slug == "worker":
+            # ПК-воркер ходит outbound long-poll'ом — сервер НЕ может дёрнуть
+            # /api/tags на ПК, поэтому отдаём курируемый список установленных
+            # моделей. Ключ не нужен (токен воркера — отдельно).
+            models_struct = _installed_models_struct(installed_names)
+            configured = True
         else:
             # T24 — cloud provider defaults now ship with descriptions.
             defaults = _PROVIDER_DEFAULTS.get(slug, [])

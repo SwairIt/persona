@@ -1840,8 +1840,12 @@ async def api_set_model(
     if model:
         from app.storage.db import get_connection  # noqa: PLC0415
         from app.storage.repository import set_kv  # noqa: PLC0415
+        # ollama и worker (ПК-воркер) читают модель из общей kv ``ollama_model``
+        # (WorkerLLMClient/OllamaClient), поэтому для них пишем именно её, а не
+        # ``{provider}_model`` — иначе выбор модели воркера тихо игнорировался.
+        model_kv = "ollama_model" if provider in ("ollama", "worker") else f"{provider}_model"
         async with get_connection() as conn:
-            await set_kv(conn, f"{provider}_model", model)
+            await set_kv(conn, model_kv, model)
             # Also persist the active provider globally so /ask + others
             # use it too. User expectation: "I switched in chat, now I
             # want this everywhere."
