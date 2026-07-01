@@ -20,6 +20,10 @@ from app.storage.repository import get_kv
 
 _TTL = 60.0
 _cache: dict[str, float | int | None] = {"value": None, "checked_at": 0.0}
+# Доп. аккаунты с ПОЛНЫМ (owner-эквивалентным) доступом — kv full_access_user_ids
+# (id через запятую). Для доверенных со-владельцев, которым нужно всё, а не только
+# /chat+/billing. Кэш 60с, чтобы is_owner не бил в БД на каждый запрос гейта.
+_fa_cache: dict[str, object] = {"value": None, "checked_at": 0.0}
 
 
 async def get_owner_user_id() -> int | None:
@@ -45,8 +49,32 @@ async def get_owner_user_id() -> int | None:
     return owner
 
 
+async def _full_access_ids() -> set[int]:
+    """Множество user_id с полным доступом (kv ``full_access_user_ids``). Кэш 60с."""
+    now = time.monotonic()
+    cached = _fa_cache["value"]
+    if cached is not None and now - float(_fa_cache["checked_at"]) < _TTL:  # type: ignore[arg-type]
+        return cached  # type: ignore[return-value]
+    ids: set[int] = set()
+    try:
+        async with get_connection() as conn:
+            raw = await get_kv(conn, "full_access_user_ids")
+    except Exception:  # noqa: BLE001 — гейт не должен падать
+        return cached if isinstance(cached, set) else set()
+    for part in str(raw or "").replace(";", ",").split(","):
+        part = part.strip()
+        if part.isdigit():
+            ids.add(int(part))
+    _fa_cache["value"] = ids
+    _fa_cache["checked_at"] = now
+    return ids
+
+
 async def is_owner(user_id: int | None) -> bool:
     if user_id is None:
         return False
     owner = await get_owner_user_id()
-    return owner is not None and int(owner) == int(user_id)
+    if owner is not None and int(owner) == int(user_id):
+        return True
+    # Доп. со-владельцы с полным доступом (kv full_access_user_ids).
+    return int(user_id) in await _full_access_ids()
