@@ -482,7 +482,9 @@ class CachedStaticFiles(StaticFiles):
         response = await super().get_response(path, scope)
         if response.status_code in (200, 304):
             query = scope.get("query_string", b"") or b""
-            if path.startswith("vendor/") or b"v=" in query:
+            # На Windows Starlette отдаёт path с обратными слэшами → нормализуем.
+            rel = path.replace("\\", "/")
+            if rel.startswith("vendor/") or b"v=" in query:
                 response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
             else:
                 response.headers["Cache-Control"] = "public, max-age=86400"
