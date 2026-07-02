@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import time
 from contextvars import ContextVar
 from pathlib import Path
 from typing import Final
@@ -65,6 +66,17 @@ UI_LANGUAGE_KV_KEY: Final[str] = "ui_language"
 _language_cache: ContextVar[str | None] = ContextVar(
     "persona_ui_language_cache", default=None
 )
+
+# Процесс-глобальный TTL-кэш ui_language (перф, 2026-07-02) — см.
+# _read_ui_language_from_db. ContextVar выше гасит повторы в одном запросе,
+# этот кэш убирает свежий connect МЕЖДУ запросами.
+_LANG_CACHE_TTL: Final[float] = 15.0
+_lang_proc_cache: tuple[str, float] | None = None
+
+
+def _set_lang_proc_cache(value: str, expires: float) -> None:
+    global _lang_proc_cache
+    _lang_proc_cache = (value, expires)
 
 
 def _load_translations() -> dict[str, dict[str, str]]:
@@ -166,6 +178,13 @@ def _read_ui_language_from_db() -> str:
     :data:`DEFAULT_LANGUAGE` so a template render never 500s because of
     this lookup.
     """
+    # Процесс-глобальный TTL-кэш (перф, 2026-07-02): раньше открывали свежий
+    # sqlite3.connect на КАЖДЫЙ рендер (~30-80ms блокировки event-loop). Язык
+    # меняется раз в месяц; при сохранении invalidate_language_cache() сбросит
+    # и этот кэш → редирект-после-сохранения покажет новый язык сразу.
+    now = time.monotonic()
+    if _lang_proc_cache and now < _lang_proc_cache[1]:
+        return _lang_proc_cache[0]
     db_path = get_settings().db_path
     try:
         with sqlite3.connect(str(db_path)) as conn:
@@ -176,12 +195,14 @@ def _read_ui_language_from_db() -> str:
             row = cursor.fetchone()
     except sqlite3.Error as exc:
         _log.debug("i18n.read.error", error=str(exc))
-        return DEFAULT_LANGUAGE
+        return _lang_proc_cache[0] if _lang_proc_cache else DEFAULT_LANGUAGE
     if row is None:
-        return DEFAULT_LANGUAGE
-    value = str(row[0]).strip()
-    if value not in SUPPORTED_LANGUAGES:
-        return DEFAULT_LANGUAGE
+        value = DEFAULT_LANGUAGE
+    else:
+        value = str(row[0]).strip()
+        if value not in SUPPORTED_LANGUAGES:
+            value = DEFAULT_LANGUAGE
+    _set_lang_proc_cache(value, now + _LANG_CACHE_TTL)
     return value
 
 
@@ -211,7 +232,9 @@ def invalidate_language_cache() -> None:
     value cached earlier in this same request when the GET form was
     rendered.
     """
+    global _lang_proc_cache
     _language_cache.set(None)
+    _lang_proc_cache = None
 
 
 __all__ = [

@@ -12,7 +12,7 @@
  * the shell is usable on the very first offline visit.
  */
 
-const CACHE_VERSION = 'persona-v2.21.13';
+const CACHE_VERSION = 'persona-v2.21.14';
 const PRECACHE_URLS = [
   '/static/manifest.json',
   '/static/icon-512.png',
@@ -37,10 +37,10 @@ const PRECACHE_URLS = [
   '/static/js/keyboard.js',
   '/static/js/palette.js',
   '/static/js/notes.js',
-  'https://cdn.tailwindcss.com',
-  'https://unpkg.com/htmx.org@2.0.4',
-  'https://unpkg.com/alpinejs@3.14.7/dist/cdn.min.js',
-  'https://cdn.jsdelivr.net/npm/markdown-it@14.1.0/dist/markdown-it.min.js',
+  '/static/vendor/tailwind-play.js',
+  '/static/vendor/htmx-2.0.4.min.js',
+  '/static/vendor/alpine-3.14.7.min.js',
+  '/static/vendor/markdown-it-14.1.0.min.js',
 ];
 
 self.addEventListener('install', (event) => {

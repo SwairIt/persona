@@ -464,6 +464,31 @@ log = get_logger("persona.web")
 STATIC_DIR = Path(__file__).parent / "static"
 
 
+class CachedStaticFiles(StaticFiles):
+    """StaticFiles с явным ``Cache-Control``.
+
+    Дефолтный StaticFiles шлёт только ETag/Last-Modified → браузер РЕвалидирует
+    каждый ассет на каждой навигации (conditional GET → 304), а за кросс-VPS
+    прокси это десятки лишних round-trip'ов на страницу = «сайт плохо грузит».
+
+    Правило: ``/static/vendor/*`` (версия зашита в имя файла) и любой запрос с
+    ``?v=`` (cache-busting по app_version) — immutable на год, браузер вообще не
+    ходит на сервер. Прочую статику — на сутки (ограниченная свежесть, но всё
+    равно убирает ревалидацию на каждой странице). ``sw.js`` сюда не попадает —
+    он отдаётся отдельным роутом с no-cache.
+    """
+
+    async def get_response(self, path: str, scope):  # type: ignore[override]
+        response = await super().get_response(path, scope)
+        if response.status_code in (200, 304):
+            query = scope.get("query_string", b"") or b""
+            if path.startswith("vendor/") or b"v=" in query:
+                response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+            else:
+                response.headers["Cache-Control"] = "public, max-age=86400"
+        return response
+
+
 def create_app() -> FastAPI:
     """Build the FastAPI application instance."""
     configure_logging()
@@ -516,7 +541,7 @@ def create_app() -> FastAPI:
                 },
             )
 
-        app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+        app.mount("/static", CachedStaticFiles(directory=STATIC_DIR), name="static")
 
     app.include_router(timeline.router)
     app.include_router(search_routes.router)

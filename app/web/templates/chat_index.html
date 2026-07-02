@@ -26,13 +26,13 @@
    (uploaded base64-inline for vision-capable providers), unlimited
    memory via background summariser. #}
 
-<script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
+<script src="/static/vendor/marked-12.0.0.min.js"></script>
 
 {# Подсветка синтаксиса кода: highlight.js + тёмная тема (github-dark) с cdnjs.
    highlight-колбэк подключается ниже в marked.setOptions (init()). #}
 <link rel="stylesheet"
-      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+      href="/static/vendor/highlight-github-dark-11.9.0.min.css">
+<script src="/static/vendor/highlight-11.9.0.min.js"></script>
 
 <script>
   // T29 — fallback if the CDN is blocked/SRI-mismatched: a wrong integrity
@@ -41,14 +41,14 @@
   window.addEventListener('DOMContentLoaded', function () {
     if (typeof marked === 'undefined') {
       var s = document.createElement('script');
-      s.src = 'https://unpkg.com/marked@12.0.0/marked.min.js';
+      s.src = '/static/vendor/marked-12.0.0.min.js';
       document.head.appendChild(s);
     }
     // Аналогичный fallback для highlight.js — без него код просто не
     // подсветится (markdown по-прежнему отрендерится).
     if (typeof hljs === 'undefined') {
       var h = document.createElement('script');
-      h.src = 'https://unpkg.com/@highlightjs/cdn-assets@11.9.0/highlight.min.js';
+      h.src = '/static/vendor/highlight-11.9.0.min.js';
       document.head.appendChild(h);
     }
   });

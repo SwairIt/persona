@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+import time
 from contextvars import ContextVar
 from datetime import datetime, tzinfo
 from html import escape as _html_escape
@@ -61,6 +62,52 @@ _grayscale_cache: ContextVar[str | None] = ContextVar("persona_grayscale_cache",
 _reduce_motion_cache: ContextVar[str | None] = ContextVar(
     "persona_reduce_motion_cache", default=None
 )
+
+# ── Процесс-глобальный TTL-кэш kv-значений (перф, 2026-07-02) ──────────────
+# Jinja синхронна → нельзя await'ить aiosqlite-пул, поэтому UI-геттеры темы/
+# языка/флагов и фильтр |localtime читали настройки СВОИМ ``sqlite3.connect``
+# на КАЖДЫЙ рендер: до ~8 открытий на страницу, а |localtime — по одному НА
+# КАЖДУЮ карточку (до 500 на таймлайне). На Windows/WAL открытие соединения
+# стоит ~30-80ms и БЛОКИРУЕТ event-loop → это была основная доля TTFB
+# («сайт плохо грузит»). ContextVar-кэши ниже гасят повторы В ОДНОМ запросе,
+# но между запросами всё равно шёл свежий connect. Этот процесс-глобальный
+# кэш с коротким TTL схлопывает почти все чтения в ноль дисковых обращений.
+# Настройки UI меняются раз в месяц; для ключей с invalidate_*_cache кэш
+# сбрасывается сразу при сохранении, для остальных достаточно TTL.
+_KV_CACHE_TTL = 15.0
+_kv_value_cache: dict[str, tuple[str | None, float]] = {}
+
+
+def _cached_kv_value(key: str, ttl: float = _KV_CACHE_TTL) -> str | None:
+    """Сырое значение строки ``kv_settings`` с процесс-глобальным TTL-кэшем.
+
+    Возвращает строку или ``None`` (строки нет / БД недоступна). Нормализацию
+    и дефолты применяет вызывающий геттер — семантика 1:1 со старым чтением.
+    При ошибке БД отдаём последнее известное значение (или ``None``), чтобы
+    рендер никогда не падал. Операции с dict атомарны под GIL; гонка максимум
+    приведёт к лишнему безвредному connect, поэтому лока нет.
+    """
+    now = time.monotonic()
+    cached = _kv_value_cache.get(key)
+    if cached is not None and now < cached[1]:
+        return cached[0]
+    db_path = get_settings().db_path
+    try:
+        with sqlite3.connect(str(db_path)) as conn:
+            cursor = conn.execute(
+                "SELECT value FROM kv_settings WHERE key = ?", (key,)
+            )
+            row = cursor.fetchone()
+    except sqlite3.Error:
+        return cached[0] if cached is not None else None
+    value = None if row is None else str(row[0])
+    _kv_value_cache[key] = (value, now + ttl)
+    return value
+
+
+def _invalidate_kv_value(key: str) -> None:
+    """Сбросить процесс-кэш одной kv-строки (после записи настройки)."""
+    _kv_value_cache.pop(key, None)
 
 _compact_log = get_logger("persona.compact")
 _grayscale_log = get_logger("persona.grayscale")
@@ -204,20 +251,8 @@ def _read_display_timezone_from_db() -> str:
     back to ``""`` so the ``localtime`` filter degrades to the process-
     local zone rather than 500-ing the page.
     """
-    db_path = get_settings().db_path
-    try:
-        with sqlite3.connect(str(db_path)) as conn:
-            cursor = conn.execute(
-                "SELECT value FROM kv_settings WHERE key = ?",
-                ("display_timezone",),
-            )
-            row = cursor.fetchone()
-    except sqlite3.Error as exc:
-        _tz_log.debug("display_timezone.read.error", error=str(exc))
-        return ""
-    if row is None:
-        return ""
-    return str(row[0]).strip()
+    value = _cached_kv_value("display_timezone")
+    return "" if value is None else value.strip()
 
 
 def resolve_display_tz() -> tzinfo:
@@ -321,20 +356,8 @@ def _read_theme_from_db() -> str:
     the default ``"dark"`` rather than raising — a template render must
     never 500 because of a theme lookup.
     """
-    db_path = get_settings().db_path
-    try:
-        with sqlite3.connect(str(db_path)) as conn:
-            cursor = conn.execute(
-                "SELECT value FROM kv_settings WHERE key = ?",
-                ("theme",),
-            )
-            row = cursor.fetchone()
-    except sqlite3.Error:
-        return _THEME_DEFAULT
-    if row is None:
-        return _THEME_DEFAULT
-    value = str(row[0])
-    if value not in _THEME_VALUES:
+    value = _cached_kv_value("theme")
+    if value is None or value not in _THEME_VALUES:
         return _THEME_DEFAULT
     return value
 
@@ -364,6 +387,7 @@ def invalidate_theme_cache() -> None:
     request.
     """
     _theme_cache.set(None)
+    _invalidate_kv_value("theme")
 
 
 def _read_compact_from_db() -> str:
@@ -375,20 +399,10 @@ def _read_compact_from_db() -> str:
     writers. Any failure (missing DB / row / bogus value) falls back to
     ``"0"`` so a template render never 500s because of this lookup.
     """
-    db_path = get_settings().db_path
-    try:
-        with sqlite3.connect(str(db_path)) as conn:
-            cursor = conn.execute(
-                "SELECT value FROM kv_settings WHERE key = ?",
-                ("compact_mode",),
-            )
-            row = cursor.fetchone()
-    except sqlite3.Error as exc:
-        _compact_log.debug("compact.read.error", error=str(exc))
+    value = _cached_kv_value("compact_mode")
+    if value is None:
         return _COMPACT_DEFAULT
-    if row is None:
-        return _COMPACT_DEFAULT
-    value = str(row[0]).strip()
+    value = value.strip()
     if value not in _COMPACT_VALUES:
         return _COMPACT_DEFAULT
     return value
@@ -419,6 +433,7 @@ def invalidate_compact_cache() -> None:
     request.
     """
     _compact_cache.set(None)
+    _invalidate_kv_value("compact_mode")
 
 
 def _read_grayscale_from_db() -> str:
@@ -431,20 +446,10 @@ def _read_grayscale_from_db() -> str:
     falls back to ``"0"`` so a template render never 500s because of
     this lookup.
     """
-    db_path = get_settings().db_path
-    try:
-        with sqlite3.connect(str(db_path)) as conn:
-            cursor = conn.execute(
-                "SELECT value FROM kv_settings WHERE key = ?",
-                ("grayscale_mode",),
-            )
-            row = cursor.fetchone()
-    except sqlite3.Error as exc:
-        _grayscale_log.debug("grayscale.read.error", error=str(exc))
+    value = _cached_kv_value("grayscale_mode")
+    if value is None:
         return _GRAYSCALE_DEFAULT
-    if row is None:
-        return _GRAYSCALE_DEFAULT
-    value = str(row[0]).strip()
+    value = value.strip()
     if value not in _GRAYSCALE_VALUES:
         return _GRAYSCALE_DEFAULT
     return value
@@ -475,6 +480,7 @@ def invalidate_grayscale_cache() -> None:
     request.
     """
     _grayscale_cache.set(None)
+    _invalidate_kv_value("grayscale_mode")
 
 
 def _read_reduce_motion_from_db() -> str:
@@ -487,20 +493,10 @@ def _read_reduce_motion_from_db() -> str:
     falls back to ``"0"`` so a template render never 500s because of
     this lookup.
     """
-    db_path = get_settings().db_path
-    try:
-        with sqlite3.connect(str(db_path)) as conn:
-            cursor = conn.execute(
-                "SELECT value FROM kv_settings WHERE key = ?",
-                ("reduce_motion",),
-            )
-            row = cursor.fetchone()
-    except sqlite3.Error as exc:
-        _reduce_motion_log.debug("reduce_motion.read.error", error=str(exc))
+    value = _cached_kv_value("reduce_motion")
+    if value is None:
         return _REDUCE_MOTION_DEFAULT
-    if row is None:
-        return _REDUCE_MOTION_DEFAULT
-    value = str(row[0]).strip()
+    value = value.strip()
     if value not in _REDUCE_MOTION_VALUES:
         return _REDUCE_MOTION_DEFAULT
     return value
@@ -531,6 +527,7 @@ def invalidate_reduce_motion_cache() -> None:
     request.
     """
     _reduce_motion_cache.set(None)
+    _invalidate_kv_value("reduce_motion")
 
 
 templates.env.filters["humantime"] = _format_human_time
@@ -566,16 +563,10 @@ def _read_kv_flag(key: str, default: str = "1") -> str:
     Тот же безопасный паттерн, что ``_read_compact_from_db`` — короткое stdlib
     ``sqlite3`` чтение в WAL-режиме, любой сбой → ``default``.
     """
-    db_path = get_settings().db_path
-    try:
-        with sqlite3.connect(str(db_path)) as conn:
-            cursor = conn.execute("SELECT value FROM kv_settings WHERE key = ?", (key,))
-            row = cursor.fetchone()
-    except sqlite3.Error:
+    value = _cached_kv_value(key)
+    if value is None:
         return default
-    if row is None:
-        return default
-    value = str(row[0]).strip()
+    value = value.strip()
     return value if value in ("0", "1") else default
 
 
