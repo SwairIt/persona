@@ -896,6 +896,13 @@ class OllamaClient:
         # ``api_key`` is overloaded to mean "endpoint" for this provider.
         # An empty string means "use default localhost".
         endpoint = (api_key or "").strip().rstrip("/") or self._DEFAULT_ENDPOINT
+        # Защита: если значение не похоже на URL (напр. случайно затёкший
+        # generic ``byo_api_key`` — API-ключ/токен другого провайдера), НЕ даём
+        # httpx упасть с UnsupportedProtocol («Request URL is missing an
+        # http(s) protocol»). Откатываемся на локальный дефолт → в худшем случае
+        # чистая ошибка соединения, а не 500 с непонятным текстом у юзера.
+        if not (endpoint.startswith("http://") or endpoint.startswith("https://")):
+            endpoint = self._DEFAULT_ENDPOINT
         # OpenAI-compatible path lives under /v1; the legacy /api path
         # is also available but uses a different JSON shape.
         self._base_url = f"{endpoint}/v1/chat/completions"

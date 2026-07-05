@@ -1830,6 +1830,17 @@ async def api_set_model(
     model = str(body.get("model") or "").strip()
     if not provider:
         raise HTTPException(status_code=400, detail="provider required")
+    # Модели Ollama у этого юзера крутятся на ПК через worker (outbound long-poll),
+    # прямого ollama-endpoint нет. Если выбрали «ollama», но валидного URL-эндпоинта
+    # (byo_api_key_ollama) нет — маршрутизируем на worker: иначе OllamaClient
+    # упрётся в пустой/мусорный URL и чат упадёт с «missing http(s) protocol».
+    if provider == "ollama":
+        from app.storage.db import get_connection as _get_conn  # noqa: PLC0415
+        from app.storage.repository import get_kv as _get_kv  # noqa: PLC0415
+        async with _get_conn() as _c:
+            _ep = (await _get_kv(_c, "byo_api_key_ollama") or "").strip()
+        if not (_ep.startswith("http://") or _ep.startswith("https://")):
+            provider = "worker"
     ok = await update_session_model(
         session["user_id"], session_id, provider, model or None
     )
