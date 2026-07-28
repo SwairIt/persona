@@ -1336,7 +1336,7 @@ wheels = [
 
 [[package]]
 name = "persona"
-version = "2.21.17"
+version = "2.21.18"
 source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },

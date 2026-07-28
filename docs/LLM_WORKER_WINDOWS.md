@@ -43,8 +43,13 @@ The per-user `PersonaLLMWorker` task:
 - runs hidden without administrator privileges;
 - ignores duplicate starts;
 - restarts after unexpected process failure;
+- starts a local `ollama serve` automatically when Ollama was closed;
 - launches `ops/persona_llm_worker.ps1`, whose own supervisor reconnects and
   restarts the Python worker.
+
+Automatic Ollama startup applies only to loopback `OLLAMA_URL` values
+(`127.0.0.1`, `localhost` or `::1`). A remote Ollama endpoint is never managed
+by the worker.
 
 It does not start the Persona web server or Telegram worker. Those have separate
 lifecycles.

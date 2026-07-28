@@ -96,12 +96,94 @@ if (-not $env:PERSONA_WORKER_TOKEN) {
     if ($fromFile) { $env:PERSONA_WORKER_TOKEN = $fromFile }
 }
 
+if (-not $env:PERSONA_SERVER) {
+    $fromFile = Get-DotEnvValue 'PERSONA_SERVER'
+    if ($fromFile) { $env:PERSONA_SERVER = $fromFile }
+}
+
+if (-not $env:OLLAMA_URL) {
+    $fromFile = Get-DotEnvValue 'OLLAMA_URL'
+    if ($fromFile) { $env:OLLAMA_URL = $fromFile }
+}
+
 if (-not $env:PERSONA_WORKER_TOKEN) {
     Write-Warning "PERSONA_WORKER_TOKEN не задан (ни -Token, ни env, ни .env)."
     Write-Warning "Получи токен в owner-кабинете Persona и запусти, напр.:"
     Write-Warning "  .\ops\persona_llm_worker.ps1 -Token '<твой-токен>'"
     # Всё равно запускаем — .py сам красиво сообщит и выйдет с кодом 2,
     # а цикл ниже не будет долбить вечно (см. обработку фатального кода).
+}
+
+# --- Local Ollama lifecycle -----------------------------------------------
+# A hidden Scheduled Task must recover after Ollama was manually closed.
+# Only manage loopback Ollama; a remote OLLAMA_URL belongs to another host.
+$EffectiveOllamaUrl = if ($env:OLLAMA_URL) {
+    $env:OLLAMA_URL.TrimEnd('/')
+} else {
+    'http://127.0.0.1:11434'
+}
+$OllamaUri = $null
+try { $OllamaUri = [Uri]$EffectiveOllamaUrl } catch {}
+$ManageLocalOllama = (
+    $OllamaUri -and
+    $OllamaUri.Scheme -in @('http', 'https') -and
+    $OllamaUri.Host -in @('127.0.0.1', 'localhost', '::1')
+)
+
+if ($ManageLocalOllama) {
+    $OllamaReady = $false
+    try {
+        $probe = Invoke-WebRequest `
+            -Uri "$EffectiveOllamaUrl/api/tags" `
+            -UseBasicParsing `
+            -TimeoutSec 2
+        $OllamaReady = $probe.StatusCode -eq 200
+    } catch {}
+
+    if (-not $OllamaReady) {
+        $OllamaExe = $null
+        $OllamaCommand = Get-Command ollama.exe -ErrorAction SilentlyContinue
+        if ($OllamaCommand) {
+            $OllamaExe = $OllamaCommand.Source
+        } else {
+            $Candidates = @(
+                (Join-Path $env:LOCALAPPDATA 'Programs\Ollama\ollama.exe'),
+                (Join-Path $env:LOCALAPPDATA 'Ollama\ollama.exe'),
+                'C:\Program Files\Ollama\ollama.exe'
+            )
+            $OllamaExe = $Candidates |
+                Where-Object { Test-Path -LiteralPath $_ } |
+                Select-Object -First 1
+        }
+
+        if ($OllamaExe) {
+            Write-Host "[launcher] Ollama не отвечает — запускаю ollama serve..."
+            Start-Process `
+                -FilePath $OllamaExe `
+                -ArgumentList 'serve' `
+                -WindowStyle Hidden
+            for ($attempt = 0; $attempt -lt 20; $attempt++) {
+                Start-Sleep -Seconds 1
+                try {
+                    $probe = Invoke-WebRequest `
+                        -Uri "$EffectiveOllamaUrl/api/tags" `
+                        -UseBasicParsing `
+                        -TimeoutSec 2
+                    if ($probe.StatusCode -eq 200) {
+                        $OllamaReady = $true
+                        break
+                    }
+                } catch {}
+            }
+        }
+    }
+
+    if (-not $OllamaReady) {
+        Write-Warning (
+            "Локальный Ollama недоступен на $EffectiveOllamaUrl. " +
+            "Worker продолжит переподключаться; установи/запусти Ollama."
+        )
+    }
 }
 
 # --- Цикл авто-рестарта ---------------------------------------------------

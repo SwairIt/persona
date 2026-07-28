@@ -16,6 +16,17 @@ def test_worker_token_backup_is_gitignored() -> None:
     assert ".env.persona-worker.bak" in rules
 
 
+def test_windows_launcher_recovers_local_ollama() -> None:
+    repo_root = Path(__file__).resolve().parent.parent
+    script = (repo_root / "ops" / "persona_llm_worker.ps1").read_text(
+        encoding="utf-8"
+    )
+    assert "Start-Process" in script
+    assert "-ArgumentList 'serve'" in script
+    assert "$ManageLocalOllama" in script
+    assert "@('127.0.0.1', 'localhost', '::1')" in script
+
+
 def test_update_env_token_preserves_content_and_backup(tmp_path: Path) -> None:
     env_path = tmp_path / ".env"
     original = (
