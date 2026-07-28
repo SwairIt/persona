@@ -5,8 +5,10 @@ from __future__ import annotations
 import aiosqlite
 import pytest
 
+from app.chat import user_memory as user_memory_module
 from app.chat.user_memory import (
     add_memory,
+    consolidate_memories,
     count_memory,
     invalidate_memory,
     list_memory,
@@ -17,7 +19,9 @@ from app.chat.user_memory import (
 
 
 async def _user(db: aiosqlite.Connection, uid: int = 1) -> None:
-    await db.execute("INSERT INTO users(id,email,password_hash) VALUES(?,?,?)", (uid, f"{uid}@x.c", "x"))
+    await db.execute(
+        "INSERT INTO users(id,email,password_hash) VALUES(?,?,?)", (uid, f"{uid}@x.c", "x")
+    )
     await db.commit()
 
 
@@ -86,3 +90,62 @@ async def test_reconcile_fallback_adds_without_llm(db: aiosqlite.Connection) -> 
     res = await reconcile_and_add(1, "увлекается бегом", decider=no_llm)
     assert res["action"] == "add"
     assert len(await list_memory(1)) == 2
+
+
+@pytest.mark.asyncio
+async def test_reconcile_update_rolls_back_insert_when_invalidation_fails(
+    db: aiosqlite.Connection,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _user(db)
+    old = await add_memory(1, "живёт в Москве", kind="fact")
+
+    async def decider(_new_text, _candidates):
+        return {"action": "update", "target_id": old}
+
+    async def fail_invalidation(*_args, **_kwargs):
+        raise RuntimeError("simulated write failure")
+
+    monkeypatch.setattr(
+        user_memory_module,
+        "_invalidate_memory_in_transaction",
+        fail_invalidation,
+    )
+
+    with pytest.raises(RuntimeError, match="simulated write failure"):
+        await reconcile_and_add(
+            1,
+            "переехал в Берлин",
+            kind="fact",
+            decider=decider,
+        )
+
+    active = await list_memory(1)
+    assert len(active) == 1
+    assert active[0]["id"] == old
+    assert active[0]["text"] == "живёт в Москве"
+
+
+@pytest.mark.asyncio
+async def test_nightly_consolidation_never_invalidates_pinned_cluster(
+    db: aiosqlite.Connection,
+) -> None:
+    await _user(db)
+    pinned_id = await add_memory(
+        1,
+        "любит кофе утром каждый день",
+        kind="preference",
+        pinned=True,
+    )
+    other_id = await add_memory(
+        1,
+        "любит кофе утром каждый вечер",
+        kind="preference",
+    )
+
+    merges = await consolidate_memories(1, threshold=0.6)
+
+    assert merges == []
+    active = await list_memory(1)
+    assert {row["id"] for row in active} == {pinned_id, other_id}
+    assert next(row for row in active if row["id"] == pinned_id)["pinned"] is True

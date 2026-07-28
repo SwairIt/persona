@@ -7,11 +7,9 @@ memory-of-day, ai-reminders, day-end-summary). Сам цикл (3 фазы сн�
 :func:`app.chat.reflection.run_dream_cycle` для владельца аккаунта
 (:func:`app.auth.owner.get_owner_user_id`).
 
-Гейт активности (``quiet_minutes`` = 60) живёт внутри цикла: если пользователь
-писал в чат в последние 60 минут, :func:`run_dream_cycle` возвращает
-``{"status": "quiet"}``; обёртка поднимает :class:`_DreamDeferred`, чтобы
-``ClockScheduler`` НЕ проставил per-date маркер и попробовал снова на следующем
-30-минутном тике (Hermes «перенос на следующий тик»).
+Гейт активности и durable retry живут внутри цикла. Статусы ``quiet`` и
+``retry`` поднимают :class:`_DreamDeferred`, чтобы ``ClockScheduler`` не
+проставил per-date маркер и попробовал снова на следующем 30-минутном тике.
 
 Toggles
 -------
@@ -77,9 +75,9 @@ async def _enabled_getter() -> bool:
 async def _job_run_dream() -> None:
     """Один прогон «сна» для владельца. Тихо пропускает, если владельца нет.
 
-    На ``status == "quiet"`` поднимает :class:`_DreamDeferred`, чтобы маркер не
-    проставился и цикл повторился на следующем тике. Прочие статусы — обычное
-    завершение (маркер проставится, как у memory-of-day на no-op).
+    На ``quiet``/``retry`` поднимает :class:`_DreamDeferred`, чтобы маркер не
+    проставился и цикл повторился на следующем тике. Прочие статусы завершают
+    текущую календарную попытку.
     """
     owner = await get_owner_user_id()
     if owner is None:
@@ -87,9 +85,9 @@ async def _job_run_dream() -> None:
         return
     result = await run_dream_cycle(owner)
     status = (result or {}).get("status")
-    if status == "quiet":
-        log.info("dream.job.deferred_quiet", user_id=owner)
-        raise _DreamDeferred("user active within quiet window; retry next tick")
+    if status in {"quiet", "retry"}:
+        log.info("dream.job.deferred", user_id=owner, reason=status)
+        raise _DreamDeferred(f"dream cycle deferred ({status}); retry next tick")
     log.info(
         "dream.job.done",
         user_id=owner,

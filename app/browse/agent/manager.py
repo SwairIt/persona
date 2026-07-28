@@ -29,11 +29,13 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import json
+import re
 import socket
 import subprocess
 import sys
 import threading
 import time
+from contextlib import suppress
 from pathlib import Path
 from queue import Empty, Queue
 from typing import Any
@@ -48,6 +50,12 @@ IDLE_TTL: float = 300.0          # close sessions idle longer than this (s)
 MAX_STEPS: int = 60              # hard cap on commands per session
 _REQUEST_TIMEOUT: float = 80.0   # per-command response wait (covers nav)
 _READY_TIMEOUT: float = 90.0     # worker startup (Chromium cold-start)
+_MAX_POLICY_DOMAINS = 128
+_MAX_DOMAIN_CHARS = 253
+_DOMAIN_RE = re.compile(
+    r"^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*"
+    r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+)
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -78,25 +86,70 @@ def _host_is_private(host: str) -> bool:
     return False
 
 
-async def _domain_policy() -> tuple[set[str], set[str]]:
+def _normalize_policy_domains(raw: str | None) -> tuple[set[str], bool]:
+    """Return bounded ASCII domains and whether the source was invalid.
+
+    Invalid or oversized policy input must fail closed.  Silently dropping a
+    deny rule would turn a settings typo into an authorization bypass.
+    """
+    if not raw:
+        return set(), False
+    values: set[str] = set()
+    invalid = False
+    for part in raw.replace(",", "\n").splitlines():
+        candidate = part.strip().lower().rstrip(".")
+        if not candidate:
+            continue
+        try:
+            candidate = candidate.encode("idna").decode("ascii")
+        except UnicodeError:
+            invalid = True
+            continue
+        if len(candidate) > _MAX_DOMAIN_CHARS or not _DOMAIN_RE.fullmatch(candidate):
+            invalid = True
+            continue
+        values.add(candidate)
+        if len(values) > _MAX_POLICY_DOMAINS:
+            invalid = True
+            break
+    return set(sorted(values)[:_MAX_POLICY_DOMAINS]), invalid
+
+
+async def _domain_policy() -> tuple[set[str], set[str], bool]:
     """Read optional allow/deny domain lists from kv. Empty allow = allow-all
     (still subject to the private-network block)."""
     from app.storage.db import get_connection  # noqa: PLC0415
     from app.storage.repository import get_kv  # noqa: PLC0415
 
-    def _split(raw: str | None) -> set[str]:
-        if not raw:
-            return set()
-        return {
-            part.strip().lower()
-            for part in raw.replace(",", "\n").splitlines()
-            if part.strip()
-        }
+    async with get_connection() as conn:
+        allow, invalid_allow = _normalize_policy_domains(
+            await get_kv(conn, "browser_allow_domains")
+        )
+        deny, invalid_deny = _normalize_policy_domains(
+            await get_kv(conn, "browser_deny_domains")
+        )
+    return allow, deny, invalid_allow or invalid_deny
+
+
+async def browser_network_policy() -> dict[str, Any]:
+    """Return the bounded policy snapshot sent to the authenticated PC worker."""
+    allow, deny, invalid = await _domain_policy()
+    return {
+        "version": 1,
+        "allow_domains": sorted(allow),
+        "deny_domains": sorted(deny),
+        "block_all": invalid,
+    }
+
+
+async def browser_backend() -> str:
+    """Return the selected execution backend for built-in browser tools."""
+    from app.storage.db import get_connection  # noqa: PLC0415
+    from app.storage.repository import get_kv  # noqa: PLC0415
 
     async with get_connection() as conn:
-        allow = _split(await get_kv(conn, "browser_allow_domains"))
-        deny = _split(await get_kv(conn, "browser_deny_domains"))
-    return allow, deny
+        value = (await get_kv(conn, "browser_backend") or "builtin").strip().lower()
+    return value if value in {"builtin", "remote"} else "builtin"
 
 
 def _host_matches(host: str, patterns: set[str]) -> bool:
@@ -106,7 +159,7 @@ def _host_matches(host: str, patterns: set[str]) -> bool:
     return any(host == p or host.endswith("." + p) for p in patterns)
 
 
-async def check_url(url: str) -> tuple[bool, str, str]:
+async def check_url(url: str) -> tuple[bool, str, str]:  # noqa: PLR0911
     """Validate a navigation target. → (ok, normalised_url, reason_if_blocked)."""
     raw = (url or "").strip()
     if not raw:
@@ -124,7 +177,9 @@ async def check_url(url: str) -> tuple[bool, str, str]:
         return False, raw, "нет хоста в URL"
     if _host_is_private(host):
         return False, raw, "локальная/частная сеть запрещена (localhost/RFC1918)"
-    allow, deny = await _domain_policy()
+    allow, deny, invalid = await _domain_policy()
+    if invalid:
+        return False, raw, "политика доменов некорректна; навигация заблокирована"
     if deny and _host_matches(host, deny):
         return False, raw, f"домен в чёрном списке: {host}"
     if allow and not _host_matches(host, allow):
@@ -155,7 +210,7 @@ class _BrowserSession:
 
         Runs inside ``asyncio.to_thread``. Returns the banner dict
         (``{"event":"ready"}`` or ``{"event":"fatal",...}``)."""
-        self.proc = subprocess.Popen(  # noqa: S603
+        self.proc = subprocess.Popen(
             [sys.executable, "-m", "app.browse.agent.worker"],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
@@ -168,8 +223,8 @@ class _BrowserSession:
 
         def _pump() -> None:
             assert self.proc is not None and self.proc.stdout is not None
-            for line in self.proc.stdout:
-                line = line.strip()
+            for raw_line in self.proc.stdout:
+                line = raw_line.strip()
                 if not line:
                     continue
                 try:
@@ -312,7 +367,7 @@ async def _reaper_loop() -> None:
                     return
     except asyncio.CancelledError:
         raise
-    except Exception as exc:  # noqa: BLE001 — reaper must never crash the app
+    except Exception as exc:
         log.warning("browse.agent.reaper_failed", error=str(exc))
 
 
@@ -324,7 +379,7 @@ async def close_session(session_id: int) -> bool:
         return False
     try:
         await sess.aclose()
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.debug("browse.agent.close_failed", session=session_id, error=str(exc))
     return True
 
@@ -335,17 +390,42 @@ async def close_all() -> None:
         sessions = list(_SESSIONS.values())
         _SESSIONS.clear()
     for sess in sessions:
-        try:
+        with suppress(Exception):
             await sess.aclose()
-        except Exception:  # noqa: BLE001, S110
-            pass
 
 
-async def run(session_id: int, cmd: str, **kw: Any) -> dict[str, Any]:
+async def run(  # noqa: PLR0911
+    session_id: int,
+    cmd: str,
+    *,
+    user_id: int | None = None,
+    **kw: Any,
+) -> dict[str, Any]:
     """Top-level entry: ensure the session's worker is up, then run ``cmd``.
 
     ``cmd == 'close'`` tears the session down. Returns the worker's
     response dict (or ``{"ok": False, "error": ...}``)."""
+    if await browser_backend() == "remote":
+        if user_id is None or int(user_id) <= 0:
+            return {"ok": False, "error": "remote browser requires an owner user"}
+        if cmd == "open":
+            ok, normalized, reason = await check_url(str(kw.get("url") or ""))
+            if not ok:
+                return {"ok": False, "error": reason}
+            kw["url"] = normalized
+        try:
+            from app.adapters.remote_browser.gateway import execute  # noqa: PLC0415
+
+            return await execute(int(user_id), session_id, cmd, **kw)
+        except Exception as exc:
+            log.warning(
+                "browse.agent.remote_failed",
+                command=cmd,
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
+            return {"ok": False, "error": str(exc) or type(exc).__name__}
+
     if cmd == "close":
         existed = await close_session(session_id)
         return {"ok": True, "closed": existed}
@@ -365,6 +445,8 @@ async def run(session_id: int, cmd: str, **kw: Any) -> dict[str, Any]:
 __all__ = [
     "IDLE_TTL",
     "MAX_STEPS",
+    "browser_backend",
+    "browser_network_policy",
     "check_url",
     "close_all",
     "close_session",

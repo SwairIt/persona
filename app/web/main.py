@@ -15,9 +15,6 @@ if _os.environ.get("PERSONA_FAULTHANDLER") == "1":  # pragma: no cover
     _fh_file = open(_fh_path, "w", buffering=1)  # noqa: SIM115
     _faulthandler.dump_traceback_later(5, repeat=True, file=_fh_file)
 
-import asyncio
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -28,11 +25,10 @@ from starlette.middleware import Middleware
 from starlette.middleware.gzip import GZipMiddleware
 
 from app import __version__
+from app.bootstrap.lifespan import lifespan as bootstrap_lifespan
 from app.logging_setup import configure_logging, get_logger
 from app.settings import get_settings
-from app.storage.db import init_database
 from app.web.middleware.api_auth import ApiAuthMiddleware
-from app.web.routes.setup_gate import SetupGateMiddleware
 from app.web.middleware.auth_gate import AuthGateMiddleware
 from app.web.routes import (
     about as about_routes,
@@ -158,6 +154,7 @@ from app.web.routes import (
     llm_switcher as llm_switcher_routes,
     llm_usage as llm_usage_routes,
     llm_worker as llm_worker_routes,
+    remote_browser_worker as remote_browser_worker_routes,
     mobile as mobile_routes,
     monthly_digest_card as monthly_digest_card_routes,
     monthly_digests as monthly_digests_routes,
@@ -439,27 +436,7 @@ from app.web.routes import (
     mcp_admin as mcp_admin_routes,
     workspace_admin as workspace_admin_routes,
 )
-from app.workers import (
-    get_controller,
-    run_audio_retention_worker,
-    run_audio_worker,
-    run_auto_backup_scheduler,
-    run_capture_loop,
-    run_clipboard_worker,
-    run_daily_email_scheduler,
-    run_day_end_summary_scheduler,
-    run_saved_search_alert_worker,
-    run_webhook_retry_worker,
-    run_weekly_stats_email_scheduler,
-    run_inbox_worker,
-    run_monthly_digest_scheduler,
-    run_digest_scheduler,
-    run_embeddings_worker,
-    run_ocr_worker,
-    run_retention_worker,
-    run_weekly_digest_scheduler,
-)
-
+from app.web.routes.setup_gate import SetupGateMiddleware
 log = get_logger("persona.web")
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -521,7 +498,7 @@ def create_app() -> FastAPI:
         title="Persona",
         version=__version__,
         description="Open-source personal AI memory.",
-        lifespan=_lifespan,
+        lifespan=bootstrap_lifespan,
         middleware=middleware,
     )
 
@@ -737,6 +714,7 @@ def create_app() -> FastAPI:
     app.include_router(llm_switcher_routes.router)
     # W-A — серверное ядро очереди «Persona LLM Worker» (worker-token + owner).
     app.include_router(llm_worker_routes.router)
+    app.include_router(remote_browser_worker_routes.router)
     app.include_router(multi_day_diff_routes.router)
     app.include_router(screenshot_frame_routes.router)
     app.include_router(settings_diff_routes.router)
@@ -958,491 +936,6 @@ def create_app() -> FastAPI:
     app.include_router(agents_admin_routes.router)
 
     return app
-
-
-async def _run_hourly_card_worker(controller: object) -> None:
-    """Adapter so hourly_card_worker plugs into the lifespan task list.
-
-    The worker doesn't need the CaptureController (it reads from DB,
-    doesn't capture anything), but the lifespan list pattern is
-    ``(controller) -> coroutine``. We accept and ignore.
-    """
-    from app.workers.hourly_card_worker import run_hourly_card_worker  # noqa: PLC0415
-
-    await run_hourly_card_worker()
-
-
-async def _run_daily_pin_worker(controller: object) -> None:
-    """Same adapter pattern as hourly card worker — tier 5 daily pin."""
-    from app.workers.daily_pin_worker import run_daily_pin_worker  # noqa: PLC0415
-
-    await run_daily_pin_worker()
-
-
-async def _run_card_enrichment_worker(controller: object) -> None:
-    """Adapter for the v1.19 LLM-enrichment-of-hourly-cards worker."""
-    from app.workers.card_enrichment_worker import run_card_enrichment_worker  # noqa: PLC0415
-
-    await run_card_enrichment_worker()
-
-
-async def _run_tag_rule_worker(controller: object) -> None:
-    """Adapter for the v1.20 auto-tag-rule applier worker."""
-    from app.workers.tag_rule_worker import run_tag_rule_worker  # noqa: PLC0415
-
-    await run_tag_rule_worker()
-
-
-async def _run_weekly_card_worker(controller: object) -> None:
-    """Adapter for the v1.21 tier-2 weekly summary card worker."""
-    from app.workers.weekly_card_worker import run_weekly_card_worker  # noqa: PLC0415
-
-    await run_weekly_card_worker()
-
-
-async def _run_auto_translate_worker(controller: object) -> None:
-    """Adapter for the v1.23 voice-segment auto-translate worker."""
-    from app.workers.auto_translate_worker import run_auto_translate_worker  # noqa: PLC0415
-
-    await run_auto_translate_worker()
-
-
-async def _run_alt_text_worker(controller: object) -> None:
-    """Adapter for the v1.35 per-shot LLM alt-text worker."""
-    from app.workers.alt_text_worker import run_alt_text_worker  # noqa: PLC0415
-
-    await run_alt_text_worker()
-
-
-async def _run_auto_pin_worker(controller: object) -> None:
-    """Adapter for the v1.35 regex-rule auto-pin worker."""
-    from app.workers.auto_pin_worker import run_auto_pin_worker  # noqa: PLC0415
-
-    await run_auto_pin_worker()
-
-
-async def _run_entity_extractor_worker(controller: object) -> None:
-    """Adapter for the v1.37 cross-day entity extraction worker."""
-    from app.workers.entity_extractor_worker import run_entity_extractor_worker  # noqa: PLC0415
-
-    await run_entity_extractor_worker()
-
-
-async def _run_obsidian_sync_worker(controller: object) -> None:
-    """Adapter for the v1.38 Obsidian vault sync worker."""
-    from app.workers.obsidian_sync_worker import run_obsidian_sync_worker  # noqa: PLC0415
-
-    await run_obsidian_sync_worker()
-
-
-async def _run_daily_pin_enrichment_worker(controller: object) -> None:
-    """Adapter for the v1.40 daily_pin LLM enrichment worker."""
-    from app.workers.daily_pin_enrichment_worker import run_daily_pin_enrichment_worker  # noqa: PLC0415
-
-    await run_daily_pin_enrichment_worker()
-
-
-async def _run_long_read_worker(controller: object) -> None:
-    """Adapter for the v1.41 long-read auto-detection worker."""
-    from app.workers.long_read_worker import run_long_read_worker  # noqa: PLC0415
-
-    await run_long_read_worker()
-
-
-async def _run_s3_sync_worker(controller: object) -> None:
-    """Adapter for the v1.42 nightly S3-compatible sync worker."""
-    from app.workers.s3_sync_worker import run_s3_sync_worker  # noqa: PLC0415
-
-    await run_s3_sync_worker()
-
-
-async def _run_weekly_rollup_worker(controller: object) -> None:
-    """Adapter for the v1.45 LLM weekly-rollup worker."""
-    from app.workers.weekly_rollup_worker import run_weekly_rollup_worker  # noqa: PLC0415
-
-    await run_weekly_rollup_worker()
-
-
-async def _run_audio_merge_worker(controller: object) -> None:
-    """Adapter for the v1.46 sub-second audio-segment merge worker."""
-    from app.workers.audio_merge_worker import run_audio_merge_worker  # noqa: PLC0415
-
-    await run_audio_merge_worker()
-
-
-async def _run_capture_session_worker(controller: object) -> None:
-    """Adapter for the v1.48 capture-session auto-detector worker."""
-    from app.workers.capture_session_worker import run_capture_session_worker  # noqa: PLC0415
-
-    await run_capture_session_worker()
-
-
-async def _run_app_budget_worker(controller: object) -> None:
-    """Adapter for the v1.50 per-app daily-minutes budget alerter."""
-    from app.workers.app_budget_worker import run_app_budget_worker  # noqa: PLC0415
-
-    await run_app_budget_worker()
-
-
-async def _run_ai_reminders_worker(controller: object) -> None:
-    """Adapter for the v1.53 nightly AI-suggested reminders worker."""
-    from app.workers.ai_reminders_worker import run_ai_reminders_worker  # noqa: PLC0415
-
-    await run_ai_reminders_worker()
-
-
-async def _run_audit_log_rotation_worker(controller: object) -> None:
-    """Adapter for the v1.55 nightly audit-log rotation + gzip archive worker."""
-    from app.workers.audit_log_rotation_worker import run_audit_log_rotation_worker  # noqa: PLC0415
-
-    await run_audit_log_rotation_worker()
-
-
-async def _run_url_time_worker(controller: object) -> None:
-    """Adapter for the v1.58 browser-window URL-time aggregator."""
-    from app.workers.url_time_worker import run_url_time_worker  # noqa: PLC0415
-
-    await run_url_time_worker()
-
-
-async def _run_smart_dedup_worker(controller: object) -> None:
-    """Adapter for the v1.58 trivial-dup smart-dedup worker."""
-    from app.workers.smart_dedup_worker import run_smart_dedup_worker  # noqa: PLC0415
-
-    await run_smart_dedup_worker()
-
-
-async def _run_email_weekly_digest_worker(controller: object) -> None:
-    """Adapter for the v1.60 Sunday-evening weekly digest email worker."""
-    from app.workers.email_weekly_digest_worker import (  # noqa: PLC0415
-        run_email_weekly_digest_worker,
-    )
-
-    await run_email_weekly_digest_worker()
-
-
-async def _run_memory_of_day_worker(controller: object) -> None:
-    """Adapter for the v1.60 morning memory-of-the-day push worker."""
-    from app.workers.memory_of_day_worker import run_memory_of_day_worker  # noqa: PLC0415
-
-    await run_memory_of_day_worker()
-
-
-async def _run_dream_worker(controller: object) -> None:
-    """Adapter for the nightly memory-reflection ("dream") worker (docs §3)."""
-    from app.workers.dream_worker import run_dream_worker  # noqa: PLC0415
-
-    await run_dream_worker()
-
-
-async def _run_briefing_worker(controller: object) -> None:
-    """Adapter for the proactive morning-briefing worker (MVP 7g)."""
-    from app.workers.briefing_worker import run_briefing_worker  # noqa: PLC0415
-
-    await run_briefing_worker()
-
-
-async def _run_heartbeat_alert_worker(controller: object) -> None:
-    """Adapter for the v1.61 worker-heartbeat gap-alert pusher."""
-    from app.workers.heartbeat_alert_worker import run_heartbeat_alert_worker  # noqa: PLC0415
-
-    await run_heartbeat_alert_worker()
-
-
-async def _run_db_integrity_worker(controller: object) -> None:
-    """Adapter for the v1.61 nightly DB quick-check + analyze worker."""
-    from app.workers.db_integrity_worker import run_db_integrity_worker  # noqa: PLC0415
-
-    await run_db_integrity_worker()
-
-
-async def _run_audio_waveform_worker(controller: object) -> None:
-    """Adapter for the v1.62 audio-segment SVG waveform backfill worker."""
-    from app.workers.audio_waveform_worker import run_audio_waveform_worker  # noqa: PLC0415
-
-    await run_audio_waveform_worker()
-
-
-async def _run_transcribe_backfill_worker(controller: object) -> None:
-    """Adapter for the S12 daily audio re-transcription backfill worker."""
-    from app.workers.transcribe_backfill_worker import run_transcribe_backfill_worker  # noqa: PLC0415
-
-    await run_transcribe_backfill_worker()
-
-
-async def _run_smart_pin_worker(controller: object) -> None:
-    """Adapter for the v1.64 morning smart-pin LLM auto-suggester."""
-    from app.workers.smart_pin_worker import run_smart_pin_worker  # noqa: PLC0415
-
-    await run_smart_pin_worker()
-
-
-async def _run_tag_email_digest_worker(controller: object) -> None:
-    """Adapter for the v1.64 hourly per-tag email digest dispatcher."""
-    from app.workers.tag_email_digest_worker import run_tag_email_digest_worker  # noqa: PLC0415
-
-    await run_tag_email_digest_worker()
-
-
-async def _run_webhook_csv_worker(controller: object) -> None:
-    """Adapter for the v1.65 hourly webhook-CSV pipeline dispatcher."""
-    from app.workers.webhook_csv_worker import run_webhook_csv_worker  # noqa: PLC0415
-
-    await run_webhook_csv_worker()
-
-
-async def _run_ocr_code_detector_worker(controller: object) -> None:
-    """Adapter for the v1.66 OCR-text code-detection backfill worker."""
-    from app.workers.ocr_code_detector_worker import (  # noqa: PLC0415
-        run_ocr_code_detector_worker,
-    )
-
-    await run_ocr_code_detector_worker()
-
-
-async def _run_sync_apply_worker(controller: object) -> None:
-    """Adapter for the T5 sync-event apply worker."""
-    from app.workers.sync_apply_worker import run_sync_apply_worker  # noqa: PLC0415
-
-    await run_sync_apply_worker()
-
-
-async def _run_storage_cleanup_worker(controller: object) -> None:
-    """T15 (2026-06-07) — nightly screenshot cleanup honouring the
-    user's retention policy at /storage."""
-    from app.workers.storage_cleanup_worker import run as run_storage_cleanup  # noqa: PLC0415
-
-    await run_storage_cleanup()
-
-
-@asynccontextmanager
-async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Initialise DB, start workers, and tear them down on shutdown."""
-    await init_database()
-    controller = get_controller()
-
-    tasks: list[asyncio.Task[None]] = [
-        asyncio.create_task(run_capture_loop(controller), name="capture-loop"),
-        asyncio.create_task(run_ocr_worker(controller), name="ocr-worker"),
-        asyncio.create_task(run_retention_worker(controller), name="retention-worker"),
-        asyncio.create_task(run_embeddings_worker(controller), name="embeddings-worker"),
-        asyncio.create_task(run_digest_scheduler(controller), name="digest-scheduler"),
-        asyncio.create_task(run_weekly_digest_scheduler(controller), name="weekly-digest-scheduler"),
-        asyncio.create_task(run_clipboard_worker(controller), name="clipboard-worker"),
-        asyncio.create_task(run_inbox_worker(controller), name="inbox-worker"),
-        asyncio.create_task(run_daily_email_scheduler(controller), name="daily-email-scheduler"),
-        asyncio.create_task(run_saved_search_alert_worker(controller), name="saved-search-alert"),
-        asyncio.create_task(run_weekly_stats_email_scheduler(controller), name="weekly-stats-email"),
-        asyncio.create_task(run_webhook_retry_worker(controller), name="webhook-retry"),
-        asyncio.create_task(run_monthly_digest_scheduler(controller), name="monthly-digest-scheduler"),
-        asyncio.create_task(run_day_end_summary_scheduler(controller), name="day-end-summary"),
-        asyncio.create_task(run_auto_backup_scheduler(controller), name="auto-backup"),
-        asyncio.create_task(run_audio_worker(controller), name="audio-worker"),
-        asyncio.create_task(run_audio_retention_worker(controller), name="audio-retention"),
-        asyncio.create_task(
-            _run_hourly_card_worker(controller),
-            name="hourly-card-worker",
-        ),
-        asyncio.create_task(
-            _run_daily_pin_worker(controller),
-            name="daily-pin-worker",
-        ),
-        asyncio.create_task(
-            _run_card_enrichment_worker(controller),
-            name="card-enrichment-worker",
-        ),
-        asyncio.create_task(
-            _run_tag_rule_worker(controller),
-            name="tag-rule-worker",
-        ),
-        asyncio.create_task(
-            _run_weekly_card_worker(controller),
-            name="weekly-card-worker",
-        ),
-        asyncio.create_task(
-            _run_auto_translate_worker(controller),
-            name="auto-translate-worker",
-        ),
-        asyncio.create_task(
-            _run_alt_text_worker(controller),
-            name="alt-text-worker",
-        ),
-        asyncio.create_task(
-            _run_auto_pin_worker(controller),
-            name="auto-pin-worker",
-        ),
-        asyncio.create_task(
-            _run_entity_extractor_worker(controller),
-            name="entity-extractor-worker",
-        ),
-        asyncio.create_task(
-            _run_obsidian_sync_worker(controller),
-            name="obsidian-sync-worker",
-        ),
-        asyncio.create_task(
-            _run_daily_pin_enrichment_worker(controller),
-            name="daily-pin-enrichment-worker",
-        ),
-        asyncio.create_task(
-            _run_long_read_worker(controller),
-            name="long-read-worker",
-        ),
-        asyncio.create_task(
-            _run_s3_sync_worker(controller),
-            name="s3-sync-worker",
-        ),
-        asyncio.create_task(
-            _run_weekly_rollup_worker(controller),
-            name="weekly-rollup-worker",
-        ),
-        asyncio.create_task(
-            _run_audio_merge_worker(controller),
-            name="audio-merge-worker",
-        ),
-        asyncio.create_task(
-            _run_capture_session_worker(controller),
-            name="capture-session-worker",
-        ),
-        asyncio.create_task(
-            _run_app_budget_worker(controller),
-            name="app-budget-worker",
-        ),
-        asyncio.create_task(
-            _run_ai_reminders_worker(controller),
-            name="ai-reminders-worker",
-        ),
-        asyncio.create_task(
-            _run_audit_log_rotation_worker(controller),
-            name="audit-log-rotation-worker",
-        ),
-        asyncio.create_task(
-            _run_url_time_worker(controller),
-            name="url-time-worker",
-        ),
-        asyncio.create_task(
-            _run_smart_dedup_worker(controller),
-            name="smart-dedup-worker",
-        ),
-        asyncio.create_task(
-            _run_email_weekly_digest_worker(controller),
-            name="email-weekly-digest-worker",
-        ),
-        asyncio.create_task(
-            _run_memory_of_day_worker(controller),
-            name="memory-of-day-worker",
-        ),
-        # Hermes-style nightly memory consolidation ("сон") — opt-in
-        # (kv dream_enabled), fires at kv dream_hour_local (default 03:00).
-        asyncio.create_task(
-            _run_dream_worker(controller),
-            name="dream-worker",
-        ),
-        asyncio.create_task(
-            _run_briefing_worker(controller),
-            name="briefing-worker",
-        ),
-        asyncio.create_task(
-            _run_heartbeat_alert_worker(controller),
-            name="heartbeat-alert-worker",
-        ),
-        asyncio.create_task(
-            _run_db_integrity_worker(controller),
-            name="db-integrity-worker",
-        ),
-        asyncio.create_task(
-            _run_audio_waveform_worker(controller),
-            name="audio-waveform-worker",
-        ),
-        asyncio.create_task(
-            _run_transcribe_backfill_worker(controller),
-            name="transcribe-backfill-worker",
-        ),
-        asyncio.create_task(
-            _run_smart_pin_worker(controller),
-            name="smart-pin-worker",
-        ),
-        asyncio.create_task(
-            _run_tag_email_digest_worker(controller),
-            name="tag-email-digest-worker",
-        ),
-        asyncio.create_task(
-            _run_webhook_csv_worker(controller),
-            name="webhook-csv-worker",
-        ),
-        asyncio.create_task(
-            _run_ocr_code_detector_worker(controller),
-            name="ocr-code-detector-worker",
-        ),
-        # T5 (2026-06-07) — drains sync_event pending queue and
-        # materialises note/kv events into the canonical tables.
-        asyncio.create_task(
-            _run_sync_apply_worker(controller),
-            name="sync-apply-worker",
-        ),
-        # T15 (2026-06-07) — nightly cleanup of old screenshots per
-        # ``kv.shots_retention_days``.
-        asyncio.create_task(
-            _run_storage_cleanup_worker(controller),
-            name="storage-cleanup-worker",
-        ),
-    ]
-
-    # T29 — LEAN MODE. The ~40 background workers churn SQLite and run
-    # heavy/CPU ops; under load they bog the single event loop until the
-    # server stops responding ("сайт зависает"). With PERSONA_LEAN_MODE=1
-    # we serve pages + agent ingest only (those are request handlers, not
-    # workers) and skip the workers entirely. The tasks were created above
-    # but the loop hasn't run them yet (no await since creation), so
-    # cancelling here means their bodies never execute. Re-enable workers
-    # once each one's blocking ops are moved off the event loop.
-    if _os.environ.get("PERSONA_LEAN_MODE") == "1":
-        # Ночной «сон» (Hermes-style) оставляем даже в lean: он лёгкий
-        # (ClockScheduler — опрос раз в 30 мин), opt-in (kv dream_enabled),
-        # с гейтом тишины, а тяжёлый LLM теперь уносится на ПК-воркер (очередь),
-        # не нагружая event loop сервера. Остальные ~40 воркеров глушим.
-        kept = []
-        for _t in tasks:
-            if _t.get_name() == "dream-worker":
-                kept.append(_t)
-                continue
-            _t.cancel()
-        tasks = kept
-        from app.logging_setup import get_logger as _gl  # noqa: PLC0415
-
-        _gl("persona.web.main").warning("lifespan.lean_mode — background workers DISABLED")
-
-    # v1.10: only pause on boot if opted-in via kv_setting capture_paused_on_boot=1
-    try:
-        from app.storage.db import get_connection
-        from app.storage.repository import get_kv
-        async with get_connection() as _kv_conn:
-            _pause_flag = await get_kv(_kv_conn, "capture_paused_on_boot")
-        if (_pause_flag or "0").strip() == "1":
-            controller.pause()
-            log.info("persona.boot.paused_per_setting")
-    except Exception as exc:
-        log.warning("persona.boot.pause_check_failed", error=str(exc))
-    log.info("persona.started", host=get_settings().host, port=get_settings().port)
-
-    try:
-        yield
-    finally:
-        log.info("persona.stopping")
-        controller.request_stop()
-        for task in tasks:
-            task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
-        # Phase 2 — terminate any per-session browser workers and stdio MCP
-        # subprocesses so we don't leave orphaned Chromium / node processes.
-        try:
-            from app.browse.agent.manager import close_all as _close_browsers
-            from app.mcp.runtime import shutdown_mcp_runtime as _close_mcp
-
-            await _close_browsers()
-            await _close_mcp()
-        except Exception as exc:  # noqa: BLE001
-            log.warning("persona.automation_shutdown_failed", error=str(exc))
-        log.info("persona.stopped")
 
 
 app = create_app()

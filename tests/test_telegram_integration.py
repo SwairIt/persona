@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +14,10 @@ from app.integrations.telegram.repository import (
     TelegramBinding,
     TelegramRepository,
 )
-from app.integrations.telegram.worker import TelegramWorker
+from app.integrations.telegram.worker import (
+    TelegramConsumerLeaseLost,
+    TelegramWorker,
+)
 
 
 class FakeAPI:
@@ -43,6 +47,9 @@ class FakeRepository:
         self.groups: set[int] = set()
         self.pairing_code = "correct-code"
         self.cleared: list[int] = []
+        self.claimed_updates: set[int] = set()
+        self.finished_updates: list[tuple[int, str, str]] = []
+        self.renew_processing = True
 
     async def get_binding(self) -> TelegramBinding | None:
         return self.binding
@@ -63,6 +70,41 @@ class FakeRepository:
     async def verify_pairing_code(self, candidate: str, configured_secret: str = "") -> bool:
         expected = configured_secret or self.pairing_code
         return candidate == expected
+
+    async def claim_update(
+        self,
+        update_id: int,
+        holder_id: str,
+        *,
+        lease_seconds: int = 600,
+    ) -> bool:
+        del holder_id, lease_seconds
+        if update_id in self.claimed_updates:
+            return False
+        self.claimed_updates.add(update_id)
+        return True
+
+    async def renew_processing_lease(
+        self,
+        update_id: int,
+        holder_id: str,
+        *,
+        lease_seconds: int = 600,
+    ) -> bool:
+        del update_id, holder_id, lease_seconds
+        return self.renew_processing
+
+    async def finish_update(
+        self,
+        update_id: int,
+        holder_id: str,
+        *,
+        status: str,
+        outcome: str,
+    ) -> bool:
+        del holder_id
+        self.finished_updates.append((update_id, status, outcome))
+        return True
 
 
 class FakeService:
@@ -227,3 +269,103 @@ def test_pair_launcher_prints_code_then_continues_to_worker() -> None:
     worker_loop = script.index("while ($true)")
     assert pairing < worker_loop
     assert "PERSONA_TG_BOT_TOKEN" not in script
+
+
+@pytest.mark.asyncio
+async def test_telegram_worker_lease_is_singleton_and_recoverable(db) -> None:
+    repository = TelegramRepository()
+
+    assert (
+        await repository.acquire_worker_lease("worker-a", lease_seconds=600) is True
+    )
+    assert (
+        await repository.acquire_worker_lease("worker-a", lease_seconds=600) is True
+    )
+    assert (
+        await repository.acquire_worker_lease("worker-b", lease_seconds=600) is False
+    )
+
+    await repository.release_worker_lease("worker-a")
+    assert await repository.acquire_worker_lease("worker-b") is True
+
+
+@pytest.mark.asyncio
+async def test_update_inbox_suppresses_db_llm_replay_and_checks_live_lease(db) -> None:
+    repository = TelegramRepository()
+    assert await repository.acquire_worker_lease("worker-a", lease_seconds=600)
+    assert await repository.claim_update(501, "worker-a", lease_seconds=600)
+    assert not await repository.claim_update(501, "worker-a", lease_seconds=600)
+    assert not await repository.acquire_worker_lease("worker-b", lease_seconds=600)
+    assert await repository.renew_processing_lease(
+        501,
+        "worker-a",
+        lease_seconds=600,
+    )
+    assert await repository.finish_update(
+        501,
+        "worker-a",
+        status="processed",
+        outcome="handled",
+    )
+    assert not await repository.claim_update(501, "worker-a", lease_seconds=600)
+    assert await repository.save_update_offset_if_leased(502, "worker-a")
+    assert await repository.update_offset() == 502
+
+    row = await (
+        await db.execute(
+            "SELECT status, outcome, holder_id, lease_until "
+            "FROM telegram_update_inbox WHERE update_id=501"
+        )
+    ).fetchone()
+    assert tuple(row) == ("processed", "handled", None, None)
+
+    await repository.release_worker_lease("worker-a")
+    assert await repository.acquire_worker_lease("worker-b", lease_seconds=600)
+    assert not await repository.save_update_offset_if_leased(999, "worker-a")
+    assert await repository.update_offset() == 502
+
+
+@pytest.mark.asyncio
+async def test_processing_heartbeat_cancels_llm_when_lease_is_lost() -> None:
+    class _SlowService(FakeService):
+        async def respond(self, **kwargs: Any) -> str:
+            self.responses.append(kwargs)
+            await asyncio.sleep(1)
+            return "late"
+
+    repository = FakeRepository(TelegramBinding(1, 42))
+    repository.renew_processing = False
+    api = FakeAPI()
+    service = _SlowService()
+    worker = TelegramWorker(
+        TelegramConfig(bot_token="not-a-real-token"),
+        api=api,  # type: ignore[arg-type]
+        repository=repository,  # type: ignore[arg-type]
+        service=service,  # type: ignore[arg-type]
+    )
+    worker._bot_id = 777
+    worker._bot_username = "PersonaTestBot"
+    worker._persona_owner_id = 42
+    worker._binding = repository.binding
+    worker._processing_heartbeat_seconds = 0.01
+
+    with pytest.raises(TelegramConsumerLeaseLost):
+        await worker._process_update_with_lease(700, _private(1, "долго", 700))
+
+    assert len(service.responses) == 1
+    assert api.sent == []
+    assert repository.finished_updates == []
+
+
+@pytest.mark.asyncio
+async def test_worker_processes_each_update_id_only_once() -> None:
+    repository = FakeRepository(TelegramBinding(1, 42))
+    worker, api, service = _worker(repository)
+    update = _private(1, "один раз", 701)
+
+    await worker._process_update_with_lease(701, update)
+    await worker._process_update_with_lease(701, update)
+
+    assert len(service.responses) == 1
+    assert len(api.sent) == 1
+    assert repository.finished_updates == [(701, "processed", "handled")]

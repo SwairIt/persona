@@ -9,6 +9,7 @@ Put the worker token issued by the owner UI in the repository `.env`:
 
 ```dotenv
 PERSONA_WORKER_TOKEN=...
+PERSONA_BROWSER_WORKER_TOKEN=...
 PERSONA_SERVER=https://persona.getdoday.ru
 OLLAMA_URL=http://127.0.0.1:11434
 ```
@@ -26,10 +27,10 @@ powershell -ExecutionPolicy Bypass -File .\ops\install_llm_worker_windows.ps1 -P
 ```
 
 `-ProvisionToken` is deliberately explicit because it invalidates the previous
-worker token. A repository Python helper rotates the server-side token and
-atomically updates `.env`; it never writes the token to console or command-line
-arguments. Existing `.env` content is preserved and its previous state is backed
-up to `.env.persona-worker.bak`.
+LLM and browser worker tokens. A repository Python helper rotates two independent
+server-side credentials and atomically updates `.env`; it never writes either
+token to console or command-line arguments. Existing `.env` content is preserved
+and its previous state is backed up to `.env.persona-worker.bak`.
 
 If the token is already configured, omit token rotation:
 

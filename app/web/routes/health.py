@@ -22,6 +22,15 @@ from app.workers.control import get_controller
 router = APIRouter(tags=["meta"])
 
 
+@router.get("/healthz")
+async def healthz() -> JSONResponse:
+    """Cheap process liveness probe with no database or worker dependencies."""
+    return JSONResponse(
+        {"status": "ok", "version": __version__},
+        headers={"Cache-Control": "no-store"},
+    )
+
+
 @router.get("/health")
 async def health() -> JSONResponse:
     controller = get_controller()
@@ -50,6 +59,7 @@ async def health() -> JSONResponse:
 
 @router.get("/api/health/full")
 async def health_full(
+    request: Request,
     _user: Annotated[SessionRecord, Depends(current_user_required)],
 ) -> JSONResponse:
     """Полный health-check инфраструктуры — ТОЛЬКО для владельца.
@@ -125,7 +135,46 @@ async def health_full(
     except Exception:  # noqa: BLE001
         disk_free_mb = None
 
-    lean_mode = os.environ.get("PERSONA_LEAN_MODE") == "1"
+    from app.bootstrap.worker_registry import (  # noqa: PLC0415
+        RuntimeProfile,
+        profile_from_environment,
+    )
+
+    lean_mode = profile_from_environment(os.environ) is RuntimeProfile.LEAN
+    llm_worker: dict = {"online": False, "model": None, "last_seen": None}
+    browser_worker: dict = {"online": False, "workers": []}
+    try:
+        from app.llm.worker_queue import worker_status  # noqa: PLC0415
+
+        llm_worker = await worker_status()
+    except Exception:  # noqa: S110 - health probes degrade to offline state
+        pass
+    try:
+        from app.adapters.remote_browser.repository import (  # noqa: PLC0415
+            SqliteRemoteBrowserJobs,
+        )
+
+        browser_worker = await SqliteRemoteBrowserJobs().worker_status()
+    except Exception:  # noqa: S110 - health probes degrade to offline state
+        pass
+
+    runtime = getattr(request.app.state, "background_runtime", None)
+    runtime_profile = getattr(request.app.state, "runtime_profile", None)
+    background_workers: dict = {
+        "profile": runtime_profile,
+        "tasks": [],
+        "failure_counts": {},
+    }
+    if runtime is not None:
+        background_workers["tasks"] = [
+            {
+                "name": task.get_name(),
+                "done": task.done(),
+                "cancelled": task.cancelled(),
+            }
+            for task in runtime.tasks
+        ]
+        background_workers["failure_counts"] = runtime.failure_counts
 
     payload = {
         "db_ok": db_ok,
@@ -134,6 +183,9 @@ async def health_full(
         "vec_available": vec_available,
         "disk_free_mb": disk_free_mb,
         "lean_mode": lean_mode,
+        "llm_worker": llm_worker,
+        "browser_worker": browser_worker,
+        "background_workers": background_workers,
         "version": __version__,
     }
     return JSONResponse(payload, headers={"Cache-Control": "no-store"})

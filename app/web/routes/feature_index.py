@@ -2,7 +2,7 @@
 
 Two endpoints:
 
-* ``GET /features`` — Tailwind page listing every browsable route with
+* ``GET /feature-index`` — owner-facing page listing every browsable route with
   a live filter box.
 * ``GET /api/features.json`` — same data as JSON for tooling and the
   Cmd+K command palette.
@@ -49,7 +49,7 @@ def _group_by_category(entries: list[FeatureEntry]) -> list[tuple[str, str, list
     return grouped
 
 
-@router.get("/features", response_class=HTMLResponse)
+@router.get("/feature-index", response_class=HTMLResponse)
 async def features_page(request: Request) -> HTMLResponse:
     """Render the discovery page with cards grouped by category."""
     app: FastAPI = request.app

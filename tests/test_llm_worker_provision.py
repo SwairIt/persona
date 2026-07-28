@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
-
-import pytest
+from typing import TYPE_CHECKING
 
 from ops import provision_llm_worker_token as provisioner
+
+if TYPE_CHECKING:
+    import pytest
 
 
 def test_worker_token_backup_is_gitignored() -> None:
@@ -63,17 +65,25 @@ async def test_provision_never_prints_token(
     async def fake_rotate_worker_token() -> str:
         return secret
 
+    async def fake_rotate_browser_worker_token() -> str:
+        return "browser-" + secret
+
     monkeypatch.setattr(provisioner, "init_database", fake_init_database)
     monkeypatch.setattr(provisioner, "rotate_worker_token", fake_rotate_worker_token)
+    monkeypatch.setattr(
+        provisioner,
+        "rotate_browser_worker_token",
+        fake_rotate_browser_worker_token,
+    )
 
     await provisioner.provision(tmp_path)
 
     captured = capsys.readouterr()
     assert secret not in captured.out
     assert secret not in captured.err
-    assert (tmp_path / ".env").read_text(encoding="utf-8").strip() == (
-        f"PERSONA_WORKER_TOKEN={secret}"
-    )
+    env_text = (tmp_path / ".env").read_text(encoding="utf-8")
+    assert f"PERSONA_WORKER_TOKEN={secret}" in env_text
+    assert f"PERSONA_BROWSER_WORKER_TOKEN=browser-{secret}" in env_text
 
 
 async def test_provision_does_not_replay_migrations_for_existing_db(
@@ -90,6 +100,9 @@ async def test_provision_does_not_replay_migrations_for_existing_db(
     async def fake_rotate_worker_token() -> str:
         return "new-secret"
 
+    async def fake_rotate_browser_worker_token() -> str:
+        return "new-browser-secret"
+
     monkeypatch.setattr(
         provisioner,
         "get_settings",
@@ -97,9 +110,17 @@ async def test_provision_does_not_replay_migrations_for_existing_db(
     )
     monkeypatch.setattr(provisioner, "init_database", unexpected_init_database)
     monkeypatch.setattr(provisioner, "rotate_worker_token", fake_rotate_worker_token)
+    monkeypatch.setattr(
+        provisioner,
+        "rotate_browser_worker_token",
+        fake_rotate_browser_worker_token,
+    )
 
     await provisioner.provision(tmp_path)
 
     assert "PERSONA_WORKER_TOKEN=new-secret" in (
+        tmp_path / ".env"
+    ).read_text(encoding="utf-8")
+    assert "PERSONA_BROWSER_WORKER_TOKEN=new-browser-secret" in (
         tmp_path / ".env"
     ).read_text(encoding="utf-8")

@@ -16,33 +16,42 @@ import shutil
 import tempfile
 from pathlib import Path
 
+from app.adapters.remote_browser.credentials import rotate_browser_worker_token
 from app.llm.worker_queue import rotate_worker_token
 from app.settings import get_settings
 from app.storage.db import init_database
 
-_TOKEN_KEY = "PERSONA_WORKER_TOKEN"
+_TOKEN_KEY = "PERSONA_WORKER_TOKEN"  # noqa: S105
+_BROWSER_TOKEN_KEY = "PERSONA_BROWSER_WORKER_TOKEN"  # noqa: S105
 _BACKUP_NAME = ".env.persona-worker.bak"
 
 
-def _replace_token_line(text: str, token: str) -> str:
+def _replace_token_lines(text: str, tokens: dict[str, str]) -> str:
     lines = text.splitlines(keepends=True)
     newline = "\r\n" if "\r\n" in text else "\n"
-    replacement = f"{_TOKEN_KEY}={token}{newline}"
     output: list[str] = []
-    replaced = False
+    remaining = dict(tokens)
     for line in lines:
         stripped = line.lstrip()
-        if stripped.startswith(f"{_TOKEN_KEY}="):
-            if not replaced:
-                output.append(replacement)
-                replaced = True
+        matched = next(
+            (key for key in tokens if stripped.startswith(f"{key}=")),
+            None,
+        )
+        if matched is not None:
+            if matched in remaining:
+                output.append(f"{matched}={remaining.pop(matched)}{newline}")
             continue
         output.append(line)
-    if not replaced:
+    if remaining:
         if output and not output[-1].endswith(("\n", "\r")):
             output[-1] += newline
-        output.append(replacement)
+        output.extend(f"{key}={value}{newline}" for key, value in remaining.items())
     return "".join(output)
+
+
+def _replace_token_line(text: str, token: str) -> str:
+    """Backward-compatible single-token helper used by older callers/tests."""
+    return _replace_token_lines(text, {_TOKEN_KEY: token})
 
 
 def _atomic_write(path: Path, content: str, mode: int | None = None) -> None:
@@ -87,6 +96,33 @@ def update_env_token(env_path: Path, token: str) -> Path | None:
     return backup_path
 
 
+def update_env_tokens(
+    env_path: Path,
+    llm_token: str,
+    browser_token: str,
+) -> Path | None:
+    """Atomically upsert independent LLM and browser worker credentials."""
+    original = ""
+    original_mode: int | None = None
+    backup_path: Path | None = None
+    if env_path.exists():
+        original = env_path.read_text(encoding="utf-8")
+        original_mode = env_path.stat().st_mode
+        backup_path = env_path.with_name(_BACKUP_NAME)
+        backup_temp = backup_path.with_suffix(f"{backup_path.suffix}.tmp")
+        shutil.copy2(env_path, backup_temp)
+        os.replace(backup_temp, backup_path)
+    updated = _replace_token_lines(
+        original,
+        {
+            _TOKEN_KEY: llm_token,
+            _BROWSER_TOKEN_KEY: browser_token,
+        },
+    )
+    _atomic_write(env_path, updated, original_mode)
+    return backup_path
+
+
 async def provision(repo_root: Path) -> Path | None:
     """Rotate server token, then write it to ``repo_root/.env`` atomically."""
     previous_cwd = Path.cwd()
@@ -97,11 +133,13 @@ async def provision(repo_root: Path) -> Path | None:
         if not get_settings().db_path.exists():
             await init_database()
         token = await rotate_worker_token()
+        browser_token = await rotate_browser_worker_token()
         try:
-            return update_env_token(repo_root / ".env", token)
+            return update_env_tokens(repo_root / ".env", token, browser_token)
         finally:
             # Best-effort lifetime reduction; Python strings cannot be securely wiped.
             token = ""
+            browser_token = ""
     finally:
         os.chdir(previous_cwd)
 

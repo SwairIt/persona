@@ -41,6 +41,11 @@ _CREATE_INDEX_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 _VEC_MIGRATIONS = frozenset({"186_vec_memory.sql", "190_vec_screenshot.sql"})
+# The last production migration released before the append-only ledger
+# existed. A ledger-less installation may be proven at exactly this boundary,
+# baselined through it, and then upgraded normally. Never move this boundary:
+# future legacy compatibility needs a new reviewed boundary, not history edits.
+_LEGACY_LEDGER_BOUNDARY_ORDER = 203
 
 _LEDGER_DDL = """
 CREATE TABLE IF NOT EXISTS schema_migration (
@@ -99,6 +104,33 @@ class Migration:
     name: str
     checksum: str
     sql: str
+
+
+@dataclass(frozen=True, slots=True)
+class _CapabilityResult:
+    name: str
+    checksum: str
+    status: str
+    error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _IndexShape:
+    name: str
+    unique: int
+    partial: int
+    columns: tuple[tuple[str, int, str, int], ...]
+    definition_checksum: str
+
+
+@dataclass(frozen=True, slots=True)
+class _SchemaObjectShape:
+    kind: str
+    definition_checksum: str
+    columns: tuple[tuple[str, str, int, str, int, int], ...]
+    foreign_keys: tuple[tuple[str, str, str, str, str, str], ...]
+    indexes: tuple[_IndexShape, ...]
+    triggers: tuple[tuple[str, str], ...]
 
 
 def _checksum(sql: str) -> str:
@@ -186,8 +218,8 @@ async def _execute_script(
     migration: Migration,
     *,
     sqlite_vec_loaded: bool,
-) -> list[tuple[str, str]]:
-    capabilities: list[tuple[str, str]] = []
+) -> list[_CapabilityResult]:
+    capabilities: list[_CapabilityResult] = []
     for statement in split_sql_statements(migration.sql):
         if _is_optional_vec_statement(migration, statement):
             capability_name = (
@@ -196,9 +228,41 @@ async def _execute_script(
                 else "sqlite-vec/screenshot"
             )
             capability_checksum = _checksum(statement)
-            capabilities.append((capability_name, capability_checksum))
             if not sqlite_vec_loaded:
+                capabilities.append(
+                    _CapabilityResult(
+                        name=capability_name,
+                        checksum=capability_checksum,
+                        status="unavailable",
+                    )
+                )
                 continue
+            try:
+                await conn.execute(statement)
+            except Exception as exc:
+                capabilities.append(
+                    _CapabilityResult(
+                        name=capability_name,
+                        checksum=capability_checksum,
+                        status="failed",
+                        error=f"{type(exc).__name__}: {exc}"[:2000],
+                    )
+                )
+                log.warning(
+                    "migration.optional_capability_failed",
+                    capability=capability_name,
+                    error_type=type(exc).__name__,
+                    error=str(exc),
+                )
+            else:
+                capabilities.append(
+                    _CapabilityResult(
+                        name=capability_name,
+                        checksum=capability_checksum,
+                        status="applied",
+                    )
+                )
+            continue
         try:
             await conn.execute(statement)
         except aiosqlite.OperationalError as exc:
@@ -225,62 +289,228 @@ async def _create_ledger_tables(conn: aiosqlite.Connection) -> None:
         await conn.execute(statement)
 
 
-async def _table_names(conn: aiosqlite.Connection) -> set[str]:
+def _quoted_identifier(value: str) -> str:
+    return '"' + value.replace('"', '""') + '"'
+
+
+async def _schema_manifest(
+    conn: aiosqlite.Connection,
+    *,
+    object_names: set[str] | None = None,
+) -> dict[str, _SchemaObjectShape]:
+    """Describe every canonical object without depending on its row data."""
     cursor = await conn.execute(
-        "SELECT name FROM sqlite_master WHERE type IN ('table', 'view')"
+        "SELECT name, type FROM sqlite_master "
+        "WHERE type IN ('table', 'view') "
+        "AND name NOT LIKE 'sqlite_%' "
+        "AND name NOT IN ('schema_migration', 'schema_capability') "
+        "ORDER BY name"
     )
-    return {str(row[0]) for row in await cursor.fetchall()}
+    objects = await cursor.fetchall()
+    manifest: dict[str, _SchemaObjectShape] = {}
+    for raw_name, raw_kind in objects:
+        name = str(raw_name)
+        # A legacy DB can contain optional vec0 virtual/shadow tables even when
+        # the extension is unavailable in the current release. Describing such
+        # extra objects with PRAGMA table_xinfo would itself raise
+        # ``no such module: vec0``. Baseline verification only needs canonical
+        # objects from the extension-free reference manifest.
+        if object_names is not None and name not in object_names:
+            continue
+        kind = str(raw_kind)
+        # Column/FK/index/trigger PRAGMAs describe tables independently of
+        # whether an old installation reached the same shape via ALTER TABLE
+        # or a newer schema.sql. View bodies have no equivalent structural
+        # PRAGMA, so their SQL definition is part of the fingerprint.
+        definition_checksum = (
+            await _object_definition_checksum(conn, kind=kind, name=name)
+            if kind == "view"
+            else ""
+        )
+        quoted = _quoted_identifier(name)
+        column_cursor = await conn.execute(f"PRAGMA table_xinfo({quoted})")
+        columns = tuple(
+            (
+                str(row[1]),
+                str(row[2] or "").upper(),
+                int(row[3]),
+                str(row[4] or "").strip(),
+                int(row[5]),
+                int(row[6]),
+            )
+            for row in await column_cursor.fetchall()
+        )
+
+        foreign_keys: tuple[tuple[str, str, str, str, str, str], ...] = ()
+        indexes: tuple[_IndexShape, ...] = ()
+        if kind == "table":
+            foreign_key_cursor = await conn.execute(
+                f"PRAGMA foreign_key_list({quoted})"
+            )
+            foreign_keys = tuple(
+                sorted(
+                    (
+                        str(row[2]),
+                        str(row[3]),
+                        str(row[4]),
+                        str(row[5]),
+                        str(row[6]),
+                        str(row[7]),
+                    )
+                    for row in await foreign_key_cursor.fetchall()
+                )
+            )
+
+            index_cursor = await conn.execute(f"PRAGMA index_list({quoted})")
+            index_shapes: list[_IndexShape] = []
+            for row in await index_cursor.fetchall():
+                # Auto-index names are SQLite implementation details. Explicit
+                # indexes ("c") are migration-owned and therefore canonical.
+                if str(row[3]) != "c":
+                    continue
+                index_name = str(row[1])
+                index_info = await conn.execute(
+                    f"PRAGMA index_xinfo({_quoted_identifier(index_name)})"
+                )
+                index_columns = tuple(
+                    (
+                        str(info[2] or "<expression>"),
+                        int(info[3]),
+                        str(info[4] or ""),
+                        int(info[5]),
+                    )
+                    for info in await index_info.fetchall()
+                    if int(info[5]) == 1
+                )
+                index_shapes.append(
+                    _IndexShape(
+                        name=index_name,
+                        unique=int(row[2]),
+                        partial=int(row[4]),
+                        columns=index_columns,
+                        definition_checksum=await _object_definition_checksum(
+                            conn,
+                            kind="index",
+                            name=index_name,
+                        ),
+                    )
+                )
+            indexes = tuple(sorted(index_shapes, key=lambda value: value.name))
+
+        trigger_cursor = await conn.execute(
+            "SELECT name, sql FROM sqlite_master "
+            "WHERE type = 'trigger' AND tbl_name = ? ORDER BY name",
+            (name,),
+        )
+        triggers = tuple(
+            (str(row[0]), _checksum(str(row[1] or "")))
+            for row in await trigger_cursor.fetchall()
+        )
+        manifest[name] = _SchemaObjectShape(
+            kind=kind,
+            definition_checksum=definition_checksum,
+            columns=columns,
+            foreign_keys=foreign_keys,
+            indexes=indexes,
+            triggers=triggers,
+        )
+    return manifest
 
 
-async def _column_names(conn: aiosqlite.Connection, table: str) -> set[str]:
-    cursor = await conn.execute(f'PRAGMA table_info("{table}")')
-    return {str(row[1]) for row in await cursor.fetchall()}
-
-
-async def _legacy_schema_is_current(conn: aiosqlite.Connection) -> tuple[bool, list[str]]:
-    """Check the reviewed schema-head sentinels used for one-time baselining."""
-    tables = await _table_names(conn)
-    required_tables = {
-        "screenshots",
-        "chat_message",
-        "chat_message_fts",
-        "audio_segment",
-        "audio_segment_fts",
-        "mcp_server",
-        "kg_entity",
-        "kg_edge",
-        "tool_artifact",
-        "system_log",
-        "llm_job",
-        "llm_job_chunk",
-    }
-    missing = sorted(required_tables - tables)
-    if "mcp_server" in tables and "timeout_ms" not in await _column_names(
-        conn, "mcp_server"
-    ):
-        missing.append("mcp_server.timeout_ms")
-
-    if "kg_edge" in tables:
-        cursor = await conn.execute('PRAGMA foreign_key_list("kg_edge")')
-        fk_targets = {str(row[2]) for row in await cursor.fetchall()}
-        if "kg_entity" not in fk_targets:
-            missing.append("kg_edge foreign keys -> kg_entity")
-
+async def _object_definition_checksum(
+    conn: aiosqlite.Connection,
+    *,
+    kind: str,
+    name: str,
+) -> str:
     cursor = await conn.execute(
-        "SELECT name FROM sqlite_master WHERE type = 'index' AND name IN "
-        "('idx_llm_job_status', 'idx_llm_job_chunk', 'idx_tool_artifact_exec', "
-        "'idx_system_log_ts')"
+        "SELECT sql FROM sqlite_master WHERE type=? AND name=?",
+        (kind, name),
     )
-    indexes = {str(row[0]) for row in await cursor.fetchall()}
-    for index in (
-        "idx_llm_job_status",
-        "idx_llm_job_chunk",
-        "idx_tool_artifact_exec",
-        "idx_system_log_ts",
-    ):
-        if index not in indexes:
-            missing.append(index)
-    return not missing, missing
+    row = await cursor.fetchone()
+    return _checksum(str(row[0] or "") if row is not None else "")
+
+
+async def _reference_schema_manifest(
+    schema_sql: str,
+    migrations: list[Migration],
+) -> dict[str, _SchemaObjectShape]:
+    """Build the release's complete structural fingerprint in disposable RAM."""
+    async with aiosqlite.connect(":memory:", isolation_level=None) as reference:
+        await reference.execute("PRAGMA foreign_keys = ON")
+        await reference.execute("BEGIN IMMEDIATE")
+        try:
+            await _execute_schema(reference, schema_sql)
+            for migration in migrations:
+                await _execute_script(
+                    reference,
+                    migration,
+                    sqlite_vec_loaded=False,
+                )
+            return await _schema_manifest(reference)
+        finally:
+            await reference.execute("ROLLBACK")
+
+
+async def _legacy_schema_is_current(
+    conn: aiosqlite.Connection,
+    expected: dict[str, _SchemaObjectShape],
+) -> tuple[bool, list[str]]:
+    """Prove every canonical schema object before recording a full baseline."""
+    actual = await _schema_manifest(conn, object_names=set(expected))
+    differences: list[str] = []
+    for name, expected_shape in expected.items():
+        actual_shape = actual.get(name)
+        if actual_shape is None:
+            differences.append(name)
+            continue
+        if actual_shape.kind != expected_shape.kind:
+            differences.append(f"{name}.kind")
+        if actual_shape.definition_checksum != expected_shape.definition_checksum:
+            differences.append(f"{name}.definition")
+        if actual_shape.columns != expected_shape.columns:
+            differences.append(f"{name}.columns")
+        if actual_shape.foreign_keys != expected_shape.foreign_keys:
+            differences.append(f"{name}.foreign_keys")
+        if actual_shape.indexes != expected_shape.indexes:
+            differences.append(f"{name}.indexes")
+        if actual_shape.triggers != expected_shape.triggers:
+            differences.append(f"{name}.triggers")
+    return not differences, differences
+
+
+async def _select_legacy_baseline(
+    conn: aiosqlite.Connection,
+    *,
+    schema_sql: str,
+    migrations: list[Migration],
+) -> tuple[list[Migration], list[str]]:
+    """Prove either release head or the reviewed pre-ledger boundary."""
+
+    candidates = [migrations]
+    boundary = [
+        migration
+        for migration in migrations
+        if migration.order <= _LEGACY_LEDGER_BOUNDARY_ORDER
+    ]
+    if len(boundary) != len(migrations):
+        candidates.append(boundary)
+
+    all_differences: list[str] = []
+    for candidate in candidates:
+        expected_schema = await _reference_schema_manifest(
+            schema_sql,
+            candidate,
+        )
+        compatible, differences = await _legacy_schema_is_current(
+            conn,
+            expected_schema,
+        )
+        if compatible:
+            return candidate, []
+        label = candidate[-1].name if candidate else "schema.sql"
+        all_differences.extend(f"{label}:{item}" for item in differences)
+    return [], all_differences
 
 
 async def _ledger_exists(conn: aiosqlite.Connection) -> bool:
@@ -313,7 +543,7 @@ async def _verify_ledger(
         "SELECT migration_order, name, checksum, status, error "
         "FROM schema_migration ORDER BY migration_order"
     )
-    rows = await cursor.fetchall()
+    rows = list(await cursor.fetchall())
     failed = [row for row in rows if row[3] == "failed"]
     if failed:
         row = failed[0]
@@ -322,6 +552,13 @@ async def _verify_ledger(
         )
 
     manifest = {migration.name: migration for migration in migrations}
+    applied_names = [str(row[1]) for row in rows]
+    expected_prefix = [migration.name for migration in migrations[: len(rows)]]
+    if applied_names != expected_prefix:
+        raise MigrationChecksumError(
+            "Migration history is not an append-only manifest prefix: "
+            f"ledger={applied_names!r}, expected={expected_prefix!r}"
+        )
     applied: set[str] = set()
     for row in rows:
         order, name, checksum = int(row[0]), str(row[1]), str(row[2])
@@ -342,18 +579,15 @@ async def _verify_ledger(
 
 async def _record_capabilities(
     conn: aiosqlite.Connection,
-    capabilities: list[tuple[str, str]],
-    *,
-    sqlite_vec_loaded: bool,
+    capabilities: list[_CapabilityResult],
 ) -> None:
-    status = "applied" if sqlite_vec_loaded else "unavailable"
-    for name, checksum in capabilities:
+    for capability in capabilities:
         await conn.execute(
             """
             INSERT INTO schema_capability
                 (name, checksum, status, checked_at, applied_at, error)
             VALUES (?, ?, ?, datetime('now'),
-                    CASE WHEN ? = 'applied' THEN datetime('now') END, NULL)
+                    CASE WHEN ? = 'applied' THEN datetime('now') END, ?)
             ON CONFLICT(name) DO UPDATE SET
                 checksum = excluded.checksum,
                 status = excluded.status,
@@ -363,9 +597,15 @@ async def _record_capabilities(
                     THEN COALESCE(schema_capability.applied_at, excluded.applied_at)
                     ELSE schema_capability.applied_at
                 END,
-                error = NULL
+                error = excluded.error
             """,
-            (name, checksum, status, status),
+            (
+                capability.name,
+                capability.checksum,
+                capability.status,
+                capability.status,
+                capability.error,
+            ),
         )
 
 
@@ -406,22 +646,33 @@ async def _ensure_vec_capabilities(
                 try:
                     await conn.execute(statement)
                 except Exception as exc:
-                    await conn.execute(
-                        """
-                        INSERT INTO schema_capability
-                            (name, checksum, status, checked_at, error)
-                        VALUES (?, ?, 'failed', datetime('now'), ?)
-                        ON CONFLICT(name) DO UPDATE SET
-                            checksum=excluded.checksum, status='failed',
-                            checked_at=excluded.checked_at, error=excluded.error
-                        """,
-                        (name, checksum, str(exc)[:2000]),
+                    await _record_capabilities(
+                        conn,
+                        [
+                            _CapabilityResult(
+                                name=name,
+                                checksum=checksum,
+                                status="failed",
+                                error=f"{type(exc).__name__}: {exc}"[:2000],
+                            )
+                        ],
                     )
-                    raise
+                    log.warning(
+                        "migration.optional_capability_failed",
+                        capability=name,
+                        error_type=type(exc).__name__,
+                        error=str(exc),
+                    )
+                    continue
             await _record_capabilities(
                 conn,
-                [(name, checksum)],
-                sqlite_vec_loaded=sqlite_vec_loaded,
+                [
+                    _CapabilityResult(
+                        name=name,
+                        checksum=checksum,
+                        status="applied" if sqlite_vec_loaded else "unavailable",
+                    )
+                ],
             )
 
 
@@ -461,7 +712,7 @@ async def _apply_pending(
                 migration,
                 sqlite_vec_loaded=sqlite_vec_loaded,
             )
-        except BaseException as exc:
+        except Exception as exc:
             raise _MigrationBodyError(migration, exc) from exc
         duration_ms = max(0, round((time.perf_counter() - started) * 1000))
         await conn.execute(
@@ -477,7 +728,6 @@ async def _apply_pending(
         await _record_capabilities(
             conn,
             capabilities,
-            sqlite_vec_loaded=sqlite_vec_loaded,
         )
         applied_count += 1
         total_duration_ms += duration_ms
@@ -543,14 +793,19 @@ async def migrate(
         # baseline it.  Replaying all historical migrations here can rebuild
         # FTS tables and overwrite operator-managed seed configuration.
         if has_application_schema and not ledger_has_rows:
-            compatible, missing = await _legacy_schema_is_current(conn)
-            if not compatible:
+            baseline, differences = await _select_legacy_baseline(
+                conn,
+                schema_sql=schema_sql,
+                migrations=migrations,
+            )
+            if not baseline:
                 raise LegacySchemaError(
-                    "Legacy database is not provably at schema head; missing: "
-                    + ", ".join(missing)
+                    "Legacy database is not provably at schema head or the "
+                    "reviewed pre-ledger boundary; differences: "
+                    + ", ".join(differences)
                 )
-            await _insert_baseline(conn, migrations)
-            applied = {migration.name for migration in migrations}
+            await _insert_baseline(conn, baseline)
+            applied = {migration.name for migration in baseline}
             log.info("migration.legacy_baseline_created", count=len(applied))
         else:
             if not has_application_schema:
@@ -578,6 +833,8 @@ async def migrate(
     except BaseException as exc:
         with suppress(aiosqlite.OperationalError):
             await conn.execute("ROLLBACK")
+        if not isinstance(exc, Exception):
+            raise
         if isinstance(exc, (MigrationChecksumError, MigrationFailedState)):
             raise
         failed_migration = exc.migration if isinstance(exc, _MigrationBodyError) else None

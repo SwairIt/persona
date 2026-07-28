@@ -250,7 +250,7 @@ _INFO: dict[str, dict] = {
         ],
     },
     "changelog": {
-        "path": "/changelog", "title": "История изменений",
+        "path": "/roadmap/releases", "title": "История изменений",
         "lead": "Ключевые улучшения последних релизов линейки 2.20.x.",
         "sections": [
             ("Память и доверие", [

@@ -30,7 +30,7 @@ async def client() -> AsyncIterator[AsyncClient]:
 
 
 async def test_feature_index_page(client: AsyncClient) -> None:
-    resp = await client.get("/features")
+    resp = await client.get("/feature-index")
     assert resp.status_code == 200
 
 

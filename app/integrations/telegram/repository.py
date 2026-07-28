@@ -13,7 +13,7 @@ import json
 import secrets
 from dataclasses import dataclass
 
-from app.storage.db import get_connection
+from app.storage.db import get_connection, write_transaction
 from app.storage.repository import delete_kv, get_kv, set_kv
 
 _OWNER_TG_KEY = "telegram_owner_user_id"
@@ -21,6 +21,8 @@ _OWNER_PERSONA_KEY = "telegram_owner_persona_user_id"
 _ALLOWED_CHATS_KEY = "telegram_allowed_chat_ids"
 _PAIRING_HASH_KEY = "telegram_pairing_secret_hash"
 _UPDATE_OFFSET_KEY = "telegram_update_offset"
+_WORKER_LEASE_NAME = "telegram-update-consumer"
+_MAX_LEASE_SECONDS = 600
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,6 +32,232 @@ class TelegramBinding:
 
 
 class TelegramRepository:
+    async def acquire_worker_lease(
+        self,
+        holder_id: str,
+        *,
+        lease_seconds: int = _MAX_LEASE_SECONDS,
+    ) -> bool:
+        """Acquire or renew the singleton Telegram update-consumer lease."""
+        holder = str(holder_id or "").strip()
+        if not holder or len(holder) > 160:
+            raise ValueError("invalid Telegram worker lease holder")
+        modifier = _lease_modifier(lease_seconds)
+        async with write_transaction() as conn:
+            cursor = await conn.execute(
+                """
+                INSERT INTO runtime_lease
+                    (name, holder_id, lease_until, updated_at)
+                VALUES (?, ?, datetime('now', ?), datetime('now'))
+                ON CONFLICT(name) DO UPDATE SET
+                    holder_id=excluded.holder_id,
+                    lease_until=excluded.lease_until,
+                    updated_at=excluded.updated_at
+                WHERE runtime_lease.holder_id=excluded.holder_id
+                   OR runtime_lease.lease_until <= datetime('now')
+                RETURNING holder_id
+                """,
+                (_WORKER_LEASE_NAME, holder, modifier),
+            )
+            row = await cursor.fetchone()
+        return row is not None and str(row["holder_id"]) == holder
+
+    async def renew_processing_lease(
+        self,
+        update_id: int,
+        holder_id: str,
+        *,
+        lease_seconds: int = _MAX_LEASE_SECONDS,
+    ) -> bool:
+        """Atomically renew the singleton worker and one in-flight update.
+
+        Renewal is allowed only while both leases are still live. A suspended
+        process cannot wake up and revive a lease that another process could
+        already have acquired.
+        """
+        holder = _holder(holder_id)
+        update = _update_id(update_id)
+        modifier = _lease_modifier(lease_seconds)
+        async with write_transaction() as conn:
+            active = await conn.execute(
+                """
+                SELECT 1
+                  FROM runtime_lease AS worker
+                  JOIN telegram_update_inbox AS inbox
+                    ON inbox.update_id=?
+                 WHERE worker.name=?
+                   AND worker.holder_id=?
+                   AND worker.lease_until>datetime('now')
+                   AND inbox.status='processing'
+                   AND inbox.holder_id=?
+                   AND inbox.lease_until>datetime('now')
+                """,
+                (update, _WORKER_LEASE_NAME, holder, holder),
+            )
+            if await active.fetchone() is None:
+                return False
+            worker = await conn.execute(
+                """
+                UPDATE runtime_lease
+                   SET lease_until=datetime('now', ?),
+                       updated_at=datetime('now')
+                 WHERE name=?
+                   AND holder_id=?
+                """,
+                (modifier, _WORKER_LEASE_NAME, holder),
+            )
+            if worker.rowcount != 1:
+                return False
+            inbox = await conn.execute(
+                """
+                UPDATE telegram_update_inbox
+                   SET lease_until=datetime('now', ?),
+                       updated_at=datetime('now')
+                 WHERE update_id=?
+                   AND status='processing'
+                   AND holder_id=?
+                """,
+                (modifier, update, holder),
+            )
+            return inbox.rowcount == 1
+
+    async def release_worker_lease(self, holder_id: str) -> None:
+        holder = str(holder_id or "").strip()
+        if not holder:
+            return
+        async with write_transaction() as conn:
+            await conn.execute(
+                "DELETE FROM runtime_lease WHERE name=? AND holder_id=?",
+                (_WORKER_LEASE_NAME, holder),
+            )
+
+    async def claim_update(
+        self,
+        update_id: int,
+        holder_id: str,
+        *,
+        lease_seconds: int = _MAX_LEASE_SECONDS,
+    ) -> bool:
+        """Reserve a never-before-seen update while holding the live worker lease.
+
+        Any existing row, including one left ``processing`` by a crashed
+        process, suppresses replay. This intentionally favours at-most-once
+        DB/LLM handling over retrying an update whose side effects are unknown.
+        """
+        update = _update_id(update_id)
+        holder = _holder(holder_id)
+        modifier = _lease_modifier(lease_seconds)
+        async with write_transaction() as conn:
+            cursor = await conn.execute(
+                """
+                INSERT INTO telegram_update_inbox(
+                    update_id, status, holder_id, lease_until,
+                    first_seen_at, updated_at
+                )
+                SELECT ?, 'processing', ?, datetime('now', ?),
+                       datetime('now'), datetime('now')
+                 WHERE EXISTS (
+                    SELECT 1
+                      FROM runtime_lease
+                     WHERE name=?
+                       AND holder_id=?
+                       AND lease_until>datetime('now')
+                 )
+                ON CONFLICT(update_id) DO NOTHING
+                RETURNING update_id
+                """,
+                (
+                    update,
+                    holder,
+                    modifier,
+                    _WORKER_LEASE_NAME,
+                    holder,
+                ),
+            )
+            return await cursor.fetchone() is not None
+
+    async def finish_update(
+        self,
+        update_id: int,
+        holder_id: str,
+        *,
+        status: str,
+        outcome: str,
+    ) -> bool:
+        """Finish an inbox row only while this process still owns both leases."""
+        if status not in {"processed", "failed"}:
+            raise ValueError("invalid Telegram inbox terminal status")
+        update = _update_id(update_id)
+        holder = _holder(holder_id)
+        safe_outcome = "".join(
+            char for char in str(outcome or "") if char.isalnum() or char in "._-"
+        )[:80]
+        async with write_transaction() as conn:
+            cursor = await conn.execute(
+                """
+                UPDATE telegram_update_inbox
+                   SET status=?,
+                       holder_id=NULL,
+                       lease_until=NULL,
+                       outcome=?,
+                       processed_at=datetime('now'),
+                       updated_at=datetime('now')
+                 WHERE update_id=?
+                   AND status='processing'
+                   AND holder_id=?
+                   AND lease_until>datetime('now')
+                   AND EXISTS (
+                       SELECT 1
+                         FROM runtime_lease
+                        WHERE name=?
+                          AND holder_id=?
+                          AND lease_until>datetime('now')
+                   )
+                """,
+                (
+                    status,
+                    safe_outcome or status,
+                    update,
+                    holder,
+                    _WORKER_LEASE_NAME,
+                    holder,
+                ),
+            )
+            return cursor.rowcount == 1
+
+    async def save_update_offset_if_leased(
+        self,
+        offset: int,
+        holder_id: str,
+    ) -> bool:
+        """Advance the poll cursor only for the current singleton consumer."""
+        holder = _holder(holder_id)
+        safe_offset = max(0, int(offset))
+        async with write_transaction() as conn:
+            lease = await conn.execute(
+                """
+                SELECT 1
+                  FROM runtime_lease
+                 WHERE name=?
+                   AND holder_id=?
+                   AND lease_until>datetime('now')
+                """,
+                (_WORKER_LEASE_NAME, holder),
+            )
+            if await lease.fetchone() is None:
+                return False
+            await conn.execute(
+                """
+                INSERT INTO kv_settings(key, value, updated_at)
+                VALUES(?, ?, datetime('now'))
+                ON CONFLICT(key) DO UPDATE SET
+                    value=excluded.value,
+                    updated_at=excluded.updated_at
+                """,
+                (_UPDATE_OFFSET_KEY, str(safe_offset)),
+            )
+            return True
+
     async def get_binding(self) -> TelegramBinding | None:
         async with get_connection() as conn:
             tg_raw = await get_kv(conn, _OWNER_TG_KEY)
@@ -117,6 +345,24 @@ class TelegramRepository:
 
 def _session_key(chat_id: int) -> str:
     return f"telegram_chat_session_{int(chat_id)}"
+
+
+def _holder(value: str) -> str:
+    holder = str(value or "").strip()
+    if not holder or len(holder) > 160:
+        raise ValueError("invalid Telegram worker lease holder")
+    return holder
+
+
+def _update_id(value: int) -> int:
+    update = int(value)
+    if update < 0:
+        raise ValueError("Telegram update_id cannot be negative")
+    return update
+
+
+def _lease_modifier(value: int) -> str:
+    return f"+{max(30, min(int(value), _MAX_LEASE_SECONDS))} seconds"
 
 
 __all__ = ["TelegramBinding", "TelegramRepository"]

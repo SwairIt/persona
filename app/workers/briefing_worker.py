@@ -6,11 +6,17 @@
 (notifications.push, link → /chat). Toggle `briefing_enabled` (деф. вкл).
 """
 
+# ruff: noqa: RUF002, RUF003
+
 from __future__ import annotations
 
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from app import notifications
+from app.adapters.autowake import SqliteAutowakeRepository
+from app.application.autowake import AutowakeService, enqueue_completed_briefing
+from app.auth.owner import get_owner_user_id
 from app.briefing import build_briefing, build_briefing_cards, store_cards
 from app.logging_setup import get_logger
 from app.storage.db import get_connection
@@ -59,7 +65,7 @@ async def _job_push_briefing() -> None:
             if await is_quiet_now(conn):
                 log.info("briefing.job.skipped_quiet")
                 return
-    except Exception as exc:  # noqa: BLE001 — тихие часы не должны ронять брифинг
+    except Exception as exc:
         log.debug("briefing.quiet_check_failed", error=str(exc))
 
     # S3b — собрать и сохранить карточки (страница /briefing с фидбеком).
@@ -67,12 +73,12 @@ async def _job_push_briefing() -> None:
     try:
         cards = await build_briefing_cards(when="morning")
         cards_n = await store_cards(cards, slot="morning")
-    except Exception as exc:  # noqa: BLE001 — карточки best-effort
+    except Exception as exc:
         log.debug("briefing.cards_failed", error=str(exc))
 
     try:
         result = await build_briefing(when="morning")
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.exception("briefing.build_failed", error=str(exc))
         result = None
     if result is None and cards_n == 0:
@@ -81,6 +87,20 @@ async def _job_push_briefing() -> None:
     title = result[0] if result else "🌅 Утренняя сводка"
     body = result[1] if result else None
     try:
+        owner_id = await get_owner_user_id()
+        if owner_id is not None:
+            completed_at = datetime.now().astimezone()
+            await enqueue_completed_briefing(
+                AutowakeService(
+                    SqliteAutowakeRepository(),
+                    expected_owner_user_id=int(owner_id),
+                ),
+                owner_user_id=int(owner_id),
+                slot="morning",
+                title=title,
+                body=body or f"Готово карточек: {cards_n}. Открой /briefing.",
+                completed_at=completed_at,
+            )
         await notifications.push(
             kind="briefing",
             title=title,
@@ -89,7 +109,7 @@ async def _job_push_briefing() -> None:
             severity="info",
         )
         log.info("briefing.job.done", cards=cards_n)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.exception("briefing.push_failed", error=str(exc))
 
 

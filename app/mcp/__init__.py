@@ -44,16 +44,17 @@ _BROWSER_AGENT_TOOL_NAMES = frozenset({
 
 
 async def get_browser_backend() -> str:
-    """Which browser backend the user picked: ``builtin`` | ``mcp`` | ``both``.
+    """Which browser backend the user picked.
 
-    Defaults to ``builtin`` so the per-session agent works out of the box.
+    ``remote`` keeps the built-in browser tool names but executes them on the
+    owner's outbound-only Playwright PC worker.
     """
     from app.storage.db import get_connection  # noqa: PLC0415
     from app.storage.repository import get_kv  # noqa: PLC0415
 
     async with get_connection() as conn:
         raw = (await get_kv(conn, "browser_backend") or "builtin").strip().lower()
-    return raw if raw in ("builtin", "mcp", "both") else "builtin"
+    return raw if raw in ("builtin", "remote", "mcp", "both") else "builtin"
 
 
 async def enabled_builtin_tool_names() -> list[str]:

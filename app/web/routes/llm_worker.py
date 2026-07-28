@@ -101,7 +101,11 @@ async def worker_probe(
 ) -> JSONResponse:
     """Validate connectivity and worker credentials without claiming a job."""
     await _require_worker(x_worker_token)
-    return JSONResponse({"ok": True}, headers={"Cache-Control": "no-store"})
+    config = await worker_queue.worker_runtime_config()
+    return JSONResponse(
+        {"ok": True, **config},
+        headers={"Cache-Control": "no-store"},
+    )
 
 # Event будит long-poll сразу при enqueue в этом server process. Timeout нужен
 # только как fallback при нескольких uvicorn workers / внешней записи в БД.

@@ -33,8 +33,12 @@ def _heuristic_importance(text: str, kind: str, pinned: bool = False) -> float:
     Не LLM специально: дешёвый детерминированный fallback, не зависит от Ollama.
     """
     base = {
-        "person": 7.0, "project": 7.0, "preference": 6.5,
-        "reminder": 6.0, "fact": 5.0, "other": 4.0,
+        "person": 7.0,
+        "project": 7.0,
+        "preference": 6.5,
+        "reminder": 6.0,
+        "fact": 5.0,
+        "other": 4.0,
     }.get(kind, 5.0)
     low = (text or "").lower()
     n = len(text or "")
@@ -42,10 +46,24 @@ def _heuristic_importance(text: str, kind: str, pinned: bool = False) -> float:
         base -= 1.0
     elif n > 80:
         base += 0.7
-    if any(w in low for w in (
-        "зовут", "люблю", "ненавиж", "цель", "хочу", "работа", "живу", "важно",
-        "name", "goal", "prefer", "always", "never",
-    )):
+    if any(
+        w in low
+        for w in (
+            "зовут",
+            "люблю",
+            "ненавиж",
+            "цель",
+            "хочу",
+            "работа",
+            "живу",
+            "важно",
+            "name",
+            "goal",
+            "prefer",
+            "always",
+            "never",
+        )
+    ):
         base += 0.8
     if any(w in low for w in ("привет", "ладно", "ха-ха", " lol", "hello")):
         base -= 0.8
@@ -68,30 +86,61 @@ async def add_memory(
     if kind not in _KINDS:
         kind = "fact"
     async with write_transaction() as conn:
-        cur = await conn.execute(
-            "SELECT id FROM user_memory WHERE user_id = ? AND lower(text) = lower(?) "
-            "AND valid_until IS NULL LIMIT 1",
-            (user_id, text),
+        return await _add_memory_in_transaction(
+            conn,
+            user_id,
+            text,
+            kind=kind,
+            source_session_id=source_session_id,
+            pinned=pinned,
         )
-        existing = await cur.fetchone()
-        if existing:
-            if pinned:
-                await conn.execute(
-                    "UPDATE user_memory SET pinned = 1, updated_at = datetime('now') WHERE id = ?",
-                    (existing["id"],),
-                )
-            return int(existing["id"])
-        sal = _heuristic_importance(text, kind, pinned)
-        cur = await conn.execute(
-            "INSERT INTO user_memory(user_id, kind, text, pinned, source_session_id, "
-            "salience, importance_source) VALUES(?,?,?,?,?,?,?)",
-            (user_id, kind, text, 1 if pinned else 0, source_session_id, sal, "heuristic"),
-        )
-        return int(cur.lastrowid)
+
+
+async def _add_memory_in_transaction(
+    conn: Any,
+    user_id: int,
+    text: str,
+    *,
+    kind: str,
+    source_session_id: int | None,
+    pinned: bool = False,
+) -> int:
+    """Insert/deduplicate one already-normalized fact on the caller transaction."""
+
+    cur = await conn.execute(
+        "SELECT id FROM user_memory WHERE user_id = ? AND lower(text) = lower(?) "
+        "AND valid_until IS NULL LIMIT 1",
+        (user_id, text),
+    )
+    existing = await cur.fetchone()
+    if existing:
+        if pinned:
+            await conn.execute(
+                "UPDATE user_memory SET pinned = 1, updated_at = datetime('now') WHERE id = ?",
+                (existing["id"],),
+            )
+        return int(existing["id"])
+    sal = _heuristic_importance(text, kind, pinned)
+    cur = await conn.execute(
+        "INSERT INTO user_memory(user_id, kind, text, pinned, source_session_id, "
+        "salience, importance_source) VALUES(?,?,?,?,?,?,?)",
+        (
+            user_id,
+            kind,
+            text,
+            1 if pinned else 0,
+            source_session_id,
+            sal,
+            "heuristic",
+        ),
+    )
+    return int(cur.lastrowid)
 
 
 async def list_memory(
-    user_id: int, limit: int = 200, include_invalidated: bool = False,
+    user_id: int,
+    limit: int = 200,
+    include_invalidated: bool = False,
     order_by_salience: bool = False,
 ) -> list[dict[str, Any]]:
     """Факты пользователя: закреплённые сверху, потом новые.
@@ -146,27 +195,38 @@ async def count_memory(user_id: int) -> int:
     """Число АКТУАЛЬНЫХ фактов (для бюджета авто-роста)."""
     async with get_connection() as conn:
         cur = await conn.execute(
-            "SELECT COUNT(*) AS n FROM user_memory "
-            "WHERE user_id = ? AND valid_until IS NULL",
+            "SELECT COUNT(*) AS n FROM user_memory WHERE user_id = ? AND valid_until IS NULL",
             (user_id,),
         )
         row = await cur.fetchone()
     return int(row["n"]) if row else 0
 
 
-async def invalidate_memory(
-    user_id: int, mem_id: int, superseded_by: int | None = None
-) -> bool:
+async def invalidate_memory(user_id: int, mem_id: int, superseded_by: int | None = None) -> bool:
     """Soft-invalidate факта: valid_until=now (+superseded_by). НЕ удаляет —
     факт уходит из recall/list, но остаётся в истории и откатывается."""
     async with write_transaction() as conn:
-        cur = await conn.execute(
-            "UPDATE user_memory SET valid_until = datetime('now'), superseded_by = ?, "
-            "updated_at = datetime('now') "
-            "WHERE id = ? AND user_id = ? AND valid_until IS NULL",
-            (superseded_by, mem_id, user_id),
+        return await _invalidate_memory_in_transaction(
+            conn, user_id, mem_id, superseded_by=superseded_by
         )
-        return cur.rowcount > 0
+
+
+async def _invalidate_memory_in_transaction(
+    conn: Any,
+    user_id: int,
+    mem_id: int,
+    *,
+    superseded_by: int | None = None,
+) -> bool:
+    """Soft-invalidate one fact on the caller's existing write transaction."""
+
+    cur = await conn.execute(
+        "UPDATE user_memory SET valid_until = datetime('now'), superseded_by = ?, "
+        "updated_at = datetime('now') "
+        "WHERE id = ? AND user_id = ? AND valid_until IS NULL",
+        (superseded_by, mem_id, user_id),
+    )
+    return cur.rowcount > 0
 
 
 async def edit_memory(user_id: int, mem_id: int, text: str) -> bool:
@@ -301,7 +361,10 @@ async def _llm_decide(new_text: str, candidates: list[dict[str, Any]]) -> dict[s
 
 
 async def reconcile_and_add(
-    user_id: int, text: str, kind: str = "fact", source_session_id: int | None = None,
+    user_id: int,
+    text: str,
+    kind: str = "fact",
+    source_session_id: int | None = None,
     decider: Any = None,
 ) -> dict[str, Any]:
     """mem0-стиль добавление с разрешением противоречий (bi-temporal soft-invalidate).
@@ -330,8 +393,34 @@ async def reconcile_and_add(
     if action in ("update", "delete") and target in valid_targets:
         # и update, и delete: добавляем новый факт + soft-invalidate старый
         # (delete = старое опровергнуто, но новое утверждение всё равно помним).
-        new_id = await add_memory(user_id, text, kind=kind, source_session_id=source_session_id)
-        await invalidate_memory(user_id, int(target), superseded_by=new_id)
+        # Обе записи обязаны коммититься вместе: иначе падение между add/invalidate
+        # оставляет два активных взаимоисключающих факта.
+        async with write_transaction() as conn:
+            cur = await conn.execute(
+                "SELECT id FROM user_memory WHERE id = ? AND user_id = ? "
+                "AND valid_until IS NULL AND pinned = 0",
+                (int(target), user_id),
+            )
+            active_target = await cur.fetchone()
+            new_id = await _add_memory_in_transaction(
+                conn,
+                user_id,
+                text,
+                kind=kind,
+                source_session_id=source_session_id,
+            )
+            if active_target is None:
+                # Конкурентный прогон уже изменил выбранный target. Новый факт
+                # остаётся обычным ADD; не инвалидируем чужую свежую revision.
+                return {"action": "add", "id": new_id}
+            invalidated = await _invalidate_memory_in_transaction(
+                conn,
+                user_id,
+                int(target),
+                superseded_by=new_id,
+            )
+            if not invalidated:  # pragma: no cover — BEGIN IMMEDIATE + check above
+                raise RuntimeError("memory target became inactive inside transaction")
         log.info("user_memory.reconcile", action=action, target=target, new_id=new_id)
         return {"action": action, "id": new_id, "invalidated": int(target)}
     new_id = await add_memory(user_id, text, kind=kind, source_session_id=source_session_id)
@@ -393,9 +482,7 @@ def _pick_representative(group: list[dict[str, Any]]) -> dict[str, Any]:
     )
 
 
-async def consolidate_memories(
-    user_id: int, threshold: float = 0.6
-) -> list[dict[str, Any]]:
+async def consolidate_memories(user_id: int, threshold: float = 0.6) -> list[dict[str, Any]]:
     """Слить дубли среди АКТУАЛЬНЫХ фактов пользователя (ночная Phase 3b).
 
     Группируем актуальные факты агломеративно по Жаккару ключевых токенов
@@ -415,6 +502,16 @@ async def consolidate_memories(
         return []
     merges: list[dict[str, Any]] = []
     for group in _cluster_by_jaccard(rows, threshold):
+        if any(bool(row.get("pinned")) for row in group):
+            # Pinned memory is an explicit owner decision. Heuristic nightly
+            # consolidation must never retire it or silently choose another
+            # representative; the whole ambiguous cluster waits for review.
+            log.info(
+                "user_memory.consolidate_skipped_pinned",
+                user_id=user_id,
+                ids=[int(row["id"]) for row in group],
+            )
+            continue
         rep = _pick_representative(group)
         rep_id = int(rep["id"])
         merged_ids: list[int] = []
@@ -475,7 +572,13 @@ _FACTS_SCHEMA: dict[str, Any] = {
 }
 
 
-async def _extract_facts(client: Any, system: str, user: str) -> list[dict[str, str]]:
+async def _extract_facts(
+    client: Any,
+    system: str,
+    user: str,
+    *,
+    raise_on_provider_error: bool = False,
+) -> list[dict[str, str]]:
     """Вытащить факты: GBNF-схема для Ollama (надёжно), строковый парсер — fallback."""
     from app.llm.client import CompletionRequest  # noqa: PLC0415
 
@@ -484,15 +587,20 @@ async def _extract_facts(client: Any, system: str, user: str) -> list[dict[str, 
         try:
             out = await client.complete_json(
                 CompletionRequest(
-                    system=system + " Верни JSON {facts:[{text,kind}]}; пустой массив если фактов нет.",
-                    user=user, max_tokens=300, temperature=0.0,
+                    system=system
+                    + " Верни JSON {facts:[{text,kind}]}; пустой массив если фактов нет.",
+                    user=user,
+                    max_tokens=300,
+                    temperature=0.0,
                 ),
                 _FACTS_SCHEMA,
             )
             res: list[dict[str, str]] = []
-            for f in (out.get("facts") or []):
+            for f in out.get("facts") or []:
                 if isinstance(f, dict) and str(f.get("text", "")).strip():
-                    res.append({"text": str(f["text"]).strip(), "kind": str(f.get("kind") or "fact")})
+                    res.append(
+                        {"text": str(f["text"]).strip(), "kind": str(f.get("kind") or "fact")}
+                    )
             return res
         except Exception as exc:  # noqa: BLE001 — падаем на строковый парсер
             log.debug("user_memory.extract_json_failed", error=str(exc))
@@ -503,6 +611,8 @@ async def _extract_facts(client: Any, system: str, user: str) -> list[dict[str, 
         )
     except Exception as exc:  # noqa: BLE001
         log.debug("user_memory.extract_failed", error=str(exc))
+        if raise_on_provider_error:
+            raise RuntimeError("fact extraction provider failed") from exc
         return []
     facts: list[dict[str, str]] = []
     for raw in (out_text or "").splitlines():
@@ -590,9 +700,7 @@ async def build_memory_block(user_id: int, max_items: int = 14) -> str:
     try:
         from app.dreams import list_active_reflections  # noqa: PLC0415
 
-        refl = await list_active_reflections(
-            user_id, kinds=["insight", "dream"], limit=4
-        )
+        refl = await list_active_reflections(user_id, kinds=["insight", "dream"], limit=4)
     except Exception as exc:  # noqa: BLE001 — рефлексии опциональны, не ломаем промпт
         log.debug("user_memory.reflections_skip", error=str(exc))
         refl = []

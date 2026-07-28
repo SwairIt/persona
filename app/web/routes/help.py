@@ -18,9 +18,9 @@ from app.web.templates_engine import templates
 router = APIRouter(tags=["help"])
 
 
-@router.get("/help/shortcuts", response_class=HTMLResponse)
+@router.get("/help/legacy-shortcuts", response_class=HTMLResponse)
 async def help_shortcuts(request: Request) -> HTMLResponse:
-    """Legacy keyboard-shortcuts cheatsheet. Linked from /help."""
+    """Legacy keyboard-shortcuts cheatsheet kept at a non-colliding URL."""
     return templates.TemplateResponse(
         request,
         "help.html",

@@ -21,15 +21,17 @@ The authoritative migration implementation is
 - Migrations 164, 179, 198 and 199 are never replayed on an ordinary startup.
 
 The first deployment to a current legacy database (a database created by the
-old replay runner) checks a reviewed set of schema-head sentinels before
-creating baseline rows. This includes the chat/audio FTS tables, the migrated
-knowledge-graph foreign keys, and schema objects from migrations 200–203. If
-the head cannot be proven, startup fails closed instead of replaying destructive
-or operator-visible migrations.
+old replay runner) builds the release schema in a disposable in-memory database
+and compares every canonical table/view, column, foreign key, explicit index
+and trigger before creating baseline rows. Extra optional sqlite-vec shadow
+objects are ignored, but every extension-free canonical object must match. If
+the full structural fingerprint cannot be proven, startup fails closed instead
+of replaying destructive or operator-visible migrations.
 
 Optional sqlite-vec tables are tracked separately in `schema_capability`.
 Installing the extension later creates the missing vec0 tables without
-replaying migrations 186 or 190.
+replaying migrations 186 or 190. An unavailable or failed optional capability
+is observable in that table but does not roll back or block the core schema.
 
 ## Before production rollout
 
@@ -102,11 +104,13 @@ COMMIT;
 6. Start one process and verify the ledger before scaling out.
 
 For `__legacy_baseline__.sql`, deletion alone is not a repair. Its error lists
-missing schema-head sentinels. Restore/upgrade a copy using the previous
-compatible application until it reaches the current schema and validate it.
+the mismatching structural objects or facets (`table.columns`,
+`table.foreign_keys`, `table.indexes`, or `table.triggers`). Restore/upgrade a
+copy using the previous compatible application until it reaches the current
+schema and validate it.
 Only then remove the synthetic failed row as described above. If no applied
-rows remain, the runner re-checks every reviewed head sentinel and creates a
-baseline; it never replays historical migrations merely because the empty
+rows remain, the runner repeats the complete structural comparison and creates
+a baseline; it never replays historical migrations merely because the empty
 ledger tables still exist.
 
 ## Checksum drift

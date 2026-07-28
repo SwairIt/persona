@@ -77,7 +77,7 @@ async def browser_open(
     ok, norm, why = await manager.check_url(url)
     if not ok:
         return f"[error] {why}"
-    res = await manager.run(sid, "open", url=norm)
+    res = await manager.run(sid, "open", user_id=user_id, url=norm)
     return _fmt(res, f"Открыл {norm}")
 
 
@@ -91,7 +91,7 @@ async def browser_click(
     sel = str(args.get("selector") or args.get("sel") or args.get("element") or "").strip()
     if not sel:
         return "[error] нужен selector (например '#login' или 'text=Войти')"
-    res = await manager.run(sid, "click", selector=sel)
+    res = await manager.run(sid, "click", user_id=user_id, selector=sel)
     return _fmt(res, f"Кликнул по {sel}")
 
 
@@ -107,7 +107,14 @@ async def browser_type(
     if not sel:
         return "[error] нужен selector поля ввода"
     enter = bool(args.get("enter") or args.get("submit"))
-    res = await manager.run(sid, "type", selector=sel, text=text, enter=enter)
+    res = await manager.run(
+        sid,
+        "type",
+        user_id=user_id,
+        selector=sel,
+        text=text,
+        enter=enter,
+    )
     return _fmt(res, f"Ввёл текст в {sel}" + (" + Enter" if enter else ""))
 
 
@@ -119,7 +126,7 @@ async def browser_read(
     if sid is None:
         return "[error] браузер-агент работает только внутри чат-сессии"
     sel = str(args.get("selector") or args.get("sel") or "").strip()
-    res = await manager.run(sid, "read", selector=sel)
+    res = await manager.run(sid, "read", user_id=user_id, selector=sel)
     if not res.get("ok"):
         return f"[error] {res.get('error', 'не смог прочитать')}"
     text = res.get("text", "") or "(пусто)"
@@ -141,9 +148,16 @@ async def browser_screenshot(
         bdir.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
         return f"[error] не смог создать папку для скринов: {exc}"
-    out = bdir / f"agent-{sid}-{int(_time.time())}.png"
+    extension = "jpg" if await manager.browser_backend() == "remote" else "png"
+    out = bdir / f"agent-{sid}-{int(_time.time())}.{extension}"
     full_page = bool(args.get("full_page", True))
-    res = await manager.run(sid, "screenshot", path=str(out), full_page=full_page)
+    res = await manager.run(
+        sid,
+        "screenshot",
+        user_id=user_id,
+        path=str(out),
+        full_page=full_page,
+    )
     if not res.get("ok"):
         return f"[error] {res.get('error', 'скриншот не удался')}"
     rel = Path(out).relative_to(ws).as_posix()
@@ -161,7 +175,7 @@ async def browser_close(
     sid = _need_session(session_id)
     if sid is None:
         return "[ok] браузер не был открыт"
-    res = await manager.run(sid, "close")
+    res = await manager.run(sid, "close", user_id=user_id)
     return "[ok] браузер закрыт" if res.get("ok") else f"[error] {res.get('error')}"
 
 

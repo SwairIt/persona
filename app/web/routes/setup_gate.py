@@ -21,7 +21,8 @@ The allow-list is intentionally tiny:
     * ``/events`` — the SSE stream used by ``base.html`` for the live
       capture pill. Redirecting an EventSource breaks the connection
       and burns a reconnect-backoff on the client.
-    * ``/health`` — used by external monitors; must keep a stable HTTP
+    * ``/healthz`` — cheap process liveness used by external monitors.
+    * ``/health`` — compatibility diagnostics; must keep a stable HTTP
       contract regardless of onboarding state.
 
 We resolve the ``setup_complete`` flag synchronously via a short-lived
@@ -60,6 +61,7 @@ _ALLOW_EXACT: Final[frozenset[str]] = frozenset(
         "/setup",
         "/favicon.ico",
         "/events",
+        "/healthz",
         "/health",
     },
 )

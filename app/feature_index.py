@@ -2,7 +2,7 @@
 
 Walks the live :class:`fastapi.FastAPI` route table and pairs each
 user-facing path with a curated one-line description plus a category.
-Powers the ``/features`` discovery page.
+Powers the ``/feature-index`` discovery page.
 
 The index is *intentionally* curated rather than fully auto-generated:
 - only ``GET`` routes that render a page (or top-level JSON endpoints
@@ -143,7 +143,7 @@ _ROUTE_METADATA: dict[str, tuple[str, str, Category]] = {
     "/audit.rss": ("Audit RSS", "Audit log as an RSS feed", "admin"),
     "/about": ("About", "Build info + feature toggle dashboard", "admin"),
     "/help": ("Help", "Keyboard shortcuts + quick tips", "admin"),
-    "/features": ("Features", "This page — every route in the app", "admin"),
+    "/feature-index": ("Feature index", "Every route in the app", "admin"),
     "/admin/bulk-delete": ("Bulk delete", "Range/app-scoped deletion tool", "admin"),
     "/process-remap": ("Process remap", "Rename mis-detected process names", "admin"),
     "/redaction": ("Redaction", "Patterns to redact from OCR text", "admin"),
@@ -251,7 +251,7 @@ _SUPPLEMENTARY: tuple[FeatureEntry, ...] = (
         "category": "admin",
     },
     {
-        "path": "/features",
+        "path": "/feature-index",
         "title": "Features",
         "hint": "This page — every route in the app",
         "category": "admin",

@@ -1,9 +1,14 @@
 """Long-poll worker and access policy for the Telegram channel."""
 
+# ruff: noqa: RUF001
+
 from __future__ import annotations
 
 import asyncio
+import os
 import re
+import secrets
+import socket
 from contextlib import suppress
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -23,6 +28,8 @@ if TYPE_CHECKING:
 log = get_logger("persona.telegram.worker")
 
 _GROUP_TYPES = {"group", "supergroup"}
+_CONSUMER_LEASE_SECONDS = 600
+_PROCESSING_LEASE_HEARTBEAT_SECONDS = 20.0
 _HELP = (
     "Persona подключена к твоему аккаунту.\n\n"
     "Личные сообщения: просто напиши вопрос.\n"
@@ -50,6 +57,10 @@ class IncomingMessage:
         return self.chat_type in _GROUP_TYPES
 
 
+class TelegramConsumerLeaseLost(RuntimeError):
+    """The singleton consumer can no longer safely finish this update."""
+
+
 class TelegramWorker:
     def __init__(
         self,
@@ -68,6 +79,11 @@ class TelegramWorker:
         self._bot_username = ""
         self._persona_owner_id = 0
         self._binding: TelegramBinding | None = None
+        self._lease_holder = (
+            f"{socket.gethostname()}:{os.getpid()}:{secrets.token_hex(8)}"
+        )
+        self._consumer_lease_seconds = _CONSUMER_LEASE_SECONDS
+        self._processing_heartbeat_seconds = _PROCESSING_LEASE_HEARTBEAT_SECONDS
 
     async def prepare(self) -> None:
         self.config.require_token()
@@ -104,35 +120,169 @@ class TelegramWorker:
             groups=len(await self._allowed_groups()),
         )
         backoff = 1.0
-        while not self._stop.is_set():
-            try:
-                updates = await self.api.get_updates(offset, self.config.poll_timeout_seconds)
-                backoff = 1.0
-                for update in updates:
-                    update_id = _int(update.get("update_id"))
-                    if update_id is None:
-                        continue
-                    await self.handle_update(update)
-                    offset = max(offset, update_id + 1)
-                    await self.repository.save_update_offset(offset)
-            except TelegramAPIError as exc:
-                log.warning(
-                    "telegram.poll.failed",
-                    reason=str(exc),
-                    retry_seconds=backoff,
-                )
-                with suppress(TimeoutError):
-                    await asyncio.wait_for(self._stop.wait(), timeout=backoff)
-                backoff = min(30.0, backoff * 2)
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
-                log.exception("telegram.update.failed", error_type=type(exc).__name__)
-                await asyncio.sleep(1.0)
-        log.info("telegram.worker.stopped")
+        waiting_for_lease = False
+        try:
+            while not self._stop.is_set():
+                if not await self.repository.acquire_worker_lease(
+                    self._lease_holder,
+                    lease_seconds=self._consumer_lease_seconds,
+                ):
+                    if not waiting_for_lease:
+                        log.warning("telegram.worker.lease_held_elsewhere")
+                        waiting_for_lease = True
+                    with suppress(TimeoutError):
+                        await asyncio.wait_for(self._stop.wait(), timeout=5.0)
+                    continue
+                if waiting_for_lease:
+                    log.info("telegram.worker.lease_acquired")
+                    waiting_for_lease = False
+                # A process that waited behind the previous consumer started
+                # with a stale in-memory cursor. Refresh it under the lease;
+                # the durable inbox remains the final replay guard.
+                offset = max(offset, await self.repository.update_offset())
+                try:
+                    offset = await self._poll_and_process(offset)
+                    backoff = 1.0
+                except TelegramAPIError as exc:
+                    log.warning(
+                        "telegram.poll.failed",
+                        reason=str(exc),
+                        retry_seconds=backoff,
+                    )
+                    with suppress(TimeoutError):
+                        await asyncio.wait_for(self._stop.wait(), timeout=backoff)
+                    backoff = min(30.0, backoff * 2)
+                except asyncio.CancelledError:
+                    raise
+                except TelegramConsumerLeaseLost:
+                    waiting_for_lease = True
+                    log.warning("telegram.worker.lease_lost")
+                    with suppress(TimeoutError):
+                        await asyncio.wait_for(self._stop.wait(), timeout=1.0)
+                except Exception as exc:
+                    log.exception("telegram.update.failed", error_type=type(exc).__name__)
+                    await asyncio.sleep(1.0)
+        finally:
+            await self.repository.release_worker_lease(self._lease_holder)
+            log.info("telegram.worker.stopped")
 
     def stop(self) -> None:
         self._stop.set()
+
+    async def _poll_and_process(self, offset: int) -> int:
+        updates = await self.api.get_updates(offset, self.config.poll_timeout_seconds)
+        # A long or suspended poll must not process updates after another
+        # process legitimately took an expired lease.
+        if not await self.repository.acquire_worker_lease(
+            self._lease_holder,
+            lease_seconds=self._consumer_lease_seconds,
+        ):
+            raise TelegramConsumerLeaseLost("consumer lease lost during long poll")
+        for update in updates:
+            update_id = _int(update.get("update_id"))
+            if update_id is None:
+                continue
+            await self._process_update_with_lease(update_id, update)
+            next_offset = max(offset, update_id + 1)
+            if not await self.repository.save_update_offset_if_leased(
+                next_offset,
+                self._lease_holder,
+            ):
+                raise TelegramConsumerLeaseLost(
+                    "consumer lease lost before offset commit"
+                )
+            offset = next_offset
+        return offset
+
+    async def _process_update_with_lease(
+        self,
+        update_id: int,
+        update: dict[str, Any],
+    ) -> None:
+        """Handle one never-before-seen update under a renewable lease.
+
+        Existing inbox rows are deliberately skipped even if their former
+        process crashed. Once DB/LLM side effects may have started, replay is
+        more dangerous than dropping an ambiguous update.
+        """
+        claimed = await self.repository.claim_update(
+            update_id,
+            self._lease_holder,
+            lease_seconds=self._consumer_lease_seconds,
+        )
+        if not claimed:
+            return
+
+        processing = asyncio.create_task(
+            self.handle_update(update),
+            name=f"telegram-update-{update_id}",
+        )
+        heartbeat = asyncio.create_task(
+            self._guard_processing_lease(update_id),
+            name=f"telegram-update-lease-{update_id}",
+        )
+        try:
+            done, _pending = await asyncio.wait(
+                (processing, heartbeat),
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if heartbeat in done:
+                try:
+                    await heartbeat
+                finally:
+                    processing.cancel()
+                    await asyncio.gather(processing, return_exceptions=True)
+                raise TelegramConsumerLeaseLost(
+                    "processing lease guard stopped unexpectedly"
+                )
+
+            try:
+                await processing
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                await self.repository.finish_update(
+                    update_id,
+                    self._lease_holder,
+                    status="failed",
+                    outcome=type(exc).__name__,
+                )
+                raise
+
+            if not await self.repository.finish_update(
+                update_id,
+                self._lease_holder,
+                status="processed",
+                outcome="handled",
+            ):
+                raise TelegramConsumerLeaseLost(
+                    "consumer lease lost before update completion"
+                )
+        finally:
+            if not heartbeat.done():
+                heartbeat.cancel()
+            await asyncio.gather(heartbeat, return_exceptions=True)
+            if not processing.done():
+                processing.cancel()
+                await asyncio.gather(processing, return_exceptions=True)
+
+    async def _guard_processing_lease(self, update_id: int) -> None:
+        while True:
+            await asyncio.sleep(self._processing_heartbeat_seconds)
+            try:
+                renewed = await self.repository.renew_processing_lease(
+                    update_id,
+                    self._lease_holder,
+                    lease_seconds=self._consumer_lease_seconds,
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                raise TelegramConsumerLeaseLost(
+                    "processing lease renewal failed"
+                ) from exc
+            if not renewed:
+                raise TelegramConsumerLeaseLost("processing lease was lost")
 
     async def handle_update(  # noqa: PLR0911 - explicit fail-closed policy exits
         self, update: dict[str, Any]
@@ -343,8 +493,10 @@ def _command(text: str) -> tuple[str, str]:
 
 
 def _int(value: object) -> int | None:
+    if not isinstance(value, (int, str)):
+        return None
     try:
-        return int(value)  # type: ignore[arg-type]
+        return int(value)
     except (TypeError, ValueError):
         return None
 
@@ -366,4 +518,4 @@ def _chat_title(chat: dict[str, Any]) -> str:
     return _sender_label(chat)
 
 
-__all__ = ["TelegramWorker"]
+__all__ = ["TelegramConsumerLeaseLost", "TelegramWorker"]

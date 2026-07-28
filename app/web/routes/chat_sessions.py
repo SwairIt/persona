@@ -14,11 +14,12 @@ Pairs with ``app/chat/sessions.py``. Two flavours:
 from __future__ import annotations
 
 import asyncio
-from typing import Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 
+from app.application.chat import TurnCommand
 from app.auth import current_user_required
 from app.auth.owner import is_owner
 from app.auth.sessions import SessionRecord
@@ -33,8 +34,8 @@ from app.chat import (
     get_pinned_messages,
     get_session,
     get_span_ratings,
-    latest_reaction,
     get_streaming_message,
+    latest_reaction,
     list_messages,
     list_sessions,
     maybe_summarise,
@@ -47,14 +48,40 @@ from app.chat import (
     update_session_model,
     update_streaming_message,
 )
+from app.domains.chat import (
+    ActorContext,
+    ConversationAccessDenied,
+    ConversationId,
+    ConversationNotFound,
+    ConversationSurface,
+    InvalidTurn,
+    ModelUnavailable,
+    TenantId,
+    TurnGenerationFailed,
+    TurnState,
+    UserId,
+)
 from app.llm.client import CompletionRequest, LLMNotConfigured, make_client
 from app.logging_setup import get_logger
 from app.storage.db import get_connection
 from app.storage.repository import get_kv
 from app.web.templates_engine import templates
 
+if TYPE_CHECKING:
+    from app.application.chat import ConversationService
+
 router = APIRouter(tags=["chat"])
 log = get_logger("persona.chat.routes")
+_conversation_service: ConversationService | None = None
+
+
+def _get_conversation_service() -> ConversationService:
+    global _conversation_service  # noqa: PLW0603
+    if _conversation_service is None:
+        from app.adapters.conversation import build_conversation_service  # noqa: PLC0415
+
+        _conversation_service = build_conversation_service()
+    return _conversation_service
 
 # Провайдеры, у которых данные НЕ покидают машину (бейдж 🔒 в чате).
 # Зеркалит privacy_settings._LOCAL_PROVIDERS — приватность видна прямо в чате.
@@ -121,9 +148,10 @@ async def _find_vision_model_for_provider(provider: str | None) -> str | None:
         # For cloud providers we don't auto-swap; their picker default
         # is usually multimodal (gpt-4o, gemini, claude all see images).
         return None
+    import httpx  # noqa: PLC0415
+
     from app.storage.db import get_connection  # noqa: PLC0415
     from app.storage.repository import get_kv  # noqa: PLC0415
-    import httpx  # noqa: PLC0415
 
     async with get_connection() as conn:
         endpoint = (await get_kv(conn, "byo_api_key_ollama") or "").strip()
@@ -847,6 +875,61 @@ async def api_chat_live(
 
 @router.post("/api/chat/sessions/{session_id}/send", response_class=JSONResponse)
 async def api_send_message(
+    session_id: int,
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+    body: Annotated[dict[str, Any], Body(default_factory=dict)],
+) -> JSONResponse:
+    """Validate HTTP input and delegate the turn to ConversationService."""
+    question = str(body.get("question") or "").strip()
+    image_data_url = str(body.get("image_data_url") or "") or None
+    user_id = int(session["user_id"])
+    try:
+        result = await _get_conversation_service().handle_turn(
+            TurnCommand(
+                actor=ActorContext(
+                    tenant_id=TenantId(user_id),
+                    user_id=UserId(user_id),
+                    is_owner=await is_owner(user_id),
+                ),
+                surface=ConversationSurface.WEB,
+                conversation_id=ConversationId(session_id),
+                text=question,
+                image_data_url=image_data_url,
+                include_private_context=True,
+                allow_tools=False,
+            )
+        )
+    except InvalidTurn as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (ConversationNotFound, ConversationAccessDenied) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (ModelUnavailable, TurnGenerationFailed) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    assistant = {
+        "id": result.assistant_message_id,
+        "session_id": int(result.conversation_id),
+        "role": "assistant",
+        "content": result.answer,
+        "model_used": result.usage.provider,
+        "elapsed_ms": result.elapsed_ms,
+        "input_tokens": result.usage.input_tokens,
+        "output_tokens": result.usage.output_tokens,
+        "is_streaming": False,
+    }
+    return JSONResponse(
+        {
+            "session_id": session_id,
+            "assistant": assistant,
+            "model_used": result.usage.provider,
+            "elapsed_ms": result.elapsed_ms,
+            "input_tokens": result.usage.input_tokens,
+            "output_tokens": result.usage.output_tokens,
+        }
+    )
+
+
+async def _legacy_api_send_message(
     request: Request,
     session_id: int,
     session: Annotated[SessionRecord, Depends(current_user_required)],
@@ -994,6 +1077,109 @@ async def api_send_message(
     )
 
 
+async def _stream_via_conversation_service(
+    *,
+    session_id: int,
+    user_id: int,
+    question: str,
+    image_data_url: str | None,
+) -> StreamingResponse:
+    """Present application events as SSE while keeping generation detached."""
+    import json  # noqa: PLC0415
+
+    command = TurnCommand(
+        actor=ActorContext(
+            tenant_id=TenantId(user_id),
+            user_id=UserId(user_id),
+            is_owner=await is_owner(user_id),
+        ),
+        surface=ConversationSurface.WEB,
+        conversation_id=ConversationId(session_id),
+        text=question,
+        image_data_url=image_data_url,
+        include_private_context=True,
+        allow_tools=False,
+        max_tokens=_EFFORT_TOKENS["fast"],
+        temperature=_EFFORT_TEMP["fast"],
+    )
+    gen = _LiveGen()
+    _LIVE_GENS[session_id] = gen
+
+    def frame(payload: dict[str, Any]) -> str:
+        return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+    async def pump() -> None:
+        gen.emit(frame({"type": "meta", "started": True}))
+        try:
+            async for event in _get_conversation_service().stream_turn(command):
+                if event.state is TurnState.GENERATING and event.text:
+                    gen.emit(frame({"type": "delta", "text": event.text}))
+                elif event.state is TurnState.FAILED:
+                    gen.emit(
+                        frame(
+                            {
+                                "type": "error",
+                                "detail": _humanize_llm_error(event.detail),
+                            }
+                        )
+                    )
+                elif event.state is TurnState.COMPLETED and event.result is not None:
+                    result = event.result
+                    gen.emit(
+                        frame(
+                            {
+                                "type": "done",
+                                "elapsed_ms": result.elapsed_ms,
+                                "input_tokens": result.usage.input_tokens,
+                                "output_tokens": result.usage.output_tokens,
+                                "model_used": result.usage.provider,
+                                "assistant_id": result.assistant_message_id,
+                            }
+                        )
+                    )
+        except asyncio.CancelledError:
+            raise
+        except (InvalidTurn, ConversationNotFound, ConversationAccessDenied) as exc:
+            gen.emit(frame({"type": "error", "detail": str(exc)}))
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "chat.conversation_service.failed",
+                session_id=session_id,
+                error_type=type(exc).__name__,
+            )
+            gen.emit(frame({"type": "error", "detail": _humanize_llm_error(str(exc))}))
+        finally:
+            gen.finish()
+            if _LIVE_GENS.get(session_id) is gen:
+                _LIVE_GENS.pop(session_id, None)
+
+    gen.task = asyncio.create_task(pump(), name=f"conversation-turn-{session_id}")
+
+    async def relay() -> Any:
+        queue = gen.subscribe()
+        try:
+            while True:
+                try:
+                    item = await asyncio.wait_for(queue.get(), timeout=0.5)
+                except TimeoutError:
+                    yield frame({"type": "keepalive"})
+                    continue
+                if item is None:
+                    break
+                yield item
+        finally:
+            gen.unsubscribe(queue)
+
+    return StreamingResponse(
+        relay(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @router.post("/api/chat/sessions/{session_id}/send-stream", response_model=None)
 async def api_send_stream(
     request: Request,
@@ -1053,6 +1239,15 @@ async def api_send_stream(
     if not question:
         question = "Опиши прикреплённую картинку."
 
+    service_flags = await get_advanced_flags()
+    if not service_flags["master"]:
+        return await _stream_via_conversation_service(
+            session_id=session_id,
+            user_id=int(session["user_id"]),
+            question=question,
+            image_data_url=image_data_url,
+        )
+
     # Persist user turn first.
     await append_message(session_id, "user", question)
     await touch_session(session["user_id"], session_id)
@@ -1064,7 +1259,7 @@ async def api_send_stream(
     transcript = _bounded_transcript(history)
     # Расширенные функции: один мастер-выключатель + по-фичам. Выкл → простой
     # ассистент-друг (без планов/режимов/инструментов/эффорта/авто-промптов).
-    adv = await get_advanced_flags()
+    adv = service_flags
 
     # T24 — per-session custom prompt + T25 — tool-use prompt fragment.
     custom_prompt = (thread.get("custom_system_prompt") or "").strip() if isinstance(thread, dict) else ""
@@ -1648,12 +1843,12 @@ async def api_send_stream(
         # T23 — record Q&A pair for future PersonaAI fine-tune. Kept INLINE
         # (it's fast DB writes) so the row exists before the user can rate.
         try:
-            from app.training import record_qa_pair  # noqa: PLC0415
             # Need the user_message_id we appended at the top of this
             # route. Re-fetch the latest user message in this session as
             # a tactical workaround — chat_message ids are monotonic so
             # MAX(id) is reliable here.
             from app.storage.db import get_connection  # noqa: PLC0415
+            from app.training import record_qa_pair  # noqa: PLC0415
             async with get_connection() as conn:
                 cursor = await conn.execute(
                     "SELECT id FROM chat_message "
@@ -1878,6 +2073,7 @@ async def api_compare_models(
     """
     import asyncio  # noqa: PLC0415
     import time  # noqa: PLC0415
+
     from app.llm.client import (  # noqa: PLC0415
         CompletionRequest,
         LLMNotConfigured,

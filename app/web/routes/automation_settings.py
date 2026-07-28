@@ -2,9 +2,9 @@
 
 One settings page controlling the two new automation subsystems:
 
-* **browser_backend** (kv ``browser_backend``) — ``builtin`` | ``mcp`` |
-  ``both``. Chooses whether the chat's interactive browser tools are served
-  by Persona's own per-session Playwright worker
+* **browser_backend** (kv ``browser_backend``) — ``remote`` | ``builtin`` |
+  ``mcp`` | ``both``. Chooses whether the chat's interactive browser tools
+  are served by the owner's PC worker, Persona's server-local Playwright worker
   (:mod:`app.browse.agent`), an external Playwright MCP server, or both.
 * **mcp_runtime_enabled** (kv ``mcp_runtime_enabled``) — master switch for
   the stdio MCP runtime (:mod:`app.mcp.runtime`). When on, enabled,
@@ -39,7 +39,7 @@ router = APIRouter(tags=["settings", "automation"])
 
 log = get_logger("persona.automation.settings")
 
-_VALID_BACKENDS = ("builtin", "mcp", "both")
+_VALID_BACKENDS = ("remote", "builtin", "mcp", "both")
 
 
 async def _read_state() -> dict[str, str]:

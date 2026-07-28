@@ -43,6 +43,8 @@ _MAINTENANCE_INTERVAL_SECONDS = 60.0
 _STALE_JOB_SECONDS = 15 * 60
 _PENDING_JOB_SECONDS = 15 * 60
 _TERMINAL_RETENTION_SECONDS = 7 * 24 * 60 * 60
+_DEFAULT_CHAT_MODEL = "qwen2.5:3b"
+_DEFAULT_EMBED_MODEL = "nomic-embed-text"
 
 
 class _MaintenanceState:
@@ -62,6 +64,17 @@ _pending_wakeup = asyncio.Event()
 
 class WorkerJobStateError(RuntimeError):
     """Worker tried to mutate a job that is no longer streaming."""
+
+
+async def worker_runtime_config() -> dict[str, str]:
+    """Return the exact Ollama models that authenticated workers must provide."""
+    async with get_connection() as conn:
+        chat_model = (await get_kv(conn, "ollama_model") or "").strip()
+        embed_model = (await get_kv(conn, "embed_model") or "").strip()
+    return {
+        "chat_model": chat_model or _DEFAULT_CHAT_MODEL,
+        "embedding_model": embed_model or _DEFAULT_EMBED_MODEL,
+    }
 
 
 def _now_iso() -> str:
