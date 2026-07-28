@@ -130,6 +130,13 @@ class Config:
         self.worker_id = _cfg(dotenv, "PERSONA_WORKER_ID", "") or socket.gethostname()
         # Анонсируемая модель — чисто информативно (реальную задаёт задача).
         self.model = _cfg(dotenv, "PERSONA_WORKER_MODEL", "")
+        # httpx server client uses trust_env=True. Allow proxy variables in
+        # .env too, because a Scheduled Task may not inherit the interactive
+        # shell environment. Local Ollama clients explicitly disable proxies.
+        for name in ("HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "NO_PROXY"):
+            value = _cfg(dotenv, name, "")
+            if value and not os.environ.get(name):
+                os.environ[name] = value
 
 
 # ---------------------------------------------------------------------------
@@ -218,11 +225,16 @@ def _handle_chat(client: httpx.Client, cfg: Config, job: dict, stopper: _Stopper
     # Структурный вывод (knowledge_graph-триплеты / user_memory-реконсиляция):
     # format + stream=false → готовый JSON одним ответом, шлём в result (не чанки).
     if fmt is not None:
-        body: dict[str, object] = {"model": model, "messages": messages, "format": fmt, "stream": False}
+        body: dict[str, object] = {
+            "model": model,
+            "messages": messages,
+            "format": fmt,
+            "stream": False,
+        }
         if options:
             body["options"] = options
         timeout = httpx.Timeout(_OLLAMA_READ_TIMEOUT, connect=_OLLAMA_CONNECT_TIMEOUT)
-        with httpx.Client(timeout=timeout) as ollama:
+        with httpx.Client(timeout=timeout, trust_env=False) as ollama:
             resp = ollama.post(f"{cfg.ollama}/api/chat", json=body)
             resp.raise_for_status()
             data = resp.json()
@@ -255,7 +267,7 @@ def _handle_chat(client: httpx.Client, cfg: Config, job: dict, stopper: _Stopper
         seq += 1
 
     # Отдельный httpx-клиент для Ollama (локальный, без worker-токена).
-    with httpx.Client(timeout=timeout) as ollama:
+    with httpx.Client(timeout=timeout, trust_env=False) as ollama:
         with ollama.stream("POST", f"{cfg.ollama}/api/chat", json=ollama_body) as resp:
             resp.raise_for_status()
             for line in resp.iter_lines():
@@ -288,7 +300,7 @@ def _handle_embed(client: httpx.Client, cfg: Config, job: dict) -> None:
     prompt = payload.get("prompt") or ""
 
     timeout = httpx.Timeout(_OLLAMA_READ_TIMEOUT, connect=_OLLAMA_CONNECT_TIMEOUT)
-    with httpx.Client(timeout=timeout) as ollama:
+    with httpx.Client(timeout=timeout, trust_env=False) as ollama:
         resp = ollama.post(
             f"{cfg.ollama}/api/embeddings",
             json={"model": model, "prompt": prompt},
@@ -383,7 +395,9 @@ def run(cfg: Config) -> int:
     backoff = _BACKOFF_START
     idle_polls = 0
     # Один httpx-клиент на весь цикл для запросов К СЕРВЕРУ (keep-alive).
-    with httpx.Client() as client:
+    # trust_env=True is explicit: HTTPS_PROXY/HTTP_PROXY/NO_PROXY work for
+    # networks where persona.getdoday.ru is unreachable directly.
+    with httpx.Client(trust_env=True) as client:
         while not stopper.stop:
             try:
                 job = _poll_once(client, cfg)

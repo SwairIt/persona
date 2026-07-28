@@ -1,0 +1,229 @@
+"""Security and routing tests for the owner-only Telegram adapter."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from app.integrations.telegram.api import _split_message
+from app.integrations.telegram.config import TelegramConfig
+from app.integrations.telegram.repository import (
+    TelegramBinding,
+    TelegramRepository,
+)
+from app.integrations.telegram.worker import TelegramWorker
+
+
+class FakeAPI:
+    def __init__(self) -> None:
+        self.sent: list[tuple[int, str, int | None]] = []
+        self.typing: list[int] = []
+
+    async def get_me(self) -> dict[str, Any]:
+        return {"id": 777, "username": "PersonaTestBot"}
+
+    async def send_message(
+        self,
+        chat_id: int,
+        text: str,
+        *,
+        reply_to_message_id: int | None = None,
+    ) -> None:
+        self.sent.append((chat_id, text, reply_to_message_id))
+
+    async def send_typing(self, chat_id: int) -> None:
+        self.typing.append(chat_id)
+
+
+class FakeRepository:
+    def __init__(self, binding: TelegramBinding | None = None) -> None:
+        self.binding = binding
+        self.groups: set[int] = set()
+        self.pairing_code = "correct-code"
+        self.cleared: list[int] = []
+
+    async def get_binding(self) -> TelegramBinding | None:
+        return self.binding
+
+    async def bind_owner(self, telegram_user_id: int, persona_user_id: int) -> TelegramBinding:
+        self.binding = TelegramBinding(telegram_user_id, persona_user_id)
+        return self.binding
+
+    async def allowed_chat_ids(self) -> set[int]:
+        return set(self.groups)
+
+    async def set_chat_allowed(self, chat_id: int, allowed: bool) -> None:
+        if allowed:
+            self.groups.add(chat_id)
+        else:
+            self.groups.discard(chat_id)
+
+    async def verify_pairing_code(self, candidate: str, configured_secret: str = "") -> bool:
+        expected = configured_secret or self.pairing_code
+        return candidate == expected
+
+
+class FakeService:
+    def __init__(self) -> None:
+        self.responses: list[dict[str, Any]] = []
+        self.passive: list[dict[str, Any]] = []
+        self.resets: list[int] = []
+
+    async def respond(self, **kwargs: Any) -> str:
+        self.responses.append(kwargs)
+        return "Ответ Persona"
+
+    async def record_passive_group_message(self, **kwargs: Any) -> None:
+        self.passive.append(kwargs)
+
+    async def reset_chat(self, chat_id: int) -> None:
+        self.resets.append(chat_id)
+
+
+def _private(sender_id: int, text: str, message_id: int = 1) -> dict[str, Any]:
+    return {
+        "update_id": message_id,
+        "message": {
+            "message_id": message_id,
+            "from": {"id": sender_id, "first_name": "User"},
+            "chat": {"id": sender_id, "type": "private", "first_name": "User"},
+            "text": text,
+        },
+    }
+
+
+def _group(sender_id: int, chat_id: int, text: str, message_id: int = 1) -> dict[str, Any]:
+    return {
+        "update_id": message_id,
+        "message": {
+            "message_id": message_id,
+            "from": {"id": sender_id, "first_name": f"User {sender_id}"},
+            "chat": {"id": chat_id, "type": "supergroup", "title": "Team"},
+            "text": text,
+        },
+    }
+
+
+def _worker(
+    repository: FakeRepository,
+) -> tuple[TelegramWorker, FakeAPI, FakeService]:
+    api = FakeAPI()
+    service = FakeService()
+    worker = TelegramWorker(
+        TelegramConfig(bot_token="not-a-real-token"),
+        api=api,  # type: ignore[arg-type]
+        repository=repository,  # type: ignore[arg-type]
+        service=service,  # type: ignore[arg-type]
+    )
+    worker._bot_id = 777
+    worker._bot_username = "PersonaTestBot"
+    worker._persona_owner_id = 42
+    worker._binding = repository.binding
+    return worker, api, service
+
+
+@pytest.mark.asyncio
+async def test_unbound_and_foreign_private_messages_are_default_denied() -> None:
+    unbound, api, service = _worker(FakeRepository())
+    await unbound.handle_update(_private(100, "привет"))
+    assert api.sent == []
+    assert service.responses == []
+
+    bound, api, service = _worker(
+        FakeRepository(TelegramBinding(telegram_user_id=1, persona_user_id=42))
+    )
+    await bound.handle_update(_private(100, "привет"))
+    assert api.sent == []
+    assert service.responses == []
+
+
+@pytest.mark.asyncio
+async def test_pairing_only_works_in_private_with_correct_code() -> None:
+    repository = FakeRepository()
+    worker, api, _service = _worker(repository)
+
+    await worker.handle_update(_private(10, "/claim wrong"))
+    assert repository.binding is None
+    assert api.sent == []
+
+    await worker.handle_update(_group(10, -50, "/claim correct-code"))
+    assert repository.binding is None
+
+    await worker.handle_update(_private(10, "/claim correct-code"))
+    assert repository.binding == TelegramBinding(10, 42)
+    assert len(api.sent) == 1
+
+
+@pytest.mark.asyncio
+async def test_only_owner_can_allow_group_then_member_can_address_persona() -> None:
+    repository = FakeRepository(TelegramBinding(1, 42))
+    worker, api, service = _worker(repository)
+
+    await worker.handle_update(_group(2, -100, "/allow_here"))
+    assert -100 not in repository.groups
+    assert api.sent == []
+
+    await worker.handle_update(_group(1, -100, "/allow_here", 2))
+    assert -100 in repository.groups
+
+    await worker.handle_update(_group(2, -100, "@PersonaTestBot что ты помнишь?", 3))
+    assert service.responses[0]["persona_user_id"] == 42
+    assert service.responses[0]["question"] == "что ты помнишь?"
+    assert service.responses[0]["include_private_context"] is False
+    assert api.sent[-1][1] == "Ответ Persona"
+
+    await worker.handle_update(_group(1, -100, "/persona мой контекст", 4))
+    assert service.responses[1]["include_private_context"] is True
+
+
+@pytest.mark.asyncio
+async def test_allowed_group_passive_message_is_stored_without_reply() -> None:
+    repository = FakeRepository(TelegramBinding(1, 42))
+    repository.groups.add(-100)
+    worker, api, service = _worker(repository)
+
+    await worker.handle_update(_group(2, -100, "обычное сообщение"))
+
+    assert len(service.passive) == 1
+    assert service.responses == []
+    assert api.sent == []
+
+
+@pytest.mark.asyncio
+async def test_repository_hashes_pairing_and_persists_access(db: Any) -> None:
+    repository = TelegramRepository()
+    code = await repository.create_pairing_code()
+    assert await repository.verify_pairing_code(code)
+    assert not await repository.verify_pairing_code("wrong")
+
+    assert await repository.get_binding() is None
+    await repository.bind_owner(123, 9)
+    assert await repository.get_binding() == TelegramBinding(123, 9)
+
+    await repository.set_chat_allowed(-55, True)
+    assert await repository.allowed_chat_ids() == {-55}
+    await repository.set_chat_allowed(-55, False)
+    assert await repository.allowed_chat_ids() == set()
+
+    await repository.save_session_id(-55, 77)
+    assert await repository.session_id(-55) == 77
+    await repository.clear_session_id(-55)
+    assert await repository.session_id(-55) is None
+
+
+def test_telegram_message_split_respects_limit() -> None:
+    chunks = _split_message(("слово " * 2000).strip(), limit=100)
+    assert len(chunks) > 1
+    assert all(0 < len(chunk) <= 100 for chunk in chunks)
+
+
+def test_pair_launcher_prints_code_then_continues_to_worker() -> None:
+    script = (
+        Path(__file__).resolve().parents[1] / "ops" / "persona_telegram_worker.ps1"
+    ).read_text(encoding="utf-8")
+    pairing = script.index("--pairing-code-only")
+    worker_loop = script.index("while ($true)")
+    assert pairing < worker_loop
+    assert "PERSONA_TG_BOT_TOKEN" not in script

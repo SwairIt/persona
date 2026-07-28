@@ -28,7 +28,14 @@ def _install_fake_worker_queue(monkeypatch: pytest.MonkeyPatch, **funcs: object)
     ``funcs`` — переопределения (async) для enqueue_job/read_chunks/get_job/
     worker_online. Возвращает словарь записей вызовов для ассертов.
     """
-    calls: dict[str, list] = {"enqueue": [], "read_chunks": [], "get_job": []}
+    calls: dict[str, list] = {
+        "enqueue": [],
+        "read_chunks": [],
+        "get_job": [],
+        "read_job_update": [],
+        "wait_for_job_update": [],
+        "forget_job_update": [],
+    }
     mod = types.ModuleType("app.llm.worker_queue")
 
     async def _default_worker_online() -> bool:
@@ -51,6 +58,13 @@ def _install_fake_worker_queue(monkeypatch: pytest.MonkeyPatch, **funcs: object)
     mod.enqueue_job = funcs.get("enqueue_job", _default_enqueue_job)  # type: ignore[attr-defined]
     mod.read_chunks = funcs.get("read_chunks", _default_read_chunks)  # type: ignore[attr-defined]
     mod.get_job = funcs.get("get_job", _default_get_job)  # type: ignore[attr-defined]
+    for optional_name in (
+        "read_job_update",
+        "wait_for_job_update",
+        "forget_job_update",
+    ):
+        if optional_name in funcs:
+            setattr(mod, optional_name, funcs[optional_name])
     monkeypatch.setitem(sys.modules, "app.llm.worker_queue", mod)
     return calls
 
@@ -114,6 +128,40 @@ async def test_stream_enqueues_chat_job_with_payload(
     assert msgs[0] == {"role": "system", "content": "контекст"}
     assert msgs[1]["role"] == "user"
     assert msgs[1]["content"] == "вопрос"
+
+
+async def test_stream_uses_event_driven_combined_reads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Production queue path avoids two DB polls every 40 ms."""
+    updates = [
+        ([{"seq": 0, "content": "ok"}], {"status": "streaming"}),
+        ([], {"status": "done"}),
+    ]
+    calls: dict[str, int] = {"read": 0, "wait": 0, "forget": 0}
+
+    async def read_job_update(job_id: int, after_seq: int):
+        calls["read"] += 1
+        return updates.pop(0)
+
+    async def wait_for_job_update(job_id: int, wait_seconds: float) -> bool:
+        calls["wait"] += 1
+        return True
+
+    def forget_job_update(job_id: int) -> None:
+        calls["forget"] += 1
+
+    legacy_calls = _install_fake_worker_queue(
+        monkeypatch,
+        read_job_update=read_job_update,
+        wait_for_job_update=wait_for_job_update,
+        forget_job_update=forget_job_update,
+    )
+    out = [delta async for delta in WorkerLLMClient().stream(_req())]
+
+    assert out == ["ok"]
+    assert calls == {"read": 2, "wait": 1, "forget": 1}
+    assert legacy_calls["get_job"] == []
 
 
 # ── worker_online()==False → понятная ошибка ────────────────────────────────

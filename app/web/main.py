@@ -27,6 +27,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware import Middleware
 from starlette.middleware.gzip import GZipMiddleware
 
+from app import __version__
 from app.logging_setup import configure_logging, get_logger
 from app.settings import get_settings
 from app.storage.db import init_database
@@ -518,7 +519,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Persona",
-        version="1.66.0",
+        version=__version__,
         description="Open-source personal AI memory.",
         lifespan=_lifespan,
         middleware=middleware,

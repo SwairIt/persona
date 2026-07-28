@@ -125,3 +125,37 @@ async def revoke_session(token: str) -> None:
         )
         await conn.commit()
     log.info("auth.session.revoked")
+
+
+async def count_active_non_owner_sessions(owner_user_id: int) -> int:
+    """Count active sessions that do not belong to the primary owner."""
+    async with get_connection() as conn:
+        cursor = await conn.execute(
+            "SELECT COUNT(*) AS n FROM auth_session "
+            "WHERE user_id <> ? AND revoked_at IS NULL",
+            (int(owner_user_id),),
+        )
+        row = await cursor.fetchone()
+    return int(row["n"]) if row else 0
+
+
+async def revoke_non_owner_sessions(owner_user_id: int) -> int:
+    """Revoke every active non-owner session without deleting user accounts.
+
+    The update is idempotent: already-revoked rows stay untouched and repeated
+    invocations return zero once the lockdown has been applied.
+    """
+    async with get_connection() as conn:
+        cursor = await conn.execute(
+            "UPDATE auth_session SET revoked_at = ? "
+            "WHERE user_id <> ? AND revoked_at IS NULL",
+            (datetime.now(timezone.utc).isoformat(), int(owner_user_id)),
+        )
+        await conn.commit()
+        changed = int(cursor.rowcount or 0)
+    log.warning(
+        "auth.sessions.non_owner_revoked",
+        owner_user_id=int(owner_user_id),
+        revoked=changed,
+    )
+    return changed

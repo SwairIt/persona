@@ -88,7 +88,12 @@
   буфер рефлексий (Ω=1–3) подмешивается в следующую попытку. У Persona Evaluator
   уже есть — `chat_reaction` (👎).
 
-### 1.4 Hermes Agent «Dreaming» — ночная консолидация (сон)
+### 1.4 Persona «Dreaming» — проектный алгоритм ночной консолидации
+> **Уточнение 2026-07-28:** это не shipped-функция Hermes Agent. В официальном
+> репозитории Auto Dream пока описан как открытый feature request
+> [#10771](https://github.com/NousResearch/hermes-agent/issues/10771). Фазы,
+> дефолты и формула ниже — выбранный дизайн Persona, а не спецификация Hermes.
+
 - **Триггер:** cron `0 3 * * *` (3:00), skip если активность за `quiet_minutes=60`.
   Opt-in. Дефолты: `lookback_days=7`, `max_candidates=50`,
   `promotion_threshold=0.6`, `min_recall_count=2`.
@@ -229,7 +234,7 @@ CREATE INDEX IF NOT EXISTS idx_user_memory_salience
 
 ```sql
 -- 192_reflections.sql — инсайты ночной рефлексии (Generative-Agents reflection
--- tree) + REM-дневник «снов» (Hermes DREAMS.md эквивалент).
+-- tree) + собственный REM-дневник «снов» Persona.
 CREATE TABLE IF NOT EXISTS reflection (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,

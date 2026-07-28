@@ -13,6 +13,7 @@ hybrid_recall = FTS5 bm25 + векторный KNN, слитые через Reci
 from __future__ import annotations
 
 import asyncio
+import importlib
 import json
 import os
 import struct
@@ -67,13 +68,13 @@ async def _embed_via_worker(model: str, prompt: str) -> list[float] | None:
     приземлиться, тогда тихо None (без падения).
     """
     try:
-        from app.llm.worker_queue import (  # noqa: PLC0415
-            enqueue_job,
-            get_job,
-            worker_online,
-        )
+        queue = importlib.import_module("app.llm.worker_queue")
+        enqueue_job = queue.enqueue_job
+        get_job = queue.get_job
+        worker_online = queue.worker_online
     except Exception:  # noqa: BLE001 — модуль очереди ещё не установлен
         return None
+    job_id: int | None = None
     try:
         if not await worker_online():
             return None
@@ -95,10 +96,18 @@ async def _embed_via_worker(model: str, prompt: str) -> list[float] | None:
                 return None
             if asyncio.get_event_loop().time() > deadline:
                 return None
-            await asyncio.sleep(0.1)
+            wait_for_update = getattr(queue, "wait_for_job_update", None)
+            if callable(wait_for_update):
+                await wait_for_update(job_id, 0.5)
+            else:
+                await asyncio.sleep(0.1)
     except Exception as exc:  # noqa: BLE001 — best-effort, не ломаем recall
         log.debug("memory_vec.embed_worker_failed", error=str(exc))
         return None
+    finally:
+        forget_update = getattr(queue, "forget_job_update", None)
+        if job_id is not None and callable(forget_update):
+            forget_update(job_id)
 
 
 async def _ollama_endpoint() -> str:
@@ -183,7 +192,8 @@ async def index_message(message_id: int, user_id: int, content: str,
                 (message_id, _pack(vec)),
             )
             await conn.execute(
-                "INSERT OR REPLACE INTO vec_message_meta(message_id, user_id, session_id, created_at) "
+                "INSERT OR REPLACE INTO vec_message_meta"
+                "(message_id, user_id, session_id, created_at) "
                 "VALUES(?,?,?,?)",
                 (message_id, user_id, session_id, created_at),
             )

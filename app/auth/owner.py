@@ -78,3 +78,11 @@ async def is_owner(user_id: int | None) -> bool:
         return True
     # Доп. со-владельцы с полным доступом (kv full_access_user_ids).
     return int(user_id) in await _full_access_ids()
+
+
+async def is_primary_owner(user_id: int | None) -> bool:
+    """True only for the single primary owner, never for full-access delegates."""
+    if user_id is None:
+        return False
+    owner = await get_owner_user_id()
+    return owner is not None and int(owner) == int(user_id)

@@ -14,7 +14,12 @@ conftest применяет миграцию 203 на свежую tmp-БД). as
 
 from __future__ import annotations
 
+import asyncio
 import json
+import time
+from contextlib import asynccontextmanager
+
+import pytest
 
 from app.llm import worker_queue
 
@@ -54,6 +59,41 @@ async def test_claim_next_is_atomic(db) -> None:
 
 async def test_claim_next_empty_queue(db) -> None:
     assert await worker_queue.claim_next("worker-x") is None
+
+
+async def test_empty_claim_does_not_open_write_transaction(
+    db, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Hot empty-queue path must remain read-only between maintenance ticks."""
+    worker_queue._maintenance.last_run = time.monotonic()
+
+    @asynccontextmanager
+    async def unexpected_write(*args, **kwargs):  # noqa: ANN002, ANN003, ARG001
+        raise AssertionError("empty claim unexpectedly acquired a write lock")
+        yield
+
+    monkeypatch.setattr(worker_queue, "write_transaction", unexpected_write)
+    assert await worker_queue.claim_next("worker-x") is None
+
+
+async def test_concurrent_claims_with_same_worker_id_never_duplicate(db) -> None:
+    """Overlapping long-polls may share worker_id but never return one job twice."""
+    first_id = await worker_queue.enqueue_job(0, "chat", "m", {"n": 1})
+    second_id = await worker_queue.enqueue_job(0, "chat", "m", {"n": 2})
+
+    claimed = await asyncio.gather(
+        worker_queue.claim_next("same-worker"),
+        worker_queue.claim_next("same-worker"),
+    )
+    claimed_ids = [item["id"] for item in claimed if item is not None]
+    assert len(claimed_ids) == len(set(claimed_ids))
+
+    # A racing loser is allowed to return None; its next poll gets the remainder.
+    while len(claimed_ids) < 2:
+        item = await worker_queue.claim_next("same-worker")
+        assert item is not None
+        claimed_ids.append(item["id"])
+    assert set(claimed_ids) == {first_id, second_id}
 
 
 async def test_chunks_roundtrip_with_after_seq(db) -> None:
@@ -108,6 +148,92 @@ async def test_finish_job_embed_result_vector(db) -> None:
     assert job is not None
     assert job["status"] == "done"
     assert json.loads(job["result"]) == vector
+
+
+async def test_read_job_update_returns_chunks_and_status_together(db) -> None:
+    job_id = await worker_queue.enqueue_job(0, "chat", "m", {})
+    await worker_queue.claim_next("worker-a")
+    await worker_queue.add_chunk(job_id, 0, "hello")
+
+    chunks, job = await worker_queue.read_job_update(job_id, -1)
+    assert chunks == [{"seq": 0, "content": "hello"}]
+    assert job is not None
+    assert job["status"] == "streaming"
+
+
+async def test_job_update_event_wakes_without_polling(db) -> None:
+    job_id = await worker_queue.enqueue_job(0, "chat", "m", {})
+    await worker_queue.claim_next("worker-a")
+    await worker_queue.read_job_update(job_id, -1)  # clears the enqueue signal
+
+    waiter = asyncio.create_task(worker_queue.wait_for_job_update(job_id, 1.0))
+    await asyncio.sleep(0)
+    await worker_queue.add_chunk(job_id, 0, "x")
+    assert await waiter is True
+    worker_queue.forget_job_update(job_id)
+
+
+async def test_maintenance_fails_stale_job_and_rejects_late_worker(db) -> None:
+    job_id = await worker_queue.enqueue_job(0, "chat", "m", {})
+    await worker_queue.claim_next("worker-a")
+    await db.execute(
+        "UPDATE llm_job SET claimed_at=datetime('now', '-1 hour') WHERE id=?",
+        (job_id,),
+    )
+    await db.commit()
+
+    result = await worker_queue.maintain_jobs(
+        stale_after_seconds=1,
+        retention_seconds=24 * 60 * 60,
+    )
+    assert result["stale_failed"] == 1
+    job = await worker_queue.get_job(job_id)
+    assert job is not None
+    assert job["status"] == "error"
+    assert "lease" in job["error"]
+
+    with pytest.raises(worker_queue.WorkerJobStateError):
+        await worker_queue.add_chunk(job_id, 1, "late")
+    with pytest.raises(worker_queue.WorkerJobStateError):
+        await worker_queue.finish_job(job_id)
+
+
+async def test_maintenance_fails_abandoned_pending_job(db) -> None:
+    job_id = await worker_queue.enqueue_job(0, "embed", "m", {})
+    await db.execute(
+        "UPDATE llm_job SET created_at=datetime('now', '-1 hour') WHERE id=?",
+        (job_id,),
+    )
+    await db.commit()
+
+    result = await worker_queue.maintain_jobs(
+        pending_after_seconds=1,
+        retention_seconds=24 * 60 * 60,
+    )
+    assert result["pending_failed"] == 1
+    job = await worker_queue.get_job(job_id)
+    assert job is not None
+    assert job["status"] == "error"
+
+
+async def test_maintenance_deletes_expired_job_and_chunks(db) -> None:
+    job_id = await worker_queue.enqueue_job(0, "chat", "m", {})
+    await worker_queue.claim_next("worker-a")
+    await worker_queue.add_chunk(job_id, 0, "old")
+    await worker_queue.finish_job(job_id)
+    await db.execute(
+        "UPDATE llm_job SET finished_at=datetime('now', '-1 hour') WHERE id=?",
+        (job_id,),
+    )
+    await db.commit()
+
+    result = await worker_queue.maintain_jobs(
+        stale_after_seconds=15 * 60,
+        retention_seconds=1,
+    )
+    assert result["expired_deleted"] == 1
+    assert await worker_queue.get_job(job_id) is None
+    assert await worker_queue.read_chunks(job_id, -1) == []
 
 
 async def test_rotate_and_validate_token(db) -> None:

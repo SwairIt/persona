@@ -77,8 +77,9 @@ async def worker_install_ps1() -> PlainTextResponse:
     """Публичный one-shot установщик: `irm <site>/api/llm/worker/install.ps1 | iex`."""
     return PlainTextResponse(_INSTALL_PS1, media_type="text/plain; charset=utf-8")
 
-# Шаг опроса очереди внутри long-poll — мягкий, чтобы не жечь loop.
-_POLL_STEP_SECONDS = 0.3
+# Event будит long-poll сразу при enqueue в этом server process. Timeout нужен
+# только как fallback при нескольких uvicorn workers / внешней записи в БД.
+_CROSS_PROCESS_POLL_SECONDS = 2.0
 # Потолок ожидания клиента, чтобы один воркер не висел вечно.
 _MAX_WAIT_SECONDS = 60.0
 
@@ -104,17 +105,17 @@ async def worker_next(
 ) -> Response:
     """Long-poll: вернуть следующую задачу или 204 по таймауту.
 
-    Сначала отмечаем воркер живым (touch_worker), затем циклически пытаемся
-    атомарно забрать pending-задачу (claim_next) с шагом ~0.3с до ``wait`` сек.
-    Есть задача → 200 {job_id,kind,model,payload}; иначе 204.
+    Сначала отмечаем воркер живым (touch_worker), затем атомарно пытаемся
+    забрать pending-задачу. Пустая очередь ждёт process-local Event, а не
+    захватывает SQLite write-lock по таймеру. Есть задача → 200, иначе 204.
     """
     await _require_worker(x_worker_token)
 
     wid = (worker_id or "").strip() or "worker"
     await worker_queue.touch_worker(wid, (model or "").strip() or None)
 
-    deadline = max(0.0, min(float(wait), _MAX_WAIT_SECONDS))
-    waited = 0.0
+    wait_seconds = max(0.0, min(float(wait), _MAX_WAIT_SECONDS))
+    deadline = asyncio.get_running_loop().time() + wait_seconds
     while True:
         job = await worker_queue.claim_next(wid)
         if job is not None:
@@ -126,11 +127,12 @@ async def worker_next(
                     "payload": job["payload"],
                 }
             )
-        if waited >= deadline:
+        remaining = deadline - asyncio.get_running_loop().time()
+        if remaining <= 0:
             return Response(status_code=204)
-        # async sleep — не блокируем event loop, пока ждём задачу.
-        await asyncio.sleep(_POLL_STEP_SECONDS)
-        waited += _POLL_STEP_SECONDS
+        await worker_queue.wait_for_pending_job(
+            min(remaining, _CROSS_PROCESS_POLL_SECONDS)
+        )
 
 
 @router.post("/api/llm/worker/{job_id}/chunk")
@@ -143,7 +145,10 @@ async def worker_chunk(
     await _require_worker(x_worker_token)
     seq = int(body.get("seq", 0))
     content = str(body.get("content", ""))
-    await worker_queue.add_chunk(job_id, seq, content)
+    try:
+        await worker_queue.add_chunk(job_id, seq, content)
+    except worker_queue.WorkerJobStateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return JSONResponse({"ok": True})
 
 
@@ -160,11 +165,14 @@ async def worker_done(
     await _require_worker(x_worker_token)
     error = body.get("error")
     result = body.get("result")
-    await worker_queue.finish_job(
-        job_id,
-        error=str(error) if error else None,
-        result=str(result) if result is not None else None,
-    )
+    try:
+        await worker_queue.finish_job(
+            job_id,
+            error=str(error) if error else None,
+            result=str(result) if result is not None else None,
+        )
+    except worker_queue.WorkerJobStateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return JSONResponse({"ok": True})
 
 

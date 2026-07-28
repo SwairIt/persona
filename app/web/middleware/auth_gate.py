@@ -33,7 +33,8 @@ from starlette.requests import Request
 from starlette.responses import RedirectResponse, Response
 
 from app.auth import SESSION_COOKIE_NAME, verify_session
-from app.auth.owner import is_owner
+from app.auth.exclusive import read_owner_exclusive_mode
+from app.auth.owner import is_owner, is_primary_owner
 from app.billing.service import has_active_sub as _has_active_sub
 from app.logging_setup import get_logger
 from app.storage.db import get_connection
@@ -167,6 +168,10 @@ def _is_pro_path(path: str) -> bool:
 
 # Кэш флага role_gate (как _FLAG_TTL у активности гейта). 60с.
 _role_gate_cache: dict[str, float | bool] = {"value": False, "checked_at": 0.0}
+_owner_exclusive_cache: dict[str, float | bool] = {
+    "value": False,
+    "checked_at": 0.0,
+}
 
 # Префиксы зон по ролям.
 _ADMIN_PREFIXES: tuple[str, ...] = ("/admin",)
@@ -195,6 +200,27 @@ async def _role_gate_enabled() -> bool:
         enabled = False
     _role_gate_cache["value"] = enabled
     _role_gate_cache["checked_at"] = now
+    return enabled
+
+
+async def _owner_exclusive_enabled() -> bool:
+    """Return whether private routes are restricted to the primary owner.
+
+    The hosted instance can enable this with KV ``owner_exclusive_mode=1``
+    without changing the behaviour of independent self-hosted installs.
+    Once enabled, a transient database error keeps the last safe decision.
+    """
+    now = time.monotonic()
+    if now - float(_owner_exclusive_cache["checked_at"]) < _FLAG_TTL:
+        return bool(_owner_exclusive_cache["value"])
+    enabled = bool(_owner_exclusive_cache["value"])
+    try:
+        enabled = await read_owner_exclusive_mode()
+    except Exception as exc:  # noqa: BLE001 - private deployment fails closed
+        log.warning("auth_gate.owner_exclusive_flag_failed", error=str(exc))
+        enabled = True
+    _owner_exclusive_cache["value"] = enabled
+    _owner_exclusive_cache["checked_at"] = now
     return enabled
 
 
@@ -265,27 +291,36 @@ class AuthGateMiddleware(BaseHTTPMiddleware):
         if path == "/" or _is_public_path(path):
             return await call_next(request)
 
-        if not await _gate_active():
+        # Exclusive deployments must never inherit the legacy bootstrap
+        # fail-open path. Read the privacy flag first; lookup failure itself is
+        # treated as exclusive so a transient DB error cannot expose private
+        # routes.
+        owner_exclusive = await _owner_exclusive_enabled()
+        if not owner_exclusive and not await _gate_active():
             return await call_next(request)
 
         token = request.cookies.get(SESSION_COOKIE_NAME)
         session = await verify_session(token) if token else None
         if session is not None:
-            # Owner-gate: only the owner account may reach the private
-            # surface. Any other authenticated user is sandboxed to /pending
-            # so a stranger who registers can NEVER see the owner's data.
-            # /pending and /auth/* (logout) stay reachable for them.
-            if (
-                path == "/pending"
-                or path.startswith("/auth/")
-                or path == "/billing"
-                or path.startswith("/billing/")
-            ):
-                # Кабинет подписки/лицензии доступен покупателям (не приложение).
-                return await call_next(request)
             uid = session.get("user_id")
+            if owner_exclusive:
+                if await is_primary_owner(uid):
+                    return await call_next(request)
+                if path == "/pending":
+                    return await call_next(request)
+                if path.startswith("/api/"):
+                    return Response(
+                        content='{"detail":"owner access required"}',
+                        status_code=403,
+                        media_type="application/json",
+                    )
+                return RedirectResponse(url="/pending", status_code=303)
             if await is_owner(uid):
                 # Владелец — суперсет: видит всё, всегда (и при ВКЛ роле-гейте).
+                return await call_next(request)
+            if path == "/pending" or path.startswith("/auth/"):
+                return await call_next(request)
+            if path == "/billing" or path.startswith("/billing/"):
                 return await call_next(request)
             # Роле-основанная маршрутизация — ТОЛЬКО при kv role_gate_enabled=='1'.
             # При ВЫКЛ (дефолт) этот блок пропускается целиком → дальше идёт

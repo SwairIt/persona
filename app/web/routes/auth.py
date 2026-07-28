@@ -36,8 +36,9 @@ from app.auth import (
     revoke_session,
 )
 from app.auth.email_check import check_email
+from app.auth.exclusive import owner_exclusive_enabled
 from app.auth.magic import consume_magic_link, create_magic_link
-from app.auth.owner import is_owner
+from app.auth.owner import is_owner, is_primary_owner
 from app.auth.sessions import SessionRecord
 from app.auth.users import update_password
 from app.billing import service as billing_service
@@ -188,6 +189,28 @@ def _too_many(request: Request) -> Response:
     )
 
 
+def _registration_disabled(request: Request) -> Response:
+    """Return a non-enumerating owner-only enrollment refusal."""
+    message = "Регистрация отключена: эта Persona доступна только владельцу."
+    if _wants_json(request):
+        return JSONResponse({"ok": False, "error": message}, status_code=403)
+    return HTMLResponse(
+        "<!doctype html><meta charset=utf-8>"
+        "<body style='font-family:system-ui,sans-serif;background:#0b0b0f;color:#eee;"
+        "padding:3rem;text-align:center'><h2>Доступ только владельцу</h2>"
+        f"<p>{html_lib.escape(message)}</p>"
+        "<p><a href='/auth/login' style='color:#a78bfa'>Войти</a></p></body>",
+        status_code=403,
+    )
+
+
+async def _exclusive_allows(user_id: int | None) -> bool:
+    """Allow everyone in normal mode, only the primary owner in exclusive mode."""
+    if not await owner_exclusive_enabled():
+        return True
+    return await is_primary_owner(user_id)
+
+
 # --- GET pages -------------------------------------------------------------
 
 
@@ -197,6 +220,8 @@ async def signup_page(
     session: Annotated[SessionRecord | None, Depends(current_user_optional)],
 ) -> HTMLResponse | RedirectResponse:
     """Render the signup form, or bounce to /now when already signed in."""
+    if await owner_exclusive_enabled():
+        return RedirectResponse(url="/auth/login", status_code=303)
     if session is not None:
         return RedirectResponse(url="/now", status_code=303)
     return templates.TemplateResponse(
@@ -217,7 +242,13 @@ async def login_page(
     session: Annotated[SessionRecord | None, Depends(current_user_optional)],
 ) -> HTMLResponse | RedirectResponse:
     """Render the login form, or bounce to /now when already signed in."""
+    exclusive = await owner_exclusive_enabled()
     if session is not None:
+        if exclusive and not await is_primary_owner(session.get("user_id")):
+            await revoke_session(session["token"])
+            response = RedirectResponse(url="/auth/login", status_code=303)
+            response.delete_cookie(SESSION_COOKIE_NAME, path="/")
+            return response
         return RedirectResponse(url="/now", status_code=303)
     return templates.TemplateResponse(
         request,
@@ -227,6 +258,7 @@ async def login_page(
             "active_nav": "",
             "error": None,
             "email": "",
+            "registration_enabled": not exclusive,
         },
     )
 
@@ -242,6 +274,8 @@ async def signup_submit(
     display_name: Annotated[str, Form()] = "",
 ) -> Response:
     """Create the user, start a session, redirect to /now."""
+    if await owner_exclusive_enabled():
+        return _registration_disabled(request)
     if _rate_limited(request, "signup", 10, 3600):
         return _too_many(request)
     try:
@@ -284,7 +318,7 @@ async def login_submit(
     if _rate_limited(request, "login", 20, 3600):
         return _too_many(request)
     user = await authenticate(email, password)
-    if user is None:
+    if user is None or not await _exclusive_allows(user["id"]):
         if _wants_json(request):
             return JSONResponse({"ok": False, "error": "Неверный email или пароль."}, status_code=401)
         return templates.TemplateResponse(
@@ -314,6 +348,8 @@ async def register_submit(
     шлём пароль на почту и сразу логиним. Существующий email → ссылка для входа
     (аккаунт НЕ пересоздаём, пароль не палим). Опечатки доменов (gmail.ru и т.п.)
     блокируются через ``check_email``. Rate-limit как у остальных auth-роутов."""
+    if await owner_exclusive_enabled():
+        return _registration_disabled(request)
     if _rate_limited(request, "register", 5, 3600):
         return _too_many(request)
     chk = check_email(email)
@@ -399,6 +435,8 @@ async def _post_auth_dest(user_id: int) -> str:
     """Владелец → приложение (/now). Активный подписчик → ИИ-ассистент: онбординг
     при первом входе, иначе сразу чат. Без подписки → кабинет подписки (/billing).
     Чат/память изолированы по user_id — чужого подписчик не видит."""
+    if await owner_exclusive_enabled() and not await is_primary_owner(user_id):
+        return "/pending"
     if await is_owner(user_id):
         return "/now"
     if await billing_service.has_active_sub(user_id):
@@ -444,6 +482,8 @@ async def magic_request(
         )
     addr = chk["email"]
     uid = await _user_id_for_email(addr)
+    if uid is not None and not await _exclusive_allows(uid):
+        uid = None
     registered_now = False
     if uid is None:
         # Публичный домен: НЕ создаём аккаунт вслепую по magic-ссылке
@@ -502,6 +542,13 @@ async def magic_consume(request: Request, token: str) -> Response:
             {"title": "Аккаунт не найден", "mode": "invalid", "email": addr},
             status_code=400,
         )
+    if not await _exclusive_allows(uid):
+        return templates.TemplateResponse(
+            request,
+            "auth_magic_sent.html",
+            {"title": "Доступ запрещён", "mode": "invalid", "email": ""},
+            status_code=403,
+        )
     ua = _trim_ua(request.headers.get("user-agent"))
     token2, _expires_at = await issue_session(uid, user_agent=ua)
     # ?next=/safe/path (например, сброс пароля). Только внутренние пути:
@@ -537,7 +584,7 @@ async def forgot_password(
     generic = "Если такой аккаунт есть — на почту отправлена ссылка для смены пароля."
     if chk["valid"] and not chk["suggestion"]:
         uid = await _user_id_for_email(chk["email"])
-        if uid is not None:
+        if uid is not None and await _exclusive_allows(uid):
             token = await create_magic_link(chk["email"])
             link = str(request.base_url).rstrip("/") + f"/auth/magic/{token}?next=/auth/set-password"
             text, html = _magic_email_html(link)
@@ -559,6 +606,8 @@ async def set_password_page(
 ) -> Response:
     if session is None:
         return RedirectResponse(url="/landing", status_code=303)
+    if not await _exclusive_allows(session.get("user_id")):
+        return HTMLResponse("Owner access required", status_code=403)
     return templates.TemplateResponse(
         request, "auth_set_password.html",
         {"title": "Новый пароль", "email": session.get("email"), "error": None},
@@ -571,6 +620,13 @@ async def set_password_submit(
     session: Annotated[SessionRecord, Depends(current_user_required)],
     password: Annotated[str, Form()],
 ) -> Response:
+    if not await _exclusive_allows(session.get("user_id")):
+        if _wants_json(request):
+            return JSONResponse(
+                {"ok": False, "error": "Доступ только владельцу."},
+                status_code=403,
+            )
+        return HTMLResponse("Owner access required", status_code=403)
     try:
         await update_password(int(session["user_id"]), password)
     except ValueError as exc:
@@ -608,6 +664,11 @@ async def pending_page(
         return RedirectResponse(url="/landing", status_code=303)
     if await is_owner(session.get("user_id")):
         return RedirectResponse(url="/now", status_code=303)
+    if await owner_exclusive_enabled():
+        await revoke_session(session["token"])
+        response = RedirectResponse(url="/landing", status_code=303)
+        response.delete_cookie(SESSION_COOKIE_NAME, path="/")
+        return response
     # не-владелец → кабинет подписки/лицензии (вместо тупиковой «ранний доступ»)
     return RedirectResponse(url="/billing", status_code=303)
 

@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import aiosqlite
 import pytest
-import pytest_asyncio
 from fastapi import Depends, FastAPI
 from fastapi.responses import PlainTextResponse
 from httpx import ASGITransport, AsyncClient
@@ -24,7 +23,6 @@ from app.auth.guards import require_role, role_at_least
 from app.auth.roles import role_rank
 from app.auth.sessions import SESSION_COOKIE_NAME, issue_session
 from app.billing import service
-from app.storage.db import init_database
 from app.storage.repository import set_kv
 
 
@@ -41,6 +39,8 @@ def _reset_caches():
     auth_gate._cache["checked_at"] = 0.0
     auth_gate._role_gate_cache["value"] = False
     auth_gate._role_gate_cache["checked_at"] = 0.0
+    auth_gate._owner_exclusive_cache["value"] = False
+    auth_gate._owner_exclusive_cache["checked_at"] = 0.0
     yield
     guards._invalidate_role_cache()
 
@@ -60,6 +60,13 @@ async def _enable_role_gate(db: aiosqlite.Connection) -> None:
     from app.web.middleware import auth_gate
 
     auth_gate._role_gate_cache["checked_at"] = 0.0
+
+
+async def _enable_owner_exclusive(db: aiosqlite.Connection) -> None:
+    await set_kv(db, "owner_exclusive_mode", "1")
+    from app.web.middleware import auth_gate
+
+    auth_gate._owner_exclusive_cache["checked_at"] = 0.0
 
 
 # ──────────────────────────── (в) role_rank / иерархия ──────────────────────────
@@ -282,3 +289,35 @@ async def test_gate_owner_never_loses_access_flag_on(db):
         assert (await _hit(ac, owner_id, "GET", "/root")).status_code == 200
         assert (await _hit(ac, owner_id, "GET", "/admin/panel")).status_code == 200
         assert (await _hit(ac, owner_id, "GET", "/now")).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_owner_exclusive_mode_blocks_every_non_owner_private_route(db):
+    owner_id = await _add_user(db, "owner@ex.io", role="owner")
+    admin_id = await _add_user(db, "admin@ex.io", role="admin")
+    await service.grant_pro(admin_id, 30)
+    await _enable_role_gate(db)
+    await _enable_owner_exclusive(db)
+
+    try:
+        app = _gate_app()
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            assert (await _hit(ac, owner_id, "GET", "/now")).status_code == 200
+
+            for path in ("/now", "/chat", "/admin/panel", "/billing"):
+                response = await _hit(ac, admin_id, "GET", path)
+                assert response.status_code == 303
+                assert response.headers["location"] == "/pending"
+
+            api_response = await _hit(ac, admin_id, "GET", "/api/private")
+            assert api_response.status_code == 403
+            assert api_response.json()["detail"] == "owner access required"
+    finally:
+        # This test opts into a persistent KV flag; restore the default so
+        # unrelated modules continue to exercise the legacy multi-user mode.
+        await set_kv(db, "owner_exclusive_mode", "0")
+        from app.web.middleware import auth_gate
+
+        auth_gate._owner_exclusive_cache["value"] = False
+        auth_gate._owner_exclusive_cache["checked_at"] = 0.0

@@ -49,10 +49,12 @@
         </button>
       </form>
 
-      <p class="text-center text-xs text-zinc-500 mt-5">
-        Впервые здесь?
-        <a href="/auth/signup" class="text-accent-400 hover:underline">Создать аккаунт</a>
-      </p>
+      {% if registration_enabled | default(true) %}
+        <p class="text-center text-xs text-zinc-500 mt-5">
+          Впервые здесь?
+          <a href="/auth/signup" class="text-accent-400 hover:underline">Создать аккаунт</a>
+        </p>
+      {% endif %}
     </div>
   </div>
 

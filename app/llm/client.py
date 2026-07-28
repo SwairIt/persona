@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 import json
 import os
 from dataclasses import dataclass
@@ -1078,6 +1079,10 @@ class WorkerLLMClient:
     #: Между опросами очереди — короткий сон, чтобы первые токены приходили
     #: почти сразу, но не жечь CPU тайтовым циклом.
     _POLL_INTERVAL = 0.04
+    # Event-driven queue wakes immediately in the normal single-process
+    # deployment. Полсекунды — только страховочный DB refresh для нескольких
+    # uvicorn processes / process restart.
+    _EVENT_FALLBACK_INTERVAL = 0.5
     #: Если за это время нет НИ одного нового чанка и задача не завершилась —
     #: считаем, что ПК-воркер завис/умер, и отдаём понятную ошибку.
     _STALL_TIMEOUT = 120.0
@@ -1125,12 +1130,11 @@ class WorkerLLMClient:
         # на момент сборки — тогда даём понятную ошибку, а не ImportError при
         # импорте модуля клиента.
         try:
-            from app.llm.worker_queue import (  # noqa: PLC0415
-                enqueue_job,
-                get_job,
-                read_chunks,
-                worker_online,
-            )
+            queue = importlib.import_module("app.llm.worker_queue")
+            enqueue_job = queue.enqueue_job
+            get_job = queue.get_job
+            read_chunks = queue.read_chunks
+            worker_online = queue.worker_online
         except Exception as exc:  # noqa: BLE001 — модуль очереди ещё не приземлился
             msg = (
                 "ПК-воркер недоступен — модуль очереди не установлен "
@@ -1161,44 +1165,61 @@ class WorkerLLMClient:
         # парсинг графа/фактов.
         last_seq = -1
         last_progress = _loop_time()
-        while True:
-            chunks = await read_chunks(job_id, last_seq)
-            for c in chunks:
-                # c — {seq, content}; seq монотонно растёт, content — дельта.
-                seq = int(c["seq"])
-                if seq > last_seq:
-                    last_seq = seq
-                content = c.get("content")
-                if isinstance(content, str) and content:
-                    yield content
-            if chunks:
-                last_progress = _loop_time()
-
-            job = await get_job(job_id)
-            status = (job or {}).get("status") if job else None
-            if status == "done":
-                # Дочитываем хвост чанков, появившихся между read_chunks и get_job.
-                tail = await read_chunks(job_id, last_seq)
-                for c in tail:
+        read_job_update = getattr(queue, "read_job_update", None)
+        wait_for_job_update = getattr(queue, "wait_for_job_update", None)
+        forget_job_update = getattr(queue, "forget_job_update", None)
+        try:
+            while True:
+                if callable(read_job_update):
+                    chunks, job = await read_job_update(job_id, last_seq)
+                else:
+                    # Backward-compatible path for older queue modules and
+                    # light-weight test doubles.
+                    chunks = await read_chunks(job_id, last_seq)
+                    job = await get_job(job_id)
+                for c in chunks:
+                    # c — {seq, content}; seq монотонно растёт, content — дельта.
                     seq = int(c["seq"])
                     if seq > last_seq:
                         last_seq = seq
                     content = c.get("content")
                     if isinstance(content, str) and content:
                         yield content
-                return
-            if status == "error":
-                err = (job or {}).get("error") or "ПК-воркер вернул ошибку"
-                raise LLMNotConfigured(f"ПК-воркер: {err}")
+                if chunks:
+                    last_progress = _loop_time()
 
-            # Сторож зависания: нет новых чанков и задача не финиширована.
-            if _loop_time() - last_progress > self._STALL_TIMEOUT:
-                msg = (
-                    "ПК-воркер не отвечает (таймаут ожидания токенов) — "
-                    "проверь persona_llm_worker на ПК."
-                )
-                raise LLMNotConfigured(msg)
-            await asyncio.sleep(self._POLL_INTERVAL)
+                status = (job or {}).get("status") if job else None
+                if status == "done":
+                    # Дочитываем хвост, появившийся между chunk/status SELECT.
+                    tail = await read_chunks(job_id, last_seq)
+                    for c in tail:
+                        seq = int(c["seq"])
+                        if seq > last_seq:
+                            last_seq = seq
+                        content = c.get("content")
+                        if isinstance(content, str) and content:
+                            yield content
+                    return
+                if status == "error":
+                    err = (job or {}).get("error") or "ПК-воркер вернул ошибку"
+                    raise LLMNotConfigured(f"ПК-воркер: {err}")
+
+                # Сторож зависания: нет новых чанков и задача не финиширована.
+                if _loop_time() - last_progress > self._STALL_TIMEOUT:
+                    msg = (
+                        "ПК-воркер не отвечает (таймаут ожидания токенов) — "
+                        "проверь persona_llm_worker на ПК."
+                    )
+                    raise LLMNotConfigured(msg)
+                if callable(wait_for_job_update):
+                    await wait_for_job_update(
+                        job_id, self._EVENT_FALLBACK_INTERVAL
+                    )
+                else:
+                    await asyncio.sleep(self._POLL_INTERVAL)
+        finally:
+            if callable(forget_job_update):
+                forget_job_update(job_id)
 
     async def complete_json(
         self, request: CompletionRequest, schema: dict[str, object]
