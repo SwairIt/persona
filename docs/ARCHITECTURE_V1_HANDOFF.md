@@ -3,6 +3,33 @@
 Status: implementation complete for the first refactoring slice. Package
 version: `2.22.0`.
 
+## Production rollout evidence (2026-07-29)
+
+- GitHub `master` and the deployed worktree were both at `5a9fdf1`.
+- A consistent pre-migration backup was created as
+  `persona-pre-2.22.0-20260729-001941.db`; source and backup both returned
+  `PRAGMA quick_check = ok`.
+- Production restarted through the existing watchdog configuration in lean
+  mode and `/healthz` returned version `2.22.0`.
+- Migrations `204` through `209` are recorded as applied. The expected
+  `dream_run`, `autowake_outbox`, `remote_browser_worker_presence` and
+  `telegram_update_inbox` tables exist.
+- An intermediate, pre-commit form of migration `204` had already reached this
+  local production database. Deployment reconciled it transactionally by
+  compare-and-swap checking the exact old checksum, idempotently applying the
+  final `204` body, and recording its final checksum. The verified backup is
+  the rollback point.
+- Anonymous `/api/health/full` is denied with `401`; the public landing page
+  remains `200`, including through the HTTPS reverse proxy.
+- Telegram holds the active singleton consumer lease. Dream and autowake
+  heartbeats are current.
+- The external LLM PC was online as `qwen2.5:7b`. Production job `228`
+  completed and its response contained the requested `PERSONA_PROD_OK`
+  marker.
+- Remote browser presence is intentionally still offline. Its new independent
+  token has not been provisioned to the PC yet, so the browser bootstrap must
+  be rerun by the owner before browser E2E can be verified.
+
 This document records the work completed by the root Codex agent and its
 parallel agents so the next session can continue without reconstructing the
 entire thread.
@@ -90,11 +117,11 @@ entire thread.
    `docs/DREAM_LEDGER.md`, `docs/AUTOWAKE_OUTBOX.md` and
    `docs/REMOTE_BROWSER_WORKER.md`.
 2. Preserve unrelated local UI/Copilot work in the dirty worktree.
-3. Before the first `2.22.0` process restart, create and verify a SQLite backup.
+3. Preserve the verified pre-`2.22.0` backup until the next release has been
+   observed for a full operating cycle.
 4. Provision independent worker tokens locally with
    `ops/provision_llm_worker_token.py`; never print tokens in logs or chat.
-5. Restart Persona in lean mode, then verify `/healthz`, owner-only
-   `/api/health/full`, Telegram worker lease, a real LLM job and browser worker
-   presence after the PC bootstrap rerun.
+5. Rerun the PC bootstrap with both scoped tokens, then verify browser worker
+   presence and one harmless allowlisted navigation.
 
 No credentials or personal message content are stored in this handoff.
