@@ -27,6 +27,9 @@ router = APIRouter(tags=["llm-worker"])
 
 # Исходник ПК-агента (для self-host one-command установки). app/web/routes → repo root.
 _AGENT_PY = Path(__file__).resolve().parents[3] / "ops" / "persona_llm_worker.py"
+_BOOTSTRAP_PS1 = (
+    Path(__file__).resolve().parents[3] / "ops" / "persona_llm_pc_bootstrap.ps1"
+)
 
 # Публичный one-shot установщик для PowerShell: поднимает Ollama+модели, ставит
 # httpx, качает агент с сайта и крутит его с авто-рестартом. Токен и адрес —
@@ -76,6 +79,29 @@ async def worker_agent_py() -> PlainTextResponse:
 async def worker_install_ps1() -> PlainTextResponse:
     """Публичный one-shot установщик: `irm <site>/api/llm/worker/install.ps1 | iex`."""
     return PlainTextResponse(_INSTALL_PS1, media_type="text/plain; charset=utf-8")
+
+
+@router.get("/api/llm/worker/bootstrap.ps1")
+async def worker_bootstrap_ps1() -> PlainTextResponse:
+    """Public self-contained Windows bootstrap for the dedicated LLM PC."""
+    try:
+        src = _BOOTSTRAP_PS1.read_text(encoding="utf-8")
+    except Exception:  # noqa: BLE001
+        raise HTTPException(status_code=404, detail="bootstrap script not found") from None
+    return PlainTextResponse(
+        src,
+        media_type="text/plain; charset=utf-8",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.get("/api/llm/worker/probe")
+async def worker_probe(
+    x_worker_token: Annotated[str | None, Header()] = None,
+) -> JSONResponse:
+    """Validate connectivity and worker credentials without claiming a job."""
+    await _require_worker(x_worker_token)
+    return JSONResponse({"ok": True}, headers={"Cache-Control": "no-store"})
 
 # Event будит long-poll сразу при enqueue в этом server process. Timeout нужен
 # только как fallback при нескольких uvicorn workers / внешней записи в БД.
