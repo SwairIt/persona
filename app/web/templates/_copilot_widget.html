@@ -1,0 +1,54 @@
+<div x-data="copilotWidget()" x-init="init()" class="fixed bottom-4 right-4 z-50">
+  <section
+    id="persona-copilot-panel"
+    class="persona-copilot-panel absolute bottom-16 right-0 flex flex-col overflow-hidden rounded-2xl"
+    :class="{ 'is-open': open }"
+    :aria-hidden="(!open).toString()"
+    role="dialog"
+    aria-label="ИИ-помощник по сайту Persona">
+    <header class="flex items-center justify-between border-b border-ink-700 px-4 py-3">
+      <div>
+        <h2 class="font-semibold text-zinc-100">Помощник Persona</h2>
+        <p class="text-xs text-zinc-500">Спроси, где что находится и как включить</p>
+      </div>
+      <button type="button" @click="closePanel()" aria-label="Закрыть помощника"
+              class="rounded-lg p-2 text-zinc-500 hover:bg-ink-700 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400">✕</button>
+    </header>
+
+    <div x-ref="log" class="persona-copilot-log flex min-h-48 flex-1 flex-col gap-3 p-4" aria-live="polite" aria-atomic="false">
+      <div x-show="messages.length === 0" class="my-auto text-center text-sm text-zinc-500">
+        Например: «Где посмотреть людей из Telegram?» или «Включи инструменты».
+      </div>
+      <template x-for="(message, index) in messages" :key="index">
+        <div class="persona-copilot-bubble px-3 py-2 text-sm"
+             :class="'persona-copilot-bubble--' + message.role">
+          <span x-text="message.text" :class="{ 'persona-copilot-caret': message.streaming && message.text }"></span>
+          <span x-show="message.streaming && !message.text" class="persona-copilot-typing" aria-label="Persona печатает">
+            <span></span><span></span><span></span>
+          </span>
+          <a x-show="message.href" :href="message.href" x-text="message.hrefLabel || message.href" class="mt-2 block"></a>
+        </div>
+      </template>
+    </div>
+
+    <div class="flex gap-2 overflow-x-auto border-t border-ink-700 px-3 py-2 text-xs">
+      <button type="button" @click="quick('ask')" class="persona-copilot-chip rounded-full bg-ink-700 px-3 py-1 text-zinc-300">Спросить</button>
+      <button type="button" @click="quick('summary')" class="persona-copilot-chip rounded-full bg-ink-700 px-3 py-1 text-zinc-300">Эта страница</button>
+      <button type="button" @click="quick('find_setting')" class="persona-copilot-chip rounded-full bg-ink-700 px-3 py-1 text-zinc-300">Найти функцию</button>
+    </div>
+    <form @submit.prevent="submit()" class="flex gap-2 border-t border-ink-700 p-3">
+      <label for="persona-copilot-input" class="sr-only">Вопрос помощнику</label>
+      <input id="persona-copilot-input" x-ref="input" x-model="q" :disabled="busy"
+             autocomplete="off" placeholder="Спроси что угодно про Persona…"
+             class="min-w-0 flex-1 rounded-xl border border-ink-700 bg-ink-900 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-violet-500 focus:outline-none">
+      <button type="submit" :disabled="busy || !q.trim()" aria-label="Отправить вопрос"
+              class="rounded-xl bg-violet-600 px-3 py-2 text-white hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400">↑</button>
+    </form>
+  </section>
+
+  <button type="button" @click="toggle()" :aria-expanded="open.toString()"
+          aria-controls="persona-copilot-panel" aria-label="Открыть ИИ-помощника"
+          class="persona-copilot-fab flex h-14 w-14 items-center justify-center rounded-full bg-violet-600 text-xl text-white hover:bg-violet-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400">
+    <span x-show="!open">✦</span><span x-show="open" x-cloak>✕</span>
+  </button>
+</div>

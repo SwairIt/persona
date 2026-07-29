@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.26.0] - 2026-07-29
+
+### Added
+
+- Stable Telegram people registry keyed by numeric account id, with retained
+  messages, person-scoped self-statements, owner-only list/detail pages and
+  server-verified identity context for every group turn.
+- Persistent bottom-right site copilot that explains pages, finds settings and
+  can apply a small allowlist of explicit owner setting requests.
+
+### Fixed
+
+- Make the Telegram binding the immutable sole owner/creator authority and
+  prevent participant claims from changing it.
+- Prevent Persona from inventing multi-speaker scripts or answering on behalf
+  of Indi, Claude and other group participants.
+
 ## [2.25.0] - 2026-07-29
 
 ### Fixed

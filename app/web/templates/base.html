@@ -66,6 +66,7 @@
      со своего origin + долгий Cache-Control. Порядок сохранён (tailwind до config). #}
   <script src="/static/vendor/tailwind-play.js?v={{ app_version }}"></script>
   <script src="/static/vendor/htmx-2.0.4.min.js?v={{ app_version }}" defer></script>
+  <script defer src="/static/copilot.js?v={{ app_version }}"></script>
   <script defer src="/static/vendor/alpine-3.14.7.min.js?v={{ app_version }}"></script>
   <link rel="stylesheet" href="/static/css/app.css">
   <link rel="stylesheet" href="/static/persona_theme.css?v={{ app_version }}">
@@ -79,10 +80,7 @@
   <link rel="stylesheet" href="/static/context_menu.css">
   <link rel="stylesheet" href="/static/cal_nav.css">
   <link rel="stylesheet" href="/static/bulk_select.css">
-  {% if get_ai_everywhere() == '1' and active_nav != 'ai-everywhere-settings' %}
-  {# «ИИ везде» — стили вездесущего копилота (FAB + выезжающая панель). #}
   <link rel="stylesheet" href="/static/copilot.css?v={{ app_version }}">
-  {% endif %}
   <style>[x-cloak] { display: none !important; }</style>
   <script src="/static/command_palette.js" defer></script>
   <script src="/static/keyboard_shortcuts.js" defer></script>
@@ -438,7 +436,7 @@
   <div id="persona-version-banner"
        data-version="{{ app_version }}"
        hidden
-       class="fixed {% if get_ai_everywhere() == '1' and active_nav != 'ai-everywhere-settings' %}bottom-20{% else %}bottom-4{% endif %} right-4 z-20 flex items-center gap-2 rounded-full border border-ink-700 bg-ink-900/95 px-3 py-1.5 text-xs text-zinc-300 shadow-lg backdrop-blur">
+       class="fixed bottom-20 right-4 z-20 flex items-center gap-2 rounded-full border border-ink-700 bg-ink-900/95 px-3 py-1.5 text-xs text-zinc-300 shadow-lg backdrop-blur">
     <a href="/whats-new" class="font-mono hover:text-accent-400">v{{ app_version }}</a>
     <button type="button"
             id="persona-version-banner-dismiss"
@@ -649,6 +647,7 @@
      fetched from /api/features.json (already exists from v1.x) and the
      search filters client-side. Opens a panel with: search field, top
      pages quick-links, a link to /help with the full walkthrough. #}
+  {% include "_copilot_widget.html" %}
   {% include "_help_widget.html" ignore missing %}
   {% if _persona_theme in ['cosmos', 'cosmos-dark'] %}
   <script src="/static/vendor/three-0.128.0.min.js?v={{ app_version }}" defer></script>

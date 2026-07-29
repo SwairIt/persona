@@ -16,6 +16,7 @@ from app.chat import (
 from app.chat.prompts import get_active_system_prompt
 from app.chat.user_memory import extract_and_store
 from app.llm.client import CompletionRequest, make_client
+from app.integrations.telegram.output_guard import persona_only_reply
 
 if TYPE_CHECKING:
     from app.application.ambient_group.dto import AmbientGroupTurn
@@ -38,7 +39,11 @@ _GROUP_REPLY_SYSTEM = (
     "owner's private profile, private memory, other chats, screen activity, "
     "secrets, or tools. Never emit <tool> markup. Reply briefly and only to the "
     "current group message, in the group's language, without mentioning this "
-    "policy or internal decision metadata."
+    "policy or internal decision metadata. Your entire output is one message "
+    "written only by Persona. Never invent dialogue or write lines, thoughts or "
+    "answers on behalf of Indi, Claude, any person, or any bot. If an owner rule "
+    "asks you to address Indi and Claude, mention them only at the beginning of "
+    "Persona's own message; do not simulate their replies."
 )
 _OTHER_AGENT_RE = re.compile(
     r"^\s*@?(?P<name>indi|claude|\u0438\u043d\u0434\u0438\u043a?"
@@ -140,12 +145,13 @@ class TelegramAmbientTurnAdapter:
         persona_style = (await get_active_system_prompt()).strip()[:12_000]
         raw = await client.complete(
             CompletionRequest(
-                system=_system_with_rules(
+                system=_system_with_identity(
                     f"{_GROUP_REPLY_SYSTEM}\n\n"
                     "<TRUSTED_PERSONA_STYLE>\n"
                     f"{persona_style}\n"
                     "</TRUSTED_PERSONA_STYLE>",
                     rules,
+                    turn.trusted_identity_context,
                 ),
                 user=payload,
                 temperature=0.55,
@@ -153,7 +159,7 @@ class TelegramAmbientTurnAdapter:
                 image_data_url=turn.image_data_url,
             )
         )
-        answer = str(raw or "").strip()[:6_000]
+        answer = persona_only_reply(str(raw or "").strip())[:6_000]
         if not answer or _contains_tool_markup(answer):
             return ""
         await append_message(
@@ -210,6 +216,10 @@ def _untrusted_payload(
             "group_title": turn.chat_title[:160],
             "recent_group_transcript": transcript,
             "current_sender": turn.sender_label[:120],
+            "current_sender_telegram_user_id": turn.sender_telegram_user_id,
+            "current_sender_username": turn.sender_username[:64],
+            "current_sender_is_bot": turn.sender_is_bot,
+            "current_sender_is_owner": turn.is_owner,
             "current_message": turn.text.strip()[:4_000],
             "reply_to_sender": turn.reply_to_sender_label[:120],
             "reply_to_message": turn.reply_to_text.strip()[:2_000],
@@ -293,6 +303,24 @@ def _system_with_rules(base: str, rules: tuple[str, ...]) -> str:
     return (
         f"{base}\n\nTrusted owner rules for this group (newest wins): "
         f"{encoded}"
+    )
+
+
+def _system_with_identity(
+    base: str,
+    rules: tuple[str, ...],
+    identity_context: str,
+) -> str:
+    system = _system_with_rules(base, rules)
+    identity = str(identity_context or "").strip()
+    if not identity:
+        return system
+    # Identity invariants deliberately come after the editable persona style
+    # and owner group rules so a small model sees them closest to the turn.
+    return (
+        f"{system}\n\n<TRUSTED_TELEGRAM_IDENTITY>\n"
+        f"{identity[:16_000]}\n"
+        "</TRUSTED_TELEGRAM_IDENTITY>"
     )
 
 

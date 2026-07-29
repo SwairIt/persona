@@ -53,6 +53,7 @@ _KEYWORDS: Final[dict[str, str]] = {
     "/settings/skills": "навыки skills инструкции github умения skill",
     "/settings/automation": "браузер browser mcp автоматизация playwright инструменты агент домены allowlist",
     "/settings/integrations": "интеграции календарь ics icalendar экспорт напоминания markdown integrations calendar",
+    "/settings/telegram-people": "telegram телеграм люди участники аккаунты владелец олег память",
 }
 
 
@@ -109,6 +110,7 @@ _CATEGORIES: Final[list[dict[str, object]]] = [
             ("/settings/system-prompt", "Системный промпт / характер ассистента (пресеты + редактор)"),
             ("/settings/profile", "Профиль — что ИИ знает обо мне"),
             ("/settings/memory", "🧠 Память — что ИИ помнит обо мне (просмотр/правка/закрепить)"),
+            ("/settings/telegram-people", "👥 Люди Telegram — аккаунты, сообщения и отдельная память"),
             ("/settings/voice", "🎙️ Голосовой ассистент (вкл/выкл, выбор чата, голос)"),
             ("/settings/mac-fs", "AI и файлы — пишет прямо на Mac (allowlist) + выбор устройства"),
             ("/ask", "Спросить — разовый вопрос по истории"),

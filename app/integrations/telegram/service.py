@@ -21,6 +21,7 @@ from app.integrations.telegram.ambient import (
     TelegramAmbientDecisionAdapter,
     TelegramAmbientTurnAdapter,
 )
+from app.integrations.telegram.output_guard import persona_only_reply
 
 if TYPE_CHECKING:
     from app.integrations.telegram.repository import TelegramRepository
@@ -57,6 +58,7 @@ class PersonaTelegramService:
         include_private_context: bool = True,
         allow_tools: bool = False,
         correlation_id: str = "",
+        trusted_identity_context: str = "",
     ) -> str:
         clean = (question or "").strip()
         if not clean:
@@ -66,6 +68,12 @@ class PersonaTelegramService:
                 persona_user_id, telegram_chat_id, chat_title
             )
         owner_actor = include_private_context if is_owner is None else is_owner
+        group_turn = telegram_chat_id < 0 and bool(sender_label)
+        turn_text = (
+            f"[Telegram group · {sender_label}] {clean}"
+            if group_turn
+            else clean
+        )
         result = await self._conversation.handle_turn(
             TurnCommand(
                 actor=ActorContext(
@@ -75,19 +83,25 @@ class PersonaTelegramService:
                 ),
                 surface=ConversationSurface.TELEGRAM,
                 conversation_id=ConversationId(session_id),
-                text=clean,
+                text=turn_text,
                 image_data_url=image_data_url,
                 source_label=(
-                    f"Telegram · {sender_label}" if sender_label else "Telegram"
+                    None
+                    if group_turn
+                    else (f"Telegram · {sender_label}" if sender_label else "Telegram")
                 ),
                 include_private_context=include_private_context,
                 allow_tools=allow_tools,
                 max_tokens=600 if telegram_chat_id < 0 else 1200,
                 temperature=0.65,
                 correlation_id=correlation_id,
+                metadata={
+                    "telegram_identity_context": trusted_identity_context[:16_000]
+                },
             )
         )
-        return result.answer
+        guarded = persona_only_reply(result.answer)
+        return guarded or "Я не буду придумывать ответы за других участников."
 
     async def record_passive_group_message(
         self,
@@ -125,6 +139,10 @@ class PersonaTelegramService:
         reply_to_sender_label: str = "",
         reply_to_text: str = "",
         is_owner: bool = False,
+        sender_telegram_user_id: int = 0,
+        sender_username: str = "",
+        sender_is_bot: bool = False,
+        trusted_identity_context: str = "",
     ) -> str:
         """Persist one ordinary group message and optionally answer it."""
         clean = (text or "").strip()
@@ -150,6 +168,10 @@ class PersonaTelegramService:
                 reply_to_sender_label=reply_to_sender_label,
                 reply_to_text=reply_to_text,
                 is_owner=is_owner,
+                sender_telegram_user_id=sender_telegram_user_id,
+                sender_username=sender_username,
+                sender_is_bot=sender_is_bot,
+                trusted_identity_context=trusted_identity_context[:16_000],
             )
         )
         return outcome.reply

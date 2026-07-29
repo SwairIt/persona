@@ -285,11 +285,45 @@ class TelegramRepository:
             return None
 
     async def bind_owner(self, telegram_user_id: int, persona_user_id: int) -> TelegramBinding:
-        async with get_connection() as conn:
-            await set_kv(conn, _OWNER_TG_KEY, str(int(telegram_user_id)))
-            await set_kv(conn, _OWNER_PERSONA_KEY, str(int(persona_user_id)))
-            await delete_kv(conn, _PAIRING_HASH_KEY)
-        return TelegramBinding(int(telegram_user_id), int(persona_user_id))
+        telegram_id = int(telegram_user_id)
+        persona_id = int(persona_user_id)
+        if telegram_id <= 0 or persona_id <= 0:
+            raise ValueError("owner ids must be positive")
+        async with write_transaction() as conn:
+            cursor = await conn.execute(
+                "SELECT key, value FROM kv_settings WHERE key IN (?, ?)",
+                (_OWNER_TG_KEY, _OWNER_PERSONA_KEY),
+            )
+            existing = {
+                str(row["key"]): str(row["value"] or "")
+                for row in await cursor.fetchall()
+            }
+            existing_tg = existing.get(_OWNER_TG_KEY)
+            existing_persona = existing.get(_OWNER_PERSONA_KEY)
+            if existing_tg is not None or existing_persona is not None:
+                if (
+                    existing_tg != str(telegram_id)
+                    or existing_persona != str(persona_id)
+                ):
+                    raise RuntimeError(
+                        "Telegram owner binding is immutable once established"
+                    )
+                return TelegramBinding(telegram_id, persona_id)
+            await conn.executemany(
+                """
+                INSERT INTO kv_settings(key, value, updated_at)
+                VALUES(?, ?, datetime('now'))
+                """,
+                (
+                    (_OWNER_TG_KEY, str(telegram_id)),
+                    (_OWNER_PERSONA_KEY, str(persona_id)),
+                ),
+            )
+            await conn.execute(
+                "DELETE FROM kv_settings WHERE key=?",
+                (_PAIRING_HASH_KEY,),
+            )
+        return TelegramBinding(telegram_id, persona_id)
 
     async def allowed_chat_ids(self) -> set[int]:
         async with get_connection() as conn:

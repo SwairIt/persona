@@ -1,0 +1,175 @@
+/*
+ * Persona — вездесущий копилот («ИИ везде», слайс B1).
+ *
+ * Плавающая кнопка-FAB справа снизу + выезжающая справа панель.
+ * Стилистика: тёмное стекло (backdrop-filter c fallback), аккуратные
+ * пузыри диалога, безопасные отступы под iOS home-indicator.
+ *
+ * Всё завязано на data-атрибуты <body>:
+ *   - data-reduce-motion="1" — гасим slide-in/переходы (см. reduce_motion.css
+ *     тоже глушит, но здесь дублируем для собственных keyframes).
+ *
+ * Tailwind в base.html покрывает раскладку крупными классами; тут — то, что
+ * Tailwind неудобно выразить: анимации, blur, скролл-поведение пузырей.
+ */
+
+/* ── FAB ───────────────────────────────────────────────────────────── */
+.persona-copilot-fab {
+  /* safe-area, чтобы кнопка не пряталась за home-indicator на iPhone */
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  box-shadow: 0 8px 24px rgba(124, 58, 237, 0.35);
+}
+
+.persona-copilot-fab:focus-visible {
+  outline: 2px solid #a78bfa;
+  outline-offset: 2px;
+}
+
+/* ── Панель ─────────────────────────────────────────────────────────── */
+.persona-copilot-panel {
+  /* Ширина: телефон — почти весь экран, десктоп — фиксированная колонка */
+  width: min(24rem, calc(100vw - 1.5rem));
+  max-height: min(80vh, 40rem);
+  padding-bottom: env(safe-area-inset-bottom);
+  background-color: rgba(17, 17, 20, 0.96);
+  border: 1px solid #26262e;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
+}
+
+@supports ((backdrop-filter: blur(10px)) or (-webkit-backdrop-filter: blur(10px))) {
+  .persona-copilot-panel {
+    background-color: rgba(17, 17, 20, 0.82);
+    -webkit-backdrop-filter: blur(12px) saturate(140%);
+    backdrop-filter: blur(12px) saturate(140%);
+  }
+}
+
+/* Плавный выезд справа. Alpine ставит .is-open когда open===true. */
+.persona-copilot-panel {
+  transform: translateX(120%);
+  opacity: 0;
+  transition: transform 220ms cubic-bezier(0.2, 0.7, 0.2, 1), opacity 180ms ease-out;
+  pointer-events: none;
+}
+
+.persona-copilot-panel.is-open {
+  transform: translateX(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* ── Лента диалога ──────────────────────────────────────────────────── */
+.persona-copilot-log {
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #3f3f46 transparent;
+}
+
+.persona-copilot-log::-webkit-scrollbar {
+  width: 8px;
+}
+
+.persona-copilot-log::-webkit-scrollbar-thumb {
+  background-color: #3f3f46;
+  border-radius: 999px;
+}
+
+/* ── Пузыри ─────────────────────────────────────────────────────────── */
+.persona-copilot-bubble {
+  max-width: 92%;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+}
+
+.persona-copilot-bubble--user {
+  align-self: flex-end;
+  background-color: #7c3aed;
+  color: #fff;
+  border-radius: 14px 14px 4px 14px;
+}
+
+.persona-copilot-bubble--bot {
+  align-self: flex-start;
+  background-color: #1a1a1f;
+  color: #e4e4e7;
+  border: 1px solid #26262e;
+  border-radius: 14px 14px 14px 4px;
+  white-space: pre-wrap;
+}
+
+.persona-copilot-bubble--error {
+  align-self: flex-start;
+  background-color: rgba(159, 18, 57, 0.18);
+  color: #fda4af;
+  border: 1px solid rgba(190, 24, 93, 0.35);
+  border-radius: 14px;
+}
+
+/* Ссылка на найденную настройку внутри пузыря */
+.persona-copilot-bubble a {
+  color: #c4b5fd;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.persona-copilot-bubble a:hover {
+  color: #ddd6fe;
+}
+
+/* Мигающий курсор в конце стрима */
+.persona-copilot-caret::after {
+  content: "▍";
+  margin-left: 1px;
+  color: #a78bfa;
+  animation: persona-copilot-blink 1s step-end infinite;
+}
+
+@keyframes persona-copilot-blink {
+  50% { opacity: 0; }
+}
+
+/* «Печатает…» точки, пока не пришёл первый delta */
+.persona-copilot-typing span {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin: 0 1px;
+  border-radius: 50%;
+  background: #71717a;
+  animation: persona-copilot-bounce 1.2s infinite ease-in-out both;
+}
+
+.persona-copilot-typing span:nth-child(1) { animation-delay: -0.24s; }
+.persona-copilot-typing span:nth-child(2) { animation-delay: -0.12s; }
+
+@keyframes persona-copilot-bounce {
+  0%, 80%, 100% { transform: scale(0.6); opacity: 0.5; }
+  40% { transform: scale(1); opacity: 1; }
+}
+
+/* ── Быстрые режимы (чипы) ──────────────────────────────────────────── */
+.persona-copilot-chip {
+  white-space: nowrap;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+/* ── Уважение к reduce-motion ───────────────────────────────────────── */
+body[data-reduce-motion="1"] .persona-copilot-panel {
+  transition: none !important;
+}
+
+body[data-reduce-motion="1"] .persona-copilot-caret::after,
+body[data-reduce-motion="1"] .persona-copilot-typing span {
+  animation: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .persona-copilot-panel {
+    transition: none;
+  }
+  .persona-copilot-caret::after,
+  .persona-copilot-typing span {
+    animation: none;
+  }
+}

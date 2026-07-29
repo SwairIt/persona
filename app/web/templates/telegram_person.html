@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block content %}
+<a href="/settings/telegram-people" class="mb-5 inline-flex text-sm text-zinc-500 hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400">← Все люди</a>
+
+<div class="mb-6 rounded-xl border {% if person.is_owner %}border-violet-500/60 bg-violet-500/10{% else %}border-ink-700 bg-ink-800{% endif %} p-6">
+  <div class="flex flex-wrap items-start justify-between gap-4">
+    <div>
+      <div class="flex items-center gap-2">
+        <h1 class="text-2xl font-bold tracking-tight">{{ person.display_name }}</h1>
+        {% if person.is_owner %}<span class="rounded-full bg-violet-500/20 px-2 py-1 text-xs font-semibold text-violet-200">Единственный владелец</span>{% endif %}
+      </div>
+      <p class="mt-2 text-sm text-zinc-400">{% if person.username %}@{{ person.username }} · {% endif %}<span class="font-mono">tg_user_id={{ person.telegram_user_id }}</span></p>
+    </div>
+    <div class="text-right text-xs text-zinc-500">
+      <div>{{ person.message_count }} сообщений</div>
+      <div class="mt-1">с {{ person.first_seen_at[:16] }}</div>
+    </div>
+  </div>
+</div>
+
+<div class="grid gap-6 lg:grid-cols-2">
+  <section class="rounded-xl border border-ink-700 bg-ink-800 overflow-hidden">
+    <header class="border-b border-ink-700 px-5 py-3"><h2 class="font-semibold">Что Persona помнит об этом человеке</h2></header>
+    <div class="max-h-[34rem] divide-y divide-ink-700/60 overflow-y-auto">
+      {% for fact in facts %}
+      <article class="px-5 py-4">
+        <p class="text-sm text-zinc-200">{{ fact.text }}</p>
+        <p class="mt-2 font-mono text-[11px] text-zinc-600">chat {{ fact.source_chat_id or '—' }} · message {{ fact.source_message_id or '—' }}</p>
+      </article>
+      {% else %}<p class="px-5 py-8 text-center text-sm text-zinc-500">Явных фактов пока нет.</p>{% endfor %}
+    </div>
+  </section>
+
+  <section class="rounded-xl border border-ink-700 bg-ink-800 overflow-hidden">
+    <header class="border-b border-ink-700 px-5 py-3"><h2 class="font-semibold">Последние сообщения</h2></header>
+    <div class="max-h-[34rem] divide-y divide-ink-700/60 overflow-y-auto">
+      {% for message in messages %}
+      <article class="px-5 py-4">
+        <p class="whitespace-pre-wrap text-sm text-zinc-300">{{ message.text }}</p>
+        <p class="mt-2 font-mono text-[11px] text-zinc-600">chat {{ message.telegram_chat_id }} · message {{ message.telegram_message_id }} · {{ (message.sent_at or message.observed_at)[:16] }}</p>
+      </article>
+      {% else %}<p class="px-5 py-8 text-center text-sm text-zinc-500">Сообщений пока нет.</p>{% endfor %}
+    </div>
+  </section>
+</div>
+{% endblock %}

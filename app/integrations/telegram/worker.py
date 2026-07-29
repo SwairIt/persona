@@ -31,6 +31,7 @@ from app.integrations.telegram.media import (
     build_media_context,
     non_file_content_summary,
 )
+from app.integrations.telegram.people import TelegramPeopleRepository, TelegramPerson
 from app.integrations.telegram.repository import (
     TelegramBinding,
     TelegramRepository,
@@ -106,11 +107,15 @@ class TelegramWorker:
         api: TelegramBotAPI | None = None,
         repository: TelegramRepository | None = None,
         service: PersonaTelegramService | None = None,
+        people_repository: TelegramPeopleRepository | None = None,
     ) -> None:
         self.config = config
         self.api = api or TelegramBotAPI(config.bot_token)
         self.repository = repository or TelegramRepository()
         self.service = service or PersonaTelegramService(self.repository)
+        self.people = people_repository
+        if self.people is None and repository is None:
+            self.people = TelegramPeopleRepository()
         self._stop = asyncio.Event()
         self._bot_id = 0
         self._bot_username = ""
@@ -143,6 +148,11 @@ class TelegramWorker:
                 raise RuntimeError("PERSONA_TG_OWNER_USER_ID conflicts with the stored binding.")
         elif configured is not None:
             self._binding = await self.repository.bind_owner(configured, self._persona_owner_id)
+        if self._binding is not None and self.people is not None:
+            await self.people.ensure_owner(
+                self._binding.persona_user_id,
+                self._binding.telegram_user_id,
+            )
         me = await self.api.get_me()
         self._bot_id = int(me.get("id") or 0)
         self._bot_username = str(me.get("username") or "")
@@ -390,6 +400,10 @@ class TelegramWorker:
         authorized, newly_allowed = await self._authorize(incoming, is_owner)
         if not authorized:
             return
+        person, identity_context = await self._observe_person(
+            incoming,
+            binding,
+        )
 
         if await self._handle_owner_command(incoming, is_owner):
             return
@@ -430,7 +444,11 @@ class TelegramWorker:
                 telegram_chat_id=incoming.chat_id,
                 text=incoming.text,
                 chat_title=_chat_title(incoming.chat),
-                sender_label=_sender_label(incoming.sender),
+                sender_label=(
+                    person.stable_label
+                    if person is not None
+                    else _sender_label(incoming.sender)
+                ),
             )
             await self._send_text(
                 incoming.chat_id,
@@ -446,7 +464,9 @@ class TelegramWorker:
         if media_context.text_suffix:
             enriched_text = f"{enriched_text}\n{media_context.text_suffix}".strip()
             clean_text = f"{clean_text}\n{media_context.text_suffix}".strip()
-        sender_label = _sender_label(incoming.sender)
+        sender_label = (
+            person.stable_label if person is not None else _sender_label(incoming.sender)
+        )
         chat_title = _chat_title(incoming.chat)
         reply_to_sender_label, reply_to_text = _reply_context(incoming.raw)
         if incoming.is_group and not addressed:
@@ -463,6 +483,10 @@ class TelegramWorker:
                     reply_to_sender_label=reply_to_sender_label,
                     reply_to_text=reply_to_text,
                     is_owner=is_owner,
+                    sender_telegram_user_id=incoming.sender_id,
+                    sender_username=str(incoming.sender.get("username") or ""),
+                    sender_is_bot=incoming.sender.get("is_bot") is True,
+                    trusted_identity_context=identity_context,
                 )
             except Exception as exc:
                 log.warning(
@@ -501,6 +525,7 @@ class TelegramWorker:
                 include_private_context=private_owner,
                 allow_tools=private_owner,
                 correlation_id=f"telegram-update:{incoming.update_id}",
+                trusted_identity_context=identity_context,
             )
         except Exception as exc:
             log.warning(
@@ -524,6 +549,44 @@ class TelegramWorker:
             answer,
             is_owner_private=is_owner and not incoming.is_group,
         )
+
+    async def _observe_person(
+        self,
+        incoming: IncomingMessage,
+        binding: TelegramBinding,
+    ) -> tuple[TelegramPerson | None, str]:
+        if self.people is None:
+            return None, ""
+        reply = incoming.raw.get("reply_to_message")
+        reply_sender_id: int | None = None
+        if isinstance(reply, dict):
+            reply_sender = reply.get("from")
+            if isinstance(reply_sender, dict):
+                reply_sender_id = _int(reply_sender.get("id"))
+        try:
+            person = await self.people.observe_message(
+                persona_user_id=binding.persona_user_id,
+                owner_telegram_user_id=binding.telegram_user_id,
+                sender=incoming.sender,
+                chat_id=incoming.chat_id,
+                message_id=incoming.message_id,
+                text=incoming.text,
+                reply_to_sender_id=reply_sender_id,
+                sent_at_unix=_int(incoming.raw.get("date")),
+            )
+            context = await self.people.identity_context(
+                persona_user_id=binding.persona_user_id,
+                owner_telegram_user_id=binding.telegram_user_id,
+                current_sender_id=incoming.sender_id,
+                chat_id=incoming.chat_id,
+            )
+            return person, context
+        except Exception as exc:
+            log.warning(
+                "telegram.people.observe_failed",
+                error_type=type(exc).__name__,
+            )
+            return None, ""
 
     async def _deliver_reaction_only(self, incoming: IncomingMessage) -> None:
         plan = await plan_telegram_actions(
@@ -917,7 +980,13 @@ def _sender_label(sender: dict[str, Any]) -> str:
     ]
     name = " ".join(part for part in parts if part)
     username = str(sender.get("username") or "").strip()
-    return name or (f"@{username}" if username else "участник")
+    telegram_id = _int(sender.get("id"))
+    label = name or (f"@{username}" if username else "участник")
+    if name and username:
+        label += f" (@{username})"
+    if telegram_id is not None:
+        label += f" [tg_user_id={telegram_id}]"
+    return label
 
 
 def _reply_context(message: dict[str, Any]) -> tuple[str, str]:

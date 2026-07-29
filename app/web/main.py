@@ -325,6 +325,8 @@ from app.web.routes import (
     multi_monitor as multi_monitor_routes,
     qa_stream as qa_stream_routes,
     settings_hub as settings_hub_routes,
+    telegram_people as telegram_people_routes,
+    copilot as copilot_routes,
     shot_alt_text_settings as shot_alt_text_settings_routes,
     auto_pin_admin as auto_pin_admin_routes,
     today_vs_average as today_vs_average_routes,
@@ -777,6 +779,8 @@ def create_app() -> FastAPI:
     # qa_stream is nested inside qa_routes (app/web/routes/qa.py uses
     # router.include_router(qa_stream_router)) — registering here too duped routes.
     app.include_router(settings_hub_routes.router)
+    app.include_router(telegram_people_routes.router)
+    app.include_router(copilot_routes.router)
     # Phase 2 — браузер-агент + MCP-рантайм переключатель (/settings/automation).
     from app.web.routes import automation_settings as automation_settings_routes  # noqa: PLC0415
     app.include_router(automation_settings_routes.router)

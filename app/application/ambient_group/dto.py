@@ -19,6 +19,10 @@ class AmbientGroupTurn:
     reply_to_sender_label: str = ""
     reply_to_text: str = ""
     is_owner: bool = False
+    sender_telegram_user_id: int = 0
+    sender_username: str = ""
+    sender_is_bot: bool = False
+    trusted_identity_context: str = ""
 
     def __post_init__(self) -> None:
         if self.tenant_id <= 0 or self.conversation_id <= 0:

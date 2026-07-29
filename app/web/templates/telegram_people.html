@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="mb-6 flex flex-wrap items-end justify-between gap-3">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Люди из Telegram</h1>
+    <p class="mt-1 text-sm text-zinc-500">Аккаунты различаются по постоянному Telegram ID. Имена и @username могут меняться.</p>
+  </div>
+  <span class="rounded-full border border-ink-700 bg-ink-800 px-3 py-1 text-xs text-zinc-400">{{ people|length }} аккаунтов</span>
+</div>
+
+<div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+  {% for person in people %}
+  <a href="/settings/telegram-people/{{ person.telegram_user_id }}"
+     class="group rounded-xl border {% if person.is_owner %}border-violet-500/60 bg-violet-500/10{% else %}border-ink-700 bg-ink-800{% endif %} p-5 transition hover:-translate-y-0.5 hover:border-violet-500/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400">
+    <div class="flex items-start justify-between gap-3">
+      <div class="min-w-0">
+        <h2 class="truncate font-semibold text-zinc-100">{{ person.display_name }}</h2>
+        <p class="mt-1 truncate text-sm text-zinc-500">{% if person.username %}@{{ person.username }}{% else %}без username{% endif %}</p>
+      </div>
+      {% if person.is_owner %}
+      <span class="shrink-0 rounded-full bg-violet-500/20 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-violet-200">Владелец</span>
+      {% elif person.is_bot %}
+      <span class="shrink-0 rounded-full bg-cyan-500/15 px-2 py-1 text-[11px] text-cyan-200">Бот</span>
+      {% endif %}
+    </div>
+    <dl class="mt-5 grid grid-cols-2 gap-3 text-xs">
+      <div><dt class="text-zinc-600">Telegram ID</dt><dd class="mt-1 font-mono text-zinc-300">{{ person.telegram_user_id }}</dd></div>
+      <div><dt class="text-zinc-600">Сообщений</dt><dd class="mt-1 text-zinc-300">{{ person.message_count }}</dd></div>
+      <div><dt class="text-zinc-600">Фактов</dt><dd class="mt-1 text-zinc-300">{{ person.fact_count }}</dd></div>
+      <div><dt class="text-zinc-600">Последний раз</dt><dd class="mt-1 text-zinc-300">{{ person.last_seen_at[:16] }}</dd></div>
+    </dl>
+  </a>
+  {% else %}
+  <div class="sm:col-span-2 xl:col-span-3 rounded-xl border border-dashed border-ink-700 p-10 text-center">
+    <p class="text-zinc-400">Пока никого нет.</p>
+    <p class="mt-2 text-sm text-zinc-600">Реестр заполнится новыми сообщениями в разрешённых Telegram-группах.</p>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}
