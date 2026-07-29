@@ -129,9 +129,7 @@ class TelegramPeopleRepository:
                     telegram_message_id, reply_to_telegram_user_id, text, sent_at
                 )
                 VALUES(?,?,?,?,?,?,?)
-                ON CONFLICT(
-                    persona_user_id, telegram_chat_id, telegram_message_id
-                ) DO NOTHING
+                ON CONFLICT(telegram_chat_id, telegram_message_id) DO NOTHING
                 """,
                 (
                     tenant,

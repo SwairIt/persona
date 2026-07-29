@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS telegram_person_message (
     FOREIGN KEY (persona_user_id, telegram_user_id)
         REFERENCES telegram_person(persona_user_id, telegram_user_id)
         ON DELETE CASCADE,
-    UNIQUE (persona_user_id, telegram_chat_id, telegram_message_id)
+    UNIQUE (telegram_chat_id, telegram_message_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_telegram_person_message_subject
