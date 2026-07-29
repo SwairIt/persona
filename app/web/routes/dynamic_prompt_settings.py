@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.auth import current_user_required
 from app.auth.owner import is_primary_owner
+from app.auth.sessions import SessionRecord  # noqa: TC001 - FastAPI inspects it
 from app.chat.dynamic_prompt import (
     activate_version,
     get_config,
@@ -16,9 +17,6 @@ from app.chat.dynamic_prompt import (
     set_enabled,
 )
 from app.web.templates_engine import templates
-
-if TYPE_CHECKING:
-    from app.auth.sessions import SessionRecord
 
 router = APIRouter(tags=["settings"])
 

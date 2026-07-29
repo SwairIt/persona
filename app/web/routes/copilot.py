@@ -28,14 +28,13 @@ from starlette.responses import StreamingResponse
 
 from app.auth import current_user_required
 from app.auth.owner import is_owner
+from app.auth.sessions import SessionRecord  # noqa: TC001 - FastAPI inspects it
 from app.llm.client import LLMNotConfigured
 from app.llm.copilot_stream import stream_copilot
 from app.logging_setup import get_logger
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
-
-    from app.auth.sessions import SessionRecord
 
 log = get_logger("persona.copilot.route")
 
