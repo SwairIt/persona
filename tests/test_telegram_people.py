@@ -155,3 +155,10 @@ def test_approach_review_evasion_is_removed() -> None:
         )
         == "Клод сегодня опять сломал собственную логику."
     )
+
+
+def test_polite_constructive_meta_comment_becomes_human_ack() -> None:
+    assert persona_only_reply(
+        "Я понимаю вашу точку зрения и действительно стараюсь быть вежливым "
+        "и конструктивным в нашем взаимодействии."
+    ) == "Ладно."

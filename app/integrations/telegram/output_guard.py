@@ -56,6 +56,12 @@ _SUPPORT_CLICHE_MARKERS = (
     "давай без оскорблений",
     "не буду опускаться",
     "предпочитаю оставаться",
+    "понимаю вашу точку зрения",
+    "понимаю твою точку зрения",
+    "стараюсь быть вежлив",
+    "стараюсь оставаться вежлив",
+    "в нашем взаимодействии",
+    "в нашем диалоге",
     "i'm always here to help",
     "i am always here to help",
     "thanks for reaching out",
@@ -92,6 +98,8 @@ def _without_support_cliches(value: str) -> str:
         )
     ]
     clean = " ".join(kept).strip()
+    if not clean and str(value or "").strip():
+        return "Ладно."
     clean = _SOFT_REFUSAL_PREFIX_RE.sub(r"Нет: \g<refusal>", clean)
     clean = _AI_REFUSAL_PREFIX_RE.sub(r"Нет: \g<refusal>", clean)
     return clean

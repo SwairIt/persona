@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.27.7] - 2026-07-29
+
+### Fixed
+- Persona no longer narrates its own politeness, constructiveness or quality
+  of interaction; Telegram removes those meta-assistant sentences and uses a
+  terse human acknowledgement when nothing else remains.
+
 ## [2.27.6] - 2026-07-29
 
 ### Changed
