@@ -125,3 +125,21 @@ def test_night_window_handles_normal_and_wrapped_ranges() -> None:
     assert _inside_night(23, wrapped)
     assert _inside_night(4, wrapped)
     assert not _inside_night(12, wrapped)
+
+
+def test_config_loads_user_credentials_from_dotenv(tmp_path, monkeypatch) -> None:
+    monkeypatch.delenv("PERSONA_TG_USER_API_ID", raising=False)
+    monkeypatch.delenv("PERSONA_TG_USER_API_HASH", raising=False)
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "PERSONA_TG_USER_API_ID=12345678\n"
+        "PERSONA_TG_USER_API_HASH=0123456789abcdef0123456789abcdef\n",
+        encoding="utf-8",
+    )
+
+    config = PinnedTelegramConfig.load(env_file)
+
+    assert config.configured is True
+    assert config.api_id == 12345678
+    assert config.api_hash == "0123456789abcdef0123456789abcdef"
+    assert config.api_hash not in repr(config)

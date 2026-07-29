@@ -5,10 +5,12 @@ from __future__ import annotations
 import asyncio
 import os
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
-from pathlib import Path  # noqa: TC003 - constructed by load()
+from pathlib import Path
 from typing import Any
+
+from dotenv import dotenv_values
 
 from app.auth.owner import get_owner_user_id
 from app.dreams import add_reflection
@@ -40,7 +42,7 @@ insights, reply exactly: NO_INSIGHTS
 @dataclass(frozen=True, slots=True)
 class PinnedTelegramConfig:
     api_id: int | None
-    api_hash: str
+    api_hash: str = field(repr=False)
     session_path: Path
     poll_seconds: int = 900
     night_start_hour: int = 0
@@ -51,8 +53,16 @@ class PinnedTelegramConfig:
         return self.api_id is not None and bool(self.api_hash)
 
     @classmethod
-    def load(cls) -> PinnedTelegramConfig:
-        raw_id = os.environ.get("PERSONA_TG_USER_API_ID", "").strip()
+    def load(cls, env_path: Path | str = ".env") -> PinnedTelegramConfig:
+        dotenv = dotenv_values(Path(env_path))
+
+        def value(name: str, default: str = "") -> str:
+            raw = os.environ.get(name)
+            if raw is None:
+                raw = dotenv.get(name)
+            return str(raw or default).strip()
+
+        raw_id = value("PERSONA_TG_USER_API_ID")
         try:
             api_id = int(raw_id) if raw_id else None
         except ValueError:
@@ -60,16 +70,19 @@ class PinnedTelegramConfig:
         data_dir = get_settings().data_dir.expanduser().resolve()
         return cls(
             api_id=api_id if api_id and api_id > 0 else None,
-            api_hash=os.environ.get("PERSONA_TG_USER_API_HASH", "").strip(),
+            api_hash=value("PERSONA_TG_USER_API_HASH"),
             session_path=data_dir / "telegram-owner",
-            poll_seconds=_bounded_env_int(
-                "PERSONA_TG_PINNED_POLL_SECONDS", 900, 300, 3_600
+            poll_seconds=_bounded_int(
+                value("PERSONA_TG_PINNED_POLL_SECONDS", "900"),
+                900,
+                300,
+                3_600,
             ),
-            night_start_hour=_bounded_env_int(
-                "PERSONA_TG_PINNED_NIGHT_START", 0, 0, 23
+            night_start_hour=_bounded_int(
+                value("PERSONA_TG_PINNED_NIGHT_START", "0"), 0, 0, 23
             ),
-            night_end_hour=_bounded_env_int(
-                "PERSONA_TG_PINNED_NIGHT_END", 7, 0, 23
+            night_end_hour=_bounded_int(
+                value("PERSONA_TG_PINNED_NIGHT_END", "7"), 7, 0, 23
             ),
         )
 
@@ -405,9 +418,9 @@ def _inside_night(hour: int, config: PinnedTelegramConfig) -> bool:
     return hour >= start or hour < end
 
 
-def _bounded_env_int(name: str, default: int, minimum: int, maximum: int) -> int:
+def _bounded_int(raw: str, default: int, minimum: int, maximum: int) -> int:
     try:
-        value = int(os.environ.get(name, str(default)).strip())
+        value = int(raw.strip())
     except ValueError:
         return default
     return max(minimum, min(maximum, value))
