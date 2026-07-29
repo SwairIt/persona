@@ -129,7 +129,7 @@ async def test_stream_enqueues_chat_job_with_payload(
     assert msgs[0] == {"role": "system", "content": "контекст"}
     assert msgs[1]["role"] == "user"
     assert msgs[1]["content"] == "вопрос"
-    assert job["payload"]["options"]["num_ctx"] == 4096
+    assert job["payload"]["options"]["num_ctx"] == 2048
     assert job["payload"]["options"]["num_predict"] == 128
     assert job["payload"]["options"]["repeat_penalty"] == 1.15
     assert job["payload"]["options"]["repeat_last_n"] == 256
@@ -145,6 +145,21 @@ async def test_stream_preserves_interactive_job_kind(
     _ = [d async for d in client.stream(_req())]
 
     assert calls["enqueue"][0]["kind"] == "telegram_conversation"
+    assert calls["enqueue"][0]["payload"]["delivery"] == "complete"
+
+
+async def test_telegram_complete_delivery_yields_job_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def get_job(job_id: int) -> dict:
+        return {"status": "done", "result": "готовый ответ"}
+
+    _install_fake_worker_queue(monkeypatch, get_job=get_job)
+    client = WorkerLLMClient(job_kind="telegram_conversation")
+
+    out = [delta async for delta in client.stream(_req())]
+
+    assert out == ["готовый ответ"]
 
 
 async def test_stream_uses_event_driven_combined_reads(

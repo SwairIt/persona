@@ -109,7 +109,7 @@ async def worker_probe(
 
 # Event будит long-poll сразу при enqueue в этом server process. Timeout нужен
 # только как fallback при нескольких uvicorn workers / внешней записи в БД.
-_CROSS_PROCESS_POLL_SECONDS = 2.0
+_CROSS_PROCESS_POLL_SECONDS = 0.25
 # Потолок ожидания клиента, чтобы один воркер не висел вечно.
 _MAX_WAIT_SECONDS = 60.0
 

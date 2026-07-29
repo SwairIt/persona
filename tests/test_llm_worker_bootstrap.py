@@ -3,6 +3,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -186,3 +187,65 @@ def test_worker_heartbeat_markers_are_atomic(tmp_path: Path) -> None:
     assert browser_path.read_text(encoding="ascii").strip()
     assert not (tmp_path / ".llm.heartbeat.tmp").exists()
     assert not (tmp_path / ".browser.heartbeat.tmp").exists()
+
+
+def test_telegram_complete_delivery_uses_one_final_upload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeResponse:
+        def __enter__(self) -> FakeResponse:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def iter_lines(self):
+            yield '{"message":{"content":"быстрый "},"done":false}'
+            yield '{"message":{"content":"ответ"},"done":true}'
+
+    class FakeOllama:
+        def __init__(self, **_kwargs: object) -> None:
+            pass
+
+        def __enter__(self) -> FakeOllama:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def stream(self, *_args: object, **_kwargs: object) -> FakeResponse:
+            return FakeResponse()
+
+    completed: list[dict[str, object]] = []
+
+    monkeypatch.setattr(persona_llm_worker.httpx, "Client", FakeOllama)
+    monkeypatch.setattr(
+        persona_llm_worker,
+        "_send_chunk",
+        lambda *_args, **_kwargs: pytest.fail("unexpected chunk upload"),
+    )
+    monkeypatch.setattr(
+        persona_llm_worker,
+        "_send_done",
+        lambda _client, _cfg, job_id, **kwargs: completed.append(
+            {"job_id": job_id, **kwargs}
+        ),
+    )
+
+    persona_llm_worker._handle_chat(
+        object(),  # type: ignore[arg-type]
+        SimpleNamespace(model="qwen2.5:3b", ollama="http://127.0.0.1:11434"),
+        {
+            "job_id": 9,
+            "payload": {
+                "messages": [{"role": "user", "content": "привет"}],
+                "delivery": "complete",
+            },
+        },
+        SimpleNamespace(stop=False),
+    )
+
+    assert completed == [{"job_id": 9, "result": "быстрый ответ"}]

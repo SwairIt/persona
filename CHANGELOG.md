@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.29.0] - 2026-07-29
+
+### Changed
+- Telegram worker jobs now upload one complete answer instead of blocking local
+  Ollama with one WAN request and SQLite transaction per generated token.
+- Short requests can use a 2048-token Ollama context tier, while longer
+  prompts still scale automatically to 4096, 8192, 16384 or 32768 tokens.
+- Telegram removes a duplicate identity preamble, bounds recent transcript
+  context to 800 characters and uses smaller relevance-focused memory blocks.
+- Private Telegram replies are capped at 96 tokens; group replies retain their
+  existing 64-token conversational budget.
+- Cross-process worker wake-up fallback dropped from two seconds to 250 ms.
+
 ## [2.28.0] - 2026-07-29
 
 ### Added

@@ -241,6 +241,7 @@ def _handle_chat(client: httpx.Client, cfg: Config, job: dict, stopper: _Stopper
     options = payload.get("options") or {}
     fmt = payload.get("format")
     keep_alive = payload.get("keep_alive")
+    complete_delivery = payload.get("delivery") == "complete"
 
     # Структурный вывод (knowledge_graph-триплеты / user_memory-реконсиляция):
     # format + stream=false → готовый JSON одним ответом, шлём в result (не чанки).
@@ -307,10 +308,22 @@ def _handle_chat(client: httpx.Client, cfg: Config, job: dict, stopper: _Stopper
                 if piece:
                     buf.append(piece)
                 # Сбрасываем буфер по таймеру (батчинг), не на каждый токен.
-                if buf and (time.monotonic() - last_flush) >= _CHUNK_FLUSH_INTERVAL:
+                if (
+                    not complete_delivery
+                    and buf
+                    and (time.monotonic() - last_flush) >= _CHUNK_FLUSH_INTERVAL
+                ):
                     flush()
                 if obj.get("done"):
                     break
+    if complete_delivery:
+        content = "".join(buf)
+        _send_done(client, cfg, job_id, result=content)
+        log(
+            f"chat-complete job #{job_id} готов "
+            f"(model={model}, {len(content)} симв)"
+        )
+        return
     flush()  # добить хвост
     _send_done(client, cfg, job_id)
     log(f"chat job #{job_id} готов (model={model}, чанков={seq})")

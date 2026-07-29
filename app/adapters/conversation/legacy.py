@@ -88,6 +88,10 @@ _TOOLS_DISABLED = (
     "«Нет: для этого действия нужен доступ к инструментам в личном чате владельца». "
     "Без извинений, эмпатической подводки и предложения других услуг."
 )
+_TELEGRAM_TOOLS_DISABLED = (
+    "\n\nИнструменты в этом ответе отключены. Не имитируй <tool>; "
+    "если без инструмента действие невозможно, скажи об этом одной фразой."
+)
 _SELF_MARKERS = (
     "я ",
     " я",
@@ -201,7 +205,10 @@ class PersonaContextAdapter:
             is_owner=command.actor.is_owner,
             compact=command.surface is ConversationSurface.TELEGRAM,
         )
-        system = _IDENTITY + "\n\n" + persona
+        telegram = command.surface is ConversationSurface.TELEGRAM
+        # The compact Telegram persona already carries the same identity.
+        # Avoid paying prompt-evaluation cost for the duplicate web preamble.
+        system = persona if telegram else _IDENTITY + "\n\n" + persona
         if command.include_private_context:
             system += profile_block(await get_profile(int(command.actor.tenant_id)))
             system = await self._private_context(system, command, conversation)
@@ -220,14 +227,14 @@ class PersonaContextAdapter:
                     "</TRUSTED_TELEGRAM_IDENTITY>"
                 )
         if not command.allow_tools:
-            system += _TOOLS_DISABLED
+            system += _TELEGRAM_TOOLS_DISABLED if telegram else _TOOLS_DISABLED
         elif command.actor.is_owner:
             system = await self._tools_context(system)
 
         transcript = _bounded_transcript(
             history,
             max_chars=(
-                1_200
+                800
                 if command.surface is ConversationSurface.TELEGRAM
                 else 18_000
             ),
@@ -252,10 +259,10 @@ class PersonaContextAdapter:
         try:
             memory = await build_memory_block(
                 tenant_id,
-                max_items=5 if telegram else 14,
+                max_items=3 if telegram else 14,
             )
             if memory:
-                system += "\n\n" + (memory[:800] if telegram else memory)
+                system += "\n\n" + (memory[:500] if telegram else memory)
         except Exception as exc:
             log.debug("conversation.memory.unavailable", error=type(exc).__name__)
         try:
@@ -263,10 +270,10 @@ class PersonaContextAdapter:
                 tenant_id,
                 command.text,
                 exclude_session_id=int(conversation.id),
-                limit=3 if telegram else 6,
+                limit=2 if telegram else 6,
             )
             if recalled:
-                compact_recall = recalled[:800] if telegram else recalled
+                compact_recall = recalled[:500] if telegram else recalled
                 system += spotlight(
                     "ПАМЯТЬ ИЗ ДРУГИХ РАЗГОВОРОВ PERSONA",
                     compact_recall,
@@ -276,7 +283,7 @@ class PersonaContextAdapter:
         try:
             activity = await build_memory_context(
                 command.text,
-                budget_chars=400 if telegram else 2_500,
+                budget_chars=240 if telegram else 2_500,
             )
             if activity:
                 system += spotlight("КОНТЕКСТ НЕДАВНЕЙ АКТИВНОСТИ ПОЛЬЗОВАТЕЛЯ", activity)

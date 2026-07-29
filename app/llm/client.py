@@ -948,7 +948,7 @@ class OllamaClient:
     _KEEP_ALIVE = os.environ.get("PERSONA_OLLAMA_KEEP_ALIVE", "30m")
     # Ступени num_ctx: меньше контекст → меньше KV-кэш → быстрее старт и меньше
     # OOM на слабом GPU. Берём минимальную ступень, в которую влезает промпт+ответ.
-    _NUM_CTX_STEPS = (4096, 8192, 16384)
+    _NUM_CTX_STEPS = (2048, 4096, 8192, 16384)
 
     def _num_ctx_for(self, request: CompletionRequest) -> int:
         # Грубая оценка токенов промпта (RU/EN mixed ~3 символа/токен) + бюджет
@@ -1162,7 +1162,7 @@ class WorkerLLMClient:
         chars = sum(len(str(item.get("content") or "")) for item in messages)
         needed = chars // 3 + int(request.max_tokens or 0) + 512
         num_ctx = next(
-            (step for step in (4096, 8192, 16384) if needed <= step),
+            (step for step in (2048, 4096, 8192, 16384) if needed <= step),
             32768,
         )
         options = {
@@ -1179,6 +1179,10 @@ class WorkerLLMClient:
             "options": options,
             "keep_alive": "30m",
         }
+        if self._job_kind.startswith("telegram_"):
+            # Telegram transports complete answers and applies a whole-answer
+            # repetition guard. Per-token WAN uploads only stall local Ollama.
+            payload["delivery"] = "complete"
         # user_id=0 — задача системная (без привязки к пользователю-владельцу).
         job_id = await enqueue_job(0, self._job_kind, self._model, payload)
 
@@ -1192,6 +1196,7 @@ class WorkerLLMClient:
         wait_for_job_update = getattr(queue, "wait_for_job_update", None)
         forget_job_update = getattr(queue, "forget_job_update", None)
         terminal = False
+        delivered_chunks = False
         try:
             while True:
                 if callable(read_job_update):
@@ -1208,6 +1213,7 @@ class WorkerLLMClient:
                         last_seq = seq
                     content = c.get("content")
                     if isinstance(content, str) and content:
+                        delivered_chunks = True
                         yield content
                 if chunks:
                     last_progress = _loop_time()
@@ -1223,7 +1229,15 @@ class WorkerLLMClient:
                             last_seq = seq
                         content = c.get("content")
                         if isinstance(content, str) and content:
+                            delivered_chunks = True
                             yield content
+                    result = (job or {}).get("result")
+                    if (
+                        not delivered_chunks
+                        and isinstance(result, str)
+                        and result
+                    ):
+                        yield result
                     return
                 if status == "error":
                     terminal = True

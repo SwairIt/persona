@@ -1106,6 +1106,7 @@ async def test_telegram_entrypoint_maps_to_same_shared_command(
     assert command.source_label == "Telegram · Owner"
     assert command.include_private_context is True
     assert command.allow_tools is False
+    assert command.max_tokens == 96
 
 
 @dataclass
