@@ -804,6 +804,9 @@ class TelegramWorker:
             mention = re.compile(rf"@{re.escape(self._bot_username)}\b", re.IGNORECASE)
             if mention.search(text):
                 return True, mention.sub("", text).strip()
+        natural_name = re.compile(r"\b(?:persona|персона)\b[,:]?\s*", re.IGNORECASE)
+        if natural_name.search(text):
+            return True, natural_name.sub("", text, count=1).strip()
         return False, text
 
 

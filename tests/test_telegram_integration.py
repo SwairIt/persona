@@ -354,6 +354,23 @@ async def test_owner_first_group_message_auto_allows_and_gets_answer() -> None:
 
 
 @pytest.mark.asyncio
+async def test_plain_persona_name_addresses_bot_without_at_mention() -> None:
+    repository = FakeRepository(TelegramBinding(1, 42))
+    repository.groups.add(-102)
+    worker, api, service = _worker(repository)
+
+    await worker.handle_update(
+        _group(2, -102, "Персона, поздоровайся со всеми", 21)  # noqa: RUF001
+    )
+
+    assert len(service.responses) == 1
+    assert service.responses[0]["question"] == "поздоровайся со всеми"  # noqa: RUF001
+    assert service.responses[0]["include_private_context"] is False
+    assert service.responses[0]["allow_tools"] is False
+    assert api.sent[-1] == (-102, "Ответ Persona", 21)
+
+
+@pytest.mark.asyncio
 async def test_owner_private_turn_enables_tools_and_has_stable_correlation_id() -> None:
     worker, _api, service = _worker(FakeRepository(TelegramBinding(1, 42)))
 
