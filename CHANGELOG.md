@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.26.2] - 2026-07-29
+
+### Fixed
+- Telegram dialogue filtering now recognises participant labels decorated with
+  emoji and blocks broader multi-speaker role-play output.
+
 ## [2.26.1] - 2026-07-29
 
 ### Fixed

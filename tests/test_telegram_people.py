@@ -105,3 +105,14 @@ def test_single_persona_prefix_is_removed() -> None:
     assert persona_only_reply("Персик: Я говорю только от своего лица.") == (
         "Я говорю только от своего лица."
     )
+
+
+def test_script_with_emoji_decorated_participant_keeps_only_persona() -> None:
+    text = (
+        "Олег ️: Конечно, Олег! Давай поможем Персику.\n\n"
+        "Персик: Ага, я в порядке! Вот что хотел сказать.\n\n"
+        "Олег ️: Ой, Персик, давай раскрутим эту мысль дальше."
+    )
+    assert persona_only_reply(text) == (
+        "Ага, я в порядке! Вот что хотел сказать."
+    )
