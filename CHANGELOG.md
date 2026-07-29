@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.27.4] - 2026-07-29
+
+### Changed
+- Long LLM maintenance waits for ten minutes of worker headroom, keeping
+  Telegram responsive during intermittent conversations as well as rapid chat.
+
 ## [2.27.3] - 2026-07-29
 
 ### Changed

@@ -208,7 +208,7 @@ async def claim_next(worker_id: str) -> dict | None:
              WHERE status='pending'
                AND (
                  kind NOT IN ('chat_summary', 'persona_impulse')
-                 OR created_at <= datetime('now', '-45 seconds')
+                 OR created_at <= datetime('now', '-10 minutes')
                )
              LIMIT 1
             """
@@ -231,7 +231,7 @@ async def claim_next(worker_id: str) -> dict | None:
                 WHERE status='pending'
                   AND (
                     kind NOT IN ('chat_summary', 'persona_impulse')
-                    OR created_at <= datetime('now', '-45 seconds')
+                    OR created_at <= datetime('now', '-10 minutes')
                   )
                 ORDER BY
                   CASE

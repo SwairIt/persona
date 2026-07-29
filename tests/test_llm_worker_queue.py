@@ -91,7 +91,7 @@ async def test_fresh_long_background_job_waits_for_idle_grace(db) -> None:
         await conn.execute(
             """
             UPDATE llm_job
-               SET created_at=datetime('now', '-46 seconds')
+               SET created_at=datetime('now', '-11 minutes')
              WHERE id=?
             """,
             (background_id,),
@@ -110,7 +110,7 @@ async def test_live_job_preempts_streaming_background(db) -> None:
         await conn.execute(
             """
             UPDATE llm_job
-               SET created_at=datetime('now', '-46 seconds')
+               SET created_at=datetime('now', '-11 minutes')
              WHERE id=?
             """,
             (background_id,),
