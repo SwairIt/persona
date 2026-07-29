@@ -51,6 +51,7 @@ class PersonaTelegramService:
         telegram_chat_id: int,
         question: str,
         chat_title: str,
+        image_data_url: str | None = None,
         sender_label: str | None = None,
         is_owner: bool | None = None,
         include_private_context: bool = True,
@@ -75,6 +76,7 @@ class PersonaTelegramService:
                 surface=ConversationSurface.TELEGRAM,
                 conversation_id=ConversationId(session_id),
                 text=clean,
+                image_data_url=image_data_url,
                 source_label=(
                     f"Telegram · {sender_label}" if sender_label else "Telegram"
                 ),
@@ -119,6 +121,7 @@ class PersonaTelegramService:
         text: str,
         chat_title: str,
         sender_label: str,
+        image_data_url: str | None = None,
     ) -> str:
         """Persist one ordinary group message and optionally answer it."""
         clean = (text or "").strip()
@@ -140,6 +143,7 @@ class PersonaTelegramService:
                 text=clean,
                 sender_label=sender_label,
                 chat_title=chat_title,
+                image_data_url=image_data_url,
             )
         )
         return outcome.reply

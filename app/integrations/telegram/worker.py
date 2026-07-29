@@ -9,12 +9,24 @@ import os
 import re
 import secrets
 import socket
+import time
 from contextlib import suppress
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from app.auth.owner import get_owner_user_id
+from app.integrations.telegram.actions import (
+    TelegramActionPlan,
+    plan_telegram_actions,
+    resolve_media_reference,
+)
 from app.integrations.telegram.api import TelegramAPIError, TelegramBotAPI
+from app.integrations.telegram.media import (
+    TelegramAttachment,
+    attachments_from_message,
+    build_media_context,
+    non_file_content_summary,
+)
 from app.integrations.telegram.repository import (
     TelegramBinding,
     TelegramRepository,
@@ -46,7 +58,11 @@ _HELP = (
     "сама решает, когда полезно ответить.\n"
     "/new — начать новую ветку Persona для текущего чата.\n"
     "В группе позови @бота, ответь на его сообщение или напиши /persona вопрос "
-    "для немедленного ответа.\n\n"
+    "для немедленного ответа.\n"
+    "Persona понимает фото, текстовые файлы и, если доступна локальная "
+    "расшифровка, голосовые. Она может ставить реакции. В личке владельца "
+    "можно обычной фразой попросить отправить медиа/стикер/опрос/локацию, "
+    "бросить кубик, а также изменить или удалить её последнее сообщение.\n\n"
     "Важно: чтобы Telegram доставлял боту ВСЕ сообщения группы, открой "
     "@BotFather → /setprivacy → выбери бота → Disable, затем удали и снова "
     "добавь бота в группу. При включённом Privacy Mode бот получает только "
@@ -67,6 +83,7 @@ class IncomingMessage:
     raw: dict[str, Any]
     command: str
     argument: str
+    attachments: tuple[TelegramAttachment, ...] = ()
 
     @property
     def is_group(self) -> bool:
@@ -100,6 +117,7 @@ class TelegramWorker:
         )
         self._consumer_lease_seconds = _CONSUMER_LEASE_SECONDS
         self._processing_heartbeat_seconds = _PROCESSING_LEASE_HEARTBEAT_SECONDS
+        self._last_reaction_at: dict[int, float] = {}
 
     async def prepare(self) -> None:
         self.config.require_token()
@@ -307,7 +325,7 @@ class TelegramWorker:
             if not renewed:
                 raise TelegramConsumerLeaseLost("processing lease was lost")
 
-    async def handle_update(  # noqa: PLR0911 - explicit fail-closed policy exits
+    async def handle_update(  # noqa: PLR0911,PLR0912 - explicit policy exits
         self, update: dict[str, Any]
     ) -> None:
         incoming = _incoming_message(update)
@@ -344,6 +362,11 @@ class TelegramWorker:
             incoming.command,
             incoming.argument,
         )
+        media_context = await build_media_context(self.api, incoming.attachments)
+        enriched_text = incoming.text
+        if media_context.text_suffix:
+            enriched_text = f"{enriched_text}\n{media_context.text_suffix}".strip()
+            clean_text = f"{clean_text}\n{media_context.text_suffix}".strip()
         sender_label = _sender_label(incoming.sender)
         chat_title = _chat_title(incoming.chat)
         if incoming.is_group and not addressed:
@@ -353,9 +376,10 @@ class TelegramWorker:
                     telegram_chat_id=incoming.chat_id,
                     update_id=incoming.update_id,
                     message_id=incoming.message_id,
-                    text=incoming.text,
+                    text=enriched_text,
                     chat_title=chat_title,
                     sender_label=sender_label,
+                    image_data_url=media_context.image_data_url,
                 )
             except Exception as exc:
                 log.warning(
@@ -364,11 +388,13 @@ class TelegramWorker:
                 )
                 return
             if ambient_answer:
-                await self.api.send_message(
-                    incoming.chat_id,
+                await self._deliver_answer(
+                    incoming,
                     ambient_answer,
-                    reply_to_message_id=incoming.message_id,
+                    is_owner_private=False,
                 )
+            else:
+                await self._deliver_reaction_only(incoming)
             return
         if not clean_text:
             return
@@ -380,6 +406,7 @@ class TelegramWorker:
                 persona_user_id=binding.persona_user_id,
                 telegram_chat_id=incoming.chat_id,
                 question=clean_text,
+                image_data_url=media_context.image_data_url,
                 chat_title=chat_title,
                 sender_label=sender_label if incoming.is_group else None,
                 # Every group turn is fail-closed: even the owner must move to
@@ -397,18 +424,220 @@ class TelegramWorker:
                 chat_kind=incoming.chat_type,
             )
             if is_owner:
-                await self.api.send_message(
+                await self._send_text(
                     incoming.chat_id,
                     "Persona сейчас не смогла ответить. Проверь, что LLM worker "
                     "или выбранный провайдер запущен.",
                     reply_to_message_id=incoming.message_id,
                 )
             return
-        await self.api.send_message(
-            incoming.chat_id,
+        await self._deliver_answer(
+            incoming,
             answer,
-            reply_to_message_id=incoming.message_id,
+            is_owner_private=is_owner and not incoming.is_group,
         )
+
+    async def _deliver_reaction_only(self, incoming: IncomingMessage) -> None:
+        plan = await plan_telegram_actions(
+            message_text=incoming.text,
+            answer="",
+            attachments=incoming.attachments,
+            is_owner_private=False,
+        )
+        await self._set_reaction(incoming, plan.reaction)
+
+    async def _deliver_answer(
+        self,
+        incoming: IncomingMessage,
+        answer: str,
+        *,
+        is_owner_private: bool,
+    ) -> None:
+        plan = await plan_telegram_actions(
+            message_text=incoming.text,
+            answer=answer,
+            attachments=incoming.attachments,
+            is_owner_private=is_owner_private,
+        )
+        await self._set_reaction(incoming, plan.reaction)
+        try:
+            sent = await self._execute_plan(incoming, answer, plan)
+        except (TelegramAPIError, ValueError):
+            sent = False
+        if not sent:
+            await self._send_text(
+                incoming.chat_id,
+                answer,
+                reply_to_message_id=incoming.message_id,
+            )
+
+    async def _execute_plan(  # noqa: PLR0911,PLR0912 - one action dispatcher
+        self,
+        incoming: IncomingMessage,
+        answer: str,
+        plan: TelegramActionPlan,
+    ) -> bool:
+        kind = plan.kind
+        if kind == "text":
+            return False
+        if kind == "none":
+            return True
+        if kind in {
+            "photo",
+            "document",
+            "audio",
+            "video",
+            "animation",
+            "voice",
+            "sticker",
+        }:
+            reference = resolve_media_reference(
+                plan.media_ref or "",
+                incoming.attachments,
+            )
+            if reference is None:
+                return False
+            message_id = await self.api.send_media(
+                kind,
+                incoming.chat_id,
+                reference,
+                caption=answer,
+                reply_to_message_id=incoming.message_id,
+            )
+            await self._record_last_message(incoming.chat_id, message_id)
+            return True
+        if kind == "dice":
+            message_id = await self.api.send_dice(
+                incoming.chat_id,
+                reply_to_message_id=incoming.message_id,
+            )
+            await self._record_last_message(incoming.chat_id, message_id)
+            return True
+        if kind == "poll" and plan.poll_question is not None:
+            message_id = await self.api.send_poll(
+                incoming.chat_id,
+                plan.poll_question,
+                plan.poll_options,
+                reply_to_message_id=incoming.message_id,
+            )
+            await self._record_last_message(incoming.chat_id, message_id)
+            return True
+        if (
+            kind == "location"
+            and plan.latitude is not None
+            and plan.longitude is not None
+        ):
+            message_id = await self.api.send_location(
+                incoming.chat_id,
+                plan.latitude,
+                plan.longitude,
+                reply_to_message_id=incoming.message_id,
+            )
+            await self._record_last_message(incoming.chat_id, message_id)
+            return True
+        if (
+            kind == "contact"
+            and plan.phone_number is not None
+            and plan.first_name is not None
+        ):
+            message_id = await self.api.send_contact(
+                incoming.chat_id,
+                plan.phone_number,
+                plan.first_name,
+                reply_to_message_id=incoming.message_id,
+            )
+            await self._record_last_message(incoming.chat_id, message_id)
+            return True
+        if kind == "copy_current":
+            message_id = await self.api.copy_message(
+                incoming.chat_id,
+                incoming.chat_id,
+                incoming.message_id,
+                reply_to_message_id=incoming.message_id,
+            )
+            await self._record_last_message(incoming.chat_id, message_id)
+            return True
+        if kind in {"edit_last", "delete_last"}:
+            last_message = await self._last_bot_message(incoming.chat_id)
+            if last_message is None:
+                return False
+            if kind == "edit_last" and plan.text is not None:
+                await self.api.edit_message_text(
+                    incoming.chat_id,
+                    last_message,
+                    plan.text,
+                )
+            elif kind == "delete_last":
+                await self.api.delete_message(incoming.chat_id, last_message)
+                await self._clear_last_message(incoming.chat_id)
+            else:
+                return False
+            await self._send_text(
+                incoming.chat_id,
+                answer,
+                reply_to_message_id=incoming.message_id,
+            )
+            return True
+        return False
+
+    async def _set_reaction(
+        self,
+        incoming: IncomingMessage,
+        reaction: str | None,
+    ) -> None:
+        if not reaction:
+            return
+        now = time.monotonic()
+        previous = self._last_reaction_at.get(incoming.chat_id)
+        if previous is not None and now - previous < 10.0:
+            return
+        try:
+            await self.api.set_message_reaction(
+                incoming.chat_id,
+                incoming.message_id,
+                reaction,
+            )
+        except (AttributeError, TelegramAPIError):
+            return
+        self._last_reaction_at[incoming.chat_id] = now
+
+    async def _send_text(
+        self,
+        chat_id: int,
+        text: str,
+        *,
+        reply_to_message_id: int | None = None,
+    ) -> None:
+        sent = await self.api.send_message(
+            chat_id,
+            text,
+            reply_to_message_id=reply_to_message_id,
+        )
+        if isinstance(sent, tuple) and sent:
+            await self._record_last_message(chat_id, sent[-1])
+
+    async def _record_last_message(
+        self,
+        chat_id: int,
+        message_id: int | None,
+    ) -> None:
+        if message_id is None:
+            return
+        save = getattr(self.repository, "save_last_bot_message", None)
+        if callable(save):
+            await save(chat_id, message_id)
+
+    async def _last_bot_message(self, chat_id: int) -> int | None:
+        getter = getattr(self.repository, "last_bot_message_id", None)
+        if not callable(getter):
+            return None
+        value = await getter(chat_id)
+        return int(value) if value is not None else None
+
+    async def _clear_last_message(self, chat_id: int) -> None:
+        clear = getattr(self.repository, "clear_last_bot_message", None)
+        if callable(clear):
+            await clear(chat_id)
 
     async def _handle_access_command(self, incoming: IncomingMessage, is_owner: bool) -> bool:
         if incoming.command not in {"allow_here", "deny_here"}:
@@ -502,7 +731,7 @@ class TelegramWorker:
 
 def _incoming_message(update: dict[str, Any]) -> IncomingMessage | None:
     update_id = _int(update.get("update_id"))
-    message = update.get("message")
+    message = update.get("message") or update.get("edited_message")
     if not isinstance(message, dict):
         return None
     sender = message.get("from")
@@ -512,7 +741,15 @@ def _incoming_message(update: dict[str, Any]) -> IncomingMessage | None:
     sender_id = _int(sender.get("id"))
     chat_id = _int(chat.get("id"))
     message_id = _int(message.get("message_id"))
+    attachments = attachments_from_message(message)
     text = str(message.get("text") or message.get("caption") or "").strip()
+    non_file_summary = non_file_content_summary(message)
+    if not text and attachments:
+        text = "[Вложение Telegram: " + ", ".join(
+            item.summary() for item in attachments
+        ) + "]"
+    if non_file_summary:
+        text = f"{text}\n{non_file_summary}".strip()
     if (
         update_id is None
         or sender_id is None
@@ -534,6 +771,7 @@ def _incoming_message(update: dict[str, Any]) -> IncomingMessage | None:
         raw=message,
         command=command,
         argument=argument,
+        attachments=attachments,
     )
 
 

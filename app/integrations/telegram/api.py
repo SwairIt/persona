@@ -23,9 +23,11 @@ class TelegramAPIError(RuntimeError):
 class TelegramBotAPI:
     token: str = field(repr=False)
     _base_url: str = field(init=False, repr=False)
+    _file_base_url: str = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         self._base_url = f"https://api.telegram.org/bot{self.token}"
+        self._file_base_url = f"https://api.telegram.org/file/bot{self.token}"
 
     async def call(
         self,
@@ -81,7 +83,7 @@ class TelegramBotAPI:
             {
                 "offset": offset,
                 "timeout": timeout_seconds,
-                "allowed_updates": ["message"],
+                "allowed_updates": ["message", "edited_message"],
             },
             timeout=float(timeout_seconds + 15),
         )
@@ -93,27 +95,225 @@ class TelegramBotAPI:
         text: str,
         *,
         reply_to_message_id: int | None = None,
-    ) -> None:
+    ) -> tuple[int, ...]:
         chunks = _split_message(text)
+        sent_ids: list[int] = []
         for index, chunk in enumerate(chunks):
             payload: dict[str, Any] = {
                 "chat_id": chat_id,
                 "text": chunk,
-                "disable_web_page_preview": True,
+                "link_preview_options": {"is_disabled": True},
             }
             if index == 0 and reply_to_message_id is not None:
                 payload["reply_parameters"] = {
                     "message_id": reply_to_message_id,
                     "allow_sending_without_reply": True,
                 }
-            await self.call("sendMessage", payload, timeout=30.0)
+            result = await self.call("sendMessage", payload, timeout=30.0)
+            message_id = _message_id(result)
+            if message_id is not None:
+                sent_ids.append(message_id)
+        return tuple(sent_ids)
 
-    async def send_typing(self, chat_id: int) -> None:
+    async def send_chat_action(self, chat_id: int, action: str) -> None:
         await self.call(
             "sendChatAction",
-            {"chat_id": chat_id, "action": "typing"},
+            {"chat_id": chat_id, "action": action},
             timeout=10.0,
         )
+
+    async def send_typing(self, chat_id: int) -> None:
+        await self.send_chat_action(chat_id, "typing")
+
+    async def set_message_reaction(
+        self,
+        chat_id: int,
+        message_id: int,
+        emoji: str | None,
+    ) -> None:
+        reaction = (
+            [{"type": "emoji", "emoji": emoji}]
+            if emoji
+            else []
+        )
+        await self.call(
+            "setMessageReaction",
+            {
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "reaction": reaction,
+            },
+            timeout=10.0,
+        )
+
+    async def send_media(
+        self,
+        kind: str,
+        chat_id: int,
+        media: str,
+        *,
+        caption: str | None = None,
+        reply_to_message_id: int | None = None,
+    ) -> int | None:
+        methods = {
+            "photo": ("sendPhoto", "photo", "upload_photo"),
+            "document": ("sendDocument", "document", "upload_document"),
+            "audio": ("sendAudio", "audio", "upload_document"),
+            "video": ("sendVideo", "video", "upload_video"),
+            "animation": ("sendAnimation", "animation", "upload_video"),
+            "voice": ("sendVoice", "voice", "record_voice"),
+            "sticker": ("sendSticker", "sticker", "choose_sticker"),
+        }
+        selected = methods.get(kind)
+        if selected is None:
+            raise ValueError("unsupported Telegram media kind")
+        method, field_name, action = selected
+        await self.send_chat_action(chat_id, action)
+        payload: dict[str, Any] = {"chat_id": chat_id, field_name: media}
+        if caption and kind != "sticker":
+            payload["caption"] = caption[:1_000]
+        _set_reply(payload, reply_to_message_id)
+        return _message_id(await self.call(method, payload, timeout=45.0))
+
+    async def send_dice(
+        self,
+        chat_id: int,
+        *,
+        reply_to_message_id: int | None = None,
+        emoji: str = "🎲",
+    ) -> int | None:
+        payload: dict[str, Any] = {"chat_id": chat_id, "emoji": emoji}
+        _set_reply(payload, reply_to_message_id)
+        return _message_id(await self.call("sendDice", payload, timeout=15.0))
+
+    async def send_poll(
+        self,
+        chat_id: int,
+        question: str,
+        options: tuple[str, ...],
+        *,
+        reply_to_message_id: int | None = None,
+    ) -> int | None:
+        payload: dict[str, Any] = {
+            "chat_id": chat_id,
+            "question": question[:300],
+            "options": [{"text": option[:100]} for option in options[:10]],
+        }
+        _set_reply(payload, reply_to_message_id)
+        return _message_id(await self.call("sendPoll", payload, timeout=20.0))
+
+    async def send_location(
+        self,
+        chat_id: int,
+        latitude: float,
+        longitude: float,
+        *,
+        reply_to_message_id: int | None = None,
+    ) -> int | None:
+        payload: dict[str, Any] = {
+            "chat_id": chat_id,
+            "latitude": latitude,
+            "longitude": longitude,
+        }
+        _set_reply(payload, reply_to_message_id)
+        return _message_id(await self.call("sendLocation", payload, timeout=15.0))
+
+    async def send_contact(
+        self,
+        chat_id: int,
+        phone_number: str,
+        first_name: str,
+        *,
+        reply_to_message_id: int | None = None,
+    ) -> int | None:
+        payload: dict[str, Any] = {
+            "chat_id": chat_id,
+            "phone_number": phone_number[:40],
+            "first_name": first_name[:120],
+        }
+        _set_reply(payload, reply_to_message_id)
+        return _message_id(await self.call("sendContact", payload, timeout=15.0))
+
+    async def copy_message(
+        self,
+        chat_id: int,
+        from_chat_id: int,
+        message_id: int,
+        *,
+        reply_to_message_id: int | None = None,
+    ) -> int | None:
+        payload: dict[str, Any] = {
+            "chat_id": chat_id,
+            "from_chat_id": from_chat_id,
+            "message_id": message_id,
+        }
+        _set_reply(payload, reply_to_message_id)
+        return _message_id(await self.call("copyMessage", payload, timeout=20.0))
+
+    async def edit_message_text(
+        self,
+        chat_id: int,
+        message_id: int,
+        text: str,
+    ) -> None:
+        await self.call(
+            "editMessageText",
+            {
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "text": text[:4_000],
+                "link_preview_options": {"is_disabled": True},
+            },
+            timeout=20.0,
+        )
+
+    async def delete_message(self, chat_id: int, message_id: int) -> None:
+        await self.call(
+            "deleteMessage",
+            {"chat_id": chat_id, "message_id": message_id},
+            timeout=15.0,
+        )
+
+    async def get_file(self, file_id: str) -> dict[str, Any]:
+        result = await self.call(
+            "getFile",
+            {"file_id": file_id},
+            timeout=20.0,
+        )
+        return result if isinstance(result, dict) else {}
+
+    async def download_file(self, file_path: str, *, max_bytes: int) -> bytes:
+        return await asyncio.to_thread(
+            self._download_file_sync,
+            file_path,
+            max(1, max_bytes),
+        )
+
+    def _download_file_sync(self, file_path: str, max_bytes: int) -> bytes:
+        clean = str(file_path or "").strip().replace("\\", "/")
+        if (
+            not clean
+            or clean.startswith("/")
+            or ".." in clean.split("/")
+            or "://" in clean
+            or len(clean) > 500
+        ):
+            raise TelegramAPIError("Telegram returned an invalid file path")
+        req = request.Request(  # noqa: S310 - fixed Telegram file origin
+            f"{self._file_base_url}/{clean}",
+            method="GET",
+        )
+        try:
+            with request.urlopen(req, timeout=30.0) as response:  # noqa: S310
+                data = response.read(max_bytes + 1)
+        except (error.HTTPError, error.URLError, TimeoutError, OSError) as exc:
+            raise TelegramAPIError(
+                "Telegram file download is temporarily unavailable "
+                f"({type(exc).__name__})"
+            ) from None
+        if len(data) > max_bytes:
+            raise TelegramAPIError("Telegram file exceeds the configured size limit")
+        return bytes(data)
 
     async def set_my_commands(self, commands: list[dict[str, str]]) -> None:
         await self.call(
@@ -149,6 +349,27 @@ def _split_message(text: str, limit: int = 3900) -> list[str]:
     if remaining:
         chunks.append(remaining)
     return chunks
+
+
+def _message_id(result: Any) -> int | None:
+    if not isinstance(result, dict):
+        return None
+    value = result.get("message_id")
+    if not isinstance(value, (int, str)):
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _set_reply(payload: dict[str, Any], message_id: int | None) -> None:
+    if message_id is not None:
+        payload["reply_parameters"] = {
+            "message_id": message_id,
+            "allow_sending_without_reply": True,
+        }
 
 
 __all__ = ["TelegramAPIError", "TelegramBotAPI"]

@@ -46,6 +46,7 @@ class TelegramAmbientDecisionAdapter:
                 user=payload,
                 temperature=0.0,
                 max_tokens=8,
+                image_data_url=turn.image_data_url,
             )
         )
         return str(raw or "").strip().upper() == "REPLY"
@@ -81,6 +82,7 @@ class TelegramAmbientTurnAdapter:
                 user=payload,
                 temperature=0.55,
                 max_tokens=900,
+                image_data_url=turn.image_data_url,
             )
         )
         answer = str(raw or "").strip()[:6_000]

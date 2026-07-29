@@ -342,9 +342,36 @@ class TelegramRepository:
         async with get_connection() as conn:
             await delete_kv(conn, _session_key(chat_id))
 
+    async def save_last_bot_message(self, chat_id: int, message_id: int) -> None:
+        chat = int(chat_id)
+        message = int(message_id)
+        if chat == 0 or message <= 0:
+            raise ValueError("invalid Telegram bot message identity")
+        async with get_connection() as conn:
+            await set_kv(conn, _last_bot_message_key(chat), str(message))
+
+    async def last_bot_message_id(self, chat_id: int) -> int | None:
+        async with get_connection() as conn:
+            raw = await get_kv(conn, _last_bot_message_key(int(chat_id)))
+        try:
+            value = int(raw) if raw is not None else 0
+        except (TypeError, ValueError):
+            return None
+        return value if value > 0 else None
+
+    async def clear_last_bot_message(self, chat_id: int) -> None:
+        async with get_connection() as conn:
+            await delete_kv(conn, _last_bot_message_key(int(chat_id)))
+
 
 def _session_key(chat_id: int) -> str:
     return f"telegram_chat_session_{int(chat_id)}"
+
+
+def _last_bot_message_key(chat_id: int) -> str:
+    if int(chat_id) == 0:
+        raise ValueError("invalid Telegram chat id")
+    return f"telegram_last_bot_message:{int(chat_id)}"
 
 
 def _holder(value: str) -> str:
