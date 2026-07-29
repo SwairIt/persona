@@ -131,6 +131,20 @@ class TelegramRepository:
                 (_WORKER_LEASE_NAME, holder),
             )
 
+    async def worker_lease_holder(self) -> str | None:
+        """Return the exact singleton holder for safe orphan detection."""
+
+        async with get_connection() as conn:
+            cursor = await conn.execute(
+                "SELECT holder_id FROM runtime_lease WHERE name=?",
+                (_WORKER_LEASE_NAME,),
+            )
+            row = await cursor.fetchone()
+        if row is None:
+            return None
+        holder = str(row["holder_id"] or "").strip()
+        return holder or None
+
     async def claim_update(
         self,
         update_id: int,

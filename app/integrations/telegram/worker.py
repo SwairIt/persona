@@ -14,6 +14,8 @@ from contextlib import suppress
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+import psutil
+
 from app.auth.owner import get_owner_user_id
 from app.integrations.telegram.actions import (
     TelegramActionPlan,
@@ -169,6 +171,8 @@ class TelegramWorker:
                     self._lease_holder,
                     lease_seconds=self._consumer_lease_seconds,
                 ):
+                    if await self._reclaim_dead_local_worker_lease():
+                        continue
                     if not waiting_for_lease:
                         log.warning("telegram.worker.lease_held_elsewhere")
                         waiting_for_lease = True
@@ -210,6 +214,35 @@ class TelegramWorker:
 
     def stop(self) -> None:
         self._stop.set()
+
+    async def _reclaim_dead_local_worker_lease(self) -> bool:
+        """Release a lease whose same-host process no longer exists.
+
+        Hard watchdog restarts cannot run the old process' ``finally`` block.
+        The random holder suffix and exact conditional delete preserve the
+        singleton guarantee, while the hostname/PID checks prevent stealing a
+        live lease from another process or host.
+        """
+
+        getter = getattr(self.repository, "worker_lease_holder", None)
+        releaser = getattr(self.repository, "release_worker_lease", None)
+        if not callable(getter) or not callable(releaser):
+            return False
+        holder = await getter()
+        if not holder or holder == self._lease_holder:
+            return False
+        parts = holder.split(":", 2)
+        if len(parts) != 3 or parts[0].casefold() != socket.gethostname().casefold():
+            return False
+        try:
+            pid = int(parts[1])
+        except ValueError:
+            return False
+        if pid <= 0 or pid == os.getpid() or psutil.pid_exists(pid):
+            return False
+        await releaser(holder)
+        log.warning("telegram.worker.orphaned_lease_reclaimed", stale_pid=pid)
+        return True
 
     async def _poll_and_process(self, offset: int) -> int:
         updates = await self.api.get_updates(offset, self.config.poll_timeout_seconds)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import socket
 from pathlib import Path
 from typing import Any
 
@@ -66,6 +67,8 @@ class FakeRepository:
         self.claimed_updates: set[int] = set()
         self.finished_updates: list[tuple[int, str, str]] = []
         self.renew_processing = True
+        self.lease_holder: str | None = None
+        self.released_holders: list[str] = []
 
     async def get_binding(self) -> TelegramBinding | None:
         return self.binding
@@ -121,6 +124,14 @@ class FakeRepository:
         del holder_id
         self.finished_updates.append((update_id, status, outcome))
         return True
+
+    async def worker_lease_holder(self) -> str | None:
+        return self.lease_holder
+
+    async def release_worker_lease(self, holder_id: str) -> None:
+        self.released_holders.append(holder_id)
+        if self.lease_holder == holder_id:
+            self.lease_holder = None
 
 
 class FakeService:
@@ -246,6 +257,21 @@ async def test_explicit_reaction_is_immediate_and_skips_llm() -> None:
     assert api.reactions == [(1, 17, "👍")]
     assert service.responses == []
     assert api.sent == []
+
+
+@pytest.mark.asyncio
+async def test_dead_same_host_telegram_lease_is_reclaimed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = FakeRepository(TelegramBinding(telegram_user_id=1, persona_user_id=42))
+    stale = f"{socket.gethostname()}:99999999:stale-token"
+    repository.lease_holder = stale
+    worker, _api, _service = _worker(repository)
+    monkeypatch.setattr("app.integrations.telegram.worker.psutil.pid_exists", lambda _pid: False)
+
+    assert await worker._reclaim_dead_local_worker_lease() is True
+    assert repository.lease_holder is None
+    assert repository.released_holders == [stale]
 
 
 @pytest.mark.asyncio
