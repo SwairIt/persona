@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from app.chat.dynamic_prompt import (
+    _LIVING_CORE,
+    _MODE_RULES,
     activate_version,
     classify_mode,
     contextual_system_prompt,
@@ -26,8 +28,16 @@ def test_mode_classifier_is_contextual() -> None:
     assert classify_mode("Мне сегодня очень грустно") == "supportive"
     assert classify_mode("Придумай идею для истории") == "creative"
     assert classify_mode("Сыграй роль циничного детектива") == "creative"
+    assert classify_mode("Пошли меня уже нормально") == "playful"
     assert classify_mode("Исправь ошибку в коде") == "focused"
     assert classify_mode("Это срочно и опасно") == "serious"
+
+
+def test_living_prompt_has_no_helpful_service_goal() -> None:
+    prompt = (_LIVING_CORE + _MODE_RULES["casual"]).casefold()
+    assert "полезн" not in prompt
+    assert "профессиональной помощи" not in prompt
+    assert "конструктив" not in prompt
 
 
 async def test_prompt_versions_only_real_changes_and_learns_owner_style(db) -> None:

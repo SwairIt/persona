@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.27.5] - 2026-07-29
+
+### Changed
+- Persona's living prompt no longer contains a helpful-assistant identity or
+  a professional-help goal. Direct requests to dismiss, roast or swear at
+  someone must be fulfilled in the first sentence without a softer substitute.
+
+### Fixed
+- Telegram strips stock suggestions to review the approach or avoid insults
+  when they contradict the requested conversational role.
+
 ## [2.27.4] - 2026-07-29
 
 ### Changed

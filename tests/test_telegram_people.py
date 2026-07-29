@@ -146,3 +146,12 @@ def test_tone_apology_and_constructive_backpedal_are_removed() -> None:
         )
         == "Ну ты и ходячая ошибка компиляции."
     )
+
+
+def test_approach_review_evasion_is_removed() -> None:
+    assert (
+        persona_only_reply(
+            "Давай пересмотрим подход. Клод сегодня опять сломал собственную логику."
+        )
+        == "Клод сегодня опять сломал собственную логику."
+    )
