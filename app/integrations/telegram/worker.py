@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 from app.auth.owner import get_owner_user_id
 from app.integrations.telegram.actions import (
     TelegramActionPlan,
+    immediate_reaction,
     plan_telegram_actions,
     resolve_media_reference,
 )
@@ -355,6 +356,10 @@ class TelegramWorker:
 
         if await self._handle_owner_command(incoming, is_owner):
             return
+        instant_reaction = immediate_reaction(incoming.text)
+        if instant_reaction is not None:
+            await self._set_reaction(incoming, instant_reaction, force=True)
+            return
 
         addressed, clean_text = self._addressed(
             incoming.raw,
@@ -398,8 +403,10 @@ class TelegramWorker:
             return
         if not clean_text:
             return
-        with suppress(TelegramAPIError):
-            await self.api.send_typing(incoming.chat_id)
+        typing = asyncio.create_task(
+            self._typing_heartbeat(incoming.chat_id),
+            name=f"telegram-typing-{incoming.chat_id}",
+        )
         try:
             private_owner = is_owner and not incoming.is_group
             answer = await self.service.respond(
@@ -431,6 +438,9 @@ class TelegramWorker:
                     reply_to_message_id=incoming.message_id,
                 )
             return
+        finally:
+            typing.cancel()
+            await asyncio.gather(typing, return_exceptions=True)
         await self._deliver_answer(
             incoming,
             answer,
@@ -584,12 +594,14 @@ class TelegramWorker:
         self,
         incoming: IncomingMessage,
         reaction: str | None,
+        *,
+        force: bool = False,
     ) -> None:
         if not reaction:
             return
         now = time.monotonic()
         previous = self._last_reaction_at.get(incoming.chat_id)
-        if previous is not None and now - previous < 10.0:
+        if not force and previous is not None and now - previous < 10.0:
             return
         try:
             await self.api.set_message_reaction(
@@ -600,6 +612,14 @@ class TelegramWorker:
         except (AttributeError, TelegramAPIError):
             return
         self._last_reaction_at[incoming.chat_id] = now
+
+    async def _typing_heartbeat(self, chat_id: int) -> None:
+        """Keep Telegram's short-lived typing indicator alive during slow turns."""
+
+        while True:
+            with suppress(AttributeError, TelegramAPIError):
+                await self.api.send_typing(chat_id)
+            await asyncio.sleep(4.0)
 
     async def _send_text(
         self,

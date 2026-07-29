@@ -24,6 +24,7 @@ class FakeAPI:
     def __init__(self) -> None:
         self.sent: list[tuple[int, str, int | None]] = []
         self.typing: list[int] = []
+        self.reactions: list[tuple[int, int, str]] = []
         self.commands: list[list[dict[str, str]]] = []
         self.fail_commands = False
 
@@ -41,6 +42,14 @@ class FakeAPI:
 
     async def send_typing(self, chat_id: int) -> None:
         self.typing.append(chat_id)
+
+    async def set_message_reaction(
+        self,
+        chat_id: int,
+        message_id: int,
+        reaction: str,
+    ) -> None:
+        self.reactions.append((chat_id, message_id, reaction))
 
     async def set_my_commands(self, commands: list[dict[str, str]]) -> None:
         if self.fail_commands:
@@ -222,6 +231,21 @@ async def test_unbound_and_foreign_private_messages_are_default_denied() -> None
     await bound.handle_update(_private(100, "привет"))
     assert api.sent == []
     assert service.responses == []
+
+
+@pytest.mark.asyncio
+async def test_explicit_reaction_is_immediate_and_skips_llm() -> None:
+    worker, api, service = _worker(
+        FakeRepository(TelegramBinding(telegram_user_id=1, persona_user_id=42))
+    )
+
+    await worker.handle_update(
+        _private(1, "Привет, поставь на это сообщение реакцию любую", message_id=17)
+    )
+
+    assert api.reactions == [(1, 17, "👍")]
+    assert service.responses == []
+    assert api.sent == []
 
 
 @pytest.mark.asyncio

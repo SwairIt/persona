@@ -6,7 +6,11 @@ from typing import Any
 
 import pytest
 
-from app.integrations.telegram.actions import plan_telegram_actions
+from app.integrations.telegram.actions import (
+    immediate_reaction,
+    plan_telegram_actions,
+    requested_reaction,
+)
 from app.integrations.telegram.api import TelegramBotAPI
 from app.integrations.telegram.media import (
     TelegramAttachment,
@@ -119,6 +123,31 @@ async def test_clear_sentiment_reaction_needs_no_second_model(
     )
     assert plan.reaction == "❤"
     assert plan.kind == "text"
+
+
+@pytest.mark.asyncio
+async def test_explicit_reaction_request_needs_no_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_client(**_kwargs: Any) -> Any:
+        raise AssertionError("explicit reaction must be deterministic")
+
+    monkeypatch.setattr("app.integrations.telegram.actions.make_client", fail_client)
+    plan = await plan_telegram_actions(
+        message_text="Привет, поставь на это сообщение реакцию любую",
+        answer="",
+        attachments=(),
+        is_owner_private=True,
+    )
+
+    assert plan.reaction == "👍"
+    assert plan.kind == "text"
+    assert immediate_reaction("Привет, поставь реакцию любую") == "👍"
+    assert requested_reaction("Поставь реакцию 🔥") == "🔥"
+
+
+def test_reaction_with_another_task_is_not_short_circuited() -> None:
+    assert immediate_reaction("Поставь реакцию и расскажи подробнее") is None
 
 
 @pytest.mark.asyncio

@@ -31,6 +31,17 @@ _ACTION_INTENT = re.compile(
     r")\b",
     re.IGNORECASE,
 )
+_REACTION_REQUEST = re.compile(
+    r"\b(?:реакц\w*|отреагир\w*|лайк(?:ни|нуть|ай|ом)?|"
+    r"поставь\s+(?:лайк|плюсик|огон[еёь]\w*|сердечк\w*))\b",
+    re.IGNORECASE,
+)
+_REACTION_EXTRA_TASK = re.compile(
+    r"\b(?:и|а\s+ещ[её])\s+"
+    r"(?:ответь|скажи|расскажи|объясни|сделай|создай|найди|проверь|"
+    r"отправь|удали|измени|отредактируй|запусти|зайди)\b",
+    re.IGNORECASE,
+)
 _HTTPS_URL = re.compile(r"https://[^\s<>\"]+", re.IGNORECASE)
 _REACTIONS: Final[frozenset[str]] = frozenset(
     {
@@ -175,7 +186,18 @@ async def plan_telegram_actions(
 ) -> TelegramActionPlan:
     """Use the model only for an explicit Telegram action request."""
 
-    fallback = TelegramActionPlan(reaction=_heuristic_reaction(message_text))
+    requested = requested_reaction(message_text)
+    fallback = TelegramActionPlan(
+        reaction=requested or _heuristic_reaction(message_text)
+    )
+    # Reactions do not need another LLM round-trip. This also prevents a
+    # Telegram-native request from waiting behind the full conversation job.
+    has_other_native_action = (
+        _ACTION_INTENT.search(message_text)
+        and _has_non_reaction_action(message_text)
+    )
+    if requested is not None and not has_other_native_action:
+        return fallback
     if not _ACTION_INTENT.search(message_text):
         return fallback
     allowed_urls = tuple(_safe_https_urls(message_text))
@@ -381,8 +403,56 @@ def _heuristic_reaction(text: str) -> str | None:
     return None
 
 
+def requested_reaction(text: str) -> str | None:
+    """Return a deterministic reaction for an explicit user request."""
+
+    clean = str(text or "")
+    if not _REACTION_REQUEST.search(clean):
+        return None
+    for reaction in sorted(_REACTIONS, key=len, reverse=True):
+        if reaction in clean:
+            return reaction
+    lowered = clean.casefold()
+    rules = (
+        (("огонь", "огонёк", "fire"), "🔥"),
+        (("сердце", "сердечко", "любов", "heart"), "❤"),
+        (("смех", "смешн", "laugh"), "🤣"),
+        (("дизлайк", "палец вниз", "dislike"), "👎"),
+    )
+    for markers, reaction in rules:
+        if any(marker in lowered for marker in markers):
+            return reaction
+    return "👍"
+
+
+def immediate_reaction(text: str) -> str | None:
+    """Fast-path a reaction-only message without invoking the conversation LLM."""
+
+    reaction = requested_reaction(text)
+    if reaction is None or len(str(text or "")) > 500:
+        return None
+    if _REACTION_EXTRA_TASK.search(str(text or "")):
+        return None
+    return reaction
+
+
+def _has_non_reaction_action(text: str) -> bool:
+    stripped = _REACTION_REQUEST.sub("", text)
+    return bool(
+        re.search(
+            r"\b(?:отправ|пришл|скинь|удал|сотри|измени|отредакт|опрос|"
+            r"голосован|кубик|dice|стикер|гиф|gif|геолокац|локац|контакт|"
+            r"send|delete|edit|poll|location|contact)\b",
+            stripped,
+            re.IGNORECASE,
+        )
+    )
+
+
 __all__ = [
     "TelegramActionPlan",
+    "immediate_reaction",
     "plan_telegram_actions",
+    "requested_reaction",
     "resolve_media_reference",
 ]
