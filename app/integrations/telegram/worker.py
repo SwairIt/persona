@@ -360,7 +360,7 @@ class TelegramWorker:
             if not renewed:
                 raise TelegramConsumerLeaseLost("processing lease was lost")
 
-    async def handle_update(  # noqa: PLR0911,PLR0912 - explicit policy exits
+    async def handle_update(  # noqa: PLR0911,PLR0912,PLR0915 - explicit exits
         self, update: dict[str, Any]
     ) -> None:
         incoming = _incoming_message(update)
@@ -415,6 +415,32 @@ class TelegramWorker:
             # The owner's first ordinary message both opts the group in and
             # receives a deterministic response instead of an ambient maybe.
             addressed, clean_text = True, incoming.text
+        if (
+            incoming.is_group
+            and is_owner
+            and addressed
+            and _looks_like_group_behavior_rule(clean_text)
+        ):
+            await self.repository.remember_group_behavior_rule(
+                incoming.chat_id,
+                clean_text,
+            )
+            await self.service.record_passive_group_message(
+                persona_user_id=binding.persona_user_id,
+                telegram_chat_id=incoming.chat_id,
+                text=incoming.text,
+                chat_title=_chat_title(incoming.chat),
+                sender_label=_sender_label(incoming.sender),
+            )
+            await self._send_text(
+                incoming.chat_id,
+                "\u0417\u0430\u043f\u043e\u043c\u043d\u0438\u043b\u0430 "
+                "\u043f\u0440\u0430\u0432\u0438\u043b\u043e "
+                "\u044d\u0442\u043e\u0439 \u0433\u0440\u0443\u043f\u043f\u044b: "
+                f"\u00ab{clean_text[:300]}\u00bb.",
+                reply_to_message_id=incoming.message_id,
+            )
+            return
         media_context = await build_media_context(self.api, incoming.attachments)
         enriched_text = incoming.text
         if media_context.text_suffix:
@@ -436,6 +462,7 @@ class TelegramWorker:
                     image_data_url=media_context.image_data_url,
                     reply_to_sender_label=reply_to_sender_label,
                     reply_to_text=reply_to_text,
+                    is_owner=is_owner,
                 )
             except Exception as exc:
                 log.warning(
@@ -809,7 +836,13 @@ class TelegramWorker:
             mention = re.compile(rf"@{re.escape(self._bot_username)}\b", re.IGNORECASE)
             if mention.search(text):
                 return True, mention.sub("", text).strip()
-        natural_name = re.compile(r"\b(?:persona|персона)\b[,:]?\s*", re.IGNORECASE)
+        natural_name = re.compile(
+            r"\b(?:persona|\u043f\u0435\u0440\u0441\u043e\u043d\u0430"
+            r"|\u043f\u0435\u0440\u0441\u043e\u043d\u044b\u0447"
+            r"|\u043f\u0435\u0440\u0441\u0438\u043a|\u043f\u0435\u0440\u0441)\b"
+            r"[,:]?\s*",
+            re.IGNORECASE,
+        )
         if natural_name.search(text):
             return True, natural_name.sub("", text, count=1).strip()
         return False, text
@@ -895,6 +928,21 @@ def _reply_context(message: dict[str, Any]) -> tuple[str, str]:
     label = _sender_label(sender) if isinstance(sender, dict) else ""
     text = str(reply.get("text") or reply.get("caption") or "").strip()
     return label, text
+
+
+def _looks_like_group_behavior_rule(text: str) -> bool:
+    lowered = str(text or "").casefold()
+    return any(
+        marker in lowered
+        for marker in (
+            "\u043e\u0442\u0432\u0435\u0447",
+            "\u0432\u043c\u0435\u0448",
+            "\u0437\u0430\u043f\u043e\u043c\u043d\u0438 \u043f\u0440\u0430\u0432\u0438\u043b\u043e",
+            "do not reply",
+            "don't reply",
+            "always reply",
+        )
+    )
 
 
 def _chat_title(chat: dict[str, Any]) -> str:

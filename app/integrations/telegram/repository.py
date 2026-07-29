@@ -23,6 +23,7 @@ _PAIRING_HASH_KEY = "telegram_pairing_secret_hash"
 _UPDATE_OFFSET_KEY = "telegram_update_offset"
 _WORKER_LEASE_NAME = "telegram-update-consumer"
 _MAX_LEASE_SECONDS = 600
+_MAX_GROUP_BEHAVIOR_RULES = 16
 
 
 @dataclass(frozen=True, slots=True)
@@ -312,6 +313,37 @@ class TelegramRepository:
         async with get_connection() as conn:
             await set_kv(conn, _ALLOWED_CHATS_KEY, json.dumps(sorted(values)))
 
+    async def group_behavior_rules(self, chat_id: int) -> tuple[str, ...]:
+        """Return owner-authored, group-local behavior rules, oldest first."""
+        async with get_connection() as conn:
+            raw = await get_kv(conn, _group_behavior_key(chat_id))
+        try:
+            values = json.loads(raw or "[]")
+        except (TypeError, ValueError):
+            return ()
+        if not isinstance(values, list):
+            return ()
+        return tuple(
+            str(value).strip()[:500]
+            for value in values[-_MAX_GROUP_BEHAVIOR_RULES:]
+            if isinstance(value, str) and value.strip()
+        )
+
+    async def remember_group_behavior_rule(self, chat_id: int, rule: str) -> None:
+        """Persist one trusted owner rule; newer rules take precedence."""
+        clean = " ".join(str(rule or "").split())[:500]
+        if int(chat_id) >= 0 or not clean:
+            raise ValueError("group behavior rule requires a group chat and text")
+        values = list(await self.group_behavior_rules(chat_id))
+        values = [value for value in values if value.casefold() != clean.casefold()]
+        values.append(clean)
+        async with get_connection() as conn:
+            await set_kv(
+                conn,
+                _group_behavior_key(chat_id),
+                json.dumps(values[-_MAX_GROUP_BEHAVIOR_RULES:], ensure_ascii=False),
+            )
+
     async def create_pairing_code(self) -> str:
         code = secrets.token_urlsafe(24)
         digest = hashlib.sha256(code.encode("utf-8")).hexdigest()
@@ -386,6 +418,10 @@ def _last_bot_message_key(chat_id: int) -> str:
     if int(chat_id) == 0:
         raise ValueError("invalid Telegram chat id")
     return f"telegram_last_bot_message:{int(chat_id)}"
+
+
+def _group_behavior_key(chat_id: int) -> str:
+    return f"telegram_group_behavior:{int(chat_id)}"
 
 
 def _holder(value: str) -> str:

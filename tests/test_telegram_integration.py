@@ -69,6 +69,7 @@ class FakeRepository:
         self.renew_processing = True
         self.lease_holder: str | None = None
         self.released_holders: list[str] = []
+        self.behavior_rules: dict[int, list[str]] = {}
 
     async def get_binding(self) -> TelegramBinding | None:
         return self.binding
@@ -85,6 +86,12 @@ class FakeRepository:
             self.groups.add(chat_id)
         else:
             self.groups.discard(chat_id)
+
+    async def group_behavior_rules(self, chat_id: int) -> tuple[str, ...]:
+        return tuple(self.behavior_rules.get(chat_id, []))
+
+    async def remember_group_behavior_rule(self, chat_id: int, rule: str) -> None:
+        self.behavior_rules.setdefault(chat_id, []).append(rule)
 
     async def verify_pairing_code(self, candidate: str, configured_secret: str = "") -> bool:
         expected = configured_secret or self.pairing_code
@@ -415,6 +422,24 @@ async def test_allowed_group_can_reply_ambiently_without_mention() -> None:
     assert "allow_tools" not in ambient
     assert service.responses == []
     assert api.sent == [(-100, "Ambient Persona reply", 77)]
+
+
+@pytest.mark.asyncio
+async def test_owner_can_teach_group_rule_with_natural_persona_alias() -> None:
+    repository = FakeRepository(TelegramBinding(1, 42))
+    repository.groups.add(-100)
+    worker, api, service = _worker(repository)
+
+    await worker.handle_update(
+        _group(1, -100, "Персоныч, не отвечай когда обращаются к Инди", 81)
+    )
+
+    assert repository.behavior_rules[-100] == [
+        "не отвечай когда обращаются к Инди"
+    ]
+    assert len(service.passive) == 1
+    assert "Запомнила правило" in api.sent[0][1]
+    assert service.responses == []
 
 
 @pytest.mark.asyncio

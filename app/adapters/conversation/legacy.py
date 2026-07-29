@@ -399,7 +399,11 @@ class LegacyPostTurnAdapter:
             await maybe_summarise(int(result.conversation_id))
         except Exception as exc:
             log.debug("conversation.summary.failed", error=type(exc).__name__)
-        if not command.include_private_context:
+        owner_telegram = (
+            command.surface is ConversationSurface.TELEGRAM
+            and command.actor.is_owner
+        )
+        if not command.include_private_context and not owner_telegram:
             return
         lowered = command.text.casefold()
         if len(lowered) < 12 or not any(marker in lowered for marker in _SELF_MARKERS):

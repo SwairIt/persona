@@ -39,8 +39,8 @@ class PersonaTelegramService:
         self._repository = repository
         self._conversation = conversation_service or build_conversation_service()
         self._ambient = ambient_group_service or AmbientGroupService(
-            TelegramAmbientDecisionAdapter(),
-            TelegramAmbientTurnAdapter(),
+            TelegramAmbientDecisionAdapter(repository),
+            TelegramAmbientTurnAdapter(repository),
         )
         self._mapping_locks: defaultdict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
 
@@ -124,6 +124,7 @@ class PersonaTelegramService:
         image_data_url: str | None = None,
         reply_to_sender_label: str = "",
         reply_to_text: str = "",
+        is_owner: bool = False,
     ) -> str:
         """Persist one ordinary group message and optionally answer it."""
         clean = (text or "").strip()
@@ -148,6 +149,7 @@ class PersonaTelegramService:
                 image_data_url=image_data_url,
                 reply_to_sender_label=reply_to_sender_label,
                 reply_to_text=reply_to_text,
+                is_owner=is_owner,
             )
         )
         return outcome.reply

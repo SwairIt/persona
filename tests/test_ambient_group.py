@@ -192,6 +192,63 @@ async def test_decision_adapter_is_bounded_and_rejects_raw_metadata(
 
 
 @pytest.mark.asyncio
+async def test_other_agent_addressee_is_silent_without_calling_llm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.integrations.telegram import ambient  # noqa: PLC0415
+
+    monkeypatch.setattr(
+        ambient,
+        "make_client",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("LLM must not run")),
+    )
+    turn = AmbientGroupTurn(
+        tenant_id=7,
+        conversation_id=11,
+        external_chat_id=-100,
+        update_id=9,
+        message_id=9,
+        text="Инди, привет",
+        sender_label="Олег",
+        chat_title="Команда",
+    )
+
+    assert not await ambient.TelegramAmbientDecisionAdapter().should_reply(turn)
+
+
+@pytest.mark.asyncio
+async def test_newest_owner_rule_can_override_other_agent_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.integrations.telegram import ambient  # noqa: PLC0415
+
+    class Rules:
+        async def group_behavior_rules(self, _chat_id: int) -> tuple[str, ...]:
+            return (
+                "не отвечай, когда обращаются к Инди",
+                "отвечай, когда обращаются к Инди",
+            )
+
+    monkeypatch.setattr(
+        ambient,
+        "make_client",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("LLM must not run")),
+    )
+    turn = AmbientGroupTurn(
+        tenant_id=7,
+        conversation_id=11,
+        external_chat_id=-100,
+        update_id=10,
+        message_id=10,
+        text="Инди, привет",
+        sender_label="Олег",
+        chat_title="Команда",
+    )
+
+    assert await ambient.TelegramAmbientDecisionAdapter(Rules()).should_reply(turn)
+
+
+@pytest.mark.asyncio
 async def test_group_reply_adapter_uses_only_group_history_and_persists_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -241,6 +298,11 @@ async def test_group_reply_adapter_uses_only_group_history_and_persists_once(
     monkeypatch.setattr(ambient, "append_message", append)
     monkeypatch.setattr(ambient, "touch_session", lambda *_a: _async_none())
     monkeypatch.setattr(ambient, "make_client", lambda **_kwargs: fake)
+    monkeypatch.setattr(
+        ambient,
+        "get_active_system_prompt",
+        lambda: _async_text("PERSONA_STYLE"),
+    )
 
     answer = await ambient.TelegramAmbientTurnAdapter().reply(_turn())
 
@@ -258,3 +320,7 @@ async def test_group_reply_adapter_uses_only_group_history_and_persists_once(
 
 async def _async_none() -> None:
     return None
+
+
+async def _async_text(value: str) -> str:
+    return value
