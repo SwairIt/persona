@@ -133,7 +133,21 @@ async def enqueue_job(user_id: int, kind: str, model: str, payload: dict) -> int
     приоритета: интерактивные conversation-задачи обслуживаются раньше фона.
     """
     payload_json = json.dumps(payload, ensure_ascii=False)
+    preempted_ids: list[int] = []
     async with write_transaction() as conn:
+        if _is_interactive_kind(kind):
+            preempted = await conn.execute(
+                """
+                UPDATE llm_job
+                   SET status='error',
+                       error='preempted_by_interactive_job',
+                       finished_at=datetime('now')
+                 WHERE status='streaming'
+                   AND kind IN ('chat_summary', 'persona_impulse')
+                 RETURNING id
+                """
+            )
+            preempted_ids = [int(row["id"]) for row in await preempted.fetchall()]
         cursor = await conn.execute(
             """
             INSERT INTO llm_job (user_id, kind, model, payload, status)
@@ -146,18 +160,38 @@ async def enqueue_job(user_id: int, kind: str, model: str, payload: dict) -> int
         msg = "INSERT llm_job не вернул row id"
         raise RuntimeError(msg)
     normalized_job_id = int(job_id)
+    for preempted_id in preempted_ids:
+        _signal_job_update(preempted_id)
     _job_event(normalized_job_id)
     _pending_wakeup.set()
     return normalized_job_id
 
 
+def _is_interactive_kind(kind: str) -> bool:
+    normalized = str(kind or "").strip()
+    return (
+        normalized.endswith("_conversation")
+        or normalized.endswith("_tool_followup")
+        or normalized
+        in {
+            "chat",
+            "chat_stream",
+            "chat_compare",
+            "qa_stream",
+            "copilot",
+            "telegram_ambient_decision",
+            "telegram_ambient_reply",
+        }
+    )
+
+
 async def claim_next(worker_id: str) -> dict | None:
     """АТОМАРНО забрать самую старую pending-задачу.
 
-    UPDATE ... WHERE id=(SELECT ... pending ORDER BY id LIMIT 1) AND
-    status='pending' — гарантия, что параллельный второй claim_next не заберёт
-    ту же строку (проверяем changes()). Возвращает {id,kind,model,payload(dict)}
-    или None, если pending-задач нет.
+    The read-only probe keeps the empty hot path lock-free. The actual
+    candidate is selected again inside the atomic UPDATE so a live Telegram
+    turn that arrives while SQLite is busy cannot remain behind a stale
+    background candidate.
     """
     await _maybe_maintain_jobs()
 
@@ -169,23 +203,13 @@ async def claim_next(worker_id: str) -> dict | None:
     async with get_connection() as conn:
         candidate_cur = await conn.execute(
             """
-            SELECT id
+            SELECT 1
               FROM llm_job
              WHERE status='pending'
-             ORDER BY
-               CASE
-                 WHEN kind LIKE '%_conversation'
-                   OR kind LIKE '%_tool_followup' THEN 0
-                 WHEN kind IN (
-                   'chat', 'chat_stream', 'chat_compare', 'qa_stream', 'copilot'
-                 ) THEN 1
-                 WHEN kind='telegram_ambient_reply' THEN 2
-                 WHEN kind IN (
-                   'telegram_ambient_decision', 'chat_summary', 'persona_impulse'
-                 ) THEN 4
-                 ELSE 3
-               END,
-               id
+               AND (
+                 kind NOT IN ('chat_summary', 'persona_impulse')
+                 OR created_at <= datetime('now', '-45 seconds')
+               )
              LIMIT 1
             """
         )
@@ -193,24 +217,47 @@ async def claim_next(worker_id: str) -> dict | None:
     if candidate is None:
         return None
 
-    # UPDATE ... RETURNING возвращает ровно строку, захваченную этим вызовом.
-    # Старый SELECT по worker_id мог вернуть другую streaming-job при двух
-    # параллельных long-poll одного worker_id.
+    # Re-select under the write lock. This removes the old TOCTOU where a
+    # summary selected before a long SQLite wait could jump ahead of a newly
+    # arrived conversation.
     async with write_transaction() as conn:
         cursor = await conn.execute(
             """
             UPDATE llm_job
                SET status='streaming', worker_id=?, claimed_at=datetime('now')
-             WHERE id=?
+             WHERE id=(
+               SELECT id
+                 FROM llm_job
+                WHERE status='pending'
+                  AND (
+                    kind NOT IN ('chat_summary', 'persona_impulse')
+                    OR created_at <= datetime('now', '-45 seconds')
+                  )
+                ORDER BY
+                  CASE
+                    WHEN kind LIKE '%_conversation'
+                      OR kind LIKE '%_tool_followup' THEN 0
+                    WHEN kind IN (
+                      'chat', 'chat_stream', 'chat_compare', 'qa_stream',
+                      'copilot'
+                    ) THEN 1
+                    WHEN kind IN (
+                      'telegram_ambient_reply', 'telegram_ambient_decision'
+                    ) THEN 2
+                    WHEN kind IN ('chat_summary', 'persona_impulse') THEN 4
+                    ELSE 3
+                  END,
+                  id
+                LIMIT 1
+             )
                AND status='pending'
              RETURNING id, kind, model, payload
             """,
-            (worker_id, int(candidate["id"])),
+            (worker_id,),
         )
         row = await cursor.fetchone()
     if row is None:
-        # Другой claimant успел между read-only probe и UPDATE. Следующий
-        # long-poll повторит попытку; чужую задачу не возвращаем.
+        # Another claimant won the race. The next long-poll gets the remainder.
         return None
     return {
         "id": int(row["id"]),

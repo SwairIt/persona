@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.27.3] - 2026-07-29
+
+### Changed
+- Telegram uses an aggressive low-latency context profile with five recent
+  turns, compact participant identity and shorter conversational outputs.
+- Long summaries are capped at 320 tokens and wait for a quiet worker window.
+
+### Fixed
+- Live Telegram jobs now atomically outrank background work and preempt a
+  running summary or impulse instead of waiting behind it for several minutes.
+- Telegram turns no longer launch the legacy 2000-token conversation summary
+  that starved the single PC Ollama worker after every reply.
+
 ## [2.27.2] - 2026-07-29
 
 ### Changed

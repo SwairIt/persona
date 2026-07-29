@@ -93,15 +93,15 @@ class TelegramAmbientDecisionAdapter:
             return override
         if addressee:
             return False
-        history = await _history(turn, max_turns=8)
-        payload = _untrusted_payload(turn, history, transcript_chars=4_000)
+        history = await _history(turn, max_turns=5)
+        payload = _untrusted_payload(turn, history, transcript_chars=2_000)
         client = make_client(kind="telegram_ambient_decision")
         raw = await client.complete(
             CompletionRequest(
                 system=_system_with_rules(_DECISION_SYSTEM, rules),
                 user=payload,
                 temperature=0.0,
-                max_tokens=8,
+                max_tokens=4,
                 image_data_url=turn.image_data_url,
             )
         )
@@ -131,7 +131,7 @@ class TelegramAmbientTurnAdapter:
 
     async def reply(self, turn: AmbientGroupTurn) -> str:
         await self.persist(turn)
-        history = await _history(turn, max_turns=12)
+        history = await _history(turn, max_turns=6)
         labelled = _labelled_message(turn)
         if (
             history
@@ -139,7 +139,7 @@ class TelegramAmbientTurnAdapter:
             and str(history[-1].get("content") or "") == labelled
         ):
             history = history[:-1]
-        payload = _untrusted_payload(turn, history, transcript_chars=6_000)
+        payload = _untrusted_payload(turn, history, transcript_chars=2_500)
         client = make_client(kind="telegram_ambient_reply")
         session = await _validate_scope(turn)
         _pin_model(client, session.get("model"))
@@ -165,7 +165,7 @@ class TelegramAmbientTurnAdapter:
                 ),
                 user=payload,
                 temperature=0.78,
-                max_tokens=180,
+                max_tokens=96,
                 image_data_url=turn.image_data_url,
             )
         )
@@ -329,7 +329,7 @@ def _system_with_identity(
     # and owner group rules so a small model sees them closest to the turn.
     return (
         f"{system}\n\n<TRUSTED_TELEGRAM_IDENTITY>\n"
-        f"{identity[:16_000]}\n"
+        f"{identity[:1_200]}\n"
         "</TRUSTED_TELEGRAM_IDENTITY>"
     )
 

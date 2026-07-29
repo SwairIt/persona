@@ -215,7 +215,7 @@ class PersonaContextAdapter:
             if identity:
                 system += (
                     "\n\n<TRUSTED_TELEGRAM_IDENTITY>\n"
-                    f"{identity[:16_000]}\n"
+                    f"{identity[:1_200]}\n"
                     "</TRUSTED_TELEGRAM_IDENTITY>"
                 )
         if not command.allow_tools:
@@ -226,7 +226,7 @@ class PersonaContextAdapter:
         transcript = _bounded_transcript(
             history,
             max_chars=(
-                6_000
+                2_500
                 if command.surface is ConversationSurface.TELEGRAM
                 else 18_000
             ),
@@ -434,10 +434,11 @@ class LegacyPostTurnAdapter:
         task.add_done_callback(self._tasks.discard)
 
     async def _maintain(self, command: TurnCommand, result: TurnResult) -> None:
-        try:
-            await maybe_summarise(int(result.conversation_id))
-        except Exception as exc:
-            log.debug("conversation.summary.failed", error=type(exc).__name__)
+        if command.surface is not ConversationSurface.TELEGRAM:
+            try:
+                await maybe_summarise(int(result.conversation_id))
+            except Exception as exc:
+                log.debug("conversation.summary.failed", error=type(exc).__name__)
         owner_telegram = (
             command.surface is ConversationSurface.TELEGRAM
             and command.actor.is_owner

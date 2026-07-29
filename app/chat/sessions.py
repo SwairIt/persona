@@ -923,7 +923,7 @@ async def maybe_summarise(session_id: int) -> bool:
 
     transcript = "\n".join(
         f"[{r['role']}] {r['content']}" for r in to_summarise
-    )
+    )[-10_000:]
     last_id = int(to_summarise[-1]["id"])
 
     # Build summarisation prompt. We do it INLINE — local Qwen handles
@@ -944,7 +944,7 @@ async def maybe_summarise(session_id: int) -> bool:
         prompt = (
             "Ниже есть текущая сводка беседы и новые сообщения после "
             "неё. Обнови сводку так, чтобы она оставалась короткой "
-            "(до 1500 слов), но включала все ключевые факты из новых "
+            "(до 250 слов), но включала все ключевые факты из новых "
             "сообщений.\n\n"
             f"Текущая сводка:\n{existing_summary}\n\n"
             f"Новые сообщения:\n{transcript}\n\n"
@@ -953,7 +953,7 @@ async def maybe_summarise(session_id: int) -> bool:
     else:
         prompt = (
             "Кратко суммаризируй эти сообщения беседы. Сохрани все "
-            "ключевые факты, имена, даты, темы. Будь сжат (до 1500 "
+            "ключевые факты, имена, даты, темы. Будь сжат (до 250 "
             "слов).\n\n"
             f"Сообщения:\n{transcript}\n\n"
             "Сводка:"
@@ -964,7 +964,7 @@ async def maybe_summarise(session_id: int) -> bool:
             CompletionRequest(
                 system="Ты — суммаризатор переписки.",
                 user=prompt,
-                max_tokens=2000,
+                max_tokens=320,
                 temperature=0.3,
             ),
         )

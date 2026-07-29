@@ -173,7 +173,7 @@ class ConversationService:
         user_text = command.model_text or "Опиши прикреплённое изображение."
         user_message = await self._repository.append_user(conversation.id, user_text)
         history_turns = (
-            8 if command.surface is ConversationSurface.TELEGRAM else 20
+            5 if command.surface is ConversationSurface.TELEGRAM else 20
         )
         history = await self._repository.history(
             conversation.id,

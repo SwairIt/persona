@@ -22,6 +22,7 @@ from contextlib import asynccontextmanager
 import pytest
 
 from app.llm import worker_queue
+from app.storage.db import write_transaction
 
 
 async def test_enqueue_returns_job_id(db) -> None:
@@ -77,6 +78,56 @@ async def test_claim_next_prioritises_live_conversation_over_background(db) -> N
     background = await worker_queue.get_job(background_id)
     assert background is not None
     assert background["status"] == "pending"
+
+
+async def test_fresh_long_background_job_waits_for_idle_grace(db) -> None:
+    background_id = await worker_queue.enqueue_job(
+        0, "chat_summary", "m", {"messages": []}
+    )
+
+    assert await worker_queue.claim_next("worker-a") is None
+
+    async with write_transaction() as conn:
+        await conn.execute(
+            """
+            UPDATE llm_job
+               SET created_at=datetime('now', '-46 seconds')
+             WHERE id=?
+            """,
+            (background_id,),
+        )
+
+    claimed = await worker_queue.claim_next("worker-a")
+    assert claimed is not None
+    assert claimed["id"] == background_id
+
+
+async def test_live_job_preempts_streaming_background(db) -> None:
+    background_id = await worker_queue.enqueue_job(
+        0, "chat_summary", "m", {"messages": []}
+    )
+    async with write_transaction() as conn:
+        await conn.execute(
+            """
+            UPDATE llm_job
+               SET created_at=datetime('now', '-46 seconds')
+             WHERE id=?
+            """,
+            (background_id,),
+        )
+    assert await worker_queue.claim_next("worker-a") is not None
+
+    live_id = await worker_queue.enqueue_job(
+        0, "telegram_conversation", "m", {"messages": []}
+    )
+
+    background = await worker_queue.get_job(background_id)
+    live = await worker_queue.get_job(live_id)
+    assert background is not None
+    assert background["status"] == "error"
+    assert background["error"] == "preempted_by_interactive_job"
+    assert live is not None
+    assert live["status"] == "pending"
 
 
 async def test_empty_claim_does_not_open_write_transaction(
