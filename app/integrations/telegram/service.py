@@ -92,11 +92,11 @@ class PersonaTelegramService:
                 ),
                 include_private_context=include_private_context,
                 allow_tools=allow_tools,
-                max_tokens=128 if telegram_chat_id < 0 else 256,
+                max_tokens=64 if telegram_chat_id < 0 else 128,
                 temperature=0.82,
                 correlation_id=correlation_id,
                 metadata={
-                    "telegram_identity_context": trusted_identity_context[:1_200]
+                    "telegram_identity_context": trusted_identity_context[:600]
                 },
             )
         )

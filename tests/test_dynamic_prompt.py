@@ -40,6 +40,21 @@ def test_living_prompt_has_no_helpful_service_goal() -> None:
     assert "конструктив" not in prompt
 
 
+async def test_compact_telegram_prompt_stays_small(db) -> None:
+    await _user(db, 8)
+    prompt = await contextual_system_prompt(
+        persona_user_id=8,
+        base_prompt="BASE",
+        message="Пошли меня уже нормально",
+        surface="telegram",
+        is_owner=True,
+        compact=True,
+    )
+    assert len(prompt) < 1_800
+    assert "полезн" not in prompt.casefold()
+    assert "первой фразой" in prompt.casefold()
+
+
 async def test_prompt_versions_only_real_changes_and_learns_owner_style(db) -> None:
     await _user(db)
     first = await contextual_system_prompt(

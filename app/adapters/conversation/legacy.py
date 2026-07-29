@@ -199,6 +199,7 @@ class PersonaContextAdapter:
             message=command.text,
             surface=command.surface.value,
             is_owner=command.actor.is_owner,
+            compact=command.surface is ConversationSurface.TELEGRAM,
         )
         system = _IDENTITY + "\n\n" + persona
         if command.include_private_context:
@@ -215,7 +216,7 @@ class PersonaContextAdapter:
             if identity:
                 system += (
                     "\n\n<TRUSTED_TELEGRAM_IDENTITY>\n"
-                    f"{identity[:1_200]}\n"
+                    f"{identity[:600]}\n"
                     "</TRUSTED_TELEGRAM_IDENTITY>"
                 )
         if not command.allow_tools:
@@ -226,7 +227,7 @@ class PersonaContextAdapter:
         transcript = _bounded_transcript(
             history,
             max_chars=(
-                2_500
+                1_200
                 if command.surface is ConversationSurface.TELEGRAM
                 else 18_000
             ),
@@ -251,10 +252,10 @@ class PersonaContextAdapter:
         try:
             memory = await build_memory_block(
                 tenant_id,
-                max_items=8 if telegram else 14,
+                max_items=5 if telegram else 14,
             )
             if memory:
-                system += "\n\n" + memory
+                system += "\n\n" + (memory[:800] if telegram else memory)
         except Exception as exc:
             log.debug("conversation.memory.unavailable", error=type(exc).__name__)
         try:
@@ -265,13 +266,17 @@ class PersonaContextAdapter:
                 limit=3 if telegram else 6,
             )
             if recalled:
-                system += spotlight("ПАМЯТЬ ИЗ ДРУГИХ РАЗГОВОРОВ PERSONA", recalled)
+                compact_recall = recalled[:800] if telegram else recalled
+                system += spotlight(
+                    "ПАМЯТЬ ИЗ ДРУГИХ РАЗГОВОРОВ PERSONA",
+                    compact_recall,
+                )
         except Exception as exc:
             log.debug("conversation.recall.unavailable", error=type(exc).__name__)
         try:
             activity = await build_memory_context(
                 command.text,
-                budget_chars=1_200 if telegram else 2_500,
+                budget_chars=400 if telegram else 2_500,
             )
             if activity:
                 system += spotlight("КОНТЕКСТ НЕДАВНЕЙ АКТИВНОСТИ ПОЛЬЗОВАТЕЛЯ", activity)

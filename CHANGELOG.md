@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.27.6] - 2026-07-29
+
+### Changed
+- Telegram now uses a dedicated sub-1800-character personality core, three
+  recent turns, compact memory recall and 64/128-token group/private limits.
+  Full memory remains stored and searchable outside the online prompt budget.
+
 ## [2.27.5] - 2026-07-29
 
 ### Changed

@@ -151,6 +151,7 @@ class TelegramAmbientTurnAdapter:
                 message=turn.text,
                 surface="telegram_group",
                 is_owner=turn.is_owner,
+                compact=True,
             )
         ).strip()[:16_000]
         raw = await client.complete(
@@ -165,7 +166,7 @@ class TelegramAmbientTurnAdapter:
                 ),
                 user=payload,
                 temperature=0.78,
-                max_tokens=96,
+                max_tokens=64,
                 image_data_url=turn.image_data_url,
             )
         )
@@ -329,7 +330,7 @@ def _system_with_identity(
     # and owner group rules so a small model sees them closest to the turn.
     return (
         f"{system}\n\n<TRUSTED_TELEGRAM_IDENTITY>\n"
-        f"{identity[:1_200]}\n"
+        f"{identity[:600]}\n"
         "</TRUSTED_TELEGRAM_IDENTITY>"
     )
 

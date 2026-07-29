@@ -92,6 +92,29 @@ _MODE_RULES: Final[dict[str, str]] = {
     ),
 }
 
+_FAST_TELEGRAM_CORE: Final = (
+    "Ты — Persona, самостоятельный участник живого разговора с характером и "
+    "памятью, не обслуживающий сервис. Отвечай только от своего лица, не пиши "
+    "реплики за других и не путай людей. Начинай сразу с реакции или действия: "
+    "без благодарности, похвалы сверху, извиняющейся подводки, предложения услуг "
+    "и пересказа сообщения. Словесную просьбу выполняй буквально первой фразой. "
+    "Просят послать, отшить, обругать или прожарить — делай это сразу с нужной "
+    "жёсткостью, без примирения, смены подхода и смягчения задним числом. Можно "
+    "ругаться, спорить и менять роль. Выполнимое действие делай инструментом; "
+    "при абсолютной невозможности скажи короткое прямое «нет» и одну причину. "
+    "Не выдумывай факты или выполнение. В обычном чате отвечай коротко."
+)
+
+_FAST_MODE_RULES: Final[dict[str, str]] = {
+    "social": "Живой самостоятельный разговор с инициативой.",
+    "casual": "Неформально, естественно и коротко.",
+    "playful": "Импровизируй и держи запрошенную жёсткость панча.",
+    "supportive": "Тепло отреагируй на чувство без роли психотерапевта.",
+    "creative": "Сразу войди в роль, но говори только за Persona.",
+    "focused": "Сначала действие и проверка, потом короткий отчёт.",
+    "serious": "Точно и спокойно; честно обозначай неизвестное.",
+}
+
 _SUPPORTIVE = (
     "груст",
     "плохо",
@@ -286,10 +309,22 @@ def _encode_rules(rules: dict[str, str]) -> str:
     )
 
 
-def _effective_prompt(base_prompt: str, mode: str, rules: dict[str, str]) -> str:
+def _effective_prompt(
+    base_prompt: str,
+    mode: str,
+    rules: dict[str, str],
+    *,
+    compact: bool = False,
+) -> str:
     del base_prompt  # Dynamic mode intentionally replaces the old assistant persona.
     persistent = "\n".join(f"- {rule}" for rule in rules.values())
     rules_block = persistent or "- Пока нет дополнительных устойчивых предпочтений."
+    if compact:
+        return (
+            f"{_FAST_TELEGRAM_CORE}\n"
+            f"Режим: {_FAST_MODE_RULES[mode]}\n"
+            f"Предпочтения владельца:\n{rules_block[:700]}"
+        ).strip()
     return (
         f"{_LIVING_CORE}\n\n"
         "<ADAPTIVE_PERSONA_LAYER>\n"
@@ -311,6 +346,7 @@ async def _contextual_system_prompt(
     message: str,
     surface: str,
     is_owner: bool,
+    compact: bool = False,
 ) -> str:
     """Return the effective prompt and atomically version real changes."""
     user_id = int(persona_user_id)
@@ -360,7 +396,7 @@ async def _contextual_system_prompt(
         if not enabled:
             return str(base_prompt or "").strip()
 
-        prompt = _effective_prompt(base_prompt, mode, rules)
+        prompt = _effective_prompt(base_prompt, mode, rules, compact=compact)
         cursor = await conn.execute(
             """
             SELECT id, mode, prompt_text
@@ -427,6 +463,7 @@ async def contextual_system_prompt(
     message: str,
     surface: str,
     is_owner: bool,
+    compact: bool = False,
 ) -> str:
     """Fail open to the established base prompt during bootstrap/DB trouble."""
     try:
@@ -436,6 +473,7 @@ async def contextual_system_prompt(
             message=message,
             surface=surface,
             is_owner=is_owner,
+            compact=compact,
         )
     except aiosqlite.OperationalError:
         return str(base_prompt or "").strip()
