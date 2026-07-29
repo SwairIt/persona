@@ -385,7 +385,8 @@ class TelegramWorker:
 
         if await self._handle_access_command(incoming, is_owner):
             return
-        if not await self._is_authorized(incoming, is_owner):
+        authorized, newly_allowed = await self._authorize(incoming, is_owner)
+        if not authorized:
             return
 
         if await self._handle_owner_command(incoming, is_owner):
@@ -408,6 +409,10 @@ class TelegramWorker:
             incoming.command,
             incoming.argument,
         )
+        if newly_allowed:
+            # The owner's first ordinary message both opts the group in and
+            # receives a deterministic response instead of an ambient maybe.
+            addressed, clean_text = True, incoming.text
         media_context = await build_media_context(self.api, incoming.attachments)
         enriched_text = incoming.text
         if media_context.text_suffix:
@@ -718,10 +723,22 @@ class TelegramWorker:
         await self.api.send_message(incoming.chat_id, text, reply_to_message_id=incoming.message_id)
         return True
 
-    async def _is_authorized(self, incoming: IncomingMessage, is_owner: bool) -> bool:
+    async def _authorize(
+        self,
+        incoming: IncomingMessage,
+        is_owner: bool,
+    ) -> tuple[bool, bool]:
+        """Authorize a message and auto-opt-in a group on its owner's first turn."""
+
         if incoming.is_group:
-            return incoming.chat_id in await self._allowed_groups()
-        return incoming.chat_type == "private" and is_owner
+            if incoming.chat_id in await self._allowed_groups():
+                return True, False
+            if not is_owner:
+                return False, False
+            await self.repository.set_chat_allowed(incoming.chat_id, True)
+            log.info("telegram.group.auto_allowed", chat_id=incoming.chat_id)
+            return True, True
+        return incoming.chat_type == "private" and is_owner, False
 
     async def _handle_owner_command(self, incoming: IncomingMessage, is_owner: bool) -> bool:
         if incoming.command in {"help", "start"}:

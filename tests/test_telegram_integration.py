@@ -266,7 +266,7 @@ async def test_multiple_reaction_request_explains_telegram_limit() -> None:
     )
 
     await worker.handle_update(
-        _private(1, "А посмтавь ка несколько сразу, можешь", message_id=18)
+        _private(1, "Посмтавь ка несколько сразу, можешь", message_id=18)
     )
 
     assert api.reactions == [(1, 18, "👍")]
@@ -336,6 +336,21 @@ async def test_only_owner_can_allow_group_then_member_can_address_persona() -> N
     assert service.responses[2]["question"] == "продолжи, пожалуйста"
     assert service.responses[2]["include_private_context"] is False
     assert service.passive == []
+
+
+@pytest.mark.asyncio
+async def test_owner_first_group_message_auto_allows_and_gets_answer() -> None:
+    repository = FakeRepository(TelegramBinding(1, 42))
+    worker, api, service = _worker(repository)
+
+    await worker.handle_update(_group(1, -101, "Привет, Persona", 20))
+
+    assert -101 in repository.groups
+    assert len(service.responses) == 1
+    assert service.responses[0]["question"] == "Привет, Persona"
+    assert service.responses[0]["include_private_context"] is False
+    assert service.responses[0]["allow_tools"] is False
+    assert api.sent[-1] == (-101, "Ответ Persona", 20)
 
 
 @pytest.mark.asyncio
