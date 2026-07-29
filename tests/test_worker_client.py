@@ -62,6 +62,7 @@ def _install_fake_worker_queue(monkeypatch: pytest.MonkeyPatch, **funcs: object)
         "read_job_update",
         "wait_for_job_update",
         "forget_job_update",
+        "cancel_job",
     ):
         if optional_name in funcs:
             setattr(mod, optional_name, funcs[optional_name])
@@ -130,6 +131,17 @@ async def test_stream_enqueues_chat_job_with_payload(
     assert msgs[1]["content"] == "вопрос"
 
 
+async def test_stream_preserves_interactive_job_kind(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = _install_fake_worker_queue(monkeypatch)
+    client = WorkerLLMClient(model="my-model", job_kind="telegram_conversation")
+
+    _ = [d async for d in client.stream(_req())]
+
+    assert calls["enqueue"][0]["kind"] == "telegram_conversation"
+
+
 async def test_stream_uses_event_driven_combined_reads(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -195,6 +207,32 @@ async def test_stream_error_status_raises(monkeypatch: pytest.MonkeyPatch) -> No
     assert "ollama упала" in str(exc.value)
 
 
+async def test_stream_timeout_cancels_durable_job(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cancelled: list[tuple[int, str]] = []
+
+    async def get_job(job_id: int) -> dict:
+        return {"status": "pending"}
+
+    async def cancel_job(job_id: int, reason: str) -> bool:
+        cancelled.append((job_id, reason))
+        return True
+
+    _install_fake_worker_queue(
+        monkeypatch,
+        get_job=get_job,
+        cancel_job=cancel_job,
+    )
+    client = WorkerLLMClient()
+    client._STALL_TIMEOUT = -1
+
+    with pytest.raises(LLMNotConfigured, match="таймаут"):
+        _ = [d async for d in client.stream(_req())]
+
+    assert cancelled == [(1, "request_cancelled_or_timed_out")]
+
+
 async def test_stream_missing_queue_module_raises(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -219,6 +257,14 @@ def test_make_client_worker_branch(monkeypatch: pytest.MonkeyPatch) -> None:
     assert isinstance(client, _UsageRecordingClient)
     assert client.provider == "worker"
     assert isinstance(client._inner, WorkerLLMClient)
+
+
+def test_make_client_worker_passes_job_kind(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.llm import make_client
+
+    client = make_client(provider="worker", kind="telegram_ambient_reply")
+
+    assert client._inner._job_kind == "telegram_ambient_reply"
 
 
 # ── memory_vec.embed: провайдер 'worker' → enqueue_job(kind='embed') ────────

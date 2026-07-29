@@ -129,7 +129,8 @@ def forget_job_update(job_id: int) -> None:
 async def enqueue_job(user_id: int, kind: str, model: str, payload: dict) -> int:
     """Поставить задачу в очередь, вернуть job_id.
 
-    payload сериализуется в JSON. kind ожидается 'chat' | 'embed'.
+    payload сериализуется в JSON. ``kind`` используется для наблюдаемости и
+    приоритета: интерактивные conversation-задачи обслуживаются раньше фона.
     """
     payload_json = json.dumps(payload, ensure_ascii=False)
     async with write_transaction() as conn:
@@ -171,7 +172,20 @@ async def claim_next(worker_id: str) -> dict | None:
             SELECT id
               FROM llm_job
              WHERE status='pending'
-             ORDER BY id
+             ORDER BY
+               CASE
+                 WHEN kind LIKE '%_conversation'
+                   OR kind LIKE '%_tool_followup' THEN 0
+                 WHEN kind IN (
+                   'chat', 'chat_stream', 'chat_compare', 'qa_stream', 'copilot'
+                 ) THEN 1
+                 WHEN kind='telegram_ambient_reply' THEN 2
+                 WHEN kind IN (
+                   'telegram_ambient_decision', 'chat_summary', 'persona_impulse'
+                 ) THEN 4
+                 ELSE 3
+               END,
+               id
              LIMIT 1
             """
         )
@@ -274,6 +288,25 @@ async def finish_job(
             (_KV_LAST_SEEN, _now_iso()),
         )
     _signal_job_update(job_id)
+
+
+async def cancel_job(job_id: int, reason: str = "request_cancelled") -> bool:
+    """Cancel an abandoned request so it cannot keep blocking the PC worker."""
+    safe_reason = str(reason or "request_cancelled").strip()[:200]
+    async with write_transaction() as conn:
+        cursor = await conn.execute(
+            """
+            UPDATE llm_job
+               SET status='error', error=?, finished_at=datetime('now')
+             WHERE id=? AND status IN ('pending', 'streaming')
+            """,
+            (safe_reason, int(job_id)),
+        )
+        changed = cursor.rowcount == 1
+    if changed:
+        _signal_job_update(int(job_id))
+        _pending_wakeup.set()
+    return changed
 
 
 async def read_chunks(job_id: int, after_seq: int) -> list[dict]:

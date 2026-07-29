@@ -6,6 +6,7 @@ import asyncio
 import importlib
 import json
 import os
+import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, Protocol
 
@@ -1085,12 +1086,14 @@ class WorkerLLMClient:
     _EVENT_FALLBACK_INTERVAL = 0.5
     #: Если за это время нет НИ одного нового чанка и задача не завершилась —
     #: считаем, что ПК-воркер завис/умер, и отдаём понятную ошибку.
-    _STALL_TIMEOUT = 120.0
+    _STALL_TIMEOUT = 300.0
 
-    def __init__(self, model: str | None = None) -> None:
+    def __init__(self, model: str | None = None, job_kind: str = "chat") -> None:
         # Модель, которую попросим посчитать на ПК. Берём ту же kv ``ollama_model``,
         # что и для прямого Ollama — на ПК крутится та же локальная модель.
         self._model = (model or "").strip() or OllamaClient._DEFAULT_MODEL
+        clean_kind = re.sub(r"[^a-z0-9._-]", "_", str(job_kind or "").casefold())
+        self._job_kind = clean_kind[:64] or "chat"
         # Совместимость с :class:`_UsageRecordingClient`: он читает эти поля после
         # стрима. Воркер токены не считает (Ollama на ПК), оставляем None.
         self.last_input_tokens: int | None = None
@@ -1157,7 +1160,7 @@ class WorkerLLMClient:
         }
         payload = {"messages": self._messages(request), "options": options}
         # user_id=0 — задача системная (без привязки к пользователю-владельцу).
-        job_id = await enqueue_job(0, "chat", self._model, payload)
+        job_id = await enqueue_job(0, self._job_kind, self._model, payload)
 
         # ВАЖНО: агент шлёт первый чанк с seq=0, а read_chunks фильтрует seq>after_seq.
         # Стартуем с -1, иначе seq=0 (первый токен-батч) теряется — для чата это
@@ -1168,6 +1171,7 @@ class WorkerLLMClient:
         read_job_update = getattr(queue, "read_job_update", None)
         wait_for_job_update = getattr(queue, "wait_for_job_update", None)
         forget_job_update = getattr(queue, "forget_job_update", None)
+        terminal = False
         try:
             while True:
                 if callable(read_job_update):
@@ -1190,6 +1194,7 @@ class WorkerLLMClient:
 
                 status = (job or {}).get("status") if job else None
                 if status == "done":
+                    terminal = True
                     # Дочитываем хвост, появившийся между chunk/status SELECT.
                     tail = await read_chunks(job_id, last_seq)
                     for c in tail:
@@ -1201,6 +1206,7 @@ class WorkerLLMClient:
                             yield content
                     return
                 if status == "error":
+                    terminal = True
                     err = (job or {}).get("error") or "ПК-воркер вернул ошибку"
                     raise LLMNotConfigured(f"ПК-воркер: {err}")
 
@@ -1217,6 +1223,20 @@ class WorkerLLMClient:
                     )
                 else:
                     await asyncio.sleep(self._POLL_INTERVAL)
+        except BaseException:
+            cancel_job = getattr(queue, "cancel_job", None)
+            if not terminal and callable(cancel_job):
+                try:
+                    await asyncio.shield(
+                        cancel_job(job_id, "request_cancelled_or_timed_out")
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    log.warning(
+                        "llm.worker.cancel_failed",
+                        job_id=job_id,
+                        error=type(exc).__name__,
+                    )
+            raise
         finally:
             if callable(forget_job_update):
                 forget_job_update(job_id)
@@ -1945,7 +1965,7 @@ def make_client(
         # сам забирает их long-poll'ом. Модель — та же kv ``ollama_model``
         # (на ПК крутится локальная Ollama), иначе дефолт OllamaClient.
         model_override = _read_kv_sync("ollama_model") or None
-        inner = WorkerLLMClient(model=model_override)
+        inner = WorkerLLMClient(model=model_override, job_kind=kind)
     elif use_provider == "openrouter":
         # OpenRouter — the user picks which underlying model in kv
         # ``openrouter_model``. If unset, fall back to the free Llama 3.1.

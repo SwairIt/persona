@@ -82,7 +82,7 @@ class PersonaTelegramService:
                 ),
                 include_private_context=include_private_context,
                 allow_tools=allow_tools,
-                max_tokens=1800,
+                max_tokens=600 if telegram_chat_id < 0 else 1200,
                 temperature=0.65,
                 correlation_id=correlation_id,
             )

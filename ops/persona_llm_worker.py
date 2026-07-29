@@ -187,12 +187,16 @@ class _Stopper:
 
 def _send_chunk(client: httpx.Client, cfg: Config, job_id: int, seq: int, content: str) -> None:
     """POST /api/llm/worker/{id}/chunk — отправить пачку токенов чата."""
-    client.post(
+    response = client.post(
         f"{cfg.server}/api/llm/worker/{job_id}/chunk",
         headers={"X-Worker-Token": cfg.token},
         json={"seq": seq, "content": content},
         timeout=30.0,
     )
+    # A timed-out server request marks its durable job as cancelled. Stop the
+    # local Ollama stream on the first rejected chunk instead of occupying the
+    # only worker until the abandoned generation naturally finishes.
+    response.raise_for_status()
 
 
 def _send_done(
@@ -209,12 +213,13 @@ def _send_done(
         body["error"] = error
     if result is not None:
         body["result"] = result
-    client.post(
+    response = client.post(
         f"{cfg.server}/api/llm/worker/{job_id}/done",
         headers={"X-Worker-Token": cfg.token},
         json=body,
         timeout=30.0,
     )
+    response.raise_for_status()
 
 
 # ---------------------------------------------------------------------------

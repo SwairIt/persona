@@ -314,7 +314,7 @@ async def test_group_reply_adapter_uses_only_group_history_and_persists_once(
     request = requests[0]
     assert "GROUP_HISTORY_ONLY" in request.user
     assert "PRIVATE_OWNER_SECRET" not in request.system + request.user
-    assert request.max_tokens == 900
+    assert request.max_tokens == 320
     assert request.temperature == 0.55
 
 

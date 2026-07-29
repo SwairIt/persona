@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.25.0] - 2026-07-29
+
+### Fixed
+
+- Prioritise live Telegram/web conversations over autonomous background LLM
+  work so a slow single-PC worker does not starve user replies.
+- Cancel abandoned durable LLM jobs on request timeout or disconnect.
+- Raise the no-token timeout to five minutes and shorten Telegram generations
+  for slower local models.
+- Make the PC worker stop an Ollama stream after the server rejects a cancelled
+  job instead of blocking the queue until generation completes.
+
 ## [1.0.0] - 2026-06-03
 
 First stable public release. Codifies the v0.x autonomous-loop work into a

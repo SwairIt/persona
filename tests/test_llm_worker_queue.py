@@ -61,6 +61,24 @@ async def test_claim_next_empty_queue(db) -> None:
     assert await worker_queue.claim_next("worker-x") is None
 
 
+async def test_claim_next_prioritises_live_conversation_over_background(db) -> None:
+    background_id = await worker_queue.enqueue_job(
+        0, "telegram_ambient_decision", "m", {"messages": []}
+    )
+    live_id = await worker_queue.enqueue_job(
+        0, "telegram_conversation", "m", {"messages": []}
+    )
+
+    claimed = await worker_queue.claim_next("worker-a")
+
+    assert claimed is not None
+    assert claimed["id"] == live_id
+    assert claimed["kind"] == "telegram_conversation"
+    background = await worker_queue.get_job(background_id)
+    assert background is not None
+    assert background["status"] == "pending"
+
+
 async def test_empty_claim_does_not_open_write_transaction(
     db, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -161,6 +179,30 @@ async def test_finish_job_error(db) -> None:
     assert job is not None
     assert job["status"] == "error"
     assert job["error"] == "ollama упал"
+
+
+async def test_cancel_job_rejects_late_worker_updates(db) -> None:
+    job_id = await worker_queue.enqueue_job(0, "chat", "m", {"messages": []})
+    await worker_queue.claim_next("worker-a")
+
+    assert await worker_queue.cancel_job(job_id, "request_timed_out") is True
+    job = await worker_queue.get_job(job_id)
+    assert job is not None
+    assert job["status"] == "error"
+    assert job["error"] == "request_timed_out"
+    assert await worker_queue.cancel_job(job_id) is False
+
+    with pytest.raises(worker_queue.WorkerJobStateError):
+        await worker_queue.add_chunk(job_id, 0, "late")
+    with pytest.raises(worker_queue.WorkerJobStateError):
+        await worker_queue.finish_job(job_id)
+
+
+async def test_cancel_pending_job_prevents_claim(db) -> None:
+    job_id = await worker_queue.enqueue_job(0, "chat", "m", {"messages": []})
+
+    assert await worker_queue.cancel_job(job_id) is True
+    assert await worker_queue.claim_next("worker-a") is None
 
 
 async def test_finish_job_embed_result_vector(db) -> None:

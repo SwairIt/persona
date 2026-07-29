@@ -149,7 +149,7 @@ class TelegramAmbientTurnAdapter:
                 ),
                 user=payload,
                 temperature=0.55,
-                max_tokens=900,
+                max_tokens=320,
                 image_data_url=turn.image_data_url,
             )
         )
