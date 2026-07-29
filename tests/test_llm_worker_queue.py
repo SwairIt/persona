@@ -299,3 +299,20 @@ async def test_worker_online_before_and_after_touch(db) -> None:
     assert status["online"] is True
     assert status["model"] == "qwen2.5:3b"
     assert status["last_seen"] is not None
+
+
+async def test_worker_online_window_allows_slow_five_minute_cycle(db) -> None:
+    await worker_queue.touch_worker("slow-worker", "gemma3:4b")
+    await db.execute(
+        "UPDATE kv_settings SET value=datetime('now', '-4 minutes') "
+        "WHERE key='llm_worker_last_seen'"
+    )
+    await db.commit()
+    assert await worker_queue.worker_online() is True
+
+    await db.execute(
+        "UPDATE kv_settings SET value=datetime('now', '-6 minutes') "
+        "WHERE key='llm_worker_last_seen'"
+    )
+    await db.commit()
+    assert await worker_queue.worker_online() is False

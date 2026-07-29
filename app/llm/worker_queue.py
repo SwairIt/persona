@@ -33,7 +33,7 @@ _KV_MODEL = "llm_worker_model"           # модель, которую анон
 _KV_TOKEN_HASH = "llm_worker_token_hash"  # sha256 от плейнтекст-токена воркера
 
 # Воркер считается онлайн, если пинговал не позже чем N секунд назад.
-_ONLINE_WINDOW_SECONDS = 30.0
+_ONLINE_WINDOW_SECONDS = 5 * 60.0
 
 # Очередь обслуживается лениво из ``claim_next``. Раньше каждый long-poll
 # открывал BEGIN IMMEDIATE каждые 300 мс даже при пустой очереди. Теперь
