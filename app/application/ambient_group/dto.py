@@ -16,6 +16,8 @@ class AmbientGroupTurn:
     sender_label: str
     chat_title: str
     image_data_url: str | None = None
+    reply_to_sender_label: str = ""
+    reply_to_text: str = ""
 
     def __post_init__(self) -> None:
         if self.tenant_id <= 0 or self.conversation_id <= 0:

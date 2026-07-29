@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
 from app.adapters.autowake.impulses import (
@@ -13,7 +13,7 @@ from app.adapters.autowake.impulses import (
 from app.adapters.autowake.sqlite_repository import SqliteAutowakeRepository
 from app.application.autowake import AutowakeService, PersonaImpulseProducer
 from app.auth.owner import get_owner_user_id
-from app.domains.autowake import AutowakePolicy
+from app.domains.autowake import AutowakePolicy, AutowakePolicyConfig
 from app.integrations.telegram.config import TelegramConfig
 from app.integrations.telegram.repository import TelegramRepository
 from app.logging_setup import get_logger
@@ -37,7 +37,9 @@ async def run_persona_impulse_worker() -> None:
     if owner_id is None:
         raise RuntimeError("Persona owner account is not configured")
 
-    policy = AutowakePolicy()
+    policy = AutowakePolicy(
+        AutowakePolicyConfig(cooldown=timedelta(minutes=30), daily_cap=12)
+    )
     repository = SqliteAutowakeRepository()
     producer = PersonaImpulseProducer(
         repository,

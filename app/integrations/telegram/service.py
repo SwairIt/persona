@@ -122,6 +122,8 @@ class PersonaTelegramService:
         chat_title: str,
         sender_label: str,
         image_data_url: str | None = None,
+        reply_to_sender_label: str = "",
+        reply_to_text: str = "",
     ) -> str:
         """Persist one ordinary group message and optionally answer it."""
         clean = (text or "").strip()
@@ -144,6 +146,8 @@ class PersonaTelegramService:
                 sender_label=sender_label,
                 chat_title=chat_title,
                 image_data_url=image_data_url,
+                reply_to_sender_label=reply_to_sender_label,
+                reply_to_text=reply_to_text,
             )
         )
         return outcome.reply

@@ -36,10 +36,10 @@ class AmbientGroupService:
         turns: AmbientGroupTurnPort,
         *,
         clock: MonotonicClock | None = None,
-        decision_timeout_seconds: float = 8.0,
-        reply_timeout_seconds: float = 45.0,
-        decision_interval_seconds: float = 2.0,
-        reply_cooldown_seconds: float = 30.0,
+        decision_timeout_seconds: float = 90.0,
+        reply_timeout_seconds: float = 240.0,
+        decision_interval_seconds: float = 0.0,
+        reply_cooldown_seconds: float = 10.0,
     ) -> None:
         self._decision = decision
         self._turns = turns
@@ -58,10 +58,6 @@ class AmbientGroupService:
             now = self._clock.now()
             rate_limited = self._within(
                 now,
-                self._last_reply.get(chat_id),
-                self._reply_cooldown,
-            ) or self._within(
-                now,
                 self._last_decision.get(chat_id),
                 self._decision_interval,
             )
@@ -75,6 +71,9 @@ class AmbientGroupService:
             except Exception:
                 should_reply = False
             if not should_reply:
+                await self._turns.persist(turn)
+                return AmbientGroupOutcome()
+            if self._within(now, self._last_reply.get(chat_id), self._reply_cooldown):
                 await self._turns.persist(turn)
                 return AmbientGroupOutcome()
             try:

@@ -366,6 +366,8 @@ class TelegramWorker:
         incoming = _incoming_message(update)
         if incoming is None:
             return
+        if incoming.sender_id == self._bot_id:
+            return
 
         if incoming.command == "claim":
             await self._claim(
@@ -420,6 +422,7 @@ class TelegramWorker:
             clean_text = f"{clean_text}\n{media_context.text_suffix}".strip()
         sender_label = _sender_label(incoming.sender)
         chat_title = _chat_title(incoming.chat)
+        reply_to_sender_label, reply_to_text = _reply_context(incoming.raw)
         if incoming.is_group and not addressed:
             try:
                 ambient_answer = await self.service.handle_ambient_group_message(
@@ -431,6 +434,8 @@ class TelegramWorker:
                     chat_title=chat_title,
                     sender_label=sender_label,
                     image_data_url=media_context.image_data_url,
+                    reply_to_sender_label=reply_to_sender_label,
+                    reply_to_text=reply_to_text,
                 )
             except Exception as exc:
                 log.warning(
@@ -817,7 +822,7 @@ def _incoming_message(update: dict[str, Any]) -> IncomingMessage | None:
         return None
     sender = message.get("from")
     chat = message.get("chat")
-    if not isinstance(sender, dict) or not isinstance(chat, dict) or bool(sender.get("is_bot")):
+    if not isinstance(sender, dict) or not isinstance(chat, dict):
         return None
     sender_id = _int(sender.get("id"))
     chat_id = _int(chat.get("id"))
@@ -880,6 +885,16 @@ def _sender_label(sender: dict[str, Any]) -> str:
     name = " ".join(part for part in parts if part)
     username = str(sender.get("username") or "").strip()
     return name or (f"@{username}" if username else "участник")
+
+
+def _reply_context(message: dict[str, Any]) -> tuple[str, str]:
+    reply = message.get("reply_to_message")
+    if not isinstance(reply, dict):
+        return "", ""
+    sender = reply.get("from")
+    label = _sender_label(sender) if isinstance(sender, dict) else ""
+    text = str(reply.get("text") or reply.get("caption") or "").strip()
+    return label, text
 
 
 def _chat_title(chat: dict[str, Any]) -> str:

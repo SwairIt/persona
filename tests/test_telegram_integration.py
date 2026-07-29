@@ -418,7 +418,7 @@ async def test_allowed_group_can_reply_ambiently_without_mention() -> None:
 
 
 @pytest.mark.asyncio
-async def test_bot_authored_group_messages_are_ignored() -> None:
+async def test_other_bot_group_messages_are_analyzed_but_own_are_ignored() -> None:
     repository = FakeRepository(TelegramBinding(1, 42))
     repository.groups.add(-100)
     worker, api, service = _worker(repository)
@@ -427,9 +427,14 @@ async def test_bot_authored_group_messages_are_ignored() -> None:
 
     await worker.handle_update(update)
 
-    assert service.passive == []
+    assert len(service.passive) == 1
     assert service.responses == []
     assert api.sent == []
+
+    own = _group(777, -100, "own bot message", 79)
+    own["message"]["from"]["is_bot"] = True
+    await worker.handle_update(own)
+    assert len(service.passive) == 1
 
 
 @pytest.mark.asyncio

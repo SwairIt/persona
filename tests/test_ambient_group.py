@@ -167,7 +167,7 @@ async def test_decision_adapter_is_bounded_and_rejects_raw_metadata(
         *,
         max_turns: int,
     ) -> list[dict[str, str]]:
-        assert max_turns == 12
+        assert max_turns == 28
         return [{"role": "user", "content": "GROUP_ONLY"}]
 
     requests: list[Any] = []
@@ -205,7 +205,7 @@ async def test_group_reply_adapter_uses_only_group_history_and_persists_once(
         *,
         max_turns: int,
     ) -> list[dict[str, str]]:
-        assert max_turns == 16
+        assert max_turns == 32
         return [
             {"role": "user", "content": "GROUP_HISTORY_ONLY"},
             {"role": "assistant", "content": "prior group reply"},
