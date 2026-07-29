@@ -222,6 +222,55 @@ def _send_done(
     response.raise_for_status()
 
 
+def _performance_summary(stats: dict[str, object]) -> str:
+    def integer(name: str) -> int:
+        try:
+            return max(0, int(stats.get(name) or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    load_ms = integer("load_duration") / 1_000_000
+    prompt_count = integer("prompt_eval_count")
+    prompt_seconds = integer("prompt_eval_duration") / 1_000_000_000
+    eval_count = integer("eval_count")
+    eval_seconds = integer("eval_duration") / 1_000_000_000
+    prompt_rate = prompt_count / prompt_seconds if prompt_seconds > 0 else 0.0
+    eval_rate = eval_count / eval_seconds if eval_seconds > 0 else 0.0
+    return (
+        f"load={load_ms:.0f}ms, prompt={prompt_count}/{prompt_rate:.1f} tok/s, "
+        f"output={eval_count}/{eval_rate:.1f} tok/s"
+    )
+
+
+def _preload_runtime_model(client: httpx.Client, cfg: Config) -> str:
+    """Load the server-selected chat model before the first real message."""
+    response = client.get(
+        f"{cfg.server}/api/llm/worker/probe",
+        headers={"X-Worker-Token": cfg.token},
+        timeout=20.0,
+    )
+    response.raise_for_status()
+    model = str(response.json().get("chat_model") or "").strip()
+    if not model:
+        return ""
+    timeout = httpx.Timeout(_OLLAMA_READ_TIMEOUT, connect=_OLLAMA_CONNECT_TIMEOUT)
+    with httpx.Client(timeout=timeout, trust_env=False) as ollama:
+        warmed = ollama.post(
+            f"{cfg.ollama}/api/chat",
+            json={
+                "model": model,
+                "messages": [],
+                "stream": False,
+                "think": False,
+                "keep_alive": -1,
+            },
+        )
+        warmed.raise_for_status()
+        stats = warmed.json()
+    log(f"модель {model} прогрета ({_performance_summary(stats)})")
+    return model
+
+
 # ---------------------------------------------------------------------------
 # Обработчики задач
 # ---------------------------------------------------------------------------
@@ -251,6 +300,7 @@ def _handle_chat(client: httpx.Client, cfg: Config, job: dict, stopper: _Stopper
             "messages": messages,
             "format": fmt,
             "stream": False,
+            "think": False,
         }
         if options:
             body["options"] = options
@@ -263,13 +313,17 @@ def _handle_chat(client: httpx.Client, cfg: Config, job: dict, stopper: _Stopper
             data = resp.json()
         content = (data.get("message") or {}).get("content", "")
         _send_done(client, cfg, job_id, result=content)
-        log(f"chat-json job #{job_id} готов (model={model}, {len(content)} симв)")
+        log(
+            f"chat-json job #{job_id} готов "
+            f"(model={model}, {len(content)} симв, {_performance_summary(data)})"
+        )
         return
 
     ollama_body: dict[str, object] = {
         "model": model,
         "messages": messages,
         "stream": True,
+        "think": False,
     }
     if options:
         ollama_body["options"] = options
@@ -279,6 +333,7 @@ def _handle_chat(client: httpx.Client, cfg: Config, job: dict, stopper: _Stopper
     seq = 0
     buf: list[str] = []
     last_flush = time.monotonic()
+    final_stats: dict[str, object] = {}
     timeout = httpx.Timeout(_OLLAMA_READ_TIMEOUT, connect=_OLLAMA_CONNECT_TIMEOUT)
 
     def flush() -> None:
@@ -315,18 +370,23 @@ def _handle_chat(client: httpx.Client, cfg: Config, job: dict, stopper: _Stopper
                 ):
                     flush()
                 if obj.get("done"):
+                    final_stats = obj
                     break
     if complete_delivery:
         content = "".join(buf)
         _send_done(client, cfg, job_id, result=content)
         log(
             f"chat-complete job #{job_id} готов "
-            f"(model={model}, {len(content)} симв)"
+            f"(model={model}, {len(content)} симв, "
+            f"{_performance_summary(final_stats)})"
         )
         return
     flush()  # добить хвост
     _send_done(client, cfg, job_id)
-    log(f"chat job #{job_id} готов (model={model}, чанков={seq})")
+    log(
+        f"chat job #{job_id} готов "
+        f"(model={model}, чанков={seq}, {_performance_summary(final_stats)})"
+    )
 
 
 def _handle_embed(client: httpx.Client, cfg: Config, job: dict) -> None:
@@ -435,8 +495,12 @@ def run(cfg: Config) -> int:
     # trust_env=True is explicit: HTTPS_PROXY/HTTP_PROXY/NO_PROXY work for
     # networks where persona.getdoday.ru is unreachable directly.
     with httpx.Client(trust_env=True) as client:
+        preloaded = False
         while not stopper.stop:
             try:
+                if not preloaded:
+                    _preload_runtime_model(client, cfg)
+                    preloaded = True
                 job = _poll_once(client, cfg)
                 _mark_successful_poll(cfg.heartbeat_file)
                 backoff = _BACKOFF_START  # успешный контакт — сбрасываем бэкофф

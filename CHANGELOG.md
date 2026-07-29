@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.29.1] - 2026-07-29
+
+### Changed
+- The PC worker preloads the server-selected chat model before accepting real
+  work, and Telegram keeps it resident in Ollama indefinitely to remove cold
+  model loads after idle periods.
+- Local Ollama requests explicitly disable hidden thinking output, preserving
+  the current direct-response behaviour if a thinking-capable model is selected.
+- Worker logs now record model load latency, prompt throughput and generation
+  tokens per second for evidence-based hardware and model tuning.
+
 ## [2.29.0] - 2026-07-29
 
 ### Changed

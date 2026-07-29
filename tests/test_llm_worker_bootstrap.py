@@ -249,3 +249,72 @@ def test_telegram_complete_delivery_uses_one_final_upload(
     )
 
     assert completed == [{"job_id": 9, "result": "быстрый ответ"}]
+
+
+def test_worker_preloads_selected_model_and_reports_rates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return {
+                "load_duration": 250_000_000,
+                "prompt_eval_count": 100,
+                "prompt_eval_duration": 500_000_000,
+                "eval_count": 20,
+                "eval_duration": 1_000_000_000,
+            }
+
+    class FakeServer:
+        def get(self, *_args: object, **_kwargs: object) -> FakeResponse:
+            response = FakeResponse()
+            response.json = lambda: {"chat_model": "qwen2.5:3b"}  # type: ignore[method-assign]
+            return response
+
+    payloads: list[dict[str, object]] = []
+
+    class FakeOllama:
+        def __init__(self, **_kwargs: object) -> None:
+            pass
+
+        def __enter__(self) -> FakeOllama:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def post(
+            self,
+            *_args: object,
+            json: dict[str, object],
+            **_kwargs: object,
+        ) -> FakeResponse:
+            payloads.append(json)
+            return FakeResponse()
+
+    monkeypatch.setattr(persona_llm_worker.httpx, "Client", FakeOllama)
+    model = persona_llm_worker._preload_runtime_model(
+        FakeServer(),  # type: ignore[arg-type]
+        SimpleNamespace(
+            server="https://persona.example",
+            token="token",
+            ollama="http://127.0.0.1:11434",
+        ),
+    )
+
+    assert model == "qwen2.5:3b"
+    assert payloads == [
+        {
+            "model": "qwen2.5:3b",
+            "messages": [],
+            "stream": False,
+            "think": False,
+            "keep_alive": -1,
+        }
+    ]
+    summary = persona_llm_worker._performance_summary(FakeResponse().json())
+    assert "load=250ms" in summary
+    assert "prompt=100/200.0 tok/s" in summary
+    assert "output=20/20.0 tok/s" in summary

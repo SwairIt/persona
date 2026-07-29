@@ -134,6 +134,7 @@ async def test_stream_enqueues_chat_job_with_payload(
     assert job["payload"]["options"]["repeat_penalty"] == 1.15
     assert job["payload"]["options"]["repeat_last_n"] == 256
     assert job["payload"]["keep_alive"] == "30m"
+    assert job["payload"]["think"] is False
 
 
 async def test_stream_preserves_interactive_job_kind(
@@ -146,6 +147,7 @@ async def test_stream_preserves_interactive_job_kind(
 
     assert calls["enqueue"][0]["kind"] == "telegram_conversation"
     assert calls["enqueue"][0]["payload"]["delivery"] == "complete"
+    assert calls["enqueue"][0]["payload"]["keep_alive"] == "-1"
 
 
 async def test_telegram_complete_delivery_yields_job_result(

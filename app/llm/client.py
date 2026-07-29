@@ -983,6 +983,7 @@ class OllamaClient:
             "model": self._model,
             "messages": self._native_messages(request),
             "stream": False,
+            "think": False,
             "keep_alive": self._KEEP_ALIVE,
             "options": self._native_options(request),
         }
@@ -1010,6 +1011,7 @@ class OllamaClient:
             "messages": self._native_messages(request),
             "stream": False,
             "format": schema,
+            "think": False,
             "keep_alive": self._KEEP_ALIVE,
             "options": self._native_options(request),
         }
@@ -1033,6 +1035,7 @@ class OllamaClient:
             "model": self._model,
             "messages": self._native_messages(request),
             "stream": True,
+            "think": False,
             "keep_alive": self._KEEP_ALIVE,
             "options": self._native_options(request),
         }
@@ -1174,12 +1177,14 @@ class WorkerLLMClient:
             "repeat_penalty": 1.15,
             "repeat_last_n": 256,
         }
+        telegram_job = self._job_kind.startswith("telegram_")
         payload = {
             "messages": messages,
             "options": options,
-            "keep_alive": "30m",
+            "keep_alive": "-1" if telegram_job else "30m",
+            "think": False,
         }
-        if self._job_kind.startswith("telegram_"):
+        if telegram_job:
             # Telegram transports complete answers and applies a whole-answer
             # repetition guard. Per-token WAN uploads only stall local Ollama.
             payload["delivery"] = "complete"
