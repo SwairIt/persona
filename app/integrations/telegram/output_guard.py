@@ -23,12 +23,50 @@ _KNOWN_OTHERS = {
     "индик",
     "indi",
 }
+_SUPPORT_CLICHE_MARKERS = (
+    "спасибо за сообщение",
+    "спасибо, что поделил",
+    "всегда здесь, чтобы помочь",
+    "всегда здесь чтобы помочь",
+    "всегда готов помочь",
+    "всегда готова помочь",
+    "я всегда рядом",
+    "чем могу помочь",
+    "обращайся, если",
+    "обращайтесь, если",
+    "давай перейдем к делу",
+    "давай перейдём к делу",
+    "выход из трудной ситуации",
+    "вышел из трудной ситуации",
+    "вышла из трудной ситуации",
+    "ты большой молодец",
+    "ты молодец",
+    "горжусь тобой",
+    "это показывает твою силу",
+    "i'm always here to help",
+    "i am always here to help",
+    "thanks for reaching out",
+)
 
 
 def _normalise_speaker(value: str) -> str:
     """Normalise a Telegram display name, ignoring emoji decorations."""
     clean = re.sub(r"[^\w\u0400-\u04ff -]+", "", value.lstrip("@").casefold())
     return " ".join(clean.split())
+
+
+def _without_support_cliches(value: str) -> str:
+    """Drop stock support/praise sentences from a conversational reply."""
+    pieces = re.split(r"(?<=[.!?…])(?:\s+|$)|\n+", str(value or "").strip())
+    kept = [
+        piece.strip()
+        for piece in pieces
+        if piece.strip()
+        and not any(
+            marker in piece.casefold() for marker in _SUPPORT_CLICHE_MARKERS
+        )
+    ]
+    return " ".join(kept).strip()
 
 
 def persona_only_reply(value: str) -> str:
@@ -69,8 +107,8 @@ def persona_only_reply(value: str) -> str:
             speaker = _normalise_speaker(first.group("speaker"))
             if speaker in _PERSONA_ALIASES:
                 lines[0] = first.group("text").strip()
-                return "\n".join(lines).strip()
-        return text
+                return _without_support_cliches("\n".join(lines))
+        return _without_support_cliches(text)
 
     kept: list[str] = []
     persona_block = False
@@ -90,7 +128,7 @@ def persona_only_reply(value: str) -> str:
             continue
         if persona_block and line.strip():
             kept.append(line.strip())
-    return "\n".join(kept).strip()
+    return _without_support_cliches("\n".join(kept))
 
 
 __all__ = ["persona_only_reply"]

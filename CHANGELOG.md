@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.27.1] - 2026-07-29
+
+### Fixed
+- Telegram output now removes stock support closings and patronising praise
+  even when the local model ignores the living-character prompt.
+
 ## [2.27.0] - 2026-07-29
 
 ### Added

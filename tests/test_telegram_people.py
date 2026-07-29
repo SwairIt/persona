@@ -116,3 +116,14 @@ def test_script_with_emoji_decorated_participant_keeps_only_persona() -> None:
     assert persona_only_reply(text) == (
         "Ага, я в порядке! Вот что хотел сказать."
     )
+
+
+def test_support_cliches_and_patronising_praise_are_removed() -> None:
+    text = (
+        "Ты большой молодец, что вышел из трудной ситуации. "
+        "Я всегда здесь, чтобы помочь. "
+        "А по сути: эта история действительно была странной."
+    )
+    assert persona_only_reply(text) == (
+        "А по сути: эта история действительно была странной."
+    )
