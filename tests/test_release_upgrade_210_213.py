@@ -198,6 +198,20 @@ async def test_historical_210_211_upgrade_preserves_data_and_repairs_delete(
     async with aiosqlite.connect(db_path, isolation_level=None) as conn:
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys = ON")
+        # Production had already applied the historical 212/213 bytes before
+        # their later hardening was authored. Apply the append-only corrections
+        # directly here; the full-manifest ordering is covered by the normal DB
+        # fixture and the production-copy migration probe.
+        await conn.executescript(
+            (source / "216_projection_source_guard_hardening.sql").read_text(
+                encoding="utf-8"
+            )
+        )
+        await conn.executescript(
+            (source / "217_worker_enrollment_activation_expiry.sql").read_text(
+                encoding="utf-8"
+            )
+        )
         historical = await (
             await conn.execute(
                 """

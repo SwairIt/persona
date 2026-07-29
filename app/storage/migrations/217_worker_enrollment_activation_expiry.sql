@@ -1,14 +1,16 @@
--- Append-only correction for the already-applied migration 211.
+-- Append-only hardening for the already-applied migration 213.
 --
--- SQLite cannot alter a foreign-key action or table CHECK in place. Rebuild
--- the small enrollment ledger transactionally, preserving every row and
--- normalizing legacy terminal rows that were allowed to omit revoked_at.
+-- Activation has a separate 24-hour window. SQLite cannot add the required
+-- cross-column CHECK in place, so rebuild the small enrollment ledger.
 ALTER TABLE worker_enrollment_ticket
-    RENAME TO worker_enrollment_ticket_legacy_211;
+    RENAME TO worker_enrollment_ticket_legacy_217;
 
 DROP TRIGGER IF EXISTS worker_enrollment_identity_immutable;
 DROP INDEX IF EXISTS idx_worker_enrollment_active;
 DROP INDEX IF EXISTS idx_worker_enrollment_recent;
+DROP INDEX IF EXISTS idx_worker_enrollment_pending_llm;
+DROP INDEX IF EXISTS idx_worker_enrollment_pending_browser;
+DROP INDEX IF EXISTS idx_worker_enrollment_pending_activation;
 
 CREATE TABLE worker_enrollment_ticket (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -37,6 +39,7 @@ CREATE TABLE worker_enrollment_ticket (
                             pending_browser_token_hash IS NULL
                             OR length(pending_browser_token_hash) = 64
                         ),
+    activation_expires_at TEXT,
     activated_at        TEXT,
     revoked_at          TEXT,
     CHECK (
@@ -45,6 +48,7 @@ CREATE TABLE worker_enrollment_ticket (
             AND consumed_worker_id IS NULL
             AND pending_llm_token_hash IS NULL
             AND pending_browser_token_hash IS NULL
+            AND activation_expires_at IS NULL
             AND activated_at IS NULL
             AND revoked_at IS NULL)
         OR
@@ -55,12 +59,14 @@ CREATE TABLE worker_enrollment_ticket (
                 (
                     pending_llm_token_hash IS NULL
                     AND pending_browser_token_hash IS NULL
+                    AND activation_expires_at IS NULL
                     AND activated_at IS NULL
                 )
                 OR
                 (
                     pending_llm_token_hash IS NOT NULL
                     AND pending_browser_token_hash IS NOT NULL
+                    AND activation_expires_at IS NOT NULL
                 )
             )
             AND revoked_at IS NULL)
@@ -70,6 +76,7 @@ CREATE TABLE worker_enrollment_ticket (
             AND consumed_worker_id IS NULL
             AND pending_llm_token_hash IS NULL
             AND pending_browser_token_hash IS NULL
+            AND activation_expires_at IS NULL
             AND activated_at IS NULL
             AND revoked_at IS NOT NULL)
     )
@@ -78,20 +85,23 @@ CREATE TABLE worker_enrollment_ticket (
 INSERT INTO worker_enrollment_ticket(
     id, ticket_hash, owner_user_id, capability, expected_worker_id,
     status, issued_at, expires_at, consumed_at, consumed_worker_id,
-    pending_llm_token_hash, pending_browser_token_hash, activated_at, revoked_at
+    pending_llm_token_hash, pending_browser_token_hash,
+    activation_expires_at, activated_at, revoked_at
 )
 SELECT
     id, ticket_hash, owner_user_id, capability, expected_worker_id,
     status, issued_at, expires_at, consumed_at, consumed_worker_id,
-    NULL, NULL, NULL,
+    pending_llm_token_hash, pending_browser_token_hash,
     CASE
-        WHEN status IN ('expired', 'revoked')
-        THEN COALESCE(revoked_at, issued_at)
-        ELSE revoked_at
-    END
-FROM worker_enrollment_ticket_legacy_211;
+        WHEN pending_llm_token_hash IS NOT NULL
+         AND pending_browser_token_hash IS NOT NULL
+        THEN datetime(COALESCE(consumed_at, issued_at), '+24 hours')
+        ELSE NULL
+    END,
+    activated_at, revoked_at
+FROM worker_enrollment_ticket_legacy_217;
 
-DROP TABLE worker_enrollment_ticket_legacy_211;
+DROP TABLE worker_enrollment_ticket_legacy_217;
 
 CREATE INDEX idx_worker_enrollment_active
     ON worker_enrollment_ticket(owner_user_id, capability, status, expires_at);
@@ -106,6 +116,10 @@ CREATE UNIQUE INDEX idx_worker_enrollment_pending_llm
 CREATE UNIQUE INDEX idx_worker_enrollment_pending_browser
     ON worker_enrollment_ticket(pending_browser_token_hash)
     WHERE pending_browser_token_hash IS NOT NULL;
+
+CREATE INDEX idx_worker_enrollment_pending_activation
+    ON worker_enrollment_ticket(activation_expires_at)
+    WHERE status = 'consumed' AND activated_at IS NULL;
 
 CREATE TRIGGER worker_enrollment_identity_immutable
 BEFORE UPDATE OF ticket_hash, owner_user_id, capability, expected_worker_id
