@@ -14,8 +14,12 @@ Server-Sent Events, оборачивая :func:`app.llm.copilot_stream.stream_co
   браузерный EventSource открыл канал и увидел причину, а не завис).
 """
 
+# ruff: noqa: RUF002
+
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
 from typing import TYPE_CHECKING, Annotated, Any
 
@@ -24,7 +28,6 @@ from starlette.responses import StreamingResponse
 
 from app.auth import current_user_required
 from app.auth.owner import is_owner
-from app.auth.sessions import SessionRecord
 from app.llm.client import LLMNotConfigured
 from app.llm.copilot_stream import stream_copilot
 from app.logging_setup import get_logger
@@ -32,9 +35,12 @@ from app.logging_setup import get_logger
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
+    from app.auth.sessions import SessionRecord
+
 log = get_logger("persona.copilot.route")
 
 router = APIRouter(tags=["copilot"])
+_HEARTBEAT_SECONDS = 10.0
 
 
 def _encode_sse(event: dict[str, Any]) -> bytes:
@@ -53,19 +59,48 @@ async def _event_stream(
     а не 500. Прочие исключения логируем и тоже отдаём событием, чтобы UI
     показал сообщение, а не завис на открытом соединении.
     """
+    iterator = stream_copilot(
+        question, page_url=page_url, mode=mode, user_id=user_id
+    ).__aiter__()
+    pending: asyncio.Task[dict[str, Any]] | None = None
     try:
-        async for event in stream_copilot(
-            question, page_url=page_url, mode=mode, user_id=user_id
-        ):
+        while True:
+            if pending is None:
+                pending = asyncio.create_task(anext(iterator))
+            done, _ = await asyncio.wait(
+                {pending},
+                timeout=_HEARTBEAT_SECONDS,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if not done:
+                # SSE comments are ignored by EventSource but keep nginx and
+                # upstream middleware alive while the slow PC worker prepares
+                # its first token.
+                yield b": persona-copilot-ping\n\n"
+                continue
+            try:
+                event = pending.result()
+            except StopAsyncIteration:
+                break
+            pending = None
             yield _encode_sse(event)
     except LLMNotConfigured as exc:
         log.info("copilot.route.llm_offline", error=str(exc))
         yield _encode_sse(
             {"type": "error", "reason": "llm_offline", "message": "ПК-воркер офлайн"}
         )
-    except Exception as exc:  # noqa: BLE001 — не роняем соединение в 500
+    except Exception as exc:
         log.warning("copilot.route.failed", error=str(exc))
         yield _encode_sse({"type": "error", "reason": "internal", "detail": str(exc)})
+    finally:
+        if pending is not None and not pending.done():
+            pending.cancel()
+            with contextlib.suppress(BaseException):
+                await pending
+        close = getattr(iterator, "aclose", None)
+        if callable(close):
+            with contextlib.suppress(BaseException):
+                await close()
 
 
 async def _disabled_stream() -> AsyncIterator[bytes]:

@@ -39,7 +39,9 @@ ROUTE_DIRECT_DB_IMPORT_BASELINE = frozenset(
 # Reviewed +1 for the consolidated two-phase PC-worker enrollment endpoint.
 # Owner ticket issuance reuses /settings/automation, so onboarding adds only
 # this single unauthenticated-but-ticket-gated route.
-REGISTERED_ROUTE_BUDGET = 1_087
+# Reviewed +6 owner-scoped Persona surfaces: Telegram people (2), site copilot
+# SSE (1), and adaptive prompt history/toggle/rollback (3).
+REGISTERED_ROUTE_BUDGET = 1_093
 
 # After the first bootstrap extraction the reference Windows host imports the
 # web app in ~5.3 s. Keep CI headroom while preventing a return to the measured

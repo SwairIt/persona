@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+
+{% block content %}
+<main class="mx-auto max-w-5xl space-y-6 px-4 py-6">
+  <header class="space-y-2">
+    <div class="flex flex-wrap items-center gap-3">
+      <h1 class="text-2xl font-bold text-zinc-100">Живой характер Persona</h1>
+      <span class="rounded-full border px-2.5 py-1 text-xs font-semibold
+                   {{ 'border-emerald-500/50 bg-emerald-500/10 text-emerald-300' if enabled
+                      else 'border-zinc-600 bg-zinc-800 text-zinc-400' }}"
+            aria-live="polite">
+        {{ "активен" if enabled else "выключен" }}
+      </span>
+    </div>
+    <p class="max-w-3xl text-sm leading-6 text-zinc-400">
+      Persona автоматически выбирает тон по текущему разговору, но неизменяемое
+      ядро владельца, приватности и безопасности остаётся прежним. Новая версия
+      сохраняется только при изменении режима или усвоенного предпочтения.
+      Пока адаптация включена, она заменяет старый образ «ассистента поддержки».
+    </p>
+  </header>
+
+  <section class="grid gap-4 md:grid-cols-[1fr_auto]" aria-labelledby="adaptive-control">
+    <div class="rounded-2xl border border-ink-700 bg-ink-900/70 p-5">
+      <h2 id="adaptive-control" class="font-semibold text-zinc-100">
+        Автоматическая адаптация
+      </h2>
+      <p class="mt-1 text-sm text-zinc-400">
+        Режимы: живой, неформальный, игривый, поддерживающий, творческий,
+        сфокусированный и серьёзный.
+      </p>
+    </div>
+    <form method="post" action="/settings/system-prompt/history/toggle"
+          class="flex items-center">
+      <input type="hidden" name="enabled" value="{{ '0' if enabled else '1' }}">
+      <button type="submit"
+              class="min-h-11 rounded-xl border px-5 py-2 text-sm font-semibold
+                     focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-400
+                     {{ 'border-rose-500/50 text-rose-300 hover:bg-rose-500/10' if enabled
+                        else 'border-emerald-500/50 text-emerald-300 hover:bg-emerald-500/10' }}">
+        {{ "Выключить" if enabled else "Включить" }}
+      </button>
+    </form>
+  </section>
+
+  <section class="rounded-2xl border border-ink-700 bg-ink-900/70 p-5"
+           aria-labelledby="learned-heading">
+    <h2 id="learned-heading" class="font-semibold text-zinc-100">
+      Усвоенные предпочтения владельца
+    </h2>
+    {% if learned_rules %}
+      <ul class="mt-3 space-y-2 text-sm text-zinc-300">
+        {% for rule in learned_rules %}
+          <li class="flex gap-2"><span aria-hidden="true" class="text-accent-400">•</span>{{ rule }}</li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="mt-2 text-sm text-zinc-500">
+        Пока пусто. Скажи Persona, например: «общайся со мной неформально и
+        можешь шутить» — это сохранится как устойчивая настройка.
+      </p>
+    {% endif %}
+  </section>
+
+  <section class="space-y-3" aria-labelledby="versions-heading">
+    <div class="flex items-end justify-between gap-3">
+      <div>
+        <h2 id="versions-heading" class="text-lg font-semibold text-zinc-100">
+          История версий
+        </h2>
+        <p class="text-xs text-zinc-500">Сначала новые. Текст каждой версии можно раскрыть.</p>
+      </div>
+      <a href="/settings/system-prompt"
+         class="text-sm text-accent-300 hover:text-accent-200 focus-visible:underline">
+        Ручной промпт (для выключенного режима)
+      </a>
+    </div>
+
+    {% if versions %}
+      <ol class="space-y-3">
+        {% for version in versions %}
+          <li>
+            <article class="rounded-2xl border p-4
+                            {{ 'border-accent-500/60 bg-accent-500/5' if version.is_active
+                               else 'border-ink-700 bg-ink-900/60' }}">
+              <div class="flex flex-wrap items-start justify-between gap-3">
+                <div class="space-y-1">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <h3 class="font-semibold text-zinc-100">Версия {{ version.version_number }}</h3>
+                    <span class="rounded-full bg-ink-700 px-2 py-0.5 text-xs text-zinc-300">
+                      {{ mode_labels.get(version.mode, version.mode) }}
+                    </span>
+                    {% if version.is_active %}
+                      <span class="rounded-full bg-accent-500/15 px-2 py-0.5 text-xs text-accent-300">
+                        текущая
+                      </span>
+                    {% endif %}
+                  </div>
+                  <p class="text-sm text-zinc-300">{{ version.reason }}</p>
+                  <p class="text-xs text-zinc-500">
+                    {{ version.created_at }} · {{ version.source_surface }}
+                  </p>
+                </div>
+                {% if not version.is_active %}
+                  <form method="post"
+                        action="/settings/system-prompt/history/{{ version.id }}/activate">
+                    <button type="submit"
+                            class="rounded-lg border border-ink-600 px-3 py-2 text-xs font-medium
+                                   text-zinc-300 hover:border-accent-500 hover:text-accent-300
+                                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-400">
+                      Сделать активной
+                    </button>
+                  </form>
+                {% endif %}
+              </div>
+
+              {% if version.source_excerpt %}
+                <blockquote class="mt-3 border-l-2 border-ink-600 pl-3 text-sm text-zinc-400">
+                  {{ version.source_excerpt }}
+                </blockquote>
+              {% endif %}
+
+              <details class="mt-3 rounded-xl border border-ink-700 bg-ink-950/60">
+                <summary class="cursor-pointer px-3 py-2 text-sm text-zinc-300
+                                focus-visible:outline-none focus-visible:ring-2
+                                focus-visible:ring-inset focus-visible:ring-accent-400">
+                  Показать полный системный промпт
+                </summary>
+                <pre class="max-h-96 overflow-auto whitespace-pre-wrap border-t border-ink-700
+                            p-3 text-xs leading-5 text-zinc-400">{{ version.prompt_text }}</pre>
+              </details>
+            </article>
+          </li>
+        {% endfor %}
+      </ol>
+    {% else %}
+      <div class="rounded-2xl border border-dashed border-ink-600 px-5 py-10 text-center">
+        <p class="text-sm text-zinc-400">
+          Первая версия появится при следующем сообщении Persona.
+        </p>
+      </div>
+    {% endif %}
+  </section>
+</main>
+{% endblock %}

@@ -107,6 +107,7 @@ from app.web.routes import (
     digest_card as digest_card_routes,
     digest_prompts as digest_prompts_routes,
     system_prompt_settings as system_prompt_routes,
+    dynamic_prompt_settings as dynamic_prompt_routes,
     mac_fs_settings as mac_fs_routes,
     profile_settings as profile_routes,
     memory_settings as memory_settings_routes,
@@ -669,6 +670,7 @@ def create_app() -> FastAPI:
     app.include_router(ocr_vision_routes.router)
     app.include_router(digest_prompts_routes.router)
     app.include_router(system_prompt_routes.router)
+    app.include_router(dynamic_prompt_routes.router)
     app.include_router(mac_fs_routes.router)
     app.include_router(profile_routes.router)
     app.include_router(memory_settings_routes.router)

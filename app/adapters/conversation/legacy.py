@@ -37,6 +37,7 @@ from app.chat import (
     start_streaming_message,
     update_streaming_message,
 )
+from app.chat.dynamic_prompt import contextual_system_prompt
 from app.chat.persona_inject import persona_reminder, spotlight
 from app.chat.user_memory import build_memory_block, extract_and_store
 from app.domains.chat import (
@@ -189,7 +190,13 @@ class PersonaContextAdapter:
         conversation: ResolvedConversation,
         history: tuple[ConversationMessage, ...],
     ) -> PreparedContext:
-        persona = await get_active_system_prompt()
+        persona = await contextual_system_prompt(
+            persona_user_id=int(command.actor.tenant_id),
+            base_prompt=await get_active_system_prompt(),
+            message=command.text,
+            surface=command.surface.value,
+            is_owner=command.actor.is_owner,
+        )
         system = _IDENTITY + "\n\n" + persona
         if command.include_private_context:
             system += profile_block(await get_profile(int(command.actor.tenant_id)))

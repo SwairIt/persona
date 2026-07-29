@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.27.0] - 2026-07-29
+
+### Added
+- Persona now uses an automatically adapting living-character prompt with
+  versioned modes and owner-only learned style preferences.
+- Added an owner-only prompt history page with full snapshots and rollback.
+
+### Changed
+- The adaptive personality replaces the old support-assistant style and uses
+  more varied Telegram generation settings.
+
+### Fixed
+- Site copilot SSE now sends heartbeats while the PC worker prepares its first
+  token, preventing proxy disconnects and cancelled jobs.
+
 ## [2.26.2] - 2026-07-29
 
 ### Fixed

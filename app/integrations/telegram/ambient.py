@@ -14,6 +14,7 @@ from app.chat import (
     touch_session,
 )
 from app.chat.prompts import get_active_system_prompt
+from app.chat.dynamic_prompt import contextual_system_prompt
 from app.chat.user_memory import extract_and_store
 from app.llm.client import CompletionRequest, make_client
 from app.integrations.telegram.output_guard import persona_only_reply
@@ -143,7 +144,15 @@ class TelegramAmbientTurnAdapter:
         session = await _validate_scope(turn)
         _pin_model(client, session.get("model"))
         rules = await _group_rules(self._repository, turn.external_chat_id)
-        persona_style = (await get_active_system_prompt()).strip()[:12_000]
+        persona_style = (
+            await contextual_system_prompt(
+                persona_user_id=turn.tenant_id,
+                base_prompt=await get_active_system_prompt(),
+                message=turn.text,
+                surface="telegram_group",
+                is_owner=turn.is_owner,
+            )
+        ).strip()[:16_000]
         raw = await client.complete(
             CompletionRequest(
                 system=_system_with_identity(
@@ -155,7 +164,7 @@ class TelegramAmbientTurnAdapter:
                     turn.trusted_identity_context,
                 ),
                 user=payload,
-                temperature=0.55,
+                temperature=0.78,
                 max_tokens=320,
                 image_data_url=turn.image_data_url,
             )
