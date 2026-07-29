@@ -99,3 +99,9 @@ def test_single_addressee_prefix_is_not_mistaken_for_script() -> None:
     assert persona_only_reply("Клод: посмотри, пожалуйста.") == (
         "Клод: посмотри, пожалуйста."
     )
+
+
+def test_single_persona_prefix_is_removed() -> None:
+    assert persona_only_reply("Персик: Я говорю только от своего лица.") == (
+        "Я говорю только от своего лица."
+    )

@@ -43,7 +43,8 @@ _GROUP_REPLY_SYSTEM = (
     "written only by Persona. Never invent dialogue or write lines, thoughts or "
     "answers on behalf of Indi, Claude, any person, or any bot. If an owner rule "
     "asks you to address Indi and Claude, mention them only at the beginning of "
-    "Persona's own message; do not simulate their replies."
+    "Persona's own message; do not simulate their replies. Do not prefix or sign "
+    "your message with Persona, Персик, or any other name for yourself."
 )
 _OTHER_AGENT_RE = re.compile(
     r"^\s*@?(?P<name>indi|claude|\u0438\u043d\u0434\u0438\u043a?"

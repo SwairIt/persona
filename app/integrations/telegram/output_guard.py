@@ -46,6 +46,19 @@ def persona_only_reply(value: str) -> str:
         if speaker in _PERSONA_ALIASES or speaker in _KNOWN_OTHERS:
             parsed.append((index, speaker, match.group("text").strip()))
     if len(parsed) < 2:
+        # Even without a full role-play script, models sometimes sign their
+        # answer as ``Персик: ...``. Telegram already shows the sender, so a
+        # leading Persona label is redundant and makes the message look like
+        # generated dialogue. Strip only Persona's own label; labels naming an
+        # addressee (``Клод: ...``) remain untouched.
+        first = _SPEAKER_RE.match(lines[0])
+        if first:
+            speaker = " ".join(
+                first.group("speaker").lstrip("@").casefold().split()
+            )
+            if speaker in _PERSONA_ALIASES:
+                lines[0] = first.group("text").strip()
+                return "\n".join(lines).strip()
         return text
 
     kept: list[str] = []
