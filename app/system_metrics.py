@@ -29,6 +29,7 @@ psutil каждый запрос. Ring-buffer на 60 последних сни�
 from __future__ import annotations
 
 import collections
+import os
 import subprocess
 import time
 from typing import Any
@@ -47,6 +48,8 @@ _cache_ts: float = 0.0
 # --- Ring-buffer последних снимков (cpu/mem/ts) --------------------------
 _HISTORY_MAXLEN = 60
 _history: collections.deque[dict[str, Any]] = collections.deque(maxlen=_HISTORY_MAXLEN)
+_PROCESS_SAMPLE_LIMIT = 24
+_PROCESS_SCAN_BUDGET_SECONDS = 6.0
 
 
 def _safe(fn, default=None):
@@ -145,27 +148,44 @@ def _processes_count() -> int:
 
 
 def _top_processes() -> dict[str, list[dict[str, Any]]]:
-    """Top-5 процессов по CPU и top-5 по памяти.
+    """Best-effort top processes from a bounded host sample.
 
-    ``process_iter`` запрашиваем ТОЛЬКО нужные атрибуты — так psutil не
-    дёргает дорогие поля и не падает на процессах без доступа.
+    On large Windows hosts every process attribute call can cost ~50 ms.
+    Walking thousands of PIDs made one health snapshot consume a CPU core for
+    minutes. Sample low/system and recent/high PIDs plus this process, and stop
+    at a hard elapsed-time boundary. These values are diagnostics, not billing
+    or scheduling inputs.
     """
     procs: list[dict[str, Any]] = []
-    try:
-        for proc in psutil.process_iter(
-            ["pid", "name", "cpu_percent", "memory_percent"]
-        ):
-            info = proc.info  # type: ignore[attr-defined]
+    pids = _safe(psutil.pids, []) or []
+    if len(pids) > _PROCESS_SAMPLE_LIMIT:
+        low_count = _PROCESS_SAMPLE_LIMIT // 3
+        sampled = [*pids[:low_count], *pids[-(_PROCESS_SAMPLE_LIMIT - low_count):]]
+    else:
+        sampled = list(pids)
+    sampled.append(os.getpid())
+    deadline = time.monotonic() + _PROCESS_SCAN_BUDGET_SECONDS
+    for pid in dict.fromkeys(sampled):
+        if time.monotonic() >= deadline:
+            break
+        try:
+            proc = psutil.Process(pid)
+            with proc.oneshot():
+                name = proc.name() or "?"
+                cpu_percent = float(proc.cpu_percent() or 0.0)
+                memory_percent = float(proc.memory_percent() or 0.0)
             procs.append(
                 {
-                    "pid": info.get("pid"),
-                    "name": info.get("name") or "?",
-                    "cpu_percent": float(info.get("cpu_percent") or 0.0),
-                    "memory_percent": float(info.get("memory_percent") or 0.0),
+                    "pid": pid,
+                    "name": name,
+                    "cpu_percent": cpu_percent,
+                    "memory_percent": memory_percent,
                 }
             )
-    except Exception:
-        return {"by_cpu": [], "by_memory": []}
+        except Exception:
+            # A disappearing/protected process must not erase the already
+            # sampled diagnostics.
+            continue
 
     by_cpu = sorted(procs, key=lambda p: p["cpu_percent"], reverse=True)[:5]
     by_memory = sorted(procs, key=lambda p: p["memory_percent"], reverse=True)[:5]
@@ -377,7 +397,7 @@ def collect_system_metrics() -> dict[str, Any]:
             "ts": time.time(),
         }
         _cache = snapshot
-        _cache_ts = now
+        _cache_ts = time.monotonic()
         return snapshot
 
     memory = _memory()
@@ -416,7 +436,9 @@ def collect_system_metrics() -> dict[str, Any]:
     )
 
     _cache = snapshot
-    _cache_ts = now
+    # Timestamp completion, not collection start. Slow Windows disk/process
+    # probes must not make the freshly built cache already expired.
+    _cache_ts = time.monotonic()
     return snapshot
 
 

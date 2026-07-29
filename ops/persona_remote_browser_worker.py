@@ -127,6 +127,8 @@ class Config:
             "on",
         }
         self.browser_proxy = _cfg(dotenv, "PERSONA_BROWSER_PROXY")
+        heartbeat = _cfg(dotenv, "PERSONA_BROWSER_HEARTBEAT_FILE")
+        self.heartbeat_file = Path(heartbeat) if heartbeat else None
         for name in ("HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "NO_PROXY"):
             value = _cfg(dotenv, name)
             if value and not os.environ.get(name):
@@ -556,6 +558,18 @@ def log(message: str) -> None:
     print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {message}", flush=True)
 
 
+def _mark_successful_poll(path: Path | None) -> None:
+    if path is None:
+        return
+    temporary = path.with_name(f".{path.name}.tmp")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary.write_text(str(time.time()), encoding="ascii")
+        temporary.replace(path)
+    except OSError:
+        temporary.unlink(missing_ok=True)
+
+
 class Stop:
     requested = False
 
@@ -590,6 +604,8 @@ def main() -> int:
                         headers={"X-Worker-Token": cfg.token},
                         params={"worker_id": cfg.worker_id, "wait": _POLL_WAIT},
                     )
+                    if response.status_code in {200, 204}:
+                        _mark_successful_poll(cfg.heartbeat_file)
                     if response.status_code == 204:
                         runtime.reap()
                         backoff = 1.0

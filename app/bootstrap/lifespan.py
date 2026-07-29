@@ -103,7 +103,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.background_runtime = runtime
 
         if profile is RuntimeProfile.LEAN:
-            log.warning("lifespan.lean_mode — background workers DISABLED")
+            log.info(
+                "lifespan.profile_selected",
+                profile=profile.value,
+                workers=[spec.name for spec in workers_for_profile(profile)],
+            )
 
         # Apply privacy state before background/capture coroutines exist. The
         # first await must not race a screenshot that the owner paused.

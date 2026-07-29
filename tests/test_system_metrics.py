@@ -8,6 +8,9 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
+
+from app import system_metrics
 from app.system_metrics import collect_system_metrics
 
 
@@ -55,3 +58,32 @@ def test_flat_memory_percent_mirrors_nested():
     nested = snap.get("memory", {}).get("percent")
     # Без psutil оба нули; с psutil — совпадают по значению.
     assert snap["memory_percent"] == float(nested or 0.0)
+
+
+def test_top_process_scan_is_bounded_on_large_windows_hosts(monkeypatch):
+    calls: list[int] = []
+
+    class FakeProcess:
+        def __init__(self, pid: int) -> None:
+            calls.append(pid)
+            self.pid = pid
+
+        def oneshot(self):
+            return nullcontext()
+
+        def name(self) -> str:
+            return f"p{self.pid}"
+
+        def cpu_percent(self) -> float:
+            return 0.0
+
+        def memory_percent(self) -> float:
+            return 0.1
+
+    monkeypatch.setattr(system_metrics.psutil, "pids", lambda: list(range(2_000)))
+    monkeypatch.setattr(system_metrics.psutil, "Process", FakeProcess)
+
+    snapshot = system_metrics._top_processes()
+
+    assert len(calls) <= system_metrics._PROCESS_SAMPLE_LIMIT + 1
+    assert len(snapshot["by_memory"]) == 5

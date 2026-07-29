@@ -39,6 +39,11 @@ async def _embed_model() -> str:
         return _DEFAULT_EMBED_MODEL
 
 
+async def embedding_model_name() -> str:
+    """Return the configured embedding model for projection metadata."""
+    return await _embed_model()
+
+
 async def _active_provider() -> str:
     """Активный LLM-провайдер из kv (как в app.llm.client._resolve_provider_and_key).
 

@@ -130,6 +130,8 @@ class Config:
         self.worker_id = _cfg(dotenv, "PERSONA_WORKER_ID", "") or socket.gethostname()
         # Анонсируемая модель — чисто информативно (реальную задаёт задача).
         self.model = _cfg(dotenv, "PERSONA_WORKER_MODEL", "")
+        heartbeat = _cfg(dotenv, "PERSONA_WORKER_HEARTBEAT_FILE", "")
+        self.heartbeat_file = Path(heartbeat) if heartbeat else None
         # httpx server client uses trust_env=True. Allow proxy variables in
         # .env too, because a Scheduled Task may not inherit the interactive
         # shell environment. Local Ollama clients explicitly disable proxies.
@@ -148,6 +150,18 @@ def log(msg: str) -> None:
     """Печать в stdout с меткой времени и немедленным flush."""
     ts = time.strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{ts}] {msg}", flush=True)
+
+
+def _mark_successful_poll(path: Path | None) -> None:
+    if path is None:
+        return
+    temporary = path.with_name(f".{path.name}.tmp")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary.write_text(str(time.time()), encoding="ascii")
+        temporary.replace(path)
+    except OSError:
+        temporary.unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------------------
@@ -401,6 +415,7 @@ def run(cfg: Config) -> int:
         while not stopper.stop:
             try:
                 job = _poll_once(client, cfg)
+                _mark_successful_poll(cfg.heartbeat_file)
                 backoff = _BACKOFF_START  # успешный контакт — сбрасываем бэкофф
                 if job is None:
                     # 204 — задач нет. Тихий long-poll, но раз в ~N опросов

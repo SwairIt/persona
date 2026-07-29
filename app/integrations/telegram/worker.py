@@ -30,17 +30,33 @@ log = get_logger("persona.telegram.worker")
 _GROUP_TYPES = {"group", "supergroup"}
 _CONSUMER_LEASE_SECONDS = 600
 _PROCESSING_LEASE_HEARTBEAT_SECONDS = 20.0
+_BOT_COMMANDS = [
+    {"command": "start", "description": "Подключить Persona"},
+    {"command": "help", "description": "Показать справку"},
+    {"command": "new", "description": "Начать новую ветку"},
+    {"command": "persona", "description": "Обратиться к Persona в группе"},
+    {"command": "allow_here", "description": "Разрешить текущую группу"},
+    {"command": "deny_here", "description": "Запретить текущую группу"},
+]
 _HELP = (
     "Persona подключена к твоему аккаунту.\n\n"
     "Личные сообщения: просто напиши вопрос.\n"
-    "Группа: /allow_here — разрешить этот чат, /deny_here — закрыть.\n"
+    "Группа: /allow_here — разрешить этот чат, /deny_here — закрыть. "
+    "После разрешения Persona видит каждое доставленное обычное сообщение и "
+    "сама решает, когда полезно ответить.\n"
     "/new — начать новую ветку Persona для текущего чата.\n"
-    "В группе позови @бота, ответь на его сообщение или напиши /persona вопрос."
+    "В группе позови @бота, ответь на его сообщение или напиши /persona вопрос "
+    "для немедленного ответа.\n\n"
+    "Важно: чтобы Telegram доставлял боту ВСЕ сообщения группы, открой "
+    "@BotFather → /setprivacy → выбери бота → Disable, затем удали и снова "
+    "добавь бота в группу. При включённом Privacy Mode бот получает только "
+    "команды, упоминания и ответы на свои сообщения."
 )
 
 
 @dataclass(frozen=True, slots=True)
 class IncomingMessage:
+    update_id: int
     sender_id: int
     chat_id: int
     message_id: int
@@ -110,6 +126,13 @@ class TelegramWorker:
         self._bot_username = str(me.get("username") or "")
         if not self._bot_id:
             raise RuntimeError("Telegram getMe did not return a valid bot id.")
+        try:
+            await self.api.set_my_commands(_BOT_COMMANDS)
+        except Exception as exc:  # best-effort metadata must never stop polling
+            log.warning(
+                "telegram.commands.prepare_failed",
+                error_type=type(exc).__name__,
+            )
 
     async def run(self) -> None:
         await self.prepare()
@@ -324,30 +347,48 @@ class TelegramWorker:
         sender_label = _sender_label(incoming.sender)
         chat_title = _chat_title(incoming.chat)
         if incoming.is_group and not addressed:
-            await self.service.record_passive_group_message(
-                persona_user_id=binding.persona_user_id,
-                telegram_chat_id=incoming.chat_id,
-                text=incoming.text,
-                chat_title=chat_title,
-                sender_label=sender_label,
-            )
+            try:
+                ambient_answer = await self.service.handle_ambient_group_message(
+                    persona_user_id=binding.persona_user_id,
+                    telegram_chat_id=incoming.chat_id,
+                    update_id=incoming.update_id,
+                    message_id=incoming.message_id,
+                    text=incoming.text,
+                    chat_title=chat_title,
+                    sender_label=sender_label,
+                )
+            except Exception as exc:
+                log.warning(
+                    "telegram.ambient.failed_silent",
+                    error_type=type(exc).__name__,
+                )
+                return
+            if ambient_answer:
+                await self.api.send_message(
+                    incoming.chat_id,
+                    ambient_answer,
+                    reply_to_message_id=incoming.message_id,
+                )
             return
         if not clean_text:
             return
         with suppress(TelegramAPIError):
             await self.api.send_typing(incoming.chat_id)
         try:
+            private_owner = is_owner and not incoming.is_group
             answer = await self.service.respond(
                 persona_user_id=binding.persona_user_id,
                 telegram_chat_id=incoming.chat_id,
                 question=clean_text,
                 chat_title=chat_title,
                 sender_label=sender_label if incoming.is_group else None,
-                # A non-owner member of an allowlisted group may talk to the
-                # bot, but can never retrieve the owner's profile, cross-chat
-                # memory or activity.  The owner deliberately addressing the
-                # bot retains the full Persona context.
-                include_private_context=is_owner,
+                # Every group turn is fail-closed: even the owner must move to
+                # the private DM before Persona exposes private recall or
+                # executes a side-effecting tool.
+                is_owner=is_owner,
+                include_private_context=private_owner,
+                allow_tools=private_owner,
+                correlation_id=f"telegram-update:{incoming.update_id}",
             )
         except Exception as exc:
             log.warning(
@@ -377,7 +418,10 @@ class TelegramWorker:
         allowed = incoming.command == "allow_here"
         await self.repository.set_chat_allowed(incoming.chat_id, allowed)
         text = (
-            "Этот чат разрешён. Persona будет запоминать сообщения, которые Telegram передаёт боту."
+            "Этот чат разрешён. Persona будет учитывать каждое сообщение, "
+            "которое Telegram передаёт боту, и иногда отвечать сама. Если "
+            "обычные сообщения не приходят: @BotFather → /setprivacy → Disable, "
+            "затем заново добавь бота в группу."
             if allowed
             else "Доступ этого чата закрыт."
         )
@@ -457,6 +501,7 @@ class TelegramWorker:
 
 
 def _incoming_message(update: dict[str, Any]) -> IncomingMessage | None:
+    update_id = _int(update.get("update_id"))
     message = update.get("message")
     if not isinstance(message, dict):
         return None
@@ -468,10 +513,17 @@ def _incoming_message(update: dict[str, Any]) -> IncomingMessage | None:
     chat_id = _int(chat.get("id"))
     message_id = _int(message.get("message_id"))
     text = str(message.get("text") or message.get("caption") or "").strip()
-    if sender_id is None or chat_id is None or message_id is None or not text:
+    if (
+        update_id is None
+        or sender_id is None
+        or chat_id is None
+        or message_id is None
+        or not text
+    ):
         return None
     command, argument = _command(text)
     return IncomingMessage(
+        update_id=update_id,
         sender_id=sender_id,
         chat_id=chat_id,
         message_id=message_id,

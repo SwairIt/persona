@@ -8,7 +8,12 @@ from typing import TYPE_CHECKING, Protocol
 if TYPE_CHECKING:
     from datetime import datetime
 
-    from app.domains.autowake import DeliveryDecision, DeliveryState, ProactiveContent
+    from app.domains.autowake import (
+        DeliveryDecision,
+        DeliveryState,
+        DeliveryTarget,
+        ProactiveContent,
+    )
 
 
 class AutowakeStateError(RuntimeError):
@@ -36,6 +41,7 @@ class OutboxItem:
     session_id: int
     message_id: int
     owner_user_id: int
+    target: DeliveryTarget
     content: ProactiveContent
     due_at: datetime
     attempts: int
@@ -48,6 +54,17 @@ class OwnerTelegramDelivery:
     """No chat id by design: the adapter can only resolve the owner's DM."""
 
     owner_user_id: int
+    text: str
+    idempotency_key: str
+    kind: str
+
+
+@dataclass(frozen=True, slots=True)
+class GroupTelegramDelivery:
+    """Explicit group target; the adapter re-checks the live allowlist."""
+
+    owner_user_id: int
+    telegram_chat_id: int
     text: str
     idempotency_key: str
     kind: str
@@ -66,6 +83,7 @@ class AutowakeRepository(Protocol):
         *,
         owner_user_id: int,
         content: ProactiveContent,
+        target: DeliveryTarget,
         decision: DeliveryDecision,
         fingerprint: str,
         max_attempts: int,
@@ -118,11 +136,14 @@ class AutowakeRepository(Protocol):
 class OwnerTelegramGateway(Protocol):
     async def send_owner(self, delivery: OwnerTelegramDelivery) -> None: ...
 
+    async def send_group(self, delivery: GroupTelegramDelivery) -> None: ...
+
 
 __all__ = [
     "AutowakeRepository",
     "AutowakeStateError",
     "EnqueueResult",
+    "GroupTelegramDelivery",
     "IdempotencyConflict",
     "OutboxItem",
     "OwnerTelegramDelivery",

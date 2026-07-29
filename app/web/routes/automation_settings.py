@@ -29,7 +29,8 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from app.auth import current_user_required
-from app.auth.sessions import SessionRecord
+from app.auth.owner import is_primary_owner
+from app.auth.sessions import SessionRecord  # noqa: TC001
 from app.logging_setup import get_logger
 from app.storage.db import get_connection
 from app.storage.repository import get_kv, set_kv
@@ -59,7 +60,10 @@ async def _read_state() -> dict[str, str]:
 
 
 @router.get("/settings/automation", response_class=HTMLResponse)
-async def automation_settings_page(request: Request) -> HTMLResponse:
+async def automation_settings_page(
+    request: Request,
+    session: Annotated[SessionRecord, Depends(current_user_required)],
+) -> HTMLResponse:
     """Render the automation settings page."""
     state = await _read_state()
     # Show what the MCP runtime currently discovered (best-effort, for trust).
@@ -68,7 +72,7 @@ async def automation_settings_page(request: Request) -> HTMLResponse:
         from app.mcp.runtime import discovered_mcp_tools  # noqa: PLC0415
 
         discovered = await discovered_mcp_tools()
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.debug("automation.discover_failed", error=str(exc))
     return templates.TemplateResponse(
         request,
@@ -79,6 +83,7 @@ async def automation_settings_page(request: Request) -> HTMLResponse:
             "state": state,
             "backends": _VALID_BACKENDS,
             "discovered": discovered,
+            "can_enroll_worker": await is_primary_owner(int(session["user_id"])),
         },
     )
 
@@ -96,6 +101,12 @@ async def automation_settings_save(
         body = {}
     if not isinstance(body, dict):
         body = {}
+    if body.get("action") == "issue_worker_enrollment":
+        from app.web.routes.worker_enrollment import (  # noqa: PLC0415
+            issue_worker_enrollment_for_owner,
+        )
+
+        return await issue_worker_enrollment_for_owner(session, request, body)
 
     updates: dict[str, str] = {}
     if "browser_backend" in body:
@@ -123,7 +134,7 @@ async def automation_settings_save(
             from app.mcp.runtime import shutdown_mcp_runtime  # noqa: PLC0415
 
             await shutdown_mcp_runtime()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             log.debug("automation.mcp_shutdown_failed", error=str(exc))
 
     log.info("automation.settings_saved", keys=list(updates.keys()))

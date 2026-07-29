@@ -24,6 +24,8 @@ class FakeAPI:
     def __init__(self) -> None:
         self.sent: list[tuple[int, str, int | None]] = []
         self.typing: list[int] = []
+        self.commands: list[list[dict[str, str]]] = []
+        self.fail_commands = False
 
     async def get_me(self) -> dict[str, Any]:
         return {"id": 777, "username": "PersonaTestBot"}
@@ -39,6 +41,11 @@ class FakeAPI:
 
     async def send_typing(self, chat_id: int) -> None:
         self.typing.append(chat_id)
+
+    async def set_my_commands(self, commands: list[dict[str, str]]) -> None:
+        if self.fail_commands:
+            raise RuntimeError("temporary command metadata failure")
+        self.commands.append(commands)
 
 
 class FakeRepository:
@@ -112,6 +119,7 @@ class FakeService:
         self.responses: list[dict[str, Any]] = []
         self.passive: list[dict[str, Any]] = []
         self.resets: list[int] = []
+        self.ambient_answer = ""
 
     async def respond(self, **kwargs: Any) -> str:
         self.responses.append(kwargs)
@@ -119,6 +127,10 @@ class FakeService:
 
     async def record_passive_group_message(self, **kwargs: Any) -> None:
         self.passive.append(kwargs)
+
+    async def handle_ambient_group_message(self, **kwargs: Any) -> str:
+        self.passive.append(kwargs)
+        return self.ambient_answer
 
     async def reset_chat(self, chat_id: int) -> None:
         self.resets.append(chat_id)
@@ -164,6 +176,37 @@ def _worker(
     worker._persona_owner_id = 42
     worker._binding = repository.binding
     return worker, api, service
+
+
+@pytest.mark.asyncio
+async def test_prepare_sets_commands_idempotently_and_failure_is_best_effort(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.integrations.telegram import worker as worker_module  # noqa: PLC0415
+
+    async def owner_id() -> int:
+        return 42
+
+    monkeypatch.setattr(worker_module, "get_owner_user_id", owner_id)
+    worker, api, _service = _worker(FakeRepository(TelegramBinding(1, 42)))
+
+    await worker.prepare()
+    await worker.prepare()
+
+    assert len(api.commands) == 2
+    assert api.commands[0] == api.commands[1]
+    assert [item["command"] for item in api.commands[0]] == [
+        "start",
+        "help",
+        "new",
+        "persona",
+        "allow_here",
+        "deny_here",
+    ]
+
+    api.fail_commands = True
+    await worker.prepare()
+    assert worker._bot_id == 777
 
 
 @pytest.mark.asyncio
@@ -214,10 +257,32 @@ async def test_only_owner_can_allow_group_then_member_can_address_persona() -> N
     assert service.responses[0]["persona_user_id"] == 42
     assert service.responses[0]["question"] == "что ты помнишь?"
     assert service.responses[0]["include_private_context"] is False
+    assert service.responses[0]["allow_tools"] is False
     assert api.sent[-1][1] == "Ответ Persona"
 
     await worker.handle_update(_group(1, -100, "/persona мой контекст", 4))
-    assert service.responses[1]["include_private_context"] is True
+    assert service.responses[1]["include_private_context"] is False
+    assert service.responses[1]["allow_tools"] is False
+
+    reply = _group(2, -100, "продолжи, пожалуйста", 5)
+    reply["message"]["reply_to_message"] = {"from": {"id": 777, "is_bot": True}}
+    await worker.handle_update(reply)
+    assert service.responses[2]["question"] == "продолжи, пожалуйста"
+    assert service.responses[2]["include_private_context"] is False
+    assert service.passive == []
+
+
+@pytest.mark.asyncio
+async def test_owner_private_turn_enables_tools_and_has_stable_correlation_id() -> None:
+    worker, _api, service = _worker(FakeRepository(TelegramBinding(1, 42)))
+
+    await worker.handle_update(_private(1, "use a tool", 55))
+
+    assert len(service.responses) == 1
+    assert service.responses[0]["is_owner"] is True
+    assert service.responses[0]["include_private_context"] is True
+    assert service.responses[0]["allow_tools"] is True
+    assert service.responses[0]["correlation_id"] == "telegram-update:55"
 
 
 @pytest.mark.asyncio
@@ -229,6 +294,42 @@ async def test_allowed_group_passive_message_is_stored_without_reply() -> None:
     await worker.handle_update(_group(2, -100, "обычное сообщение"))
 
     assert len(service.passive) == 1
+    assert service.responses == []
+    assert api.sent == []
+
+
+@pytest.mark.asyncio
+async def test_allowed_group_can_reply_ambiently_without_mention() -> None:
+    repository = FakeRepository(TelegramBinding(1, 42))
+    repository.groups.add(-100)
+    worker, api, service = _worker(repository)
+    service.ambient_answer = "Ambient Persona reply"
+
+    await worker.handle_update(
+        _group(2, -100, "кто-нибудь знает, как решить эту ошибку?", 77)
+    )
+
+    assert len(service.passive) == 1
+    ambient = service.passive[0]
+    assert ambient["update_id"] == 77
+    assert ambient["message_id"] == 77
+    assert "include_private_context" not in ambient
+    assert "allow_tools" not in ambient
+    assert service.responses == []
+    assert api.sent == [(-100, "Ambient Persona reply", 77)]
+
+
+@pytest.mark.asyncio
+async def test_bot_authored_group_messages_are_ignored() -> None:
+    repository = FakeRepository(TelegramBinding(1, 42))
+    repository.groups.add(-100)
+    worker, api, service = _worker(repository)
+    update = _group(2, -100, "bot noise", 78)
+    update["message"]["from"]["is_bot"] = True
+
+    await worker.handle_update(update)
+
+    assert service.passive == []
     assert service.responses == []
     assert api.sent == []
 

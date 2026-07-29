@@ -43,6 +43,8 @@ SAFE_SOURCES: Final[frozenset[str]] = frozenset(
         "memory",
         "reminder",
         "system",
+        "persona_impulse",
+        "telegram_group",
     }
 )
 
@@ -67,6 +69,24 @@ _GROUP_MARKERS: Final[tuple[str, ...]] = (
 )
 
 DeliveryDecisionKind = Literal["allow", "defer", "reject"]
+
+
+class DeliveryTargetKind(StrEnum):
+    OWNER_DM = "owner_dm"
+    GROUP = "group"
+
+
+@dataclass(frozen=True, slots=True)
+class DeliveryTarget:
+    kind: DeliveryTargetKind = DeliveryTargetKind.OWNER_DM
+    telegram_chat_id: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.kind is DeliveryTargetKind.OWNER_DM:
+            if self.telegram_chat_id is not None:
+                raise ValueError("owner DM target cannot carry a chat id")
+        elif self.telegram_chat_id is None or self.telegram_chat_id >= 0:
+            raise ValueError("group target requires a negative Telegram chat id")
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,10 +164,19 @@ class ProactiveContent:
         object.__setattr__(self, "text", clean)
 
 
-def content_rejection_reason(content: ProactiveContent) -> str | None:
+def content_rejection_reason(
+    content: ProactiveContent,
+    *,
+    allow_group: bool = False,
+) -> str | None:
     """Return a stable rejection code without ever returning the message body."""
 
-    if content.source_scope not in SAFE_SOURCE_SCOPES:
+    group_allowed = (
+        allow_group
+        and content.source_scope is SourceScope.GROUP
+        and content.source == "telegram_group"
+    )
+    if content.source_scope not in SAFE_SOURCE_SCOPES and not group_allowed:
         return f"unsafe_source_scope:{content.source_scope.value}"
     lowered = content.text.casefold()
     if any(marker in lowered for marker in _GROUP_MARKERS):
@@ -252,6 +281,8 @@ __all__ = [
     "AutowakePolicyConfig",
     "DeliveryDecision",
     "DeliveryState",
+    "DeliveryTarget",
+    "DeliveryTargetKind",
     "ProactiveContent",
     "SourceScope",
     "content_rejection_reason",

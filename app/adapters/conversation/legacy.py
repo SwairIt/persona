@@ -19,8 +19,11 @@ from app.application.chat.dto import (
     ModelUsage,
     PreparedContext,
     ResolvedConversation,
+    ToolCall,
+    ToolExecution,
     TurnCommand,
     TurnResult,
+    is_valid_tool_wire_name,
 )
 from app.application.chat.service import ConversationService
 from app.chat import (
@@ -44,6 +47,7 @@ from app.domains.chat import (
 )
 from app.llm.client import CompletionRequest, LLMNotConfigured, make_client
 from app.logging_setup import get_logger
+from app.mcp.tool_policy import autonomous_tool_names
 from app.memory_context import build_memory_context
 from app.profile import get_profile, profile_block
 
@@ -237,7 +241,8 @@ class PersonaContextAdapter:
                 build_tools_prompt,
             )
 
-            return system + build_tools_prompt(await all_enabled_tool_names())
+            enabled = _safe_tool_names(await all_enabled_tool_names())
+            return system + build_tools_prompt(enabled)
         except Exception as exc:
             log.warning("conversation.tools.unavailable", error=type(exc).__name__)
             return system + _TOOLS_DISABLED
@@ -285,6 +290,90 @@ class LegacyModelAdapter:
         )
 
 
+class LegacyConversationTools:
+    """Fail-closed adapter over the enabled built-in/external MCP registry."""
+
+    async def approved_tool_names(self, command: TurnCommand) -> frozenset[str]:
+        if not command.allow_tools or not command.actor.is_owner:
+            return frozenset()
+        from app.mcp import all_enabled_tool_names  # noqa: PLC0415
+
+        return frozenset(_safe_tool_names(await all_enabled_tool_names()))
+
+    def parse_calls(self, text: str) -> tuple[ToolCall, ...]:
+        from app.mcp import parse_tool_calls  # noqa: PLC0415
+
+        calls: list[ToolCall] = []
+        for parsed in parse_tool_calls(text):
+            try:
+                calls.append(
+                    ToolCall(
+                        name=str(parsed.get("name") or ""),
+                        arguments=(
+                            dict(parsed["args"])
+                            if isinstance(parsed.get("args"), dict)
+                            else {}
+                        ),
+                        raw=str(parsed.get("raw") or ""),
+                    )
+                )
+            except ValueError:
+                continue
+        return tuple(calls)
+
+    async def execute(
+        self,
+        command: TurnCommand,
+        call: ToolCall,
+    ) -> ToolExecution:
+        if not command.allow_tools or not command.actor.is_owner:
+            raise PermissionError("conversation tools require the owner")
+        from app.mcp import all_enabled_tool_names, call_tool  # noqa: PLC0415
+
+        approved = frozenset(_safe_tool_names(await all_enabled_tool_names()))
+        if call.name not in approved:
+            return ToolExecution(
+                call,
+                "[error] tool is no longer approved",
+                is_error=True,
+            )
+        output = await call_tool(
+            call.name,
+            dict(call.arguments),
+            user_id=int(command.actor.tenant_id),
+            session_id=int(command.conversation_id),
+        )
+        return ToolExecution(
+            call,
+            str(output),
+            is_error=str(output).lstrip().startswith("[error]"),
+        )
+
+
+def _safe_tool_names(names: list[str]) -> list[str]:
+    """Keep autonomous, advertised and executable tool sets identical."""
+    return [
+        name
+        for name in autonomous_tool_names(names)
+        if is_valid_tool_wire_name(name)
+    ]
+
+
+class LegacyConversationCancellation:
+    """Bridge the shared web stop flag into the application use case."""
+
+    async def is_cancelled(self, command: TurnCommand) -> bool:
+        from app.storage.db import get_connection  # noqa: PLC0415
+        from app.storage.repository import get_kv  # noqa: PLC0415
+
+        async with get_connection() as conn:
+            value = await get_kv(
+                conn,
+                f"chat_stop_{int(command.conversation_id)}",
+            )
+        return str(value or "0").strip() == "1"
+
+
 class LegacyPostTurnAdapter:
     """Dispatch bounded best-effort maintenance outside the online response."""
 
@@ -327,6 +416,8 @@ def build_conversation_service() -> ConversationService:
         PersonaContextAdapter(),
         LegacyModelAdapter(),
         LegacyPostTurnAdapter(),
+        tools=LegacyConversationTools(),
+        cancellation=LegacyConversationCancellation(),
     )
 
 
@@ -357,7 +448,9 @@ def _bounded_transcript(
 
 
 __all__ = [
+    "LegacyConversationCancellation",
     "LegacyConversationRepository",
+    "LegacyConversationTools",
     "LegacyModelAdapter",
     "LegacyPostTurnAdapter",
     "PersonaContextAdapter",

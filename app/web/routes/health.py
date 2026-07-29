@@ -140,14 +140,33 @@ async def health_full(
         profile_from_environment,
     )
 
-    lean_mode = profile_from_environment(os.environ) is RuntimeProfile.LEAN
+    runtime_profile_value = getattr(request.app.state, "runtime_profile", None)
+    try:
+        effective_profile = RuntimeProfile(str(runtime_profile_value))
+    except ValueError:
+        effective_profile = profile_from_environment(os.environ)
+    lean_mode = effective_profile is RuntimeProfile.LEAN
     llm_worker: dict = {"online": False, "model": None, "last_seen": None}
     browser_worker: dict = {"online": False, "workers": []}
+    runtime_metrics: dict[str, object] = {}
+    queue_depth: dict[str, dict[str, int]] = {}
+    memory_projection: dict[str, object] = {}
+    worker_enrollment: dict[str, object] = {}
     try:
         from app.llm.worker_queue import worker_status  # noqa: PLC0415
 
         llm_worker = await worker_status()
     except Exception:  # noqa: S110 - health probes degrade to offline state
+        pass
+    try:
+        from app.observability.runtime import (  # noqa: PLC0415
+            queue_depths,
+            runtime_snapshot,
+        )
+
+        runtime_metrics = runtime_snapshot()
+        queue_depth = await queue_depths()
+    except Exception:  # noqa: S110 - diagnostics must not break owner health
         pass
     try:
         from app.adapters.remote_browser.repository import (  # noqa: PLC0415
@@ -157,11 +176,29 @@ async def health_full(
         browser_worker = await SqliteRemoteBrowserJobs().worker_status()
     except Exception:  # noqa: S110 - health probes degrade to offline state
         pass
+    try:
+        from app.adapters.projection import SqliteProjectionOutbox  # noqa: PLC0415
+
+        memory_projection = await SqliteProjectionOutbox().health_status()
+    except Exception:  # noqa: S110 - diagnostics must not break owner health
+        pass
+    try:
+        from app.adapters.worker_enrollment import (  # noqa: PLC0415
+            SqliteWorkerEnrollment,
+        )
+        from app.application.worker_enrollment import (  # noqa: PLC0415
+            WorkerEnrollmentService,
+        )
+
+        worker_enrollment = await WorkerEnrollmentService(
+            SqliteWorkerEnrollment()
+        ).status()
+    except Exception:  # noqa: S110 - diagnostics must not break owner health
+        pass
 
     runtime = getattr(request.app.state, "background_runtime", None)
-    runtime_profile = getattr(request.app.state, "runtime_profile", None)
     background_workers: dict = {
-        "profile": runtime_profile,
+        "profile": effective_profile.value,
         "tasks": [],
         "failure_counts": {},
     }
@@ -185,6 +222,10 @@ async def health_full(
         "lean_mode": lean_mode,
         "llm_worker": llm_worker,
         "browser_worker": browser_worker,
+        "worker_enrollment": worker_enrollment,
+        "memory_projection": memory_projection,
+        "runtime_metrics": runtime_metrics,
+        "queue_depths": queue_depth,
         "background_workers": background_workers,
         "version": __version__,
     }

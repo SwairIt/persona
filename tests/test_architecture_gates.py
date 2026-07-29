@@ -36,7 +36,10 @@ ROUTE_DIRECT_DB_IMPORT_BASELINE = frozenset(
 
 # The reviewed outbound browser worker adds five token-authenticated protocol
 # routes to the former 1,081-route surface. Any further growth needs review.
-REGISTERED_ROUTE_BUDGET = 1_086
+# Reviewed +1 for the consolidated two-phase PC-worker enrollment endpoint.
+# Owner ticket issuance reuses /settings/automation, so onboarding adds only
+# this single unauthenticated-but-ticket-gated route.
+REGISTERED_ROUTE_BUDGET = 1_087
 
 # After the first bootstrap extraction the reference Windows host imports the
 # web app in ~5.3 s. Keep CI headroom while preventing a return to the measured

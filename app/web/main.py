@@ -155,6 +155,7 @@ from app.web.routes import (
     llm_usage as llm_usage_routes,
     llm_worker as llm_worker_routes,
     remote_browser_worker as remote_browser_worker_routes,
+    worker_enrollment as worker_enrollment_routes,
     mobile as mobile_routes,
     monthly_digest_card as monthly_digest_card_routes,
     monthly_digests as monthly_digests_routes,
@@ -715,6 +716,7 @@ def create_app() -> FastAPI:
     # W-A — серверное ядро очереди «Persona LLM Worker» (worker-token + owner).
     app.include_router(llm_worker_routes.router)
     app.include_router(remote_browser_worker_routes.router)
+    app.include_router(worker_enrollment_routes.router)
     app.include_router(multi_day_diff_routes.router)
     app.include_router(screenshot_frame_routes.router)
     app.include_router(settings_diff_routes.router)

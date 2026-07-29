@@ -13,6 +13,8 @@ if TYPE_CHECKING:
         ModelUsage,
         PreparedContext,
         ResolvedConversation,
+        ToolCall,
+        ToolExecution,
         TurnCommand,
         TurnResult,
     )
@@ -74,6 +76,29 @@ class ModelStream(Protocol):
 
 class ConversationModelPort(Protocol):
     async def open_stream(self, request: ModelRequest) -> ModelStream: ...
+
+
+class ConversationCancellationPort(Protocol):
+    """Shared cancellation state for one conversation turn."""
+
+    async def is_cancelled(self, command: TurnCommand) -> bool: ...
+
+
+class ConversationToolPort(Protocol):
+    """Approved tool discovery/parsing/execution behind infrastructure."""
+
+    async def approved_tool_names(
+        self,
+        command: TurnCommand,
+    ) -> frozenset[str]: ...
+
+    def parse_calls(self, text: str) -> tuple[ToolCall, ...]: ...
+
+    async def execute(
+        self,
+        command: TurnCommand,
+        call: ToolCall,
+    ) -> ToolExecution: ...
 
 
 class PostTurnPort(Protocol):

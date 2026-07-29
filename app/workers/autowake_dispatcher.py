@@ -47,6 +47,7 @@ async def run_owner_autowake_dispatcher() -> None:
         repository,
         expected_owner_user_id=owner_id,
         configured_telegram_user_id=config.owner_telegram_user_id,
+        configured_allowed_chat_ids=config.allowed_chat_ids,
     )
     lease_owner = (
         f"autowake:{socket.gethostname()}:{os.getpid()}:{secrets.token_hex(6)}"

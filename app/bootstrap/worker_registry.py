@@ -123,6 +123,15 @@ def _spec(
 # Do not reorder casually: tasks may observe startup state established by an
 # earlier worker before its first await.
 WORKER_REGISTRY: tuple[WorkerSpec, ...] = (
+    _spec(
+        "runtime-metrics",
+        "app.workers.runtime_metrics_worker",
+        "run_runtime_metrics_worker",
+        pass_controller=False,
+        profiles=_FULL_AND_LEAN,
+        resource_class=ResourceClass.IO,
+        cadence="1s event-loop lag sample",
+    ),
     _spec("capture-loop", "app.workers.capture_loop", "run_capture_loop"),
     _spec(
         "ocr-worker",
@@ -333,6 +342,15 @@ WORKER_REGISTRY: tuple[WorkerSpec, ...] = (
         profiles=_FULL_AND_LEAN,
     ),
     _spec(
+        "memory-projection-worker",
+        "app.workers.projection_worker",
+        "run_memory_projection_worker",
+        pass_controller=False,
+        profiles=_FULL_AND_LEAN,
+        resource_class=ResourceClass.NETWORK,
+        cadence="durable memory projection outbox",
+    ),
+    _spec(
         "telegram-worker",
         "app.workers.telegram_worker",
         "run_telegram_worker",
@@ -349,6 +367,15 @@ WORKER_REGISTRY: tuple[WorkerSpec, ...] = (
         profiles=_FULL_AND_LEAN,
         resource_class=ResourceClass.NETWORK,
         cadence="durable owner outbox",
+    ),
+    _spec(
+        "persona-impulse-producer",
+        "app.workers.persona_impulse_producer",
+        "run_persona_impulse_worker",
+        pass_controller=False,
+        profiles=_FULL_AND_LEAN,
+        resource_class=ResourceClass.NETWORK,
+        cadence="silent-by-default every 5m",
     ),
     _spec(
         "briefing-worker",

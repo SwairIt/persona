@@ -93,6 +93,53 @@
     {% endif %}
   </div>
 
+  {% if can_enroll_worker %}
+  <div class="pt-4 border-t border-ink-700">
+    <h2 class="text-sm font-semibold text-zinc-200">Owner PC worker</h2>
+    <p class="text-xs text-zinc-500 mt-0.5 mb-3">
+      Create a five-minute, one-use enrollment ticket. The permanent LLM and
+      browser credentials are generated during exchange and are never shown on
+      this page. Creating a new ticket revokes any older unused or pending
+      enrollment.
+    </p>
+    <label class="block text-xs text-zinc-400 mb-1" for="worker-enrollment-id">
+      Bind to worker ID (optional)
+    </label>
+    <input id="worker-enrollment-id" maxlength="96"
+           class="w-full px-2 py-1.5 bg-ink-900 border border-ink-700 rounded text-sm font-mono focus:border-accent-500 focus:outline-none"
+           placeholder="Leave empty to bind on first exchange">
+    <button type="button" id="worker-enrollment-create"
+            class="mt-3 px-4 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium">
+      Create one-use ticket
+    </button>
+    <div id="worker-enrollment-result" class="hidden mt-3 space-y-2">
+      <p class="text-xs text-amber-300">
+        Copy the ticket now. It is displayed once and expires in five minutes.
+      </p>
+      <code id="worker-enrollment-ticket"
+            class="block p-2 rounded bg-ink-900 text-xs break-all select-all"></code>
+      <button type="button" id="worker-enrollment-copy-ticket"
+              class="px-3 py-1.5 border border-ink-600 rounded text-xs">
+        Copy ticket
+      </button>
+      <p class="text-xs text-zinc-500">
+        Run this one-command bootstrap on the trusted PC. It contains only the
+        short-lived one-use ticket, never the permanent credentials. To avoid
+        shell history, run the public bootstrap without parameters and paste
+        the separate ticket into its hidden secure prompt.
+      </p>
+      <code id="worker-enrollment-command"
+            class="block p-2 rounded bg-ink-900 text-xs break-all select-all"></code>
+      <button type="button" id="worker-enrollment-copy-command"
+              class="px-3 py-1.5 border border-ink-600 rounded text-xs">
+        Copy command
+      </button>
+    </div>
+    <p id="worker-enrollment-status"
+       class="mt-2 text-xs text-zinc-500 min-h-[1em]" aria-live="polite"></p>
+  </div>
+  {% endif %}
+
   <div class="flex items-center justify-between pt-4 border-t border-ink-700">
     <p id="automation-status" class="text-xs text-zinc-500 min-h-[1em]" aria-live="polite"></p>
     <button type="button" id="automation-save"
@@ -142,6 +189,76 @@
           flash('Сетевая ошибка: ' + String(err), true);
         }
       });
+    }
+
+    const enrollmentButton = document.getElementById('worker-enrollment-create');
+    if (enrollmentButton) {
+      const enrollmentStatus = document.getElementById('worker-enrollment-status');
+      const result = document.getElementById('worker-enrollment-result');
+      const ticketNode = document.getElementById('worker-enrollment-ticket');
+      const commandNode = document.getElementById('worker-enrollment-command');
+      let expiryTimer = null;
+      const bootstrapUrl =
+        window.location.origin + '/api/llm/worker/bootstrap.ps1';
+      const publicCommand = 'irm ' + bootstrapUrl + ' | iex';
+      commandNode.textContent = publicCommand;
+
+      function enrollmentFlash(message, isError) {
+        enrollmentStatus.textContent = message;
+        enrollmentStatus.style.color = isError ? '#fb7185' : '#a3e635';
+      }
+      function clearTicket() {
+        ticketNode.textContent = '';
+        commandNode.textContent = publicCommand;
+        result.classList.add('hidden');
+        if (expiryTimer) clearTimeout(expiryTimer);
+        expiryTimer = null;
+      }
+      enrollmentButton.addEventListener('click', async function () {
+        clearTicket();
+        enrollmentButton.disabled = true;
+        const expected = document.getElementById('worker-enrollment-id').value.trim();
+        const payload = expected ? { expected_worker_id: expected } : {};
+        try {
+          const response = await fetch('/settings/automation', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify(
+              Object.assign({ action: 'issue_worker_enrollment' }, payload)
+            ),
+          });
+          const data = await response.json();
+          if (!response.ok) {
+            enrollmentFlash(data.detail || 'Could not create ticket.', true);
+            return;
+          }
+          ticketNode.textContent = data.ticket;
+          commandNode.textContent =
+            '& ([scriptblock]::Create((irm ' + bootstrapUrl +
+            "))) -EnrollmentTicket '" + data.ticket + "'";
+          result.classList.remove('hidden');
+          const remaining = Math.max(0, Date.parse(data.expires_at) - Date.now());
+          expiryTimer = setTimeout(function () {
+            clearTicket();
+            enrollmentFlash('Ticket expired. Create a new one.', true);
+          }, remaining);
+          enrollmentFlash('One-use ticket created.', false);
+        } catch (err) {
+          enrollmentFlash('Network error: ' + String(err), true);
+        } finally {
+          enrollmentButton.disabled = false;
+        }
+      });
+      document.getElementById('worker-enrollment-copy-ticket')
+        .addEventListener('click', function () {
+          navigator.clipboard.writeText(ticketNode.textContent);
+        });
+      document.getElementById('worker-enrollment-copy-command')
+        .addEventListener('click', function () {
+          navigator.clipboard.writeText(commandNode.textContent);
+        });
+      window.addEventListener('pagehide', clearTicket);
     }
   })();
 </script>

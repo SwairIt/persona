@@ -8,7 +8,7 @@ import pytest
 
 from app.adapters.conversation.legacy import LegacyConversationRepository
 from app.application.chat import ModelUsage
-from app.chat import create_session, list_messages
+from app.chat import create_session, get_session, list_messages
 from app.domains.chat import ActorContext, ConversationId, TenantId, UserId
 
 
@@ -27,6 +27,14 @@ async def test_sqlite_adapter_enforces_tenant_and_persists_stream_lifecycle(db: 
     other_id = await _user(db, "conversation-other@example.test")
     session = await create_session(owner_id, "Shared Persona")
     session_id = ConversationId(int(session["id"]))
+    await db.execute(
+        "UPDATE chat_session SET custom_system_prompt = ? WHERE id = ?",
+        ("Session persona", int(session_id)),
+    )
+    await db.commit()
+    refreshed = await get_session(owner_id, int(session_id))
+    assert refreshed is not None
+    assert refreshed["custom_system_prompt"] == "Session persona"
     repository = LegacyConversationRepository()
 
     owner = ActorContext(TenantId(owner_id), UserId(owner_id), is_owner=True)

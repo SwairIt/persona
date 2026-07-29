@@ -7,6 +7,7 @@ from collections import defaultdict
 from typing import TYPE_CHECKING
 
 from app.adapters.conversation import build_conversation_service
+from app.application.ambient_group import AmbientGroupService, AmbientGroupTurn
 from app.application.chat import ConversationService, TurnCommand
 from app.chat import append_message, create_session, get_session, touch_session
 from app.domains.chat import (
@@ -15,6 +16,10 @@ from app.domains.chat import (
     ConversationSurface,
     TenantId,
     UserId,
+)
+from app.integrations.telegram.ambient import (
+    TelegramAmbientDecisionAdapter,
+    TelegramAmbientTurnAdapter,
 )
 
 if TYPE_CHECKING:
@@ -29,9 +34,14 @@ class PersonaTelegramService:
         repository: TelegramRepository,
         *,
         conversation_service: ConversationService | None = None,
+        ambient_group_service: AmbientGroupService | None = None,
     ) -> None:
         self._repository = repository
         self._conversation = conversation_service or build_conversation_service()
+        self._ambient = ambient_group_service or AmbientGroupService(
+            TelegramAmbientDecisionAdapter(),
+            TelegramAmbientTurnAdapter(),
+        )
         self._mapping_locks: defaultdict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
 
     async def respond(
@@ -42,7 +52,10 @@ class PersonaTelegramService:
         question: str,
         chat_title: str,
         sender_label: str | None = None,
+        is_owner: bool | None = None,
         include_private_context: bool = True,
+        allow_tools: bool = False,
+        correlation_id: str = "",
     ) -> str:
         clean = (question or "").strip()
         if not clean:
@@ -51,12 +64,13 @@ class PersonaTelegramService:
             session_id = await self._get_or_create_session(
                 persona_user_id, telegram_chat_id, chat_title
             )
+        owner_actor = include_private_context if is_owner is None else is_owner
         result = await self._conversation.handle_turn(
             TurnCommand(
                 actor=ActorContext(
                     tenant_id=TenantId(persona_user_id),
                     user_id=UserId(persona_user_id),
-                    is_owner=include_private_context,
+                    is_owner=owner_actor,
                 ),
                 surface=ConversationSurface.TELEGRAM,
                 conversation_id=ConversationId(session_id),
@@ -65,9 +79,10 @@ class PersonaTelegramService:
                     f"Telegram · {sender_label}" if sender_label else "Telegram"
                 ),
                 include_private_context=include_private_context,
-                allow_tools=False,
+                allow_tools=allow_tools,
                 max_tokens=1800,
                 temperature=0.65,
+                correlation_id=correlation_id,
             )
         )
         return result.answer
@@ -93,6 +108,41 @@ class PersonaTelegramService:
                 session_id, "user", f"[Telegram · {sender_label}] {clean}"
             )
             await touch_session(persona_user_id, session_id)
+
+    async def handle_ambient_group_message(
+        self,
+        *,
+        persona_user_id: int,
+        telegram_chat_id: int,
+        update_id: int,
+        message_id: int,
+        text: str,
+        chat_title: str,
+        sender_label: str,
+    ) -> str:
+        """Persist one ordinary group message and optionally answer it."""
+        clean = (text or "").strip()
+        if not clean:
+            return ""
+        async with self._mapping_locks[int(telegram_chat_id)]:
+            session_id = await self._get_or_create_session(
+                persona_user_id,
+                telegram_chat_id,
+                chat_title,
+            )
+        outcome = await self._ambient.handle(
+            AmbientGroupTurn(
+                tenant_id=persona_user_id,
+                conversation_id=session_id,
+                external_chat_id=telegram_chat_id,
+                update_id=update_id,
+                message_id=message_id,
+                text=clean,
+                sender_label=sender_label,
+                chat_title=chat_title,
+            )
+        )
+        return outcome.reply
 
     async def reset_chat(self, telegram_chat_id: int) -> None:
         await self._repository.clear_session_id(telegram_chat_id)

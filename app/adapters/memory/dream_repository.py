@@ -7,6 +7,7 @@ import json
 import math
 from typing import Any
 
+from app.adapters.projection.sqlite_repository import SqliteProjectionOutbox
 from app.application.memory.ports import (
     DreamApplySummary,
     DreamCompletionReport,
@@ -505,6 +506,16 @@ class SqliteDreamLedger:
                     impact_score,
                 ),
             )
+            # Projection intent is durable in the exact same transaction as
+            # the applied revisions, report, cursor, and terminal run state.
+            # Graph/embedding I/O is deliberately deferred to its own worker.
+            projection_count = (
+                await SqliteProjectionOutbox().enqueue_dream_run_in_transaction(
+                    conn,
+                    run_id=lease.run_id,
+                    owner_user_id=lease.user_id,
+                )
+            )
             # Cursor and terminal run state are one commit.  A crash can never
             # leave the cursor ahead of a run that is still retryable.
             await conn.execute(
@@ -553,6 +564,7 @@ class SqliteDreamLedger:
                     "rejected": summary.rejected,
                     "noops": summary.noops,
                     "report": True,
+                    "projection_intents": projection_count,
                 },
             )
 

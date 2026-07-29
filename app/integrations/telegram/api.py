@@ -115,6 +115,13 @@ class TelegramBotAPI:
             timeout=10.0,
         )
 
+    async def set_my_commands(self, commands: list[dict[str, str]]) -> None:
+        await self.call(
+            "setMyCommands",
+            {"commands": commands},
+            timeout=10.0,
+        )
+
 
 def _telegram_description(raw: bytes) -> str:
     try:

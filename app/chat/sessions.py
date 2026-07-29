@@ -56,6 +56,7 @@ class ChatSession(TypedDict):
     updated_at: str
     summary: str | None
     summary_up_to_id: int
+    custom_system_prompt: str | None
 
 
 class ChatMessage(TypedDict):
@@ -93,6 +94,14 @@ def _row_to_session(row: Any) -> ChatSession:
             int(row["summary_up_to_id"])
             if "summary_up_to_id" in keys and row["summary_up_to_id"] is not None
             else 0
+        ),
+        "custom_system_prompt": (
+            str(row["custom_system_prompt"])
+            if (
+                "custom_system_prompt" in keys
+                and row["custom_system_prompt"] is not None
+            )
+            else None
         ),
     }
 

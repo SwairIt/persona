@@ -6,9 +6,13 @@ from app.application.chat.dto import (
     ModelUsage,
     PreparedContext,
     ResolvedConversation,
+    ToolCall,
+    ToolExecution,
+    ToolTurnPolicy,
     TurnCommand,
     TurnEvent,
     TurnResult,
+    is_valid_tool_wire_name,
 )
 from app.application.chat.service import ConversationService
 
@@ -19,7 +23,11 @@ __all__ = [
     "ModelUsage",
     "PreparedContext",
     "ResolvedConversation",
+    "ToolCall",
+    "ToolExecution",
+    "ToolTurnPolicy",
     "TurnCommand",
     "TurnEvent",
     "TurnResult",
+    "is_valid_tool_wire_name",
 ]

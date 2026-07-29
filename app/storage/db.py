@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -10,6 +11,7 @@ from pathlib import Path
 import aiosqlite
 
 from app.logging_setup import get_logger
+from app.observability.runtime import record_db_write_wait
 from app.settings import get_settings
 from app.storage.migration_runner import migrate
 
@@ -169,7 +171,19 @@ async def write_transaction(
     # В autocommit драйвер не делает неявных BEGIN, поэтому выдаём BEGIN IMMEDIATE сами.
     async with aiosqlite.connect(target, isolation_level=None) as conn:
         await _configure_connection(conn)
-        await conn.execute("BEGIN IMMEDIATE")
+        wait_started = time.perf_counter()
+        try:
+            await conn.execute("BEGIN IMMEDIATE")
+        except BaseException:
+            record_db_write_wait(
+                time.perf_counter() - wait_started,
+                acquired=False,
+            )
+            raise
+        record_db_write_wait(
+            time.perf_counter() - wait_started,
+            acquired=True,
+        )
         try:
             yield conn
             await conn.execute("COMMIT")

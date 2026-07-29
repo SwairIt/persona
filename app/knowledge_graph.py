@@ -24,6 +24,8 @@ bi-temporal как у ``user_memory``: ребро не удаляется, а so
 
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Any
 
 from app.logging_setup import get_logger
@@ -99,9 +101,16 @@ def _classify(name: str) -> str:
     return "topic"
 
 
-async def _extract_triples(client: Any, fact_text: str) -> list[dict[str, str]]:
+async def _extract_triples(
+    client: Any,
+    fact_text: str,
+    *,
+    raise_on_provider_error: bool = False,
+) -> list[dict[str, str]]:
     """Вытащить триплеты из факта через GBNF (только Ollama). [] при сбое/без схемы."""
     if not hasattr(client, "complete_json"):  # GBNF-схема — только Ollama
+        if raise_on_provider_error:
+            raise RuntimeError("graph_structured_output_unavailable")
         return []
     from app.llm.client import CompletionRequest  # noqa: PLC0415
 
@@ -118,6 +127,8 @@ async def _extract_triples(client: Any, fact_text: str) -> list[dict[str, str]]:
         )
     except Exception as exc:  # noqa: BLE001 — Ollama лёг / битый JSON → пропускаем
         log.debug("knowledge_graph.extract_failed", error=str(exc))
+        if raise_on_provider_error:
+            raise RuntimeError("graph_provider_failed") from exc
         return []
     res: list[dict[str, str]] = []
     for t in (out.get("triples") or []):
@@ -169,7 +180,7 @@ async def _upsert_edge(
     relation: str,
     source_kind: str,
     source_id: int | None,
-) -> None:
+) -> int:
     """Апсерт ребра: повтор того же триплета усиливает (strength += 1), не дублирует.
 
     relation_type нормализуется через ``_norm_relation`` (trim/схлоп/lower/'_'→' ')
@@ -186,16 +197,182 @@ async def _upsert_edge(
     )
     existing = await cur.fetchone()
     if existing:
+        edge_id = int(existing["id"])
         await conn.execute(
             "UPDATE kg_edge SET strength = strength + 1 WHERE id = ?",
-            (int(existing["id"]),),
+            (edge_id,),
         )
-        return
-    await conn.execute(
+        return edge_id
+    cursor = await conn.execute(
         "INSERT INTO kg_edge(user_id, from_entity_id, to_entity_id, relation_type, "
         "strength, source_kind, source_id) VALUES(?,?,?,?,?,?,?)",
         (user_id, from_id, to_id, relation, 1.0, source_kind, source_id),
     )
+    if cursor.lastrowid is None:  # pragma: no cover - SQLite INSERT invariant
+        raise RuntimeError("kg_edge insert returned no id")
+    return int(cursor.lastrowid)
+
+
+async def extract_projection_triples(fact_text: str) -> list[dict[str, str]]:
+    """Strict projection extraction used by the leased outbox gateway.
+
+    Unlike the legacy best-effort entry point, capability/provider failures are
+    explicit so the outbox can retry or dead-letter instead of silently marking
+    a lost projection as successful.
+    """
+    fact_text = " ".join((fact_text or "").split())
+    if len(fact_text) < 6:
+        return []
+    try:
+        from app.llm.client import make_client  # noqa: PLC0415
+
+        client = make_client(kind="chat_summary")
+    except Exception as exc:
+        raise RuntimeError("graph_provider_unavailable") from exc
+    return await _extract_triples(
+        client,
+        fact_text,
+        raise_on_provider_error=True,
+    )
+
+
+async def store_projection_triples_in_transaction(
+    conn: Any,
+    *,
+    user_id: int,
+    dream_revision_id: int,
+    triples: list[dict[str, str]],
+) -> int:
+    """Idempotently store revision-linked triples on the caller transaction."""
+    stored = 0
+    for triple in triples[:_MAX_TRIPLES]:
+        subject = _norm_name(str(triple.get("subject") or ""))
+        relation = _norm_relation(str(triple.get("relation") or ""))
+        obj = _norm_name(str(triple.get("object") or ""))
+        if not subject or not relation or not obj:
+            continue
+        triple_key = "\x1f".join((subject.casefold(), relation, obj.casefold()))
+        triple_hash = hashlib.sha256(triple_key.encode("utf-8")).hexdigest()
+        existing_cursor = await conn.execute(
+            """
+            SELECT kg_edge_id FROM graph_revision_projection
+             WHERE dream_revision_id=? AND triple_hash=?
+            """,
+            (dream_revision_id, triple_hash),
+        )
+        if await existing_cursor.fetchone() is not None:
+            continue
+        from_id = await _upsert_entity(conn, user_id, subject)
+        to_id = await _upsert_entity(conn, user_id, obj)
+        edge_id = await _upsert_edge(
+            conn,
+            user_id,
+            from_id,
+            to_id,
+            relation,
+            "dream_revision",
+            dream_revision_id,
+        )
+        await conn.execute(
+            """
+            INSERT INTO graph_revision_projection(
+                dream_revision_id, triple_hash, kg_edge_id
+            ) VALUES(?,?,?)
+            """,
+            (dream_revision_id, triple_hash, edge_id),
+        )
+        stored += 1
+    await reconcile_superseded_projection_edges_in_transaction(
+        conn,
+        user_id=user_id,
+        dream_revision_id=dream_revision_id,
+    )
+    return stored
+
+
+async def reconcile_superseded_projection_edges_in_transaction(
+    conn: Any,
+    *,
+    user_id: int,
+    dream_revision_id: int,
+) -> None:
+    """Retire graph support that belonged only to a superseded memory.
+
+    ``update`` revisions create a new ``user_memory`` row and retain the old
+    row as invalid history. Projection links are also append-only history, so
+    an edge stays current only while at least one linked revision points to an
+    active memory. Edges originating in older, non-revision graph producers
+    are deliberately left alone because this table cannot prove ownership of
+    that legacy support.
+    """
+
+    cursor = await conn.execute(
+        """
+        SELECT action, prior_json
+          FROM dream_revision
+         WHERE id=?
+        """,
+        (dream_revision_id,),
+    )
+    revision = await cursor.fetchone()
+    if revision is None or str(revision["action"]) != "update":
+        return
+    try:
+        prior = json.loads(str(revision["prior_json"] or "{}"))
+        superseded_memory_id = int(prior.get("id") or 0)
+    except (AttributeError, TypeError, ValueError, json.JSONDecodeError):
+        return
+    if superseded_memory_id <= 0:
+        return
+
+    edge_cursor = await conn.execute(
+        """
+        SELECT DISTINCT link.kg_edge_id
+          FROM graph_revision_projection link
+          JOIN dream_revision prior_revision
+            ON prior_revision.id=link.dream_revision_id
+         WHERE prior_revision.memory_id=?
+        """,
+        (superseded_memory_id,),
+    )
+    for edge_row in await edge_cursor.fetchall():
+        edge_id = int(edge_row["kg_edge_id"])
+        support_cursor = await conn.execute(
+            """
+            SELECT COUNT(*) AS n
+              FROM graph_revision_projection link
+              JOIN dream_revision active_revision
+                ON active_revision.id=link.dream_revision_id
+              JOIN user_memory active_memory
+                ON active_memory.id=active_revision.memory_id
+               AND active_memory.user_id=?
+               AND active_memory.valid_until IS NULL
+             WHERE link.kg_edge_id=?
+            """,
+            (user_id, edge_id),
+        )
+        support_row = await support_cursor.fetchone()
+        active_supports = int(support_row["n"] or 0) if support_row else 0
+        if active_supports:
+            await conn.execute(
+                """
+                UPDATE kg_edge
+                   SET strength=?
+                 WHERE id=? AND user_id=? AND source_kind='dream_revision'
+                   AND valid_until IS NULL
+                """,
+                (float(active_supports), edge_id, user_id),
+            )
+        else:
+            await conn.execute(
+                """
+                UPDATE kg_edge
+                   SET valid_until=datetime('now')
+                 WHERE id=? AND user_id=? AND source_kind='dream_revision'
+                   AND valid_until IS NULL
+                """,
+                (edge_id, user_id),
+            )
 
 
 async def extract_entities_and_edges(

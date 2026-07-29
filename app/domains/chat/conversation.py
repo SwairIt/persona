@@ -25,6 +25,8 @@ class TurnState(StrEnum):
     ACCEPTED = "accepted"
     CONTEXT_READY = "context_ready"
     GENERATING = "generating"
+    TOOL_RUNNING = "tool_running"
+    TOOL_COMPLETED = "tool_completed"
     PERSISTING = "persisting"
     COMPLETED = "completed"
     FAILED = "failed"

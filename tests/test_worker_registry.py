@@ -23,6 +23,7 @@ from app.bootstrap.worker_registry import (
 )
 
 _LEGACY_FULL_TASK_NAMES = (
+    "runtime-metrics",
     "capture-loop",
     "ocr-worker",
     "retention-worker",
@@ -64,8 +65,10 @@ _LEGACY_FULL_TASK_NAMES = (
     "email-weekly-digest-worker",
     "memory-of-day-worker",
     "dream-worker",
+    "memory-projection-worker",
     "telegram-worker",
     "autowake-dispatcher",
+    "persona-impulse-producer",
     "briefing-worker",
     "heartbeat-alert-worker",
     "db-integrity-worker",
@@ -99,9 +102,12 @@ def test_lean_profile_starts_only_agent_critical_workers() -> None:
     selected = workers_for_profile(RuntimeProfile.LEAN)
 
     assert tuple(spec.name for spec in selected) == (
+        "runtime-metrics",
         "dream-worker",
+        "memory-projection-worker",
         "telegram-worker",
         "autowake-dispatcher",
+        "persona-impulse-producer",
     )
     assert profile_from_environment({"PERSONA_LEAN_MODE": "1"}) is RuntimeProfile.LEAN
     assert profile_from_environment({}) is RuntimeProfile.LEAN
@@ -323,9 +329,12 @@ async def test_lean_lifespan_selects_before_start_and_cleans_up(
         assert app.state.runtime_profile == "lean"
 
     assert selected_names == [
+        "runtime-metrics",
         "dream-worker",
+        "memory-projection-worker",
         "telegram-worker",
         "autowake-dispatcher",
+        "persona-impulse-producer",
     ]
     assert events == [
         "initialize",

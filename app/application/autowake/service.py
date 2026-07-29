@@ -6,18 +6,21 @@ import asyncio
 import hashlib
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Final
 
 from app.application.autowake.ports import (
     AutowakeRepository,
     EnqueueResult,
+    GroupTelegramDelivery,
     OwnerTelegramDelivery,
     OwnerTelegramGateway,
 )
 from app.domains.autowake import (
     AutowakePolicy,
     DeliveryDecision,
+    DeliveryTarget,
+    DeliveryTargetKind,
     ProactiveContent,
     SourceScope,
     content_rejection_reason,
@@ -38,6 +41,8 @@ class EnqueueAutowake:
     source_scope: SourceScope
     text: str
     idempotency_key: str
+    target: DeliveryTarget = field(default_factory=DeliveryTarget)
+    group_opt_in_verified: bool = False
 
 
 class AutowakeService:
@@ -65,6 +70,11 @@ class AutowakeService:
         if not command.is_owner or command.owner_user_id != self._owner_id:
             raise PermissionError("autowake is restricted to the configured owner")
 
+        group_target = command.target.kind is DeliveryTargetKind.GROUP
+        if group_target and not command.group_opt_in_verified:
+            raise PermissionError("Telegram group delivery requires verified opt-in")
+        if group_target and command.source_scope is not SourceScope.GROUP:
+            raise PermissionError("Telegram group target requires group provenance")
         content = ProactiveContent(
             kind=command.kind,
             source=command.source,
@@ -72,7 +82,7 @@ class AutowakeService:
             text=command.text,
             idempotency_key=command.idempotency_key,
         )
-        rejection = content_rejection_reason(content)
+        rejection = content_rejection_reason(content, allow_group=group_target)
         if rejection is not None:
             decision = DeliveryDecision(kind="reject", reason=rejection)
         else:
@@ -85,8 +95,9 @@ class AutowakeService:
         return await self._repository.enqueue(
             owner_user_id=command.owner_user_id,
             content=content,
+            target=command.target,
             decision=decision,
-            fingerprint=_fingerprint(content),
+            fingerprint=_fingerprint(content, command.target),
             max_attempts=self._policy.config.max_attempts,
         )
 
@@ -149,14 +160,29 @@ class AutowakeDispatcher:
             lease_owner=self._lease_owner,
             now=now,
         )
-        delivery = OwnerTelegramDelivery(
-            owner_user_id=item.owner_user_id,
-            text=item.content.text,
-            idempotency_key=item.content.idempotency_key,
-            kind=item.content.kind,
-        )
         try:
-            await self._gateway.send_owner(delivery)
+            if item.target.kind is DeliveryTargetKind.GROUP:
+                chat_id = item.target.telegram_chat_id
+                if chat_id is None:
+                    raise RuntimeError("group outbox target lost its chat id")
+                await self._gateway.send_group(
+                    GroupTelegramDelivery(
+                        owner_user_id=item.owner_user_id,
+                        telegram_chat_id=chat_id,
+                        text=item.content.text,
+                        idempotency_key=item.content.idempotency_key,
+                        kind=item.content.kind,
+                    )
+                )
+            else:
+                await self._gateway.send_owner(
+                    OwnerTelegramDelivery(
+                        owner_user_id=item.owner_user_id,
+                        text=item.content.text,
+                        idempotency_key=item.content.idempotency_key,
+                        kind=item.content.kind,
+                    )
+                )
         except asyncio.CancelledError:
             # The transport outcome is unknown. Keep the lease so another
             # dispatcher only retries after expiry (at-least-once semantics).
@@ -182,13 +208,15 @@ class AutowakeDispatcher:
         return True
 
 
-def _fingerprint(content: ProactiveContent) -> str:
+def _fingerprint(content: ProactiveContent, target: DeliveryTarget) -> str:
     canonical = json.dumps(
         {
             "kind": content.kind,
             "source": content.source,
             "source_scope": content.source_scope.value,
             "text": content.text,
+            "target_kind": target.kind.value,
+            "target_chat_id": target.telegram_chat_id,
         },
         sort_keys=True,
         separators=(",", ":"),

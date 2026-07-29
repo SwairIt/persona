@@ -1,9 +1,17 @@
 """Application boundary for owner-only proactive delivery."""
 
+from app.application.autowake.impulses import (
+    ImpulseContext,
+    ImpulseContextPort,
+    ImpulseDecisionPort,
+    ImpulseOutcome,
+    PersonaImpulseProducer,
+)
 from app.application.autowake.ports import (
     AutowakeRepository,
     AutowakeStateError,
     EnqueueResult,
+    GroupTelegramDelivery,
     IdempotencyConflict,
     OutboxItem,
     OwnerTelegramDelivery,
@@ -26,10 +34,16 @@ __all__ = [
     "AutowakeStateError",
     "EnqueueAutowake",
     "EnqueueResult",
+    "GroupTelegramDelivery",
     "IdempotencyConflict",
+    "ImpulseContext",
+    "ImpulseContextPort",
+    "ImpulseDecisionPort",
+    "ImpulseOutcome",
     "OutboxItem",
     "OwnerTelegramDelivery",
     "OwnerTelegramGateway",
+    "PersonaImpulseProducer",
     "enqueue_completed_briefing",
     "enqueue_completed_dream_report",
 ]

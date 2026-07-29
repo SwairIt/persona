@@ -3,24 +3,21 @@
 The local LLM worker runs on the PC with Ollama and makes outbound requests to
 the Persona server. No inbound tunnel is required.
 
-## One-time configuration
+## Owner-PC bootstrap (no repository required)
 
-Put the worker token issued by the owner UI in the repository `.env`:
+Open `/settings/automation` as the primary owner, create a five-minute
+enrollment ticket and copy its generated one-command bootstrap to the Windows
+PC. The bootstrap exchanges the ticket once over HTTPS, receives independent
+LLM and browser credentials, validates both, and stores them in a local `.env`
+whose ACL grants access only to the current Windows user.
 
-```dotenv
-PERSONA_WORKER_TOKEN=...
-PERSONA_BROWSER_WORKER_TOKEN=...
-PERSONA_SERVER=https://persona.getdoday.ru
-OLLAMA_URL=http://127.0.0.1:11434
-```
-
-Do not commit `.env`. The Scheduled Task installer deliberately refuses to
-register or start a task unless the token exists in `.env` or persistent
-User/Machine environment variables.
+The permanent credentials are not displayed in the UI or passed on the command
+line. See [WORKER_ENROLLMENT.md](WORKER_ENROLLMENT.md) for the trust model,
+secure-prompt alternative and recovery procedure.
 
 ## One-command provisioning, autostart and first run
 
-From the repository root:
+For repository-based maintenance and recovery, from the repository root:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\ops\install_llm_worker_windows.ps1 -ProvisionToken -StartNow

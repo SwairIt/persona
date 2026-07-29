@@ -4,6 +4,9 @@
 
 - The browser uses `PERSONA_BROWSER_WORKER_TOKEN`, generated independently
   from `PERSONA_WORKER_TOKEN`; neither credential authorizes the other queue.
+- Initial provisioning uses the primary-owner one-use flow documented in
+  [WORKER_ENROLLMENT.md](WORKER_ENROLLMENT.md). The enrollment ticket is not a
+  browser credential and cannot claim browser jobs.
 - Every claimed job carries a bounded owner allow/deny snapshot. The PC
   enforces it for every request, redirect, click navigation, subresource and
   WebSocket. A malformed or oversized policy blocks all traffic.

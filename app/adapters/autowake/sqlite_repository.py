@@ -15,6 +15,8 @@ from app.application.autowake.ports import (
 from app.domains.autowake import (
     DeliveryDecision,
     DeliveryState,
+    DeliveryTarget,
+    DeliveryTargetKind,
     ProactiveContent,
     SourceScope,
 )
@@ -106,6 +108,7 @@ class SqliteAutowakeRepository:
         *,
         owner_user_id: int,
         content: ProactiveContent,
+        target: DeliveryTarget,
         decision: DeliveryDecision,
         fingerprint: str,
         max_attempts: int,
@@ -204,9 +207,9 @@ class SqliteAutowakeRepository:
                 """
                 INSERT INTO autowake_outbox(
                     event_id, session_id, message_id, owner_user_id,
-                    idempotency_key, channel, status, due_at, attempts,
+                    idempotency_key, channel, target_chat_id, status, due_at, attempts,
                     max_attempts, defer_reason, created_at, updated_at
-                ) VALUES(?,?,?,?,?,'telegram_owner_dm','pending',?,0,?,?,?,?)
+                ) VALUES(?,?,?,?,?,?,?,'pending',?,0,?,?,?,?)
                 """,
                 (
                     event_id,
@@ -214,6 +217,12 @@ class SqliteAutowakeRepository:
                     message_id,
                     owner_user_id,
                     content.idempotency_key,
+                    (
+                        "telegram_group"
+                        if target.kind is DeliveryTargetKind.GROUP
+                        else "telegram_owner_dm"
+                    ),
+                    target.telegram_chat_id,
                     _iso(due_at),
                     max_attempts,
                     decision.reason if decision.kind == "defer" else None,
@@ -487,6 +496,7 @@ async def _joined_outbox_row(conn: Any, outbox_id: int) -> Any:
         """
         SELECT o.id, o.event_id, o.session_id, o.message_id, o.owner_user_id,
                o.due_at, o.attempts, o.max_attempts, o.lease_owner,
+               o.channel, o.target_chat_id,
                e.kind, e.source, e.source_scope, o.idempotency_key,
                m.content
           FROM autowake_outbox AS o
@@ -512,6 +522,18 @@ def _outbox_item(row: Any) -> OutboxItem:
         session_id=int(row["session_id"]),
         message_id=int(row["message_id"]),
         owner_user_id=int(row["owner_user_id"]),
+        target=DeliveryTarget(
+            kind=(
+                DeliveryTargetKind.GROUP
+                if str(row["channel"]) == "telegram_group"
+                else DeliveryTargetKind.OWNER_DM
+            ),
+            telegram_chat_id=(
+                int(row["target_chat_id"])
+                if row["target_chat_id"] is not None
+                else None
+            ),
+        ),
         content=ProactiveContent(
             kind=str(row["kind"]),
             source=str(row["source"]),
