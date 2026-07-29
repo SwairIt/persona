@@ -360,6 +360,15 @@ WORKER_REGISTRY: tuple[WorkerSpec, ...] = (
         cadence="Telegram long-poll",
     ),
     _spec(
+        "telegram-pinned-ingest",
+        "app.integrations.telegram.pinned_ingest",
+        "run_pinned_telegram_worker",
+        pass_controller=False,
+        profiles=_FULL_AND_LEAN,
+        resource_class=ResourceClass.NETWORK,
+        cadence="read-only pinned chats every 15m at night",
+    ),
+    _spec(
         "autowake-dispatcher",
         "app.workers.autowake_dispatcher",
         "run_owner_autowake_dispatcher",

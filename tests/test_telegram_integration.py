@@ -388,6 +388,8 @@ async def test_owner_private_turn_enables_tools_and_has_stable_correlation_id() 
     assert service.responses[0]["include_private_context"] is True
     assert service.responses[0]["allow_tools"] is True
     assert service.responses[0]["correlation_id"] == "telegram-update:55"
+    assert "tg_user_id=1" in service.responses[0]["sender_label"]
+    assert "OWNER" in service.responses[0]["sender_label"]
 
 
 @pytest.mark.asyncio

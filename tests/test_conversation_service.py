@@ -1103,7 +1103,7 @@ async def test_telegram_entrypoint_maps_to_same_shared_command(
     assert len(capture.commands) == 1
     command = capture.commands[0]
     assert command.surface is ConversationSurface.TELEGRAM
-    assert command.source_label == "Telegram · Owner"
+    assert command.source_label == "Telegram owner · Owner"
     assert command.include_private_context is True
     assert command.allow_tools is False
     assert command.max_tokens == 96

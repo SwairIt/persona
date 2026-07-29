@@ -128,6 +128,30 @@ powershell -ExecutionPolicy Bypass -File .\ops\persona_llm_worker.ps1
 Telegram worker должен работать рядом с серверной БД Persona, а LLM worker —
 на ПК с Ollama. Это разные процессы и разные границы доверия.
 
+## Ночной анализ закреплённых чатов
+
+Bot API не видит список закреплённых диалогов личного аккаунта. Для этого
+Persona использует отдельную пользовательскую Telegram-сессию строго на чтение:
+она не отправляет сообщения, не ставит реакции и не помечает переписку прочитанной.
+
+1. Создайте `api_id` и `api_hash` на `https://my.telegram.org`.
+2. Добавьте в `.env`:
+
+```dotenv
+PERSONA_TG_USER_API_ID=123456
+PERSONA_TG_USER_API_HASH=...
+```
+
+3. Один раз подтвердите вход кодом Telegram:
+
+```powershell
+uv run python -m app.integrations.telegram.pinned_ingest --login
+```
+
+Сессия хранится в `PERSONA_DATA_DIR`, вне репозитория. С 00:00 до 07:00 Persona
+каждые 15 минут импортирует только закреплённые чаты, разделяет авторов по
+числовым Telegram ID и сохраняет устойчивые выводы в ночные рефлексии.
+
 ## Как пользоваться ботом
 
 ### Личный чат владельца

@@ -67,6 +67,7 @@ _LEGACY_FULL_TASK_NAMES = (
     "dream-worker",
     "memory-projection-worker",
     "telegram-worker",
+    "telegram-pinned-ingest",
     "autowake-dispatcher",
     "persona-impulse-producer",
     "briefing-worker",
@@ -106,6 +107,7 @@ def test_lean_profile_starts_only_agent_critical_workers() -> None:
         "dream-worker",
         "memory-projection-worker",
         "telegram-worker",
+        "telegram-pinned-ingest",
         "autowake-dispatcher",
         "persona-impulse-producer",
     )
@@ -333,6 +335,7 @@ async def test_lean_lifespan_selects_before_start_and_cleans_up(
         "dream-worker",
         "memory-projection-worker",
         "telegram-worker",
+        "telegram-pinned-ingest",
         "autowake-dispatcher",
         "persona-impulse-producer",
     ]

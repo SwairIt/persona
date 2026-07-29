@@ -88,7 +88,11 @@ class PersonaTelegramService:
                 source_label=(
                     None
                     if group_turn
-                    else (f"Telegram · {sender_label}" if sender_label else "Telegram")
+                    else (
+                        f"Telegram owner · {sender_label}"
+                        if owner_actor and sender_label
+                        else (f"Telegram · {sender_label}" if sender_label else "Telegram")
+                    )
                 ),
                 include_private_context=include_private_context,
                 allow_tools=allow_tools,
@@ -96,7 +100,7 @@ class PersonaTelegramService:
                 temperature=0.82,
                 correlation_id=correlation_id,
                 metadata={
-                    "telegram_identity_context": trusted_identity_context[:600]
+                    "telegram_identity_context": trusted_identity_context[:2_000]
                 },
             )
         )

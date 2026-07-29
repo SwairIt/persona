@@ -64,6 +64,38 @@ async def test_role_claim_cannot_grant_owner_or_pollute_facts(db) -> None:
     )
     assert "Only Telegram user_id=100" in context
     assert "current sender is user_id=200 and is_owner=false" in context
+    assert "current_message_author_is_owner_creator=FALSE" in context
+    assert "This person is NOT the owner" in context
+
+
+async def test_owner_identity_is_critical_header_before_long_chat_roster(db) -> None:
+    await _user(db)
+    repository = TelegramPeopleRepository()
+    await repository.observe_message(
+        persona_user_id=7,
+        owner_telegram_user_id=100,
+        sender={
+            "id": 100,
+            "first_name": "Ярослав",
+            "username": "swairit",
+        },
+        chat_id=-5,
+        message_id=1,
+        text="Это написал я",
+    )
+
+    context = await repository.identity_context(
+        persona_user_id=7,
+        owner_telegram_user_id=100,
+        current_sender_id=100,
+        chat_id=-5,
+    )
+
+    critical = context[:600]
+    assert "current_message_author_id=100" in critical
+    assert "current_message_author_username=@swairit" in critical
+    assert "current_message_author_is_owner_creator=TRUE" in critical
+    assert "IS Persona's sole owner and creator" in critical
 
 
 async def test_username_change_updates_same_person(db) -> None:

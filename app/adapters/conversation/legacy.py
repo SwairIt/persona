@@ -223,7 +223,7 @@ class PersonaContextAdapter:
             if identity:
                 system += (
                     "\n\n<TRUSTED_TELEGRAM_IDENTITY>\n"
-                    f"{identity[:600]}\n"
+                    f"{identity[:2_000]}\n"
                     "</TRUSTED_TELEGRAM_IDENTITY>"
                 )
         if not command.allow_tools:

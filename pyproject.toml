@@ -28,6 +28,7 @@ dependencies = [
     # T29 — headless web browsing for the chat `web_browse` tool. Needs a
     # one-time `python -m playwright install chromium` after install.
     "playwright>=1.40",
+    "telethon>=1.44,<2",
 ]
 
 [project.scripts]

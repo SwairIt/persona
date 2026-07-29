@@ -502,7 +502,13 @@ class TelegramWorker:
             enriched_text = f"{enriched_text}\n{media_context.text_suffix}".strip()
             clean_text = f"{clean_text}\n{media_context.text_suffix}".strip()
         sender_label = (
-            person.stable_label if person is not None else _sender_label(incoming.sender)
+            person.stable_label
+            if person is not None
+            else (
+                f"{_sender_label(incoming.sender)} [OWNER]"
+                if is_owner
+                else _sender_label(incoming.sender)
+            )
         )
         chat_title = _chat_title(incoming.chat)
         reply_to_sender_label, reply_to_text = _reply_context(incoming.raw)
@@ -554,7 +560,11 @@ class TelegramWorker:
                 question=clean_text,
                 image_data_url=media_context.image_data_url,
                 chat_title=chat_title,
-                sender_label=sender_label if incoming.is_group else None,
+                # Keep the verified Telegram author on private turns too.
+                # Without it the small local model only saw an anonymous user
+                # message and could confuse the owner with a recent group
+                # participant from history.
+                sender_label=sender_label,
                 # Every group turn is fail-closed: even the owner must move to
                 # the private DM before Persona exposes private recall or
                 # executes a side-effecting tool.
