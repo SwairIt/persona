@@ -53,6 +53,7 @@ async def test_compact_telegram_prompt_stays_small(db) -> None:
     assert len(prompt) < 1_800
     assert "полезн" not in prompt.casefold()
     assert "первой фразой" in prompt.casefold()
+    assert "только на «ты»" in prompt.casefold()
 
 
 async def test_prompt_versions_only_real_changes_and_learns_owner_style(db) -> None:
