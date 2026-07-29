@@ -128,6 +128,31 @@ async def test_finish_job_done(db) -> None:
     assert job["finished_at"] is not None
 
 
+async def test_active_generation_and_finish_refresh_worker_heartbeat(db) -> None:
+    job_id = await worker_queue.enqueue_job(0, "chat", "m", {"messages": []})
+    await worker_queue.claim_next("worker-a")
+    await db.execute(
+        """
+        INSERT INTO kv_settings(key, value, updated_at)
+        VALUES('llm_worker_last_seen', '2000-01-01T00:00:00+00:00', datetime('now'))
+        ON CONFLICT(key) DO UPDATE SET value=excluded.value
+        """
+    )
+    await db.commit()
+    assert await worker_queue.worker_online() is False
+
+    await worker_queue.add_chunk(job_id, 0, "working")
+    assert await worker_queue.worker_online() is True
+
+    await db.execute(
+        "UPDATE kv_settings SET value='2000-01-01T00:00:00+00:00' "
+        "WHERE key='llm_worker_last_seen'"
+    )
+    await db.commit()
+    await worker_queue.finish_job(job_id)
+    assert await worker_queue.worker_online() is True
+
+
 async def test_finish_job_error(db) -> None:
     job_id = await worker_queue.enqueue_job(0, "chat", "m", {"messages": []})
     await worker_queue.claim_next("worker-a")

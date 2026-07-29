@@ -20,6 +20,7 @@ from app.auth.owner import get_owner_user_id
 from app.integrations.telegram.actions import (
     TelegramActionPlan,
     immediate_reaction,
+    multiple_reactions_requested,
     plan_telegram_actions,
     resolve_media_reference,
 )
@@ -392,6 +393,13 @@ class TelegramWorker:
         instant_reaction = immediate_reaction(incoming.text)
         if instant_reaction is not None:
             await self._set_reaction(incoming, instant_reaction, force=True)
+            if multiple_reactions_requested(incoming.text):
+                await self._send_text(
+                    incoming.chat_id,
+                    "Поставил одну 👍. Telegram разрешает ботам установить "
+                    "только одну обычную реакцию на сообщение.",
+                    reply_to_message_id=incoming.message_id,
+                )
             return
 
         addressed, clean_text = self._addressed(

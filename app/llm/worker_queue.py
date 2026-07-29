@@ -227,6 +227,18 @@ async def add_chunk(job_id: int, seq: int, content: str) -> None:
             "UPDATE llm_job SET claimed_at=datetime('now') WHERE id=?",
             (job_id,),
         )
+        # Chunk delivery is a stronger heartbeat than an idle long-poll. Keep
+        # the provider online while a slow local model is actively generating.
+        await conn.execute(
+            """
+            INSERT INTO kv_settings(key, value, updated_at)
+            VALUES(?, ?, datetime('now'))
+            ON CONFLICT(key) DO UPDATE SET
+                value=excluded.value,
+                updated_at=excluded.updated_at
+            """,
+            (_KV_LAST_SEEN, _now_iso()),
+        )
     _signal_job_update(job_id)
 
 
@@ -241,11 +253,26 @@ async def finish_job(
             UPDATE llm_job
                SET status=?, error=?, result=?, finished_at=datetime('now')
              WHERE id=? AND status='streaming'
+             RETURNING worker_id
             """,
             (status, error, result, job_id),
         )
-        if cursor.rowcount == 0:
+        row = await cursor.fetchone()
+        if row is None:
             raise WorkerJobStateError(f"LLM job {job_id} is not streaming")
+        # A tool-followup may be enqueued immediately after this commit.
+        # Refresh last_seen here so it cannot reject the worker that has just
+        # successfully completed the preceding generation.
+        await conn.execute(
+            """
+            INSERT INTO kv_settings(key, value, updated_at)
+            VALUES(?, ?, datetime('now'))
+            ON CONFLICT(key) DO UPDATE SET
+                value=excluded.value,
+                updated_at=excluded.updated_at
+            """,
+            (_KV_LAST_SEEN, _now_iso()),
+        )
     _signal_job_update(job_id)
 
 

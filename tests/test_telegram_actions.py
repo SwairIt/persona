@@ -8,6 +8,7 @@ import pytest
 
 from app.integrations.telegram.actions import (
     immediate_reaction,
+    multiple_reactions_requested,
     plan_telegram_actions,
     requested_reaction,
 )
@@ -148,6 +149,12 @@ async def test_explicit_reaction_request_needs_no_model(
 
 def test_reaction_with_another_task_is_not_short_circuited() -> None:
     assert immediate_reaction("Поставь реакцию и расскажи подробнее") is None
+
+
+def test_typoed_multiple_reaction_request_is_still_fast_pathed() -> None:
+    text = "А посмтавь ка несколько сразу, можешь"
+    assert immediate_reaction(text) == "👍"
+    assert multiple_reactions_requested(text) is True
 
 
 @pytest.mark.asyncio

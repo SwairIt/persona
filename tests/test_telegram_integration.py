@@ -260,6 +260,22 @@ async def test_explicit_reaction_is_immediate_and_skips_llm() -> None:
 
 
 @pytest.mark.asyncio
+async def test_multiple_reaction_request_explains_telegram_limit() -> None:
+    worker, api, service = _worker(
+        FakeRepository(TelegramBinding(telegram_user_id=1, persona_user_id=42))
+    )
+
+    await worker.handle_update(
+        _private(1, "А посмтавь ка несколько сразу, можешь", message_id=18)
+    )
+
+    assert api.reactions == [(1, 18, "👍")]
+    assert len(api.sent) == 1
+    assert "только одну" in api.sent[0][1]
+    assert service.responses == []
+
+
+@pytest.mark.asyncio
 async def test_dead_same_host_telegram_lease_is_reclaimed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

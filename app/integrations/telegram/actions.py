@@ -33,7 +33,8 @@ _ACTION_INTENT = re.compile(
 )
 _REACTION_REQUEST = re.compile(
     r"\b(?:реакц\w*|отреагир\w*|лайк(?:ни|нуть|ай|ом)?|"
-    r"поставь\s+(?:лайк|плюсик|огон[еёь]\w*|сердечк\w*))\b",
+    r"(?:поставь|посмтавь)\s+(?:лайк|плюсик|огон[еёь]\w*|сердечк\w*)|"
+    r"(?:поставь|посмтавь)\b[^\n]{0,80}\bнескольк\w*)\b",
     re.IGNORECASE,
 )
 _REACTION_EXTRA_TASK = re.compile(
@@ -436,6 +437,15 @@ def immediate_reaction(text: str) -> str | None:
     return reaction
 
 
+def multiple_reactions_requested(text: str) -> bool:
+    """Recognise requests that exceed Telegram's one-reaction bot limit."""
+
+    clean = str(text or "")
+    return requested_reaction(clean) is not None and bool(
+        re.search(r"\b(?:нескольк\w*|много)\b", clean, re.IGNORECASE)
+    )
+
+
 def _has_non_reaction_action(text: str) -> bool:
     stripped = _REACTION_REQUEST.sub("", text)
     return bool(
@@ -452,6 +462,7 @@ def _has_non_reaction_action(text: str) -> bool:
 __all__ = [
     "TelegramActionPlan",
     "immediate_reaction",
+    "multiple_reactions_requested",
     "plan_telegram_actions",
     "requested_reaction",
     "resolve_media_reference",
