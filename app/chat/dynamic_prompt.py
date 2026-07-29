@@ -14,6 +14,14 @@ import aiosqlite
 from app.storage.db import get_connection, write_transaction
 
 _MAX_EXCERPT_CHARS: Final = 280
+_MAX_DYNAMIC_RULES: Final = 6
+_MAX_DYNAMIC_RULE_CHARS: Final = 180
+_MAX_DYNAMIC_RULES_TOTAL_CHARS: Final = 700
+_NOVELTY_RULE: Final = (
+    "Каждый ответ привязывай к последнему сообщению и реальному ходу беседы. "
+    "Не повторяй недавнюю формулировку, обращение, ритм или панч; на «стоп» "
+    "прекращай предыдущую линию, а не продолжай её другими словами."
+)
 
 _LIVING_CORE: Final = (
     "Ты — Persona, самостоятельный живой собеседник с памятью, характером, "
@@ -242,6 +250,13 @@ _PREFERENCE_SIGNALS: Final[tuple[tuple[tuple[str, ...], str, str], ...]] = (
     ),
 )
 
+_RULE_CONFLICTS: Final[dict[str, frozenset[str]]] = {
+    "concise": frozenset({"detailed"}),
+    "detailed": frozenset({"concise"}),
+    "profanity": frozenset({"no_profanity"}),
+    "no_profanity": frozenset({"profanity"}),
+}
+
 
 @dataclass(frozen=True, slots=True)
 class DynamicPromptVersion:
@@ -315,6 +330,35 @@ def _encode_rules(rules: dict[str, str]) -> str:
     )
 
 
+def _compact_rules(
+    rules: dict[str, str],
+    additions: list[tuple[str, str]] | None = None,
+) -> dict[str, str]:
+    """Compile preferences into a small, conflict-free living prompt layer."""
+    compact: dict[str, str] = {}
+    for raw_key, raw_text in [*rules.items(), *(additions or [])]:
+        key = str(raw_key or "").strip()[:64]
+        text = re.sub(r"\s+", " ", str(raw_text or "")).strip()
+        if not key or not text:
+            continue
+        for conflict in _RULE_CONFLICTS.get(key, frozenset()):
+            compact.pop(conflict, None)
+        # Reinsert updates at the end: when the budget is exceeded, the newest
+        # explicit owner preferences survive.
+        compact.pop(key, None)
+        compact[key] = text[:_MAX_DYNAMIC_RULE_CHARS].rstrip()
+
+    while len(compact) > _MAX_DYNAMIC_RULES:
+        compact.pop(next(iter(compact)))
+    while (
+        sum(len(text) for text in compact.values())
+        > _MAX_DYNAMIC_RULES_TOTAL_CHARS
+        and len(compact) > 1
+    ):
+        compact.pop(next(iter(compact)))
+    return compact
+
+
 def _effective_prompt(
     base_prompt: str,
     mode: str,
@@ -328,12 +372,14 @@ def _effective_prompt(
     if compact:
         return (
             f"{_FAST_TELEGRAM_CORE}\n"
+            f"{_NOVELTY_RULE}\n"
             f"Режим: {_FAST_MODE_RULES[mode]}\n"
             f"Предпочтения владельца:\n{rules_block[:700]}"
         ).strip()
     return (
         f"{_LIVING_CORE}\n\n"
         "<ADAPTIVE_PERSONA_LAYER>\n"
+        f"{_NOVELTY_RULE}\n"
         "Этот поведенческий слой меняется по контексту, но не отменяет правила "
         "безопасности, достоверности, приватности, владельца и запрет говорить "
         "за других.\n"
@@ -372,13 +418,17 @@ async def _contextual_system_prompt(
         )
         config = await cursor.fetchone()
         enabled = True if config is None else bool(config["enabled"])
-        rules = _decode_rules(config["rules_json"] if config is not None else None)
+        stored_rules = _decode_rules(
+            config["rules_json"] if config is not None else None
+        )
         additions = _preference_updates(message) if is_owner else []
-        changed_rule_names: list[str] = []
-        for key, rule in additions:
-            if rules.get(key) != rule:
-                rules[key] = rule
-                changed_rule_names.append(key)
+        rules = _compact_rules(stored_rules, additions)
+        changed_rule_names = [
+            key
+            for key, _rule in additions
+            if stored_rules.get(key) != rules.get(key)
+        ]
+        rules_changed = rules != stored_rules
 
         if config is None:
             await conn.execute(
@@ -389,7 +439,7 @@ async def _contextual_system_prompt(
                 """,
                 (user_id, _encode_rules(rules)),
             )
-        elif changed_rule_names:
+        elif rules_changed:
             await conn.execute(
                 """
                 UPDATE dynamic_system_prompt_config

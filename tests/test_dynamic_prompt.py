@@ -5,6 +5,7 @@ from __future__ import annotations
 from app.chat.dynamic_prompt import (
     _LIVING_CORE,
     _MODE_RULES,
+    _compact_rules,
     activate_version,
     classify_mode,
     contextual_system_prompt,
@@ -38,6 +39,28 @@ def test_living_prompt_has_no_helpful_service_goal() -> None:
     assert "полезн" not in prompt
     assert "профессиональной помощи" not in prompt
     assert "конструктив" not in prompt
+
+
+def test_living_rule_compiler_resolves_conflicts_and_stays_bounded() -> None:
+    old = {
+        f"old_{index}": ("длинное правило " * 20) + str(index)
+        for index in range(8)
+    }
+    old["profanity"] = "Можно материться."
+    compact = _compact_rules(
+        old,
+        [
+            ("no_profanity", "Не используй мат."),
+            ("concise", "Отвечай коротко."),
+            ("detailed", "Отвечай подробно, когда это нужно."),
+        ],
+    )
+    assert "profanity" not in compact
+    assert compact["no_profanity"] == "Не используй мат."
+    assert "concise" not in compact
+    assert compact["detailed"] == "Отвечай подробно, когда это нужно."
+    assert len(compact) <= 6
+    assert sum(len(rule) for rule in compact.values()) <= 700
 
 
 async def test_compact_telegram_prompt_stays_small(db) -> None:

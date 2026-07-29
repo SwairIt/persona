@@ -1121,6 +1121,48 @@ class SequencedModel:
 
 
 @dataclass
+class RepeatingRepository(FakeRepository):
+    phrase: str = "Клод, сам. На твоем счету теперь еще одна победа."
+
+    async def history(
+        self,
+        conversation_id: ConversationId,
+        *,
+        max_turns: int,
+        exclude_message_id: int,
+    ) -> tuple[ConversationMessage, ...]:
+        return (ConversationMessage(1, "assistant", self.phrase),)
+
+
+@pytest.mark.asyncio
+async def test_telegram_retries_repeated_answer_before_persisting() -> None:
+    repo = RepeatingRepository()
+    model = SequencedModel(
+        [
+            FakeStream((repo.phrase,)),
+            FakeStream(("Всё, молчу.",)),
+        ]
+    )
+    service = ConversationService(
+        repo,
+        FakeContext(),
+        model,
+        FakePostTurn(),
+        partial_flush_seconds=0,
+    )
+
+    result = await service.handle_turn(
+        _command(surface=ConversationSurface.TELEGRAM)
+    )
+
+    assert result.answer == "Всё, молчу."
+    assert len(model.requests) == 2
+    assert model.requests[1].purpose == "telegram_anti_repeat_conversation"
+    assert "ANTI_REPEAT_RETRY" in model.requests[1].system
+    assert [entry[1] for entry in repo.finalized] == ["Всё, молчу."]
+
+
+@dataclass
 class FakeTools:
     approved: frozenset[str] = frozenset(
         {"read_one", "read_two", "read_three"}

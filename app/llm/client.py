@@ -970,6 +970,10 @@ class OllamaClient:
             "num_ctx": self._num_ctx_for(request),
             "num_predict": request.max_tokens,
             "temperature": request.temperature,
+            "top_p": 0.9,
+            "top_k": 40,
+            "repeat_penalty": 1.15,
+            "repeat_last_n": 256,
         }
 
     async def complete(self, request: CompletionRequest) -> str:
@@ -1165,6 +1169,10 @@ class WorkerLLMClient:
             "num_ctx": num_ctx,
             "num_predict": request.max_tokens,
             "temperature": request.temperature,
+            "top_p": 0.9,
+            "top_k": 40,
+            "repeat_penalty": 1.15,
+            "repeat_last_n": 256,
         }
         payload = {
             "messages": messages,

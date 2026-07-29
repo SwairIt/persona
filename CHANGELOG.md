@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.28.0] - 2026-07-29
+
+### Added
+- The living prompt now compiles owner preferences into a conflict-free,
+  bounded layer of at most six rules and 700 characters while preserving
+  every effective prompt revision in version history.
+- Telegram detects near-duplicates of recent Persona replies and performs one
+  private context-aware regeneration before persisting the answer.
+
+### Changed
+- Ollama generation uses sampling and repetition controls tuned to reduce
+  stale phrasing without adding prompt context or slowing the normal path.
+- Persona explicitly anchors each reply to the latest message and stops the
+  previous conversational line when told to stop.
+
 ## [2.27.8] - 2026-07-29
 
 ### Changed
