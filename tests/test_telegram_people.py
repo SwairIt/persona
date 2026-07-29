@@ -127,3 +127,22 @@ def test_support_cliches_and_patronising_praise_are_removed() -> None:
     assert persona_only_reply(text) == (
         "А по сути: эта история действительно была странной."
     )
+
+
+def test_soft_refusal_is_made_direct() -> None:
+    assert persona_only_reply(
+        "Я понимаю тебя, но я не могу выполнить это без доступа к файлу."
+    ) == "Нет: я не могу выполнить это без доступа к файлу."
+    assert persona_only_reply(
+        "Как искусственный интеллект, я не могу открыть эту программу."
+    ) == "Нет: я не могу открыть эту программу."
+
+
+def test_tone_apology_and_constructive_backpedal_are_removed() -> None:
+    assert (
+        persona_only_reply(
+            "Ну ты и ходячая ошибка компиляции. "
+            "Извини, что засмущался. Я стремлюсь быть конструктивным."
+        )
+        == "Ну ты и ходячая ошибка компиляции."
+    )

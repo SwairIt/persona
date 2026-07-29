@@ -19,6 +19,7 @@ from app.application.chat.dto import (
 from app.domains.chat import (
     ConversationAccessDenied,
     ConversationNotFound,
+    ConversationSurface,
     InvalidTurn,
     ModelUnavailable,
     TurnGenerationFailed,
@@ -171,9 +172,12 @@ class ConversationService:
             raise ConversationAccessDenied("conversation tenant mismatch")
         user_text = command.model_text or "Опиши прикреплённое изображение."
         user_message = await self._repository.append_user(conversation.id, user_text)
+        history_turns = (
+            8 if command.surface is ConversationSurface.TELEGRAM else 20
+        )
         history = await self._repository.history(
             conversation.id,
-            max_turns=20,
+            max_turns=history_turns,
             exclude_message_id=user_message.id,
         )
         return conversation, user_message, history

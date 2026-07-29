@@ -93,8 +93,8 @@ class TelegramAmbientDecisionAdapter:
             return override
         if addressee:
             return False
-        history = await _history(turn, max_turns=28)
-        payload = _untrusted_payload(turn, history, transcript_chars=14_000)
+        history = await _history(turn, max_turns=8)
+        payload = _untrusted_payload(turn, history, transcript_chars=4_000)
         client = make_client(kind="telegram_ambient_decision")
         raw = await client.complete(
             CompletionRequest(
@@ -131,7 +131,7 @@ class TelegramAmbientTurnAdapter:
 
     async def reply(self, turn: AmbientGroupTurn) -> str:
         await self.persist(turn)
-        history = await _history(turn, max_turns=32)
+        history = await _history(turn, max_turns=12)
         labelled = _labelled_message(turn)
         if (
             history
@@ -139,7 +139,7 @@ class TelegramAmbientTurnAdapter:
             and str(history[-1].get("content") or "") == labelled
         ):
             history = history[:-1]
-        payload = _untrusted_payload(turn, history, transcript_chars=16_000)
+        payload = _untrusted_payload(turn, history, transcript_chars=6_000)
         client = make_client(kind="telegram_ambient_reply")
         session = await _validate_scope(turn)
         _pin_model(client, session.get("model"))
@@ -165,7 +165,7 @@ class TelegramAmbientTurnAdapter:
                 ),
                 user=payload,
                 temperature=0.78,
-                max_tokens=320,
+                max_tokens=180,
                 image_data_url=turn.image_data_url,
             )
         )

@@ -240,6 +240,7 @@ def _handle_chat(client: httpx.Client, cfg: Config, job: dict, stopper: _Stopper
     messages = payload.get("messages") or []
     options = payload.get("options") or {}
     fmt = payload.get("format")
+    keep_alive = payload.get("keep_alive")
 
     # Структурный вывод (knowledge_graph-триплеты / user_memory-реконсиляция):
     # format + stream=false → готовый JSON одним ответом, шлём в result (не чанки).
@@ -252,6 +253,8 @@ def _handle_chat(client: httpx.Client, cfg: Config, job: dict, stopper: _Stopper
         }
         if options:
             body["options"] = options
+        if keep_alive:
+            body["keep_alive"] = keep_alive
         timeout = httpx.Timeout(_OLLAMA_READ_TIMEOUT, connect=_OLLAMA_CONNECT_TIMEOUT)
         with httpx.Client(timeout=timeout, trust_env=False) as ollama:
             resp = ollama.post(f"{cfg.ollama}/api/chat", json=body)
@@ -269,6 +272,8 @@ def _handle_chat(client: httpx.Client, cfg: Config, job: dict, stopper: _Stopper
     }
     if options:
         ollama_body["options"] = options
+    if keep_alive:
+        ollama_body["keep_alive"] = keep_alive
 
     seq = 0
     buf: list[str] = []

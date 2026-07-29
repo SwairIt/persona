@@ -83,7 +83,10 @@ _GROUP_RULES = (
     "не угадывай личную память, профиль, активность или другие разговоры владельца."
 )
 _TOOLS_DISABLED = (
-    "\n\nВ этом канале инструменты отключены. Не создавай и не имитируй вызовы <tool>."
+    "\n\nВ этом канале инструменты отключены. Не создавай и не имитируй вызовы "
+    "<tool>. Если просят действие, требующее инструмента, ответь прямо: "
+    "«Нет: для этого действия нужен доступ к инструментам в личном чате владельца». "
+    "Без извинений, эмпатической подводки и предложения других услуг."
 )
 _SELF_MARKERS = (
     "я ",
@@ -220,7 +223,14 @@ class PersonaContextAdapter:
         elif command.actor.is_owner:
             system = await self._tools_context(system)
 
-        transcript = _bounded_transcript(history)
+        transcript = _bounded_transcript(
+            history,
+            max_chars=(
+                6_000
+                if command.surface is ConversationSurface.TELEGRAM
+                else 18_000
+            ),
+        )
         if transcript:
             system += "\n\nПоследние сообщения этой беседы:\n" + transcript
         system += persona_reminder(
@@ -237,8 +247,12 @@ class PersonaContextAdapter:
         conversation: ResolvedConversation,
     ) -> str:
         tenant_id = int(command.actor.tenant_id)
+        telegram = command.surface is ConversationSurface.TELEGRAM
         try:
-            memory = await build_memory_block(tenant_id)
+            memory = await build_memory_block(
+                tenant_id,
+                max_items=8 if telegram else 14,
+            )
             if memory:
                 system += "\n\n" + memory
         except Exception as exc:
@@ -248,14 +262,17 @@ class PersonaContextAdapter:
                 tenant_id,
                 command.text,
                 exclude_session_id=int(conversation.id),
-                limit=6,
+                limit=3 if telegram else 6,
             )
             if recalled:
                 system += spotlight("ПАМЯТЬ ИЗ ДРУГИХ РАЗГОВОРОВ PERSONA", recalled)
         except Exception as exc:
             log.debug("conversation.recall.unavailable", error=type(exc).__name__)
         try:
-            activity = await build_memory_context(command.text, budget_chars=2500)
+            activity = await build_memory_context(
+                command.text,
+                budget_chars=1_200 if telegram else 2_500,
+            )
             if activity:
                 system += spotlight("КОНТЕКСТ НЕДАВНЕЙ АКТИВНОСТИ ПОЛЬЗОВАТЕЛЯ", activity)
         except Exception as exc:

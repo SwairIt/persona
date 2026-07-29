@@ -1154,11 +1154,23 @@ class WorkerLLMClient:
 
         # Опции считаем грубо как у OllamaClient — ПК-агент передаёт их в
         # /api/chat. num_ctx/num_predict защищают слабый GPU от старвейшна.
+        messages = self._messages(request)
+        chars = sum(len(str(item.get("content") or "")) for item in messages)
+        needed = chars // 3 + int(request.max_tokens or 0) + 512
+        num_ctx = next(
+            (step for step in (4096, 8192, 16384) if needed <= step),
+            32768,
+        )
         options = {
+            "num_ctx": num_ctx,
             "num_predict": request.max_tokens,
             "temperature": request.temperature,
         }
-        payload = {"messages": self._messages(request), "options": options}
+        payload = {
+            "messages": messages,
+            "options": options,
+            "keep_alive": "30m",
+        }
         # user_id=0 — задача системная (без привязки к пользователю-владельцу).
         job_id = await enqueue_job(0, self._job_kind, self._model, payload)
 

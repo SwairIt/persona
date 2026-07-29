@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.27.2] - 2026-07-29
+
+### Changed
+- Persona now enters requested roles immediately, keeps a deliberately sharp
+  tone without apologetic backpedalling, and uses direct refusals only when an
+  action is genuinely unavailable.
+- Telegram conversations use compact history, recall, ambient context and
+  output budgets; casual owner messages omit unused tool schemas.
+- The PC worker now receives an adaptive Ollama context window and keeps the
+  selected model warm between requests.
+
+### Fixed
+- Telegram output removes stock tone apologies and constructive-assistant
+  disclaimers that contradicted an active role.
+
 ## [2.27.1] - 2026-07-29
 
 ### Fixed

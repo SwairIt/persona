@@ -129,6 +129,9 @@ async def test_stream_enqueues_chat_job_with_payload(
     assert msgs[0] == {"role": "system", "content": "контекст"}
     assert msgs[1]["role"] == "user"
     assert msgs[1]["content"] == "вопрос"
+    assert job["payload"]["options"]["num_ctx"] == 4096
+    assert job["payload"]["options"]["num_predict"] == 128
+    assert job["payload"]["keep_alive"] == "30m"
 
 
 async def test_stream_preserves_interactive_job_kind(

@@ -25,6 +25,7 @@ def test_mode_classifier_is_contextual() -> None:
     assert classify_mode("Ахах, вот это прикол") == "playful"
     assert classify_mode("Мне сегодня очень грустно") == "supportive"
     assert classify_mode("Придумай идею для истории") == "creative"
+    assert classify_mode("Сыграй роль циничного детектива") == "creative"
     assert classify_mode("Исправь ошибку в коде") == "focused"
     assert classify_mode("Это срочно и опасно") == "serious"
 

@@ -176,7 +176,7 @@ class TelegramImpulseContextAdapter:
                  WHERE session_id=?
                    AND role IN ('user', 'assistant')
                  ORDER BY id DESC
-                 LIMIT 12
+                   LIMIT 6
                 """,
                 (session_id,),
             )
@@ -184,11 +184,11 @@ class TelegramImpulseContextAdapter:
         excerpts: list[str] = []
         used = 0
         for row in reversed(rows):
-            content = str(row["content"] or "").strip()[:1_900]
+            content = str(row["content"] or "").strip()[:1_000]
             if not content:
                 continue
             excerpt = f"{row['role']!s}: {content}"
-            if used + len(excerpt) > 8_000:
+            if used + len(excerpt) > 4_000:
                 break
             excerpts.append(excerpt)
             used += len(excerpt)
@@ -216,7 +216,7 @@ class LLMImpulseDecisionAdapter:
             CompletionRequest(
                 system=_GROUP_SYSTEM if group else _OWNER_SYSTEM,
                 user=f"<UNTRUSTED_CONTEXT_JSON>\n{payload}\n</UNTRUSTED_CONTEXT_JSON>",
-                max_tokens=180,
+                max_tokens=64,
                 temperature=0.2,
             )
         )

@@ -391,6 +391,17 @@ async def test_owner_private_turn_enables_tools_and_has_stable_correlation_id() 
 
 
 @pytest.mark.asyncio
+async def test_owner_private_chat_skips_expensive_tool_prompt() -> None:
+    worker, _api, service = _worker(FakeRepository(TelegramBinding(1, 42)))
+
+    await worker.handle_update(_private(1, "Обосри Клода пожёстче", 56))
+
+    assert len(service.responses) == 1
+    assert service.responses[0]["include_private_context"] is True
+    assert service.responses[0]["allow_tools"] is False
+
+
+@pytest.mark.asyncio
 async def test_allowed_group_passive_message_is_stored_without_reply() -> None:
     repository = FakeRepository(TelegramBinding(1, 42))
     repository.groups.add(-100)

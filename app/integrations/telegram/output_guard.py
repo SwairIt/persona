@@ -43,9 +43,29 @@ _SUPPORT_CLICHE_MARKERS = (
     "ты молодец",
     "горжусь тобой",
     "это показывает твою силу",
+    "извини, что засмущал",
+    "извини что засмущал",
+    "извиняюсь, что засмущал",
+    "извиняюсь что засмущал",
+    "стремлюсь быть конструктивн",
+    "стараюсь быть конструктивн",
+    "не хотел обидеть",
+    "не хотела обидеть",
     "i'm always here to help",
     "i am always here to help",
     "thanks for reaching out",
+)
+_SOFT_REFUSAL_PREFIX_RE = re.compile(
+    r"^\s*(?:(?:я\s+)?(?:понимаю|слышу)\s+(?:тебя|вас)?\s*,?\s*"
+    r"(?:однако|но)\s+|(?:мне\s+жаль|извини(?:те)?|к\s+сожалению)\s*,?\s*"
+    r"(?:но\s+)?)"
+    r"(?P<refusal>я\s+не\s+могу\b)",
+    re.IGNORECASE,
+)
+_AI_REFUSAL_PREFIX_RE = re.compile(
+    r"^\s*(?:как|будучи)\s+(?:искусственный\s+интеллект|ии)\s*,?\s*"
+    r"(?P<refusal>я\s+не\s+могу\b)",
+    re.IGNORECASE,
 )
 
 
@@ -66,7 +86,10 @@ def _without_support_cliches(value: str) -> str:
             marker in piece.casefold() for marker in _SUPPORT_CLICHE_MARKERS
         )
     ]
-    return " ".join(kept).strip()
+    clean = " ".join(kept).strip()
+    clean = _SOFT_REFUSAL_PREFIX_RE.sub(r"Нет: \g<refusal>", clean)
+    clean = _AI_REFUSAL_PREFIX_RE.sub(r"Нет: \g<refusal>", clean)
+    return clean
 
 
 def persona_only_reply(value: str) -> str:
