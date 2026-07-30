@@ -270,6 +270,24 @@ class TelegramPeopleRepository:
             row = await cursor.fetchone()
         return _person(row) if row is not None else None
 
+    async def set_owner(self, persona_user_id: int, telegram_user_id: int) -> None:
+        """Перепривязать роль владельца. Ровно один владелец на арендатора."""
+        tenant = int(persona_user_id)
+        owner_id = _positive_id(telegram_user_id, "owner")
+        async with write_transaction() as conn:
+            # Снять флаг первым: частичный уникальный индекс
+            # uq_telegram_person_single_owner не допускает двух владельцев.
+            await conn.execute(
+                "UPDATE telegram_person SET is_owner=0 "
+                "WHERE persona_user_id=? AND telegram_user_id<>?",
+                (tenant, owner_id),
+            )
+            await conn.execute(
+                "UPDATE telegram_person SET is_owner=1 "
+                "WHERE persona_user_id=? AND telegram_user_id=?",
+                (tenant, owner_id),
+            )
+
     async def set_override(
         self,
         persona_user_id: int,
@@ -370,7 +388,13 @@ class TelegramPeopleRepository:
             )
             facts = [dict(row) for row in await facts_cur.fetchall()]
             messages = [dict(row) for row in await messages_cur.fetchall()]
-        return {"person": person, "facts": facts, "messages": messages}
+        return {
+            "person": person,
+            "facts": facts,
+            "messages": messages,
+            "override": await self.get_override(persona_user_id, telegram_user_id)
+            or {"display_name_override": "", "note": "", "ignored": 0},
+        }
 
     async def identity_context(
         self,

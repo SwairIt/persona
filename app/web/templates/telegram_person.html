@@ -18,6 +18,38 @@
   </div>
 </div>
 
+<form method="post" action="/settings/telegram-people/{{ person.telegram_user_id }}"
+      class="mb-6 rounded-xl border border-ink-700 bg-ink-800 p-6">
+  <h2 class="mb-4 font-semibold">Как Persona воспринимает этого человека</h2>
+  <label class="block text-sm text-zinc-400" for="display_name">Имя</label>
+  <input id="display_name" name="display_name" maxlength="160"
+         value="{{ override.display_name_override or '' }}"
+         placeholder="{{ person.display_name }}"
+         class="mt-1 w-full rounded-lg border border-ink-700 bg-ink-900 px-3 py-2 text-sm">
+  <label class="mt-4 block text-sm text-zinc-400" for="note">Кто это и как с ним говорить</label>
+  <textarea id="note" name="note" rows="3" maxlength="500"
+            placeholder="брат · коллега по работе · не воспринимать всерьёз"
+            class="mt-1 w-full rounded-lg border border-ink-700 bg-ink-900 px-3 py-2 text-sm">{{ override.note or '' }}</textarea>
+  <label class="mt-4 flex items-center gap-2 text-sm text-zinc-300">
+    <input type="checkbox" name="ignored" {% if override.ignored %}checked{% endif %}
+           class="rounded border-ink-700 bg-ink-900">
+    Не отвечать этому человеку
+  </label>
+  <button type="submit"
+          class="mt-5 rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold hover:bg-violet-500">
+    Сохранить
+  </button>
+</form>
+
+{% if not person.is_owner %}
+<form method="post" action="/settings/telegram-people/{{ person.telegram_user_id }}/owner"
+      class="mb-6">
+  <button type="submit" class="text-sm text-zinc-500 hover:text-violet-300">
+    Сделать владельцем Persona
+  </button>
+</form>
+{% endif %}
+
 <div class="grid gap-6 lg:grid-cols-2">
   <section class="rounded-xl border border-ink-700 bg-ink-800 overflow-hidden">
     <header class="border-b border-ink-700 px-5 py-3"><h2 class="font-semibold">Что Persona помнит об этом человеке</h2></header>

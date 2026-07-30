@@ -542,6 +542,80 @@ async def test_owner_override_survives_new_messages(db) -> None:
     assert override["note"] == "владелец, зови по имени"
 
 
+async def test_person_detail_includes_override(db) -> None:
+    await _user(db)
+    repository = TelegramPeopleRepository()
+    await repository.observe_message(
+        persona_user_id=7,
+        owner_telegram_user_id=100,
+        chat_id=-5,
+        sender={"id": 100, "first_name": "Empty"},
+        message_id=1,
+        text="привет",
+    )
+    await repository.set_override(7, 100, display_name="Ярослав", note="", ignored=False)
+    detail = await repository.person_detail(7, 100)
+    assert detail is not None
+    assert detail["override"]["display_name_override"] == "Ярослав"
+
+
+async def test_person_detail_has_default_override_when_none_saved(db) -> None:
+    await _user(db)
+    repository = TelegramPeopleRepository()
+    await repository.observe_message(
+        persona_user_id=7,
+        owner_telegram_user_id=100,
+        chat_id=-5,
+        sender={"id": 200, "first_name": "Олег"},
+        message_id=1,
+        text="привет",
+    )
+    detail = await repository.person_detail(7, 200)
+    assert detail is not None
+    assert detail["override"] == {
+        "display_name_override": "",
+        "note": "",
+        "ignored": 0,
+    }
+
+
+async def test_owner_reassignment_keeps_single_owner(db) -> None:
+    await _user(db)
+    repository = TelegramPeopleRepository()
+    for telegram_id, name in ((100, "Empty"), (555, "Олег")):
+        await repository.observe_message(
+            persona_user_id=7,
+            owner_telegram_user_id=100,
+            chat_id=-5,
+            sender={"id": telegram_id, "first_name": name},
+            message_id=telegram_id,
+            text="привет",
+        )
+    await repository.set_owner(7, 555)
+    people = {int(p["telegram_user_id"]): p for p in await repository.list_people(7)}
+    assert people[555]["is_owner"] == 1
+    assert people[100]["is_owner"] == 0
+
+
+async def test_set_owner_when_another_owner_already_exists_does_not_raise(db) -> None:
+    await _user(db)
+    repository = TelegramPeopleRepository()
+    for telegram_id, name in ((100, "Empty"), (555, "Олег")):
+        await repository.observe_message(
+            persona_user_id=7,
+            owner_telegram_user_id=100,
+            chat_id=-5,
+            sender={"id": telegram_id, "first_name": name},
+            message_id=telegram_id,
+            text="привет",
+        )
+    # 100 is already is_owner=1 from observe_message; reassign to 555.
+    await repository.set_owner(7, 555)
+    people = {int(p["telegram_user_id"]): p for p in await repository.list_people(7)}
+    assert sum(p["is_owner"] for p in people.values()) == 1
+    assert people[555]["is_owner"] == 1
+
+
 async def test_ignored_flag_round_trips(db) -> None:
     await _user(db)
     repository = TelegramPeopleRepository()
