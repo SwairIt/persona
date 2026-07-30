@@ -270,24 +270,6 @@ class TelegramPeopleRepository:
             row = await cursor.fetchone()
         return _person(row) if row is not None else None
 
-    async def set_owner(self, persona_user_id: int, telegram_user_id: int) -> None:
-        """Перепривязать роль владельца. Ровно один владелец на арендатора."""
-        tenant = int(persona_user_id)
-        owner_id = _positive_id(telegram_user_id, "owner")
-        async with write_transaction() as conn:
-            # Снять флаг первым: частичный уникальный индекс
-            # uq_telegram_person_single_owner не допускает двух владельцев.
-            await conn.execute(
-                "UPDATE telegram_person SET is_owner=0 "
-                "WHERE persona_user_id=? AND telegram_user_id<>?",
-                (tenant, owner_id),
-            )
-            await conn.execute(
-                "UPDATE telegram_person SET is_owner=1 "
-                "WHERE persona_user_id=? AND telegram_user_id=?",
-                (tenant, owner_id),
-            )
-
     async def set_override(
         self,
         persona_user_id: int,
@@ -469,12 +451,24 @@ class TelegramPeopleRepository:
                 continue
             name_override = str(override.get("display_name_override") or "").strip()
             if name_override:
-                item["display_name"] = name_override[:_MAX_DISPLAY_NAME_CHARS]
+                name_override = name_override[:_MAX_DISPLAY_NAME_CHARS]
+                item["display_name"] = name_override
             note = str(override.get("note") or "").strip()
             if note:
-                owner_notes.append(
-                    f"{item['display_name']} [tg_user_id={person_id}]: {note}"
-                )
+                # trusted_owner_notes must contain owner-authored bytes only.
+                # item["display_name"] can be the participant's own (attacker-
+                # controlled) Telegram first_name/last_name when the owner
+                # left the name field blank -- splicing that raw into a
+                # "trusted" line lets a renamed participant forge an
+                # owner-authored assertion about anyone, including the owner.
+                # Use the owner-authored override name if one was actually
+                # set; otherwise fall back to the bare numeric id.
+                if name_override:
+                    owner_notes.append(
+                        f"{name_override} [tg_user_id={person_id}]: {note}"
+                    )
+                else:
+                    owner_notes.append(f"[tg_user_id={person_id}]: {note}")
         # Reuse the claims bounding helper: it is generic over list[str] and
         # applies the same per-item clip + running-total cap, so owner notes
         # can never blow the block budget any more than claims can.
@@ -496,11 +490,25 @@ class TelegramPeopleRepository:
         current_is_owner = sender_id == owner_id
         current_name = str(sender.get("display_name") or f"Telegram user {sender_id}")
         current_username = str(sender.get("username") or "")
+        # A hostile display_name (e.g. containing "- x=1") is concatenated
+        # here without a separating newline (_clean() already strips control
+        # chars including \n), so it can read as extra "- key=value" lines
+        # in this AUTHORITATIVE header one json.dumps() away from being
+        # closed. JSON-quote both name fields so an injected "- key=value"
+        # substring stays visibly part of the quoted name value instead of
+        # looking like a new authoritative key.
+        current_name_json = json.dumps(current_name, ensure_ascii=False)
+        current_username_display = (
+            f"@{current_username}" if current_username else "none"
+        )
+        current_username_json = json.dumps(
+            current_username_display, ensure_ascii=False
+        )
         critical_header = (
             "AUTHORITATIVE CURRENT TELEGRAM TURN:\n"
             f"- current_message_author_id={sender_id}\n"
-            f"- current_message_author_name={current_name}\n"
-            f"- current_message_author_username=@{current_username or 'none'}\n"
+            f"- current_message_author_name={current_name_json}\n"
+            f"- current_message_author_username={current_username_json}\n"
             "- current_message_author_is_owner_creator="
             f"{str(current_is_owner).upper()}\n"
             f"- sole_owner_creator_id={owner_id}\n"

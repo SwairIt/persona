@@ -318,6 +318,83 @@ async def test_group_reply_adapter_uses_only_group_history_and_persists_once(
     assert request.temperature == 0.78
 
 
+@pytest.mark.asyncio
+async def test_ambient_reply_keeps_identity_over_600_chars_intact(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ambient.py used to slice identity to 600 chars at prompt insertion --
+    a FOURTH truncation site the plan missed -- cutting mid-JSON on every
+    un-addressed group reply. Assert a long identity block survives whole."""
+    from app.integrations.telegram import ambient  # noqa: PLC0415
+
+    long_identity = "AUTHORITATIVE CURRENT TELEGRAM TURN:\n" + "\n".join(
+        f'{{"telegram_user_id":{1000 + i},"display_name":"Участник {i}"}}'
+        for i in range(30)
+    )
+    assert len(long_identity) > 600
+
+    async def session(_tenant_id: int, _conversation_id: int) -> dict[str, Any]:
+        return {"id": 11, "user_id": 7, "model": "group-model"}
+
+    async def history(
+        _conversation_id: int,
+        *,
+        max_turns: int,
+    ) -> list[dict[str, str]]:
+        return [{"role": "user", "content": "GROUP_HISTORY_ONLY"}]
+
+    async def append(
+        _conversation_id: int,
+        role: str,
+        content: str,
+        **_kwargs: Any,
+    ) -> dict[str, int]:
+        return {"id": 1}
+
+    requests: list[Any] = []
+
+    class FakeClient:
+        provider = "fake"
+
+        def __init__(self) -> None:
+            self._inner = self
+            self._model = "initial"
+
+        async def complete(self, request: Any) -> str:
+            requests.append(request)
+            return "Короткий ответ группе"
+
+    monkeypatch.setattr(ambient, "get_session", session)
+    monkeypatch.setattr(ambient, "build_history_for_llm", history)
+    monkeypatch.setattr(ambient, "append_message", append)
+    monkeypatch.setattr(ambient, "touch_session", lambda *_a: _async_none())
+    monkeypatch.setattr(ambient, "make_client", lambda **_kwargs: FakeClient())
+    monkeypatch.setattr(
+        ambient,
+        "get_active_system_prompt",
+        lambda: _async_text("PERSONA_STYLE"),
+    )
+
+    turn = AmbientGroupTurn(
+        tenant_id=7,
+        conversation_id=11,
+        external_chat_id=-100,
+        update_id=1,
+        message_id=1,
+        text="обычное сообщение без упоминания",
+        sender_label="Участник",
+        chat_title="Команда",
+        trusted_identity_context=long_identity,
+    )
+
+    await ambient.TelegramAmbientTurnAdapter().reply(turn)
+
+    assert len(requests) == 1
+    assert long_identity in requests[0].system, (
+        "identity context must not be sliced at prompt insertion"
+    )
+
+
 async def _async_none() -> None:
     return None
 

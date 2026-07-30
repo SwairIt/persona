@@ -332,9 +332,13 @@ def _system_with_identity(
         return system
     # Identity invariants deliberately come after the editable persona style
     # and owner group rules so a small model sees them closest to the turn.
+    # 12_000 is the same transport limit as service.py and legacy.py (the
+    # block is already bounded by construction at 9_000 chars in
+    # identity_context(), so this is headroom, not a new size risk). 600
+    # used to cut the payload mid-JSON on every un-addressed group reply.
     return (
         f"{system}\n\n<TRUSTED_TELEGRAM_IDENTITY>\n"
-        f"{identity[:600]}\n"
+        f"{identity[:12_000]}\n"
         "</TRUSTED_TELEGRAM_IDENTITY>"
     )
 

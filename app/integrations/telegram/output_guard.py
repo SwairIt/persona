@@ -105,12 +105,20 @@ _INTERNAL_TAG_EVENT_RE = re.compile(
     re.IGNORECASE,
 )
 _INTERNAL_LINE_RE = re.compile(
-    r"^\s*(?:"
+    r"^.*(?:"
     r"AUTHORITATIVE\s+CURRENT\s+TELEGRAM\s+TURN"
     r"|SERVER-VERIFIED\s+TELEGRAM\s+IDENTITY"
     r"|-\s*current_message_author_\w*"
     r"|-\s*sole_owner_creator_id"
     r"|Only\s+Telegram\s+user_id="
+    # The identity_context() JSON payload (people.py) is emitted as one long
+    # line via json.dumps(..., separators=(",",":")); its `<`/`>` are escaped
+    # to </> so the tag scanner above never sees it. Catch it by
+    # its fixed key names instead, wherever they land in the line.
+    r'|"sole_owner_creator"'
+    r'|"people_seen_in_this_chat"'
+    r'|"untrusted_remembered_claims_by_current_sender"'
+    r'|"trusted_owner_notes"'
     r").*$",
     re.IGNORECASE | re.MULTILINE,
 )
