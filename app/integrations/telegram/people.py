@@ -270,6 +270,60 @@ class TelegramPeopleRepository:
             row = await cursor.fetchone()
         return _person(row) if row is not None else None
 
+    async def set_override(
+        self,
+        persona_user_id: int,
+        telegram_user_id: int,
+        *,
+        display_name: str,
+        note: str,
+        ignored: bool,
+    ) -> None:
+        """Сохранить доверенную правку владельца об участнике."""
+        clean_name = _clean(display_name, 160)
+        clean_note = _clean(note, 500)
+        async with write_transaction() as conn:
+            await conn.execute(
+                """
+                INSERT INTO telegram_person_override(
+                    persona_user_id, telegram_user_id, display_name_override,
+                    note, ignored, updated_at
+                )
+                VALUES(?,?,?,?,?,datetime('now'))
+                ON CONFLICT(persona_user_id, telegram_user_id) DO UPDATE SET
+                    display_name_override=excluded.display_name_override,
+                    note=excluded.note,
+                    ignored=excluded.ignored,
+                    updated_at=datetime('now')
+                """,
+                (
+                    int(persona_user_id),
+                    _positive_id(telegram_user_id, "person"),
+                    clean_name or None,
+                    clean_note or None,
+                    1 if ignored else 0,
+                ),
+            )
+
+    async def get_override(
+        self, persona_user_id: int, telegram_user_id: int
+    ) -> dict[str, Any] | None:
+        async with get_connection() as conn:
+            cursor = await conn.execute(
+                """
+                SELECT display_name_override, note, ignored
+                  FROM telegram_person_override
+                 WHERE persona_user_id=? AND telegram_user_id=?
+                """,
+                (int(persona_user_id), int(telegram_user_id)),
+            )
+            row = await cursor.fetchone()
+        return dict(row) if row is not None else None
+
+    async def is_ignored(self, persona_user_id: int, telegram_user_id: int) -> bool:
+        override = await self.get_override(persona_user_id, telegram_user_id)
+        return bool(override and override.get("ignored"))
+
     async def list_people(self, persona_user_id: int) -> list[dict[str, Any]]:
         async with get_connection() as conn:
             cursor = await conn.execute(

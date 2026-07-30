@@ -263,6 +263,51 @@ async def test_identity_context_small_chat_is_unaffected_by_the_budget(db) -> No
     assert len(parsed["people_seen_in_this_chat"]) == len(roster)
 
 
+async def test_owner_override_survives_new_messages(db) -> None:
+    await _user(db)
+    repository = TelegramPeopleRepository()
+    await repository.observe_message(
+        persona_user_id=7,
+        owner_telegram_user_id=100,
+        chat_id=-5,
+        sender={"id": 100, "first_name": "Empty", "username": "YaroslavEmpty"},
+        message_id=1,
+        text="привет",
+    )
+    await repository.set_override(
+        7, 100, display_name="Ярослав", note="владелец, зови по имени", ignored=False
+    )
+    # Новое сообщение переписывает telegram_person из данных Telegram.
+    await repository.observe_message(
+        persona_user_id=7,
+        owner_telegram_user_id=100,
+        chat_id=-5,
+        sender={"id": 100, "first_name": "Empty", "username": "YaroslavEmpty"},
+        message_id=2,
+        text="ещё раз привет",
+    )
+    override = await repository.get_override(7, 100)
+    assert override is not None
+    assert override["display_name_override"] == "Ярослав"
+    assert override["note"] == "владелец, зови по имени"
+
+
+async def test_ignored_flag_round_trips(db) -> None:
+    await _user(db)
+    repository = TelegramPeopleRepository()
+    await repository.observe_message(
+        persona_user_id=7,
+        owner_telegram_user_id=100,
+        chat_id=-5,
+        sender={"id": 555, "first_name": "Спамер"},
+        message_id=1,
+        text="купите крипту",
+    )
+    assert await repository.is_ignored(7, 555) is False
+    await repository.set_override(7, 555, display_name="", note="", ignored=True)
+    assert await repository.is_ignored(7, 555) is True
+
+
 def test_multi_speaker_script_keeps_only_persona_voice() -> None:
     text = (
         "Клод: Пока на связи как самому себе вспоминать всё.\n\n"
