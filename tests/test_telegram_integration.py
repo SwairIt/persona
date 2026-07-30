@@ -678,32 +678,40 @@ class FakeFailingPeople:
 
 @pytest.mark.asyncio
 async def test_muted_person_is_recorded_but_never_answered() -> None:
-    repository = FakeRepository(
-        TelegramBinding(telegram_user_id=1, persona_user_id=42)
-    )
+    # NOTE: this can't be a private-chat DM -- `_authorize()` only lets a
+    # private message through when its sender *is* the owner
+    # (worker.py:919), and the owner can never be muted (see the
+    # owner-carve-out test below). So the only sender who can be muted at
+    # all is a non-owner, and the only chat kind where a non-owner's
+    # message is even processed is an allow-listed, addressed group turn.
+    repository = FakeRepository(TelegramBinding(telegram_user_id=1, persona_user_id=42))
+    repository.groups.add(-400)
     worker, api, service = _worker(repository)
-    people = FakeIgnoringPeople(ignored_id=1)
+    people = FakeIgnoringPeople(ignored_id=2)
     worker.people = people  # type: ignore[assignment]
 
-    await worker.handle_update(_private(1, "ответь мне что-нибудь", message_id=31))
+    await worker.handle_update(
+        _group(2, -400, "@PersonaTestBot ответь мне что-нибудь", 31)
+    )
 
-    assert people.observed == [1], "сообщение должно попасть в историю"
+    assert people.observed == [2], "сообщение должно попасть в историю"
     assert service.responses == [], "ответ формироваться не должен"
     assert api.sent == []
 
 
 @pytest.mark.asyncio
 async def test_unmuted_person_in_same_chat_still_gets_a_reply() -> None:
-    repository = FakeRepository(
-        TelegramBinding(telegram_user_id=1, persona_user_id=42)
-    )
+    repository = FakeRepository(TelegramBinding(telegram_user_id=1, persona_user_id=42))
+    repository.groups.add(-400)
     worker, api, service = _worker(repository)
     people = FakeIgnoringPeople(ignored_id=999)
     worker.people = people  # type: ignore[assignment]
 
-    await worker.handle_update(_private(1, "ответь мне что-нибудь", message_id=32))
+    await worker.handle_update(
+        _group(2, -400, "@PersonaTestBot ответь мне что-нибудь", 32)
+    )
 
-    assert people.observed == [1]
+    assert people.observed == [2]
     assert len(service.responses) == 1
     assert api.sent != []
 
@@ -737,3 +745,76 @@ async def test_failed_observation_does_not_raise() -> None:
 
     assert len(service.responses) == 1
     assert api.sent != []
+
+
+@pytest.mark.asyncio
+async def test_muted_person_unaddressed_group_message_is_persisted_but_unanswered() -> (
+    None
+):
+    """Critical fix: the ambient persist path must run even when muted.
+
+    Unlike the addressed/private `respond()` path, ordinary un-addressed
+    group chatter has no separate record-only mechanism -- persistence and
+    the reply decision both live inside `handle_ambient_group_message()`.
+    Muting must still let that call happen so the conversation history
+    keeps this person's message; only the resulting reply is suppressed.
+    """
+    repository = FakeRepository(TelegramBinding(1, 42))
+    repository.groups.add(-300)
+    worker, api, service = _worker(repository)
+    people = FakeIgnoringPeople(ignored_id=2)
+    worker.people = people  # type: ignore[assignment]
+    service.ambient_answer = "Ambient Persona reply"
+
+    await worker.handle_update(
+        _group(2, -300, "кто-нибудь знает, как решить эту ошибку?", 88)
+    )
+
+    assert people.observed == [2]
+    assert len(service.passive) == 1, "ambient persist must still run"
+    assert service.responses == []
+    assert api.sent == [], "muted person must get no reply and no reaction"
+
+
+@pytest.mark.asyncio
+async def test_unmuted_person_unaddressed_group_message_persists_and_can_answer() -> (
+    None
+):
+    repository = FakeRepository(TelegramBinding(1, 42))
+    repository.groups.add(-301)
+    worker, api, service = _worker(repository)
+    people = FakeIgnoringPeople(ignored_id=999)
+    worker.people = people  # type: ignore[assignment]
+    service.ambient_answer = "Ambient Persona reply"
+
+    await worker.handle_update(
+        _group(2, -301, "кто-нибудь знает, как решить эту ошибку?", 89)
+    )
+
+    assert people.observed == [2]
+    assert len(service.passive) == 1
+    assert service.responses == []
+    assert api.sent == [(-301, "Ambient Persona reply", 89)]
+
+
+@pytest.mark.asyncio
+async def test_owner_is_never_muted_even_if_stored_as_ignored() -> None:
+    """Important fix: a self-muted owner must never lose replies/commands.
+
+    `is_ignored` has no owner exemption of its own, so a bad rebind or a
+    stray settings-UI click could store ignored=True for the owner's own
+    telegram_user_id. The worker must refuse to honour that.
+    """
+    repository = FakeRepository(TelegramBinding(1, 42))
+    worker, api, service = _worker(repository)
+    people = FakeIgnoringPeople(ignored_id=1)  # owner's own id, "muted"
+    worker.people = people  # type: ignore[assignment]
+
+    await worker.handle_update(_private(1, "ответь мне что-нибудь", message_id=90))
+
+    assert people.observed == [1]
+    assert len(service.responses) == 1
+    assert api.sent != []
+
+    await worker.handle_update(_private(1, "/persona мой контекст", message_id=91))
+    assert service.responses[-1]["question"] == "мой контекст"

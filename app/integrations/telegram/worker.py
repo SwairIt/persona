@@ -453,17 +453,23 @@ class TelegramWorker:
             incoming,
             binding,
         )
-        if person is not None and await self.people.is_ignored(
-            binding.persona_user_id, person.telegram_user_id
-        ):
-            # Message is already recorded above -- Persona still knows what
-            # was said, but the owner switched off replies to this person.
-            return
+        # `not is_owner` short-circuits before the is_ignored lookup, so the
+        # owner can never end up muted even if a bad rebind or a stray
+        # settings-UI click stored ignored=True for the owner's own
+        # telegram_user_id. Silencing Persona to its own owner is a worse
+        # failure than failing to silence a random contact.
+        muted = (
+            person is not None
+            and not is_owner
+            and await self.people.is_ignored(
+                binding.persona_user_id, person.telegram_user_id
+            )
+        )
 
         if await self._handle_owner_command(incoming, is_owner):
             return
         instant_reaction = immediate_reaction(incoming.text)
-        if instant_reaction is not None:
+        if instant_reaction is not None and not muted:
             await self._set_reaction(incoming, instant_reaction, force=True)
             if multiple_reactions_requested(incoming.text):
                 await self._send_text(
@@ -555,6 +561,12 @@ class TelegramWorker:
                     error_type=type(exc).__name__,
                 )
                 return
+            if muted:
+                # handle_ambient_group_message() already persisted this turn
+                # into the group's conversation history above -- Persona
+                # still knows what was said. The owner just doesn't want a
+                # reply (or even a reaction) surfaced to this person.
+                return
             if ambient_answer:
                 await self._deliver_answer(
                     incoming,
@@ -565,6 +577,12 @@ class TelegramWorker:
                 await self._deliver_reaction_only(incoming)
             return
         if not clean_text:
+            return
+        if muted:
+            # No standalone "persist without answering" path exists for
+            # directly addressed / private turns, so we simply skip the
+            # reply -- observe_message() above already recorded that this
+            # person spoke.
             return
         typing = asyncio.create_task(
             self._typing_heartbeat(incoming.chat_id),
