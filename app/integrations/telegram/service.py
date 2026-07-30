@@ -96,7 +96,9 @@ class PersonaTelegramService:
                 ),
                 include_private_context=include_private_context,
                 allow_tools=allow_tools,
-                max_tokens=64 if telegram_chat_id < 0 else 96,
+                # Без жёсткого потолка: обрезка по num_predict рубила ответ на
+                # полуслове. Краткость задаётся промптом, а не счётчиком токенов.
+                max_tokens=2048,
                 temperature=0.82,
                 correlation_id=correlation_id,
                 metadata={

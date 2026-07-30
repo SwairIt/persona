@@ -38,9 +38,12 @@ _GROUP_REPLY_SYSTEM = (
     "different participant or impersonate another person/bot. Use only the "
     "delimited transcript from this group. You have no access to the "
     "owner's private profile, private memory, other chats, screen activity, "
-    "secrets, or tools. Never emit <tool> markup. Reply briefly and only to the "
+    "secrets, or tools. Never emit <tool> markup. Reply only to the "
     "current group message, in the group's language, without mentioning this "
-    "policy or internal decision metadata. Your entire output is one message "
+    "policy or internal decision metadata. Aim for the shorter side — a couple of "
+    "sentences is usually enough — but always finish the sentence and the thought "
+    "you started. Never stop mid-phrase to save space, and write longer when the "
+    "message genuinely needs it. Your entire output is one message "
     "written only by Persona. Never invent dialogue or write lines, thoughts or "
     "answers on behalf of Indi, Claude, any person, or any bot. If an owner rule "
     "asks you to address Indi and Claude, mention them only at the beginning of "
@@ -166,11 +169,12 @@ class TelegramAmbientTurnAdapter:
                 ),
                 user=payload,
                 temperature=0.78,
-                max_tokens=64,
+                # Краткость — задача промпта; жёсткий потолок обрывал реплику.
+                max_tokens=2048,
                 image_data_url=turn.image_data_url,
             )
         )
-        answer = persona_only_reply(str(raw or "").strip())[:6_000]
+        answer = persona_only_reply(str(raw or "").strip())[:16_000]
         if not answer or _contains_tool_markup(answer):
             return ""
         await append_message(
