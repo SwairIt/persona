@@ -170,6 +170,99 @@ async def test_identity_context_bounds_many_long_stored_claims(db) -> None:
     assert len(parsed["untrusted_remembered_claims_by_current_sender"]) > 0
 
 
+async def test_identity_context_bounds_whole_block_under_construction_pressure(
+    db,
+) -> None:
+    """40 people at Telegram's own max name lengths + 20 long claims must not
+    blow the 12_000 transport limit -- and the JSON must still parse, with
+    the owner and current sender never dropped from the roster."""
+    await _user(db)
+    repository = TelegramPeopleRepository()
+    owner_id = 100
+    sender_id = 200
+    other_ids = list(range(300, 300 + 38))
+    for message_id, tg_id in enumerate([owner_id, sender_id, *other_ids], start=1):
+        await repository.observe_message(
+            persona_user_id=7,
+            owner_telegram_user_id=owner_id,
+            sender={
+                "id": tg_id,
+                "first_name": "F" * 64,
+                "last_name": "L" * 64,
+                "username": (f"user{tg_id}").ljust(32, "x")[:32],
+            },
+            chat_id=-5,
+            message_id=message_id,
+            text="обычное сообщение",
+        )
+    for i in range(20):
+        long_text = f"claim {i} " + ("x" * 19_990)
+        digest = hashlib.sha256(f"claim-{i}".encode("utf-8")).hexdigest()
+        await db.execute(
+            """
+            INSERT INTO telegram_person_fact(
+                persona_user_id, telegram_user_id, text, normalized_hash, kind,
+                source_chat_id, source_message_id
+            )
+            VALUES(7, ?, ?, ?, 'self_statement', -5, 1)
+            """,
+            (sender_id, long_text, digest),
+        )
+    await db.commit()
+
+    context = await repository.identity_context(
+        persona_user_id=7,
+        owner_telegram_user_id=owner_id,
+        current_sender_id=sender_id,
+        chat_id=-5,
+    )
+
+    assert len(context) < 12_000, "assembled block must stay under the transport limit"
+    encoded_line = next(
+        line for line in context.splitlines() if "people_seen_in_this_chat" in line
+    )
+    parsed = json.loads(encoded_line)  # must not blow up on truncated JSON
+    people = parsed["people_seen_in_this_chat"]
+    ids_present = {int(p["telegram_user_id"]) for p in people}
+    assert owner_id in ids_present, "owner must never be dropped"
+    assert sender_id in ids_present, "current sender must never be dropped"
+    assert parsed.get("people_omitted_count", 0) > 0, (
+        "40 max-length people should not all fit the budget"
+    )
+    assert len(people) + int(parsed["people_omitted_count"]) == 40
+
+
+async def test_identity_context_small_chat_is_unaffected_by_the_budget(db) -> None:
+    """A normal small chat with short names must not lose anyone or gain an
+    omission notice -- the budget only ever bites under real pressure."""
+    await _user(db)
+    repository = TelegramPeopleRepository()
+    roster = [(100, "Ярослав"), (200, "Олег"), (300, "Ира")]
+    for message_id, (tg_id, name) in enumerate(roster, start=1):
+        await repository.observe_message(
+            persona_user_id=7,
+            owner_telegram_user_id=100,
+            sender={"id": tg_id, "first_name": name},
+            chat_id=-5,
+            message_id=message_id,
+            text="привет",
+        )
+
+    context = await repository.identity_context(
+        persona_user_id=7,
+        owner_telegram_user_id=100,
+        current_sender_id=200,
+        chat_id=-5,
+    )
+
+    assert "people_omitted_count" not in context
+    encoded_line = next(
+        line for line in context.splitlines() if "people_seen_in_this_chat" in line
+    )
+    parsed = json.loads(encoded_line)
+    assert len(parsed["people_seen_in_this_chat"]) == len(roster)
+
+
 def test_multi_speaker_script_keeps_only_persona_voice() -> None:
     text = (
         "Клод: Пока на связи как самому себе вспоминать всё.\n\n"
