@@ -21,6 +21,10 @@ from app.integrations.telegram.ambient import (
     TelegramAmbientDecisionAdapter,
     TelegramAmbientTurnAdapter,
 )
+from app.integrations.telegram.labels import (
+    group_message_label,
+    passive_group_message_label,
+)
 from app.integrations.telegram.output_guard import persona_only_reply
 
 if TYPE_CHECKING:
@@ -70,7 +74,7 @@ class PersonaTelegramService:
         owner_actor = include_private_context if is_owner is None else is_owner
         group_turn = telegram_chat_id < 0 and bool(sender_label)
         turn_text = (
-            f"[Telegram group · {sender_label}] {clean}"
+            group_message_label(sender_label or "", clean)
             if group_turn
             else clean
         )
@@ -140,7 +144,7 @@ class PersonaTelegramService:
                 persona_user_id, telegram_chat_id, chat_title
             )
             await append_message(
-                session_id, "user", f"[Telegram · {sender_label}] {clean}"
+                session_id, "user", passive_group_message_label(sender_label, clean)
             )
             await touch_session(persona_user_id, session_id)
 

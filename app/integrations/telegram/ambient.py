@@ -17,6 +17,7 @@ from app.chat.prompts import get_active_system_prompt
 from app.chat.dynamic_prompt import contextual_system_prompt
 from app.chat.user_memory import extract_and_store
 from app.llm.client import CompletionRequest, make_client
+from app.integrations.telegram.labels import group_message_label
 from app.integrations.telegram.output_guard import persona_only_reply
 
 if TYPE_CHECKING:
@@ -216,7 +217,7 @@ async def _validate_scope(turn: AmbientGroupTurn) -> dict[str, Any]:
 
 
 def _labelled_message(turn: AmbientGroupTurn) -> str:
-    return f"[Telegram group · {turn.sender_label[:120]}] {turn.text.strip()}"
+    return group_message_label(turn.sender_label, turn.text)
 
 
 def _untrusted_payload(

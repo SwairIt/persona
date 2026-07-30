@@ -39,6 +39,9 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
+from app.integrations.telegram.labels import (
+    is_untrusted_group_message as _shared_is_untrusted_group_message,
+)
 from app.logging_setup import get_logger
 from app.storage.db import get_connection
 from app.storage.repository import get_kv
@@ -61,7 +64,6 @@ _QUIET_MINUTES = 60  # гейт активности: не «спим», пок�
 # прогоняем через извлечение фактов за один цикл. Каждый документ — 1 LLM-вызов.
 _MAX_DOCS = 24
 _KV_LAST_MSG_ID = "dream_last_processed_message_id"
-_TELEGRAM_GROUP_PREFIX = "[Telegram · "
 
 _SYS_LIGHT = (
     "Ты ведёшь долговременную память личного ассистента. Из транскрипта за день "
@@ -128,16 +130,20 @@ def _key_tokens(text: str) -> set[str]:
 def _is_untrusted_group_message(text: str) -> bool:
     """Return whether a stored chat row came from a Telegram group participant.
 
-    ``PersonaTelegramService`` currently prefixes every group message (including
-    passive observations) with ``[Telegram · <speaker>]`` while owner DMs are
-    stored verbatim.  Until chat messages have durable origin/speaker columns,
-    fail closed: group speech must not be promoted into facts about the owner.
+    ``PersonaTelegramService``/``TelegramAmbientTurnAdapter`` prefix every
+    non-owner group message (addressed turns, ambient turns, and passive
+    observations alike) with one of the label shapes in
+    ``app.integrations.telegram.labels`` while owner DMs are stored verbatim.
+    Until chat messages have durable origin/speaker columns, fail closed:
+    group speech must not be promoted into facts about the owner. The actual
+    prefix list lives in that one shared module so this check and
+    ``app.thinking.evidence``'s copy cannot drift apart again.
 
     TODO(agent-provenance): replace this compatibility marker with explicit
     ``origin_surface`` / ``origin_actor`` fields and a source trust policy.
     """
 
-    return (text or "").lstrip().startswith(_TELEGRAM_GROUP_PREFIX)
+    return _shared_is_untrusted_group_message(text)
 
 
 def _safe_processed_cursor(

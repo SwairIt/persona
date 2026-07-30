@@ -25,20 +25,22 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.integrations.telegram.labels import (
+    is_untrusted_group_message as _is_untrusted_group_message,
+)
+
 _MAX_CHARS = 4000
 _MAX_MESSAGES = 40
 _MAX_MESSAGE_CHARS = 300
 _MAX_MEMORY_ITEMS = 20
-_TELEGRAM_GROUP_PREFIX = "[Telegram · "
 
-
-def _is_untrusted_group_message(text: str) -> bool:
-    """Mirror ``app.chat.reflection._is_untrusted_group_message``.
-
-    Telegram group speech is prefixed this way; it must never be presented
-    to the thinking loop as something the owner said.
-    """
-    return (text or "").lstrip().startswith(_TELEGRAM_GROUP_PREFIX)
+# ``_is_untrusted_group_message`` is the single shared detector in
+# ``app.integrations.telegram.labels`` (also used by
+# ``app.chat.reflection``): Telegram group speech is prefixed with one of a
+# known set of label shapes; it must never be presented to the thinking loop
+# as something the owner said. Importing rather than hand-copying the
+# constant is the whole point — a hand-copied prefix is exactly how this
+# module and reflection.py drifted apart before.
 
 
 async def _recent_owner_messages(persona_user_id: int) -> str:
