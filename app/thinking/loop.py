@@ -51,12 +51,38 @@ from app.thinking.store import ThoughtStore
 # kind left out — a free thought, no factual claim, no evidence required.
 _EVIDENCE_REQUIRED_KINDS: frozenset[str] = frozenset({"know_you", "self_check", "unfinished"})
 
+# The model backing this loop (e.g. qwen2.5:7b) defaults to Chinese when
+# nothing pins the output language — a Russian-language PROMPT is not an
+# instruction, the model does not infer "answer in the language I was asked
+# in". Every prompt string below must carry this explicitly; see
+# tests/test_thinking_loop.py for the assertion that enforces it over the
+# whole prompt collection, so a prompt added later without it fails loudly.
+_RUSSIAN_RULE = (
+    " Отвечай ТОЛЬКО на русском языке, вне зависимости от того, на каком "
+    "языке модель отвечает по умолчанию."
+)
+
+# The owner's own name can appear inside the evidence (his own chat
+# messages, remembered facts). Without this the model can split the owner
+# into two people — itself and "someone the owner talks about" — and build
+# an entire chain on that confusion (owner mandate 2026-07-30, observed
+# live with qwen2.5:7b). Repeated in the prompt, not left to the evidence
+# block alone, because the step/conclusion prompts see only the chain text,
+# not the evidence block itself.
+_IDENTITY_RULE = (
+    " Владелец — это тот человек, о котором эти данные, и тот, для кого ты "
+    "думаешь. Если он упомянут по имени, это тот же самый человек, а не "
+    "третье лицо."
+)
+
 _TRUTHFULNESS_RULE = (
     " Используй ТОЛЬКО данные, которые тебе показаны ниже — не выдумывай. "
     "Если данных не хватает, чтобы ответить, так и скажи, вместо того чтобы "
     "придумывать. Начни ответ с одной пометки на отдельном слове: "
     "«НАБЛЮДЕНИЕ:», если это основано на показанных данных, или «ДОГАДКА:», "
     "если это твоё предположение без прямой опоры на данные."
+    + _IDENTITY_RULE
+    + _RUSSIAN_RULE
 )
 
 SEED_PROMPTS: dict[str, str] = {
@@ -83,6 +109,7 @@ SEED_PROMPTS: dict[str, str] = {
         "Ты — Persona. Напиши ОДНУ свободную мысль, которая тебя сейчас "
         "занимает. Без прикладной цели, одна фраза. Начни ответ с пометки "
         "«ДОГАДКА:» — это твоя собственная мысль, не факт про кого-либо."
+        + _RUSSIAN_RULE
     ),
 }
 
@@ -94,6 +121,8 @@ _STEP_SYSTEM = (
     "выше по ней — не выдумывай новых фактов о владельце. Начни ответ с "
     "пометки «НАБЛЮДЕНИЕ:», если шаг прямо опирается на показанные данные, "
     "иначе «ДОГАДКА:»."
+    + _IDENTITY_RULE
+    + _RUSSIAN_RULE
 )
 _STEP_SYSTEM_MODEL_MODE = (
     _STEP_SYSTEM
@@ -105,6 +134,8 @@ _CONCLUSION_SYSTEM = (
     "Заверши её ОДНИМ коротким итоговым выводом, не выдумывая новых фактов о "
     "владельце сверх того, что уже есть в цепочке. Начни ответ с пометки "
     "«НАБЛЮДЕНИЕ:» или «ДОГАДКА:», затем сам вывод, без вступления."
+    + _IDENTITY_RULE
+    + _RUSSIAN_RULE
 )
 
 _MARKER = "ХВАТИТ:"
