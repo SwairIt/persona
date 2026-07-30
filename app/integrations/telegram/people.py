@@ -727,17 +727,19 @@ def _display_name(
     username: str,
     telegram_user_id: int,
 ) -> str:
-    # Prefer the @username over the first+last "display name": display names
-    # are self-chosen and freely changeable by anyone at any time (a person
-    # can rename themselves to literally anything, including "Empty"), while
-    # the @handle is the stable public identifier people actually recognise
-    # each other by on Telegram. This ranking only affects the human-facing
-    # label stored/shown for a person -- it never affects who Persona treats
-    # as owner, which is decided solely by the numeric telegram_user_id match
-    # against sole_owner_creator_id elsewhere in this module.
+    # A real first/last name reads best in conversation, so it wins when the
+    # person actually set one; the @handle is the fallback. Neither decides
+    # identity: who Persona treats as owner is settled solely by the numeric
+    # telegram_user_id match against sole_owner_creator_id elsewhere in this
+    # module, because both of these strings are self-chosen and changeable.
+    # When the Telegram name is useless (the owner's own first_name is the
+    # literal string "Empty"), the owner fixes it with an override on
+    # /settings/telegram-people, which outranks everything here.
+    full = " ".join(part for part in (first_name, last_name) if part).strip()
+    if full:
+        return full
     if username:
         return f"@{username}"
-    full = " ".join(part for part in (first_name, last_name) if part).strip()
     return full or f"Telegram user {telegram_user_id}"
 
 

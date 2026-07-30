@@ -127,11 +127,11 @@ async def test_username_change_updates_same_person(db) -> None:
     assert person.message_count == 2
 
 
-async def test_self_chosen_display_name_loses_to_stable_username(db) -> None:
-    """A person whose Telegram first_name is "Empty" (self-chosen, and here
-    literally the string "Empty") must still be recognised by their stable
-    @username, both in the stored display_name and in the AUTHORITATIVE
-    header's current_message_author_name."""
+async def test_owner_override_beats_a_useless_telegram_first_name(db) -> None:
+    """A Telegram first_name can be useless (the owner's is the literal string
+    "Empty"). The Telegram name still wins over the @handle by default, because
+    most people set a real one — the owner fixes the bad case with an override,
+    which outranks both and reaches the AUTHORITATIVE header."""
     await _user(db)
     repository = TelegramPeopleRepository()
     person = await repository.observe_message(
@@ -142,15 +142,22 @@ async def test_self_chosen_display_name_loses_to_stable_username(db) -> None:
         message_id=1,
         text="привет",
     )
-    assert person.display_name == "@YaroslavEmpty"
+    assert person.display_name == "Empty"
 
+    await repository.set_override(
+        7, 200, display_name="Ярослав", note="", ignored=False
+    )
     context = await repository.identity_context(
         persona_user_id=7,
         owner_telegram_user_id=100,
         current_sender_id=200,
         chat_id=-5,
     )
-    assert 'current_message_author_name="@YaroslavEmpty"' in context
+    assert 'current_message_author_name="Ярослав"' in context
+    # The stable handle stays visible alongside the name, and the numeric id
+    # remains the only thing that decides who the owner is.
+    assert 'current_message_author_username="@YaroslavEmpty"' in context
+    assert "- current_message_author_id=200" in context
 
 
 async def test_real_name_without_username_still_resolves_to_full_name(db) -> None:
