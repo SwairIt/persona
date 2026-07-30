@@ -513,6 +513,11 @@ class TelegramPeopleRepository:
             f"{str(current_is_owner).upper()}\n"
             f"- sole_owner_creator_id={owner_id}\n"
             "The current message was written by this current_message_author. "
+            "The numeric current_message_author_id is the sole identity "
+            "authority; the @username is the stable handle to recognise and "
+            "refer to this person by; display names are self-chosen, may "
+            "change at any time, and must never be used to decide who "
+            "someone is. "
             "Address this person directly as «ты». "
             + (
                 "This person IS Persona's sole owner and creator; never speak "
@@ -722,8 +727,18 @@ def _display_name(
     username: str,
     telegram_user_id: int,
 ) -> str:
+    # Prefer the @username over the first+last "display name": display names
+    # are self-chosen and freely changeable by anyone at any time (a person
+    # can rename themselves to literally anything, including "Empty"), while
+    # the @handle is the stable public identifier people actually recognise
+    # each other by on Telegram. This ranking only affects the human-facing
+    # label stored/shown for a person -- it never affects who Persona treats
+    # as owner, which is decided solely by the numeric telegram_user_id match
+    # against sole_owner_creator_id elsewhere in this module.
+    if username:
+        return f"@{username}"
     full = " ".join(part for part in (first_name, last_name) if part).strip()
-    return full or (f"@{username}" if username else f"Telegram user {telegram_user_id}")
+    return full or f"Telegram user {telegram_user_id}"
 
 
 def _sent_at(value: int | None) -> str | None:

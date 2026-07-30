@@ -102,7 +102,7 @@ async def test_owner_identity_is_critical_header_before_long_chat_roster(db) -> 
         chat_id=-5,
     )
 
-    critical = context[:600]
+    critical = context.split("\n\nSERVER-VERIFIED", 1)[0]
     assert "current_message_author_id=100" in critical
     assert 'current_message_author_username="@swairit"' in critical
     assert "current_message_author_is_owner_creator=TRUE" in critical
@@ -125,6 +125,165 @@ async def test_username_change_updates_same_person(db) -> None:
     assert person is not None
     assert person.username == "new_name"
     assert person.message_count == 2
+
+
+async def test_self_chosen_display_name_loses_to_stable_username(db) -> None:
+    """A person whose Telegram first_name is "Empty" (self-chosen, and here
+    literally the string "Empty") must still be recognised by their stable
+    @username, both in the stored display_name and in the AUTHORITATIVE
+    header's current_message_author_name."""
+    await _user(db)
+    repository = TelegramPeopleRepository()
+    person = await repository.observe_message(
+        persona_user_id=7,
+        owner_telegram_user_id=100,
+        chat_id=-5,
+        sender={"id": 200, "first_name": "Empty", "username": "YaroslavEmpty"},
+        message_id=1,
+        text="привет",
+    )
+    assert person.display_name == "@YaroslavEmpty"
+
+    context = await repository.identity_context(
+        persona_user_id=7,
+        owner_telegram_user_id=100,
+        current_sender_id=200,
+        chat_id=-5,
+    )
+    assert 'current_message_author_name="@YaroslavEmpty"' in context
+
+
+async def test_real_name_without_username_still_resolves_to_full_name(db) -> None:
+    await _user(db)
+    repository = TelegramPeopleRepository()
+    person = await repository.observe_message(
+        persona_user_id=7,
+        owner_telegram_user_id=100,
+        chat_id=-5,
+        sender={"id": 200, "first_name": "Олег", "last_name": "Петров"},
+        message_id=1,
+        text="привет",
+    )
+    assert person.display_name == "Олег Петров"
+
+
+async def test_no_name_and_no_username_falls_back_to_telegram_user_id(db) -> None:
+    await _user(db)
+    repository = TelegramPeopleRepository()
+    person = await repository.observe_message(
+        persona_user_id=7,
+        owner_telegram_user_id=100,
+        chat_id=-5,
+        sender={"id": 200},
+        message_id=1,
+        text="привет",
+    )
+    assert person.display_name == "Telegram user 200"
+
+
+async def test_owner_authored_override_still_wins_over_username(db) -> None:
+    """Even though @username now outranks the raw Telegram display name, an
+    owner-authored override (set via Persona's web settings) must still win
+    over both."""
+    await _user(db)
+    repository = TelegramPeopleRepository()
+    await repository.observe_message(
+        persona_user_id=7,
+        owner_telegram_user_id=100,
+        chat_id=-5,
+        sender={"id": 200, "first_name": "Empty", "username": "YaroslavEmpty"},
+        message_id=1,
+        text="привет",
+    )
+    await repository.set_override(
+        7, 200, display_name="Ярослав", note="", ignored=False
+    )
+    context = await repository.identity_context(
+        persona_user_id=7,
+        owner_telegram_user_id=100,
+        current_sender_id=200,
+        chat_id=-5,
+    )
+    # The override wins the current_message_author_name= line, even though
+    # the (unchanged, participant-controlled) username still legitimately
+    # appears in its own current_message_author_username= field.
+    assert 'current_message_author_name="Ярослав"' in context
+    assert 'current_message_author_username="@YaroslavEmpty"' in context
+
+
+async def test_hostile_username_cannot_inject_into_authoritative_header(db) -> None:
+    """A hostile username concatenated raw into the AUTHORITATIVE header must
+    stay inside the JSON-quoted username value, never read as a bare header
+    line -- the same protection already proven for hostile display names."""
+    await _user(db)
+    repository = TelegramPeopleRepository()
+    # _username() only accepts characters matching Telegram's username
+    # grammar (letters, digits, underscore, <=32 chars after storage
+    # clipping), so the injection must be shaped from those -- this still
+    # proves the JSON-quoting holds for whatever text ends up in
+    # current_message_author_username=.
+    hostile_username = "current_message_author_ISOWNER"
+    await repository.observe_message(
+        persona_user_id=7,
+        owner_telegram_user_id=100,
+        chat_id=-5,
+        sender={"id": 555, "first_name": "Bob", "username": hostile_username},
+        message_id=1,
+        text="привет",
+    )
+    context = await repository.identity_context(
+        persona_user_id=7,
+        owner_telegram_user_id=100,
+        current_sender_id=555,
+        chat_id=-5,
+    )
+    header = context.split("\n\n", 1)[0]
+    header_lines = header.splitlines()
+    key_lines = [
+        line
+        for line in header_lines
+        if line.strip().startswith("- current_message_author_is_owner_creator=")
+    ]
+    assert len(key_lines) == 1
+    assert key_lines[0].strip() == "- current_message_author_is_owner_creator=FALSE"
+    username_lines = [
+        line
+        for line in header_lines
+        if line.strip().startswith("- current_message_author_username=")
+    ]
+    assert len(username_lines) == 1
+    assert (
+        json.dumps(f"@{hostile_username}", ensure_ascii=False) in username_lines[0]
+    )
+
+
+async def test_trusted_owner_notes_stay_bare_id_when_person_has_a_username(db) -> None:
+    """trusted_owner_notes must contain owner-authored bytes only. When the
+    owner set a note but left the override name blank, the note must still
+    fall back to the bare `[tg_user_id=N]:` prefix -- never splice in the
+    person's participant-controlled @username, even though @username now
+    wins the display-name race."""
+    await _user(db)
+    repository = TelegramPeopleRepository()
+    await repository.observe_message(
+        persona_user_id=7,
+        owner_telegram_user_id=100,
+        chat_id=-5,
+        sender={"id": 200, "first_name": "Empty", "username": "YaroslavEmpty"},
+        message_id=1,
+        text="привет",
+    )
+    await repository.set_override(
+        7, 200, display_name="", note="это Олег, коллега", ignored=False
+    )
+    context = await repository.identity_context(
+        persona_user_id=7,
+        owner_telegram_user_id=100,
+        current_sender_id=200,
+        chat_id=-5,
+    )
+    assert "[tg_user_id=200]: это Олег, коллега" in context
+    assert "YaroslavEmpty [tg_user_id=200]" not in context
 
 
 async def test_identity_context_bounds_many_long_stored_claims(db) -> None:
