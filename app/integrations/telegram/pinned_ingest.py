@@ -15,6 +15,7 @@ from dotenv import dotenv_values
 from app.auth.owner import get_owner_user_id
 from app.dreams import add_reflection
 from app.integrations.telegram.people import TelegramPeopleRepository
+from app.integrations.telegram.repository import TelegramRepository
 from app.llm.client import CompletionRequest, make_client
 from app.logging_setup import get_logger
 from app.settings import get_settings
@@ -95,20 +96,30 @@ class PinnedTelegramIngestor:
         config: PinnedTelegramConfig,
         *,
         people: TelegramPeopleRepository | None = None,
+        chats: TelegramRepository | None = None,
     ) -> None:
         self.config = config
         self.people = people or TelegramPeopleRepository()
+        self.chats = chats or TelegramRepository()
 
     async def sync_once(self, client: Any, persona_user_id: int) -> dict[str, int]:
         me = await client.get_me()
         owner_telegram_id = int(me.id)
         dialogs = await client.get_dialogs(limit=None)
-        pinned = [dialog for dialog in dialogs if bool(getattr(dialog, "pinned", False))]
-        pinned_ids = {int(dialog.id) for dialog in pinned}
-        await self._replace_pinned_set(persona_user_id, pinned)
+        chosen_ids = await self.chats.ingest_chat_ids()
+        if chosen_ids:
+            selected = [dialog for dialog in dialogs if int(dialog.id) in chosen_ids]
+        else:
+            # Owner has never opened the chats settings page: keep today's
+            # pinned-based behaviour so nothing breaks silently.
+            selected = [
+                dialog for dialog in dialogs if bool(getattr(dialog, "pinned", False))
+            ]
+        selected_ids = {int(dialog.id) for dialog in selected}
+        await self._replace_pinned_set(persona_user_id, selected)
 
         imported = 0
-        for dialog in pinned:
+        for dialog in selected:
             imported += await self._import_dialog(
                 client,
                 persona_user_id=persona_user_id,
@@ -117,10 +128,10 @@ class PinnedTelegramIngestor:
             )
         log.info(
             "telegram.pinned.synced",
-            chats=len(pinned_ids),
+            chats=len(selected_ids),
             imported=imported,
         )
-        return {"chats": len(pinned_ids), "imported": imported}
+        return {"chats": len(selected_ids), "imported": imported}
 
     async def analyze_once(self, persona_user_id: int) -> dict[str, int]:
         batches = await self._pending_batches(persona_user_id)

@@ -9,6 +9,7 @@ from app.integrations.telegram.pinned_ingest import (
     PinnedTelegramIngestor,
     _inside_night,
 )
+from app.integrations.telegram.repository import TelegramRepository
 
 
 @dataclass
@@ -113,6 +114,75 @@ async def test_sync_imports_only_pinned_dialogs_and_is_idempotent(db) -> None:
         (-10, 1),
         (-10, 2),
     ]
+
+
+async def test_sync_with_owner_prefs_imports_chosen_chat_not_pinned(db) -> None:
+    await _user(db)
+    chosen_entity = object()
+    pinned_entity = object()
+    client = FakeClient(
+        [
+            FakeDialog(-10, "Pinned", True, pinned_entity),
+            FakeDialog(-30, "Chosen", False, chosen_entity),
+        ],
+        {
+            id(pinned_entity): [
+                FakeMessage(1, "Do not import", FakeEntity(300, "Other"))
+            ],
+            id(chosen_entity): [
+                FakeMessage(1, "Import me", FakeEntity(200, "Oleg", "oleg")),
+            ],
+        },
+    )
+    repo = TelegramRepository()
+    await repo.set_chat_pref(-30, mode="reply", ingest=True, title="Chosen")
+    config = PinnedTelegramConfig(1, "hash", Path("unused"))
+    ingestor = PinnedTelegramIngestor(config)
+
+    result = await ingestor.sync_once(client, 7)
+
+    assert result == {"chats": 1, "imported": 1}
+    rows = await (
+        await db.execute(
+            "SELECT telegram_chat_id, telegram_message_id "
+            "FROM telegram_pinned_message ORDER BY telegram_message_id"
+        )
+    ).fetchall()
+    assert [(row["telegram_chat_id"], row["telegram_message_id"]) for row in rows] == [
+        (-30, 1),
+    ]
+
+
+async def test_sync_without_owner_prefs_falls_back_to_pinned(db) -> None:
+    await _user(db)
+    pinned_entity = object()
+    other_entity = object()
+    client = FakeClient(
+        [
+            FakeDialog(-10, "Pinned", True, pinned_entity),
+            FakeDialog(-20, "Other", False, other_entity),
+        ],
+        {
+            id(pinned_entity): [
+                FakeMessage(1, "Hello", FakeEntity(100, "Yaroslav", "swairit")),
+            ],
+            id(other_entity): [
+                FakeMessage(1, "Do not import", FakeEntity(300, "Other"))
+            ],
+        },
+    )
+    config = PinnedTelegramConfig(1, "hash", Path("unused"))
+    ingestor = PinnedTelegramIngestor(config)
+
+    result = await ingestor.sync_once(client, 7)
+
+    assert result == {"chats": 1, "imported": 1}
+    rows = await (
+        await db.execute(
+            "SELECT telegram_chat_id FROM telegram_pinned_message"
+        )
+    ).fetchall()
+    assert [row["telegram_chat_id"] for row in rows] == [-10]
 
 
 def test_night_window_handles_normal_and_wrapped_ranges() -> None:
