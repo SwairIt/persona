@@ -12,6 +12,7 @@ import hmac
 import json
 import secrets
 from dataclasses import dataclass
+from typing import Any
 
 from app.storage.db import get_connection, write_transaction
 from app.storage.repository import delete_kv, get_kv, set_kv
@@ -400,6 +401,98 @@ class TelegramRepository:
         async with get_connection() as conn:
             await set_kv(conn, _ALLOWED_CHATS_KEY, json.dumps(sorted(values)))
 
+    async def set_chat_pref(
+        self, chat_id: int, *, mode: str, ingest: bool, title: str = ""
+    ) -> None:
+        """Write the owner's per-chat preference and the reply-routing kv atomically.
+
+        ``telegram_allowed_chat_ids`` stays the source of truth the Telegram
+        transport reads (see ``allowed_chat_ids``); this write-through keeps
+        it in sync with the pref row in the SAME transaction, so a crash
+        between the two writes cannot leave the settings page and the
+        running bot disagreeing about who Persona answers.
+        """
+        chat = int(chat_id)
+        clean_mode = str(mode or "").strip()
+        if clean_mode not in {"reply", "read", "ignore"}:
+            raise ValueError("invalid Telegram chat pref mode")
+        clean_title = str(title or "").strip()[:240]
+        async with write_transaction() as conn:
+            await conn.execute(
+                """
+                INSERT INTO telegram_chat_pref(
+                    telegram_chat_id, title, mode, ingest, updated_at
+                )
+                VALUES(?,?,?,?,datetime('now'))
+                ON CONFLICT(telegram_chat_id) DO UPDATE SET
+                    title=excluded.title,
+                    mode=excluded.mode,
+                    ingest=excluded.ingest,
+                    updated_at=excluded.updated_at
+                """,
+                (chat, clean_title, clean_mode, int(bool(ingest))),
+            )
+            raw = await get_kv(conn, _ALLOWED_CHATS_KEY)
+            try:
+                values = {
+                    int(value)
+                    for value in json.loads(raw or "[]")
+                    if isinstance(value, int)
+                    or (isinstance(value, str) and value.lstrip("-").isdigit())
+                }
+            except (TypeError, ValueError):
+                values = set()
+            if clean_mode == "reply":
+                values.add(chat)
+            else:
+                values.discard(chat)
+            # NOTE: not using set_kv() here -- it calls conn.commit(), which
+            # would end the explicit write_transaction early. Same upsert,
+            # inline, so both writes land in ONE transaction.
+            await conn.execute(
+                """
+                INSERT INTO kv_settings(key, value, updated_at)
+                VALUES(?, ?, datetime('now'))
+                ON CONFLICT(key) DO UPDATE SET
+                    value=excluded.value,
+                    updated_at=excluded.updated_at
+                """,
+                (_ALLOWED_CHATS_KEY, json.dumps(sorted(values))),
+            )
+
+    async def chat_pref(self, chat_id: int) -> dict[str, Any] | None:
+        async with get_connection() as conn:
+            cursor = await conn.execute(
+                """
+                SELECT telegram_chat_id, title, mode, ingest, updated_at
+                  FROM telegram_chat_pref
+                 WHERE telegram_chat_id=?
+                """,
+                (int(chat_id),),
+            )
+            row = await cursor.fetchone()
+        return _pref_row(row) if row is not None else None
+
+    async def list_chat_prefs(self) -> list[dict[str, Any]]:
+        async with get_connection() as conn:
+            cursor = await conn.execute(
+                """
+                SELECT telegram_chat_id, title, mode, ingest, updated_at
+                  FROM telegram_chat_pref
+                 ORDER BY telegram_chat_id
+                """
+            )
+            rows = await cursor.fetchall()
+        return [_pref_row(row) for row in rows]
+
+    async def ingest_chat_ids(self) -> set[int]:
+        async with get_connection() as conn:
+            cursor = await conn.execute(
+                "SELECT telegram_chat_id FROM telegram_chat_pref WHERE ingest=1"
+            )
+            rows = await cursor.fetchall()
+        return {int(row["telegram_chat_id"]) for row in rows}
+
     async def group_behavior_rules(self, chat_id: int) -> tuple[str, ...]:
         """Return owner-authored, group-local behavior rules, oldest first."""
         async with get_connection() as conn:
@@ -495,6 +588,16 @@ class TelegramRepository:
     async def clear_last_bot_message(self, chat_id: int) -> None:
         async with get_connection() as conn:
             await delete_kv(conn, _last_bot_message_key(int(chat_id)))
+
+
+def _pref_row(row: Any) -> dict[str, Any]:
+    return {
+        "telegram_chat_id": int(row["telegram_chat_id"]),
+        "title": str(row["title"] or ""),
+        "mode": str(row["mode"]),
+        "ingest": bool(row["ingest"]),
+        "updated_at": row["updated_at"],
+    }
 
 
 def _session_key(chat_id: int) -> str:
