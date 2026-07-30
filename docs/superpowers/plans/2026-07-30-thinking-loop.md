@@ -179,13 +179,13 @@ Expected: FAIL with `ModuleNotFoundError: No module named 'app.thinking'`.
 
 Create `app/thinking/__init__.py` containing only `from app.thinking.store import ThoughtStore` and `__all__ = ["ThoughtStore"]`.
 
-Create `app/thinking/store.py` implementing `ThoughtStore` with the seven methods from **Interfaces** above, using `write_transaction()` for writes and `get_connection()` for reads, following the style of `app/integrations/telegram/people.py` (which is the closest existing repository in this codebase — read it first for conventions).
+Create `app/thinking/store.py` implementing `ThoughtStore` with the six methods from **Interfaces** above, using `write_transaction()` for writes and `get_connection()` for reads, following the style of `app/integrations/telegram/people.py` (which is the closest existing repository in this codebase — read it first for conventions).
 
 Rules the implementation must honour:
 - `open_chain` inserts one `persona_thought_chain` row plus the `seed` row at `step_no = 0`, in ONE transaction.
 - `append_step` allocates `step_no = MAX(step_no) + 1` for that chain inside the same transaction as the insert, so two concurrent appends cannot collide on the `UNIQUE (chain_id, step_no)` constraint.
 - `close_chain` writes the `conclusion` row at the next `step_no` and flips the chain's `status` to `'closed'` with `closed_at`, in ONE transaction.
-- `abandon_open_steps` does NOT delete anything and does NOT close the chain — the owner interrupted, and the chain must resume later with its steps intact. Implement it as a no-op over the rows plus whatever bookkeeping you need; if you find it needs no work at all given the schema, keep the method (callers depend on it) and say so in your report.
+- There is deliberately NO abandon/cancel method. When the owner interrupts, the in-flight step simply never gets written and the chain stays the oldest open one — that IS the preemption mechanism. Do not add a method for it.
 - `steps_used_today` counts `persona_thought` rows for that tenant with `date(created_at) = date('now')`.
 - Text is clipped to 4000 characters on write.
 
