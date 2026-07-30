@@ -111,7 +111,11 @@ class PersonaTelegramService:
                 metadata={
                     # 2 000 обрывало JSON участников на середине — бот переставал
                     # различать людей. Блок строится сервером и ограничен 40 людьми.
-                    "telegram_identity_context": trusted_identity_context[:12_000]
+                    "telegram_identity_context": trusted_identity_context[:12_000],
+                    # Lets a Telegram-aware tools port (see worker.py's
+                    # confirmation wrapper) know where to post the
+                    # confirm/cancel card for an execution-class tool call.
+                    "telegram_chat_id": str(int(telegram_chat_id)),
                 },
             )
         )

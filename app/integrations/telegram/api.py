@@ -83,7 +83,9 @@ class TelegramBotAPI:
             {
                 "offset": offset,
                 "timeout": timeout_seconds,
-                "allowed_updates": ["message", "edited_message"],
+                # "callback_query" delivers the confirm/cancel button presses
+                # for parked execution-class actions (see pending_actions.py).
+                "allowed_updates": ["message", "edited_message", "callback_query"],
             },
             timeout=float(timeout_seconds + 15),
         )
@@ -114,6 +116,53 @@ class TelegramBotAPI:
             if message_id is not None:
                 sent_ids.append(message_id)
         return tuple(sent_ids)
+
+    async def send_message_with_buttons(
+        self,
+        chat_id: int,
+        text: str,
+        buttons: list[tuple[str, str]],
+        *,
+        reply_to_message_id: int | None = None,
+    ) -> int | None:
+        """Send one message with an inline keyboard, one button per row.
+
+        ``buttons`` are ``(label, callback_data)`` pairs. Used for the
+        execution-action confirmation card: ``callback_data`` carries ONLY
+        the opaque pending id -- never the tool name or arguments, which
+        the callback handler must always re-read from the parked DB row
+        (see ``PendingActionStore``), not from this payload.
+        """
+        payload: dict[str, Any] = {
+            "chat_id": chat_id,
+            "text": text[:4_000],
+            "link_preview_options": {"is_disabled": True},
+            "reply_markup": {
+                "inline_keyboard": [
+                    [{"text": label, "callback_data": data}]
+                    for label, data in buttons
+                ]
+            },
+        }
+        _set_reply(payload, reply_to_message_id)
+        return _message_id(await self.call("sendMessage", payload, timeout=30.0))
+
+    async def answer_callback_query(
+        self,
+        callback_query_id: str,
+        *,
+        text: str = "",
+        show_alert: bool = False,
+    ) -> None:
+        await self.call(
+            "answerCallbackQuery",
+            {
+                "callback_query_id": callback_query_id,
+                "text": text[:200],
+                "show_alert": show_alert,
+            },
+            timeout=10.0,
+        )
 
     async def send_chat_action(self, chat_id: int, action: str) -> None:
         await self.call(

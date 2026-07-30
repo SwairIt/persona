@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import re
 import secrets
@@ -16,7 +17,17 @@ from typing import TYPE_CHECKING, Any
 
 import psutil
 
+from app.adapters.conversation.legacy import (
+    LegacyConversationCancellation,
+    LegacyConversationRepository,
+    LegacyConversationTools,
+    LegacyModelAdapter,
+    LegacyPostTurnAdapter,
+    PersonaContextAdapter,
+)
+from app.application.chat import ConversationService, ToolExecution
 from app.auth.owner import get_owner_user_id
+from app.domains.chat import ConversationSurface
 from app.integrations.telegram.actions import (
     TelegramActionPlan,
     immediate_reaction,
@@ -31,6 +42,7 @@ from app.integrations.telegram.media import (
     build_media_context,
     non_file_content_summary,
 )
+from app.integrations.telegram.pending_actions import PendingActionStore
 from app.integrations.telegram.people import TelegramPeopleRepository, TelegramPerson
 from app.integrations.telegram.repository import (
     TelegramBinding,
@@ -39,8 +51,10 @@ from app.integrations.telegram.repository import (
 from app.integrations.telegram.service import PersonaTelegramService
 from app.integrations.telegram.tool_policy import allowed_tools
 from app.logging_setup import get_logger
+from app.mcp.tool_policy import ToolRisk, tool_risk
 
 if TYPE_CHECKING:
+    from app.application.chat import ToolCall, TurnCommand
     from app.integrations.telegram.config import TelegramConfig
 
 log = get_logger("persona.telegram.worker")
@@ -76,6 +90,107 @@ _HELP = (
 )
 
 
+#: Prefix for the inline-button ``callback_data`` -- the payload carries
+#: ONLY this prefix plus the opaque pending id, never the tool name or
+#: arguments. See ``PendingActionStore`` and ``_ConfirmingTelegramTools``.
+_CONFIRM_PREFIX = "persona_confirm:"
+_CANCEL_PREFIX = "persona_cancel:"
+
+
+class _ConfirmingTelegramTools:
+    """Park execution-class Telegram tool calls behind a one-shot button.
+
+    Wraps ``LegacyConversationTools`` (the same adapter web turns use) and
+    intercepts only ``execute()``. Read-only/mutating tools still run
+    inline, unchanged. An EXECUTION- or DESTRUCTIVE-risk tool call is
+    parked via ``PendingActionStore`` and answered with an inline-keyboard
+    confirmation card instead of running -- this is the one rule the whole
+    plan exists to protect: nothing that can execute code or otherwise
+    change the machine runs from Telegram text without an explicit button
+    press, and the button press itself re-reads its arguments from the
+    parked DB row (see ``TelegramWorker._handle_callback_query``), never
+    from the callback payload.
+    """
+
+    def __init__(
+        self,
+        api: TelegramBotAPI,
+        pending: PendingActionStore,
+        inner: LegacyConversationTools,
+    ) -> None:
+        self._api = api
+        self._pending = pending
+        self._inner = inner
+
+    def parse_calls(self, text: str) -> tuple[ToolCall, ...]:
+        return self._inner.parse_calls(text)
+
+    async def approved_tool_names(self, command: TurnCommand) -> frozenset[str]:
+        return await self._inner.approved_tool_names(command)
+
+    async def execute(self, command: TurnCommand, call: ToolCall) -> ToolExecution:
+        if command.surface is ConversationSurface.TELEGRAM and tool_risk(
+            call.name
+        ) in (ToolRisk.EXECUTION, ToolRisk.DESTRUCTIVE):
+            return await self._park_for_confirmation(command, call)
+        return await self._inner.execute(command, call)
+
+    async def _park_for_confirmation(
+        self,
+        command: TurnCommand,
+        call: ToolCall,
+    ) -> ToolExecution:
+        chat_id = _int(command.metadata.get("telegram_chat_id"))
+        if chat_id is None:
+            # No chat to confirm in -- fail closed, never execute inline.
+            return ToolExecution(
+                call,
+                "[error] no confirmation channel available for this action",
+                is_error=True,
+            )
+        pending_id = await self._pending.park(
+            int(command.actor.tenant_id),
+            tool_name=call.name,
+            args=dict(call.arguments),
+            chat_id=chat_id,
+        )
+        args_preview = json.dumps(dict(call.arguments), ensure_ascii=False)[:500]
+        await self._api.send_message_with_buttons(
+            chat_id,
+            "Persona хочет выполнить действие, требующее подтверждения:\n\n"
+            f"{call.name}({args_preview})\n\n"
+            f"Истекает через {self._pending.TTL_MINUTES} мин.",
+            [
+                ("✅ Подтвердить", f"{_CONFIRM_PREFIX}{pending_id}"),
+                ("❌ Отмена", f"{_CANCEL_PREFIX}{pending_id}"),
+            ],
+        )
+        return ToolExecution(
+            call,
+            "[ожидание] Persona отправила запрос на подтверждение этого "
+            "действия в Telegram -- нажми кнопку, чтобы выполнить его.",
+            is_error=True,
+        )
+
+
+def _build_confirming_conversation_service(
+    api: TelegramBotAPI,
+    pending: PendingActionStore,
+) -> ConversationService:
+    """Same components as ``build_conversation_service()`` (the web/legacy
+    default), except the tools port is wrapped so Telegram execution-class
+    calls park behind a confirmation instead of running inline.
+    """
+    return ConversationService(
+        LegacyConversationRepository(),
+        PersonaContextAdapter(),
+        LegacyModelAdapter(),
+        LegacyPostTurnAdapter(),
+        tools=_ConfirmingTelegramTools(api, pending, LegacyConversationTools()),
+        cancellation=LegacyConversationCancellation(),
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class IncomingMessage:
     update_id: int
@@ -109,11 +224,18 @@ class TelegramWorker:
         repository: TelegramRepository | None = None,
         service: PersonaTelegramService | None = None,
         people_repository: TelegramPeopleRepository | None = None,
+        pending_actions: PendingActionStore | None = None,
     ) -> None:
         self.config = config
         self.api = api or TelegramBotAPI(config.bot_token)
         self.repository = repository or TelegramRepository()
-        self.service = service or PersonaTelegramService(self.repository)
+        self.pending_actions = pending_actions or PendingActionStore()
+        self.service = service or PersonaTelegramService(
+            self.repository,
+            conversation_service=_build_confirming_conversation_service(
+                self.api, self.pending_actions
+            ),
+        )
         self.people = people_repository
         if self.people is None and repository is None:
             self.people = TelegramPeopleRepository()
@@ -374,6 +496,10 @@ class TelegramWorker:
     async def handle_update(  # noqa: PLR0911,PLR0912,PLR0915 - explicit exits
         self, update: dict[str, Any]
     ) -> None:
+        callback = update.get("callback_query")
+        if isinstance(callback, dict):
+            await self._handle_callback_query(callback)
+            return
         incoming = _incoming_message(update)
         if incoming is None:
             return
@@ -901,6 +1027,84 @@ class TelegramWorker:
                 reply_to_message_id=incoming.message_id,
             )
         return True
+
+    async def _handle_callback_query(self, callback: dict[str, Any]) -> None:
+        """Handle a confirm/cancel button press for a parked execution action.
+
+        The callback payload carries ONLY the pending id (see
+        ``_ConfirmingTelegramTools``/``_CONFIRM_PREFIX``). Every argument
+        the tool actually runs with is re-read from the parked DB row via
+        ``PendingActionStore.claim`` -- never from this payload -- so a
+        button whose visible label was tampered with cannot change what
+        executes.
+        """
+        callback_id = str(callback.get("id") or "")
+        data = str(callback.get("data") or "")
+        is_confirm = data.startswith(_CONFIRM_PREFIX)
+        is_cancel = data.startswith(_CANCEL_PREFIX)
+        if not is_confirm and not is_cancel:
+            if callback_id:
+                await self.api.answer_callback_query(callback_id)
+            return
+        raw_id = data[len(_CONFIRM_PREFIX) :] if is_confirm else data[len(_CANCEL_PREFIX) :]
+        pending_id = _int(raw_id)
+        from_user = callback.get("from")
+        sender_id = _int(from_user.get("id")) if isinstance(from_user, dict) else None
+
+        binding = await self.repository.get_binding()
+        if binding is None or sender_id is None or sender_id != binding.telegram_user_id:
+            # Refuse outright: only the bound owner may ever confirm an
+            # execution-class action, regardless of who pressed the button.
+            if callback_id:
+                await self.api.answer_callback_query(
+                    callback_id,
+                    text="Только владелец может подтверждать это действие.",
+                    show_alert=True,
+                )
+            return
+        if pending_id is None:
+            if callback_id:
+                await self.api.answer_callback_query(callback_id, text="Некорректный запрос.")
+            return
+
+        row = await self.pending_actions.claim(binding.persona_user_id, pending_id)
+        if row is None:
+            if callback_id:
+                await self.api.answer_callback_query(
+                    callback_id,
+                    text="Уже использовано или истёк срок.",
+                    show_alert=True,
+                )
+            return
+
+        chat_id = int(row["telegram_chat_id"])
+        if not is_confirm:
+            if callback_id:
+                await self.api.answer_callback_query(callback_id, text="Отменено.")
+            await self.api.send_message(chat_id, "Действие отменено.")
+            return
+
+        from app.mcp import call_tool  # noqa: PLC0415
+
+        try:
+            output = await call_tool(
+                str(row["tool_name"]),
+                dict(row["args"]),
+                user_id=int(row["persona_user_id"]),
+            )
+        except Exception as exc:
+            log.warning(
+                "telegram.confirm.execute_failed",
+                tool=str(row["tool_name"]),
+                error_type=type(exc).__name__,
+            )
+            output = f"[error] {type(exc).__name__}"
+        if callback_id:
+            await self.api.answer_callback_query(callback_id, text="Выполнено.")
+        await self.api.send_message(
+            chat_id,
+            f"Выполнено: {row['tool_name']}\n\n{output}",
+        )
 
     async def _claim(
         self,
