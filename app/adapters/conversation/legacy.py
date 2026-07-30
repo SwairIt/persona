@@ -248,7 +248,11 @@ class PersonaContextAdapter:
             # the prompt never dangles a schema the turn cannot execute.
             policy = command.effective_tool_policy
             allowed = policy.allowed_tool_names if policy is not None else frozenset()
-            system = await self._tools_context(system, allowed or None)
+            system = await self._tools_context(
+                system,
+                allowed or None,
+                is_owner=command.actor.is_owner,
+            )
 
         transcript = _bounded_transcript(
             history,
@@ -340,6 +344,8 @@ class PersonaContextAdapter:
         self,
         system: str,
         allowed: frozenset[str] | None = None,
+        *,
+        is_owner: bool = False,
     ) -> str:
         try:
             from app.mcp import (  # noqa: PLC0415
@@ -347,7 +353,15 @@ class PersonaContextAdapter:
                 build_tools_prompt,
             )
 
-            enabled = _safe_tool_names(await all_enabled_tool_names())
+            raw = await all_enabled_tool_names()
+            if is_owner:
+                # The owner's explicit, repeated instruction: his own turns
+                # advertise every enabled tool, including web_browse and
+                # fetch_json -- no autonomy stripping. A group turn still
+                # narrows via ``allowed`` below even when the owner sent it.
+                enabled = [name for name in raw if is_valid_tool_wire_name(name)]
+            else:
+                enabled = _safe_tool_names(raw)
             if allowed is not None:
                 enabled = [name for name in enabled if name in allowed]
             return system + build_tools_prompt(enabled)
@@ -404,18 +418,7 @@ class LegacyConversationTools:
     async def approved_tool_names(self, command: TurnCommand) -> frozenset[str]:
         if not command.allow_tools:
             return frozenset()
-        from app.mcp import all_enabled_tool_names  # noqa: PLC0415
-
-        approved = frozenset(_safe_tool_names(await all_enabled_tool_names()))
-        if not command.actor.is_owner:
-            # A non-owner turn only ever reaches here with an explicit,
-            # narrower tool_policy (see TurnCommand.__post_init__), so
-            # intersect defensively even though the caller already does
-            # this with command.effective_tool_policy.
-            policy = command.effective_tool_policy
-            allowed = policy.allowed_tool_names if policy is not None else frozenset()
-            approved &= allowed
-        return approved
+        return await _approved_names(command)
 
     def parse_calls(self, text: str) -> tuple[ToolCall, ...]:
         from app.mcp import parse_tool_calls  # noqa: PLC0415
@@ -445,13 +448,12 @@ class LegacyConversationTools:
     ) -> ToolExecution:
         if not command.allow_tools:
             raise PermissionError("conversation tools require an allowed turn")
-        from app.mcp import all_enabled_tool_names, call_tool  # noqa: PLC0415
+        from app.mcp import call_tool  # noqa: PLC0415
 
-        approved = frozenset(_safe_tool_names(await all_enabled_tool_names()))
-        if not command.actor.is_owner:
-            policy = command.effective_tool_policy
-            allowed = policy.allowed_tool_names if policy is not None else frozenset()
-            approved &= allowed
+        # Re-check the mutable registry (and, for non-owner turns, the
+        # policy) immediately before the side effect -- a tool disabled
+        # mid-turn must take effect at once.
+        approved = await _approved_names(command)
         if call.name not in approved:
             return ToolExecution(
                 call,
@@ -478,6 +480,32 @@ def _safe_tool_names(names: list[str]) -> list[str]:
         for name in autonomous_tool_names(names)
         if is_valid_tool_wire_name(name)
     ]
+
+
+async def _approved_names(command: TurnCommand) -> frozenset[str]:
+    """Tool names approved for one turn -- prompt-advertising and execution
+    must agree, so both ``approved_tool_names`` and ``execute`` call this.
+
+    Owner turns get every enabled tool, no autonomy stripping: this is the
+    owner's explicit, repeated instruction for full internet access,
+    including ``web_browse`` and ``fetch_json``. It is his machine. Every
+    other turn still goes through ``_safe_tool_names`` (the reviewed
+    read-only risk filter in ``app.mcp.tool_policy``) intersected with
+    whatever narrower ``tool_policy`` the turn carries. A group turn is
+    narrowed again, independently, by ``ConversationService``'s own
+    intersection with ``policy.allowed_tool_names`` -- so even a message
+    the owner sent from a group never executes more than that policy
+    allows.
+    """
+    from app.mcp import all_enabled_tool_names  # noqa: PLC0415
+
+    raw = await all_enabled_tool_names()
+    if command.actor.is_owner:
+        return frozenset(name for name in raw if is_valid_tool_wire_name(name))
+    approved = frozenset(_safe_tool_names(raw))
+    policy = command.effective_tool_policy
+    allowed = policy.allowed_tool_names if policy is not None else frozenset()
+    return approved & allowed
 
 
 class LegacyConversationCancellation:

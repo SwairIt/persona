@@ -1920,6 +1920,97 @@ async def test_legacy_tool_adapter_rechecks_registry_before_execution(
 
 
 @pytest.mark.asyncio
+async def test_owner_turn_gets_web_browse_and_fetch_json_unstripped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PIECE A proof: the owner's own turn must not have web_browse or
+    fetch_json stripped by the autonomy risk filter, going through the
+    exact same approved_tool_names()/execute() path a real owner turn
+    uses -- not by reading tool_policy.py source.
+    """
+    from app import mcp  # noqa: PLC0415
+    from app.adapters.conversation.legacy import (  # noqa: PLC0415
+        LegacyConversationTools,
+    )
+
+    enabled = ["web_search", "web_browse", "fetch_json"]
+    calls: list[tuple[str, dict[str, Any]]] = []
+
+    async def enabled_names() -> list[str]:
+        return enabled
+
+    async def call_tool(
+        name: str,
+        arguments: dict[str, Any],
+        *,
+        user_id: int,
+        session_id: int,
+    ) -> str:
+        del user_id, session_id
+        calls.append((name, arguments))
+        return f"{name} ok"
+
+    monkeypatch.setattr(mcp, "all_enabled_tool_names", enabled_names)
+    monkeypatch.setattr(mcp, "call_tool", call_tool)
+    adapter = LegacyConversationTools()
+    command = _tool_command(ConversationSurface.TELEGRAM)
+    assert command.actor.is_owner is True
+
+    approved = await adapter.approved_tool_names(command)
+    assert approved == frozenset({"web_search", "web_browse", "fetch_json"})
+
+    browse = await adapter.execute(
+        command, ToolCall("web_browse", {"url": "https://example.com"})
+    )
+    fetch = await adapter.execute(
+        command, ToolCall("fetch_json", {"url": "https://example.com"})
+    )
+    assert browse.is_error is False
+    assert fetch.is_error is False
+    assert calls == [
+        ("web_browse", {"url": "https://example.com"}),
+        ("fetch_json", {"url": "https://example.com"}),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_non_owner_turn_still_strips_web_browse_and_fetch_json(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The narrowing side of PIECE A: a non-owner (e.g. group) turn keeps
+    the pre-existing autonomy stripping, so web_browse/fetch_json never
+    reach approval even if the enabled registry includes them.
+    """
+    from app import mcp  # noqa: PLC0415
+    from app.adapters.conversation.legacy import (  # noqa: PLC0415
+        LegacyConversationTools,
+    )
+    from app.domains.chat import ActorContext, ConversationId, TenantId, UserId
+
+    async def enabled_names() -> list[str]:
+        return ["web_search", "web_browse", "fetch_json"]
+
+    monkeypatch.setattr(mcp, "all_enabled_tool_names", enabled_names)
+    adapter = LegacyConversationTools()
+    command = TurnCommand(
+        actor=ActorContext(
+            tenant_id=TenantId(7),
+            user_id=UserId(7),
+            is_owner=False,
+        ),
+        surface=ConversationSurface.TELEGRAM,
+        conversation_id=ConversationId(11),
+        text="group turn",
+        include_private_context=False,
+        allow_tools=True,
+        tool_policy=ToolTurnPolicy(allowed_tool_names=frozenset({"web_search"})),
+    )
+
+    approved = await adapter.approved_tool_names(command)
+    assert approved == frozenset({"web_search"})
+
+
+@pytest.mark.asyncio
 async def test_context_advertises_only_executable_tool_wire_names(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

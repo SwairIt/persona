@@ -4,10 +4,21 @@ Persona's group input includes text written by other people -- in the
 owner's group there are two humans and two AI agents alongside the owner.
 Anything that can execute code or otherwise change the machine must never
 be reachable from that text, so it stays entirely out of group reach no
-matter who is speaking. Read-only internet access is different in kind:
-fetching a page cannot alter the machine, and ``_url_is_safe`` in
-``app/mcp/builtin_tools.py`` already blocks private-network and loopback
-targets, so it is opened everywhere.
+matter who is speaking.
+
+Group access is deliberately narrower than "read-only": only
+``web_search`` is offered there.
+
+- ``fetch_json`` accepts POST/PUT/PATCH with arbitrary headers and body --
+  pointed at the internet from the owner's IP, driven by text a stranger
+  wrote in a group. See ``app/mcp/tool_policy.py`` for the same risk
+  classification (``ToolRisk.MUTATING``).
+- ``web_browse`` bypasses the SSRF policy that ``_url_is_safe`` in
+  ``app/mcp/builtin_tools.py`` provides for other tools (see
+  ``ToolRisk.UNSAFE_NETWORK`` in ``app/mcp/tool_policy.py``).
+- ``web_search`` goes through a search provider and carries neither
+  property, so it stays safe everywhere, including group chats where the
+  sender may not be the owner.
 
 This module intentionally replaces a keyword/length heuristic that used
 to silently mute every tool whenever the owner's message was short and
@@ -16,9 +27,9 @@ matched no trigger word.
 
 from __future__ import annotations
 
-#: Tools that can only ever read from the public internet. Safe everywhere,
-#: including group chats where the sender may not be the owner.
-READ_ONLY_TOOLS: frozenset[str] = frozenset({"web_search", "web_browse", "fetch_json"})
+#: The only tool offered in group chats, regardless of who is speaking --
+#: see the module docstring for why web_browse and fetch_json are excluded.
+READ_ONLY_TOOLS: frozenset[str] = frozenset({"web_search"})
 
 
 def allowed_tools(*, is_owner: bool, is_group: bool) -> frozenset[str] | None:
