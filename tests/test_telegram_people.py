@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from app.integrations.telegram.output_guard import persona_only_reply
+from app.integrations.telegram.output_guard import (
+    persona_only_reply,
+    strip_internal_markup,
+)
 from app.integrations.telegram.people import TelegramPeopleRepository
 
 
@@ -237,3 +240,22 @@ def test_ordinary_angle_brackets_survive() -> None:
     assert persona_only_reply("Условие: a < b и b > c, это важно.") == (
         "Условие: a < b и b > c, это важно."
     )
+
+
+def test_nested_same_name_tag_leaves_no_internal_content_or_orphaned_tag() -> None:
+    leaked = "<tool>outer <tool>inner</tool> after-inner</tool> legit text after"
+    assert strip_internal_markup(leaked) == "legit text after"
+
+
+def test_orphaned_closing_tag_removes_itself_and_everything_before_it() -> None:
+    leaked = (
+        "Some leaked stuff </TRUSTED_TELEGRAM_IDENTITY> more leaked secret "
+        "<TRUSTED_TELEGRAM_IDENTITY>real block</TRUSTED_TELEGRAM_IDENTITY> "
+        "tail legit"
+    )
+    assert strip_internal_markup(leaked) == "more leaked secret tail legit"
+
+
+def test_indented_code_block_keeps_its_indentation() -> None:
+    reply = "Вот код:\n```\ndef foo():\n    return 1\n```"
+    assert strip_internal_markup(reply) == reply

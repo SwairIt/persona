@@ -97,9 +97,12 @@ _INTERNAL_TAGS = (
     "ADAPTIVE_PERSONA_LAYER",
     "tool",
 )
-_INTERNAL_BLOCK_RE = re.compile(
-    r"<(?P<tag>" + "|".join(_INTERNAL_TAGS) + r")\b[^>]*>.*?(?:</(?P=tag)>|\Z)",
-    re.IGNORECASE | re.DOTALL,
+_INTERNAL_TAG_ALTERNATION = "|".join(_INTERNAL_TAGS)
+# Matches either an opening (``<TAG ...>``) or a closing (``</TAG>``) internal
+# tag; the ``slash`` group tells the scanner below which one it hit.
+_INTERNAL_TAG_EVENT_RE = re.compile(
+    r"<(?P<slash>/?)(?P<tag>" + _INTERNAL_TAG_ALTERNATION + r")\b[^>]*>",
+    re.IGNORECASE,
 )
 _INTERNAL_LINE_RE = re.compile(
     r"^\s*(?:"
@@ -111,18 +114,70 @@ _INTERNAL_LINE_RE = re.compile(
     r").*$",
     re.IGNORECASE | re.MULTILINE,
 )
+# Collapse only space/tab runs that follow a non-whitespace character, so
+# line-leading indentation (e.g. inside a code block) is never touched.
+_MID_LINE_SPACE_RE = re.compile(r"(?<=\S)[ \t]+")
+_TRAILING_LINE_SPACE_RE = re.compile(r"[ \t]+$", re.MULTILINE)
+
+
+def _closing_tag_re(tag: str) -> re.Pattern[str]:
+    return re.compile(r"</" + re.escape(tag) + r"\s*>", re.IGNORECASE)
+
+
+def _strip_internal_tag_blocks(text: str) -> str:
+    """Remove every internal-tag block, however it is malformed.
+
+    An unmatched opening tag eats to the end of the string (a truncated
+    generation leaves the rest as internal text). Symmetrically, a stray
+    closing tag with no opening before it eats from the start of the string
+    up to and including itself — content before it cannot be trusted either,
+    since it is what led into that unmatched closer. A matched pair consumes
+    through the *last* same-named closing tag rather than the first, so a
+    nested occurrence of the same tag cannot leave an orphaned closer and a
+    tail of internal content behind.
+    """
+    kept: list[str] = []
+    pos = 0
+    length = len(text)
+    while pos < length:
+        match = _INTERNAL_TAG_EVENT_RE.search(text, pos)
+        if match is None:
+            kept.append(text[pos:])
+            break
+        if match.group("slash"):
+            # Orphaned closing tag: discard everything gathered so far plus
+            # this tag itself, then resume scanning after it.
+            kept.clear()
+            pos = match.end()
+            continue
+        kept.append(text[pos:match.start()])
+        closing_re = _closing_tag_re(match.group("tag"))
+        last_close = None
+        for close_match in closing_re.finditer(text, match.end()):
+            last_close = close_match
+        if last_close is None:
+            # Unmatched opening tag: everything after it is internal.
+            pos = length
+            break
+        pos = last_close.end()
+    return "".join(kept)
 
 
 def strip_internal_markup(value: str) -> str:
     """Удалить служебные секции промпта, если модель их воспроизвела.
 
     Ловит и незакрытый тег: обрыв генерации оставляет открывающий тег без
-    пары, и всё после него — служебный текст.
+    пары, и всё после него — служебный текст. Симметрично: одинокий
+    закрывающий тег без пары съедает всё до себя включительно, а вложенный
+    тег с тем же именем закрывается по последнему закрывающему тегу, чтобы
+    не оставался «хвост» служебного текста.
     """
     text = str(value or "")
-    text = _INTERNAL_BLOCK_RE.sub(" ", text)
+    text = _strip_internal_tag_blocks(text)
     text = _INTERNAL_LINE_RE.sub("", text)
-    return re.sub(r"[ \t]+", " ", text).strip()
+    text = _MID_LINE_SPACE_RE.sub(" ", text)
+    text = _TRAILING_LINE_SPACE_RE.sub("", text)
+    return text.strip()
 
 
 def _normalise_speaker(value: str) -> str:
