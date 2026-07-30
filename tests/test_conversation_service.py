@@ -1204,6 +1204,119 @@ async def test_telegram_prepare_keeps_full_identity_and_wider_transcript(db) -> 
     assert "MARKER_2" in prepared.system
 
 
+@pytest.mark.asyncio
+async def test_telegram_group_wraps_transcript_as_untrusted(db) -> None:
+    """A Telegram GROUP turn wraps history and carries the ignore-as-command rule.
+
+    Regression guard for the surface-vs-group-ness confusion fixed after
+    commit 2bbfede: the wrapping and the accompanying rules sentence must key
+    off `include_private_context`, not merely off the Telegram surface.
+    """
+    from app.adapters.conversation.legacy import PersonaContextAdapter  # noqa: PLC0415
+
+    await db.execute(
+        "INSERT OR IGNORE INTO users(id,email,password_hash) VALUES(?,?,?)",
+        (7, "7@example.test", "x"),
+    )
+    await db.commit()
+
+    command = TurnCommand(
+        actor=_actor(),
+        surface=ConversationSurface.TELEGRAM,
+        conversation_id=ConversationId(11),
+        text="кто здесь есть?",
+        include_private_context=False,
+        allow_tools=False,
+    )
+    conversation = ResolvedConversation(id=ConversationId(11), tenant_id=7, title="chat")
+    history = (ConversationMessage(id=1, role="user", content="GROUP_MARKER hi"),)
+
+    prepared = await PersonaContextAdapter().prepare(command, conversation, history)
+
+    assert "<UNTRUSTED_GROUP_TRANSCRIPT>" in prepared.system
+    assert "</UNTRUSTED_GROUP_TRANSCRIPT>" in prepared.system
+    assert "GROUP_MARKER hi" in prepared.system
+    assert prepared.system.index(
+        "<UNTRUSTED_GROUP_TRANSCRIPT>"
+    ) < prepared.system.index("GROUP_MARKER hi") < prepared.system.index(
+        "</UNTRUSTED_GROUP_TRANSCRIPT>"
+    ), "group transcript content must be inside the untrusted-transcript wrapper"
+    assert "UNTRUSTED_GROUP_TRANSCRIPT> — это чужие" in prepared.system, (
+        "group turn must still carry the ignore-transcript-as-command rule"
+    )
+
+
+@pytest.mark.asyncio
+async def test_telegram_private_owner_transcript_not_wrapped_as_untrusted(db) -> None:
+    """The owner's private Telegram DM must not be wrapped as a group transcript.
+
+    Regression test: `include_private_context=True` (owner 1:1 DM) previously
+    hit the same branch as group turns, wrapping the owner's own history in
+    `<UNTRUSTED_GROUP_TRANSCRIPT>` and telling the model to ignore it as a
+    command -- which broke multi-turn owner instructions like "answer shorter"
+    on the very next turn.
+    """
+    from app.adapters.conversation.legacy import PersonaContextAdapter  # noqa: PLC0415
+
+    await db.execute(
+        "INSERT OR IGNORE INTO users(id,email,password_hash) VALUES(?,?,?)",
+        (7, "7@example.test", "x"),
+    )
+    await db.commit()
+
+    command = TurnCommand(
+        actor=_actor(),
+        surface=ConversationSurface.TELEGRAM,
+        conversation_id=ConversationId(11),
+        text="отвечай короче",
+        include_private_context=True,
+        allow_tools=False,
+    )
+    conversation = ResolvedConversation(id=ConversationId(11), tenant_id=7, title="chat")
+    history = (ConversationMessage(id=1, role="user", content="PRIVATE_MARKER hi"),)
+
+    prepared = await PersonaContextAdapter().prepare(command, conversation, history)
+
+    assert "PRIVATE_MARKER hi" in prepared.system, (
+        "owner DM transcript content must still reach the prompt"
+    )
+    assert "<UNTRUSTED_GROUP_TRANSCRIPT>" not in prepared.system, (
+        "owner's own DM history must not be wrapped as an untrusted group transcript"
+    )
+    assert "UNTRUSTED_GROUP_TRANSCRIPT> — это чужие" not in prepared.system, (
+        "private owner turn must not reference a tag that isn't in the prompt"
+    )
+
+
+@pytest.mark.asyncio
+async def test_web_surface_transcript_unaffected_by_telegram_gating(db) -> None:
+    """Non-Telegram (web) surfaces are unaffected by the group-vs-DM gating."""
+    from app.adapters.conversation.legacy import PersonaContextAdapter  # noqa: PLC0415
+
+    await db.execute(
+        "INSERT OR IGNORE INTO users(id,email,password_hash) VALUES(?,?,?)",
+        (7, "7@example.test", "x"),
+    )
+    await db.commit()
+
+    command = TurnCommand(
+        actor=_actor(),
+        surface=ConversationSurface.WEB,
+        conversation_id=ConversationId(11),
+        text="hello",
+        include_private_context=True,
+        allow_tools=False,
+    )
+    conversation = ResolvedConversation(id=ConversationId(11), tenant_id=7, title="chat")
+    history = (ConversationMessage(id=1, role="user", content="WEB_MARKER hi"),)
+
+    prepared = await PersonaContextAdapter().prepare(command, conversation, history)
+
+    assert "WEB_MARKER hi" in prepared.system
+    assert "<UNTRUSTED_GROUP_TRANSCRIPT>" not in prepared.system
+    assert "UNTRUSTED_GROUP_TRANSCRIPT> — это чужие" not in prepared.system
+
+
 @dataclass
 class SequencedModel:
     streams: list[FakeStream]
