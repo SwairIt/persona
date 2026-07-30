@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import socket
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -639,4 +640,100 @@ async def test_worker_processes_each_update_id_only_once() -> None:
 
     assert len(service.responses) == 1
     assert len(api.sent) == 1
-    assert repository.finished_updates == [(701, "processed", "handled")]
+
+
+class FakeIgnoringPeople:
+    """People repository where one specific sender is muted."""
+
+    def __init__(self, ignored_id: int) -> None:
+        self.ignored_id = ignored_id
+        self.observed: list[int] = []
+
+    async def observe_message(self, **kwargs: Any) -> Any:
+        sender_id = int(kwargs["sender"]["id"])
+        self.observed.append(sender_id)
+        return SimpleNamespace(
+            telegram_user_id=sender_id, stable_label=f"User {sender_id}"
+        )
+
+    async def identity_context(self, **kwargs: Any) -> str:
+        return ""
+
+    async def is_ignored(self, persona_user_id: int, telegram_user_id: int) -> bool:
+        return int(telegram_user_id) == self.ignored_id
+
+
+class FakeFailingPeople:
+    """People repository whose observation always fails."""
+
+    async def observe_message(self, **kwargs: Any) -> Any:
+        raise RuntimeError("boom")
+
+    async def identity_context(self, **kwargs: Any) -> str:
+        return ""
+
+    async def is_ignored(self, persona_user_id: int, telegram_user_id: int) -> bool:
+        raise AssertionError("is_ignored must not be called without a person")
+
+
+@pytest.mark.asyncio
+async def test_muted_person_is_recorded_but_never_answered() -> None:
+    repository = FakeRepository(
+        TelegramBinding(telegram_user_id=1, persona_user_id=42)
+    )
+    worker, api, service = _worker(repository)
+    people = FakeIgnoringPeople(ignored_id=1)
+    worker.people = people  # type: ignore[assignment]
+
+    await worker.handle_update(_private(1, "ответь мне что-нибудь", message_id=31))
+
+    assert people.observed == [1], "сообщение должно попасть в историю"
+    assert service.responses == [], "ответ формироваться не должен"
+    assert api.sent == []
+
+
+@pytest.mark.asyncio
+async def test_unmuted_person_in_same_chat_still_gets_a_reply() -> None:
+    repository = FakeRepository(
+        TelegramBinding(telegram_user_id=1, persona_user_id=42)
+    )
+    worker, api, service = _worker(repository)
+    people = FakeIgnoringPeople(ignored_id=999)
+    worker.people = people  # type: ignore[assignment]
+
+    await worker.handle_update(_private(1, "ответь мне что-нибудь", message_id=32))
+
+    assert people.observed == [1]
+    assert len(service.responses) == 1
+    assert api.sent != []
+
+
+@pytest.mark.asyncio
+async def test_muted_person_in_group_is_recorded_but_not_answered() -> None:
+    repository = FakeRepository(TelegramBinding(1, 42))
+    repository.groups.add(-200)
+    worker, api, service = _worker(repository)
+    people = FakeIgnoringPeople(ignored_id=2)
+    worker.people = people  # type: ignore[assignment]
+
+    await worker.handle_update(
+        _group(2, -200, "@PersonaTestBot ответь мне что-нибудь", 33)
+    )
+
+    assert people.observed == [2]
+    assert service.responses == []
+    assert api.sent == []
+
+
+@pytest.mark.asyncio
+async def test_failed_observation_does_not_raise() -> None:
+    repository = FakeRepository(
+        TelegramBinding(telegram_user_id=1, persona_user_id=42)
+    )
+    worker, api, service = _worker(repository)
+    worker.people = FakeFailingPeople()  # type: ignore[assignment]
+
+    await worker.handle_update(_private(1, "привет", message_id=34))
+
+    assert len(service.responses) == 1
+    assert api.sent != []

@@ -453,6 +453,12 @@ class TelegramWorker:
             incoming,
             binding,
         )
+        if person is not None and await self.people.is_ignored(
+            binding.persona_user_id, person.telegram_user_id
+        ):
+            # Message is already recorded above -- Persona still knows what
+            # was said, but the owner switched off replies to this person.
+            return
 
         if await self._handle_owner_command(incoming, is_owner):
             return
