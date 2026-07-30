@@ -26,6 +26,15 @@ _ROLE_CLAIM_RE = re.compile(
 )
 _USERNAME_RE = re.compile(r"^[A-Za-z0-9_]{1,64}$")
 
+# identity_context() is transported downstream inside a hard 12_000-char slice
+# (app/adapters/conversation/legacy.py, app/integrations/telegram/service.py).
+# telegram_person_fact.text is bounded to 20_000 chars at write time, so 20
+# stored claims could alone exceed that transport limit and cut the JSON mid-
+# structure. Bound claims again at READ time, independent of write-time size,
+# so the assembled block can never outgrow the transport cap.
+_MAX_CLAIM_CHARS = 300
+_MAX_CLAIMS_TOTAL_CHARS = 4_000
+
 
 @dataclass(frozen=True, slots=True)
 class TelegramPerson:
@@ -48,6 +57,27 @@ class TelegramPerson:
             f"{self.display_name}{username} "
             f"[tg_user_id={self.telegram_user_id}{role}]"
         )
+
+
+def _bound_claims(claims: list[str]) -> list[str]:
+    """Clip stored claims so they can never outgrow the transport limit.
+
+    Each claim is clipped to `_MAX_CLAIM_CHARS`, and the running total across
+    all claims is capped at `_MAX_CLAIMS_TOTAL_CHARS` — independent of how
+    long the text was when it was stored.
+    """
+    bounded: list[str] = []
+    total = 0
+    for claim in claims:
+        clipped = claim[:_MAX_CLAIM_CHARS]
+        remaining_budget = _MAX_CLAIMS_TOTAL_CHARS - total
+        if remaining_budget <= 0:
+            break
+        if len(clipped) > remaining_budget:
+            clipped = clipped[:remaining_budget]
+        bounded.append(clipped)
+        total += len(clipped)
+    return bounded
 
 
 class TelegramPeopleRepository:
@@ -302,7 +332,9 @@ class TelegramPeopleRepository:
                 """,
                 (tenant, sender_id),
             )
-            claims = [str(row["text"]) for row in await facts_cur.fetchall()]
+            claims = _bound_claims(
+                [str(row["text"]) for row in await facts_cur.fetchall()]
+            )
 
         by_id = {int(item["telegram_user_id"]): item for item in people}
         owner = by_id.get(owner_id) or {

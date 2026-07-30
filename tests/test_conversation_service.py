@@ -1147,6 +1147,63 @@ async def test_telegram_identity_context_survives_forty_people(
     assert passed == identity, "identity context не должен обрезаться в адаптере"
 
 
+@pytest.mark.asyncio
+async def test_telegram_prepare_keeps_full_identity_and_wider_transcript(db) -> None:
+    """Exercise the real prompt assembly for a Telegram TurnCommand.
+
+    Guards the two call sites that only the metadata-slice test above does not
+    cover: `PersonaContextAdapter.prepare` (legacy.py:229, the
+    `<TRUSTED_TELEGRAM_IDENTITY>` interpolation) and `_bounded_transcript`
+    (legacy.py:240, the Telegram transcript bound). A typo in either limit
+    would pass every other test silently.
+    """
+    from app.adapters.conversation.legacy import PersonaContextAdapter  # noqa: PLC0415
+
+    await db.execute(
+        "INSERT OR IGNORE INTO users(id,email,password_hash) VALUES(?,?,?)",
+        (7, "7@example.test", "x"),
+    )
+    await db.commit()
+
+    identity = "AUTHORITATIVE CURRENT TELEGRAM TURN:\n" + "\n".join(
+        f'{{"telegram_user_id":{1000 + i},"display_name":"Участник {i}"}}'
+        for i in range(40)
+    )
+    assert len(identity) > 2_000
+
+    command = TurnCommand(
+        actor=_actor(),
+        surface=ConversationSurface.TELEGRAM,
+        conversation_id=ConversationId(11),
+        text="кто здесь есть?",
+        include_private_context=False,
+        allow_tools=False,
+        metadata={"telegram_identity_context": identity},
+    )
+    conversation = ResolvedConversation(id=ConversationId(11), tenant_id=7, title="chat")
+    # Three messages whose combined transcript is over the old 800-char bound
+    # but under the new 6_000-char one. Under the old bound only the two most
+    # recent would survive (reversed-history packing stops once the running
+    # total exceeds max_chars); MARKER_OLDEST would be the one dropped.
+    history = tuple(
+        ConversationMessage(id=i, role="user", content=f"MARKER_{i} " + "y" * 340)
+        for i in range(3)
+    )
+
+    prepared = await PersonaContextAdapter().prepare(command, conversation, history)
+
+    assert (
+        f"<TRUSTED_TELEGRAM_IDENTITY>\n{identity}\n</TRUSTED_TELEGRAM_IDENTITY>"
+        in prepared.system
+    ), "identity context must reach the system prompt intact"
+    assert "MARKER_0" in prepared.system, (
+        "oldest message was dropped -- the Telegram transcript bound "
+        "regressed to (or below) the old 800-char cap"
+    )
+    assert "MARKER_1" in prepared.system
+    assert "MARKER_2" in prepared.system
+
+
 @dataclass
 class SequencedModel:
     streams: list[FakeStream]

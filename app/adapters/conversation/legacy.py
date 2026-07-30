@@ -226,6 +226,9 @@ class PersonaContextAdapter:
             if identity:
                 system += (
                     "\n\n<TRUSTED_TELEGRAM_IDENTITY>\n"
+                    # 2 000 used to cut the participants JSON mid-structure;
+                    # 12 000 comfortably covers the bounded (<=40-person,
+                    # claims-capped) block built by identity_context().
                     f"{identity[:12_000]}\n"
                     "</TRUSTED_TELEGRAM_IDENTITY>"
                 )
@@ -237,6 +240,9 @@ class PersonaContextAdapter:
         transcript = _bounded_transcript(
             history,
             max_chars=(
+                # 800 was clipping recent turns after just one or two
+                # messages; 6 000 keeps Telegram well below the web 18 000
+                # while giving the model enough recent history to work with.
                 6_000
                 if command.surface is ConversationSurface.TELEGRAM
                 else 18_000

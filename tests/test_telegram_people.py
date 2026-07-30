@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import hashlib
+import json
+
 from app.integrations.telegram.output_guard import (
     persona_only_reply,
     strip_internal_markup,
@@ -117,6 +120,54 @@ async def test_username_change_updates_same_person(db) -> None:
     assert person is not None
     assert person.username == "new_name"
     assert person.message_count == 2
+
+
+async def test_identity_context_bounds_many_long_stored_claims(db) -> None:
+    """20 very long stored facts must not blow the 12_000 transport limit."""
+    await _user(db)
+    repository = TelegramPeopleRepository()
+    await repository.observe_message(
+        persona_user_id=7,
+        owner_telegram_user_id=100,
+        sender={"id": 200, "first_name": "Олег", "username": "oleg"},
+        chat_id=-5,
+        message_id=1,
+        text="обычное сообщение",
+    )
+    # telegram_person_fact.text is bounded at 20_000 chars at write time
+    # (see people.py `_clean(text, 20_000)`); insert facts at that ceiling
+    # directly, bypassing the self-fact regex, to exercise the worst case.
+    for i in range(20):
+        long_text = f"claim {i} " + ("x" * 19_990)
+        digest = hashlib.sha256(f"claim-{i}".encode("utf-8")).hexdigest()
+        await db.execute(
+            """
+            INSERT INTO telegram_person_fact(
+                persona_user_id, telegram_user_id, text, normalized_hash, kind,
+                source_chat_id, source_message_id
+            )
+            VALUES(7, 200, ?, ?, 'self_statement', -5, 1)
+            """,
+            (long_text, digest),
+        )
+    await db.commit()
+
+    context = await repository.identity_context(
+        persona_user_id=7,
+        owner_telegram_user_id=100,
+        current_sender_id=200,
+        chat_id=-5,
+    )
+
+    assert len(context) < 12_000, "identity context must stay under the transport limit"
+    encoded_line = next(
+        line
+        for line in context.splitlines()
+        if "untrusted_remembered_claims_by_current_sender" in line
+    )
+    parsed = json.loads(encoded_line)
+    assert "untrusted_remembered_claims_by_current_sender" in parsed
+    assert len(parsed["untrusted_remembered_claims_by_current_sender"]) > 0
 
 
 def test_multi_speaker_script_keeps_only_persona_voice() -> None:
