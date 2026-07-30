@@ -141,20 +141,6 @@ class ThoughtStore:
                 (chain,),
             )
 
-    async def abandon_open_steps(self, chain_id: int) -> None:
-        """No-op: there is deliberately nothing to abandon.
-
-        The owner interrupting the loop means the in-flight step simply never
-        gets written in the first place (the caller never reaches
-        ``append_step``/``close_chain``). The chain and its existing rows are
-        left exactly as they are, so it remains the oldest open chain and gets
-        picked up again next time the owner is quiet — that IS the whole
-        preemption mechanism. Kept as a method because callers depend on it
-        existing (e.g. the worker may call it defensively on interruption),
-        but given this schema it needs no bookkeeping at all.
-        """
-        return None
-
     async def oldest_open_chain(self, persona_user_id: int) -> dict[str, Any] | None:
         async with get_connection() as conn:
             cursor = await conn.execute(
