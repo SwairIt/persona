@@ -30,6 +30,8 @@ ALL_SEED_KINDS: Final[tuple[str, ...]] = (
 
 _CAP_MODES: Final[frozenset[str]] = frozenset({"fixed", "model"})
 
+_MODEL_MAX_LEN: Final[int] = 200
+
 
 @dataclass(frozen=True, slots=True)
 class ThinkingSettings:
@@ -40,6 +42,7 @@ class ThinkingSettings:
     daily_budget: int
     seed_kinds: tuple[str, ...]
     may_write_to_chat: bool
+    model: str = ""
 
 
 DEFAULTS: Final[ThinkingSettings] = ThinkingSettings(
@@ -50,6 +53,7 @@ DEFAULTS: Final[ThinkingSettings] = ThinkingSettings(
     daily_budget=60,
     seed_kinds=ALL_SEED_KINDS,
     may_write_to_chat=False,
+    model="",
 )
 
 _KEY_ENABLED = "thinking_enabled"
@@ -59,6 +63,7 @@ _KEY_EMERGENCY_CAP = "thinking_emergency_cap"
 _KEY_DAILY_BUDGET = "thinking_daily_budget"
 _KEY_SEED_KINDS = "thinking_seed_kinds"
 _KEY_MAY_WRITE_TO_CHAT = "thinking_may_write_to_chat"
+_KEY_MODEL = "thinking_model"
 
 
 def _parse_bool(raw: str | None, default: bool) -> bool:
@@ -106,6 +111,12 @@ def _parse_seed_kinds(raw: str | None, default: tuple[str, ...]) -> tuple[str, .
     return known
 
 
+def _parse_model(raw: str | None, default: str) -> str:
+    if raw is None:
+        return default
+    return raw.strip()[:_MODEL_MAX_LEN]
+
+
 async def load_thinking_settings() -> ThinkingSettings:
     """Load thinking settings from ``kv_settings``, never raising.
 
@@ -123,6 +134,7 @@ async def load_thinking_settings() -> ThinkingSettings:
             raw_daily_budget = await get_kv(conn, _KEY_DAILY_BUDGET)
             raw_seed_kinds = await get_kv(conn, _KEY_SEED_KINDS)
             raw_may_write_to_chat = await get_kv(conn, _KEY_MAY_WRITE_TO_CHAT)
+            raw_model = await get_kv(conn, _KEY_MODEL)
     except Exception:
         return DEFAULTS
 
@@ -134,6 +146,7 @@ async def load_thinking_settings() -> ThinkingSettings:
         daily_budget=_parse_positive_int(raw_daily_budget, DEFAULTS.daily_budget),
         seed_kinds=_parse_seed_kinds(raw_seed_kinds, DEFAULTS.seed_kinds),
         may_write_to_chat=_parse_bool(raw_may_write_to_chat, DEFAULTS.may_write_to_chat),
+        model=_parse_model(raw_model, DEFAULTS.model),
     )
 
 
@@ -151,6 +164,8 @@ def _validate(settings: ThinkingSettings) -> None:
     unknown = [kind for kind in settings.seed_kinds if kind not in ALL_SEED_KINDS]
     if unknown:
         raise ValueError(f"unknown seed kinds: {unknown!r}")
+    if any(ch.isspace() or not ch.isprintable() for ch in settings.model):
+        raise ValueError(f"invalid model name: {settings.model!r}")
 
 
 async def save_thinking_settings(settings: ThinkingSettings) -> None:
@@ -172,6 +187,7 @@ async def save_thinking_settings(settings: ThinkingSettings) -> None:
         await set_kv(
             conn, _KEY_MAY_WRITE_TO_CHAT, "true" if settings.may_write_to_chat else "false"
         )
+        await set_kv(conn, _KEY_MODEL, settings.model)
 
 
 def effective_cap(settings: ThinkingSettings) -> int:

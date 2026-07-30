@@ -81,3 +81,19 @@ async def test_non_positive_numbers_are_rejected_on_save(db, field) -> None:
 async def test_unknown_cap_mode_is_rejected_on_save(db) -> None:
     with pytest.raises(ValueError):
         await save_thinking_settings(dataclasses.replace(DEFAULTS, cap_mode="нечто"))
+
+
+async def test_model_defaults_to_empty_string() -> None:
+    assert DEFAULTS.model == ""
+
+
+async def test_model_round_trips_through_save_and_load(db) -> None:
+    saved = dataclasses.replace(DEFAULTS, model="qwen2.5:7b")
+    await save_thinking_settings(saved)
+    loaded = await load_thinking_settings()
+    assert loaded.model == "qwen2.5:7b"
+
+
+async def test_model_with_whitespace_is_rejected_on_save(db) -> None:
+    with pytest.raises(ValueError):
+        await save_thinking_settings(dataclasses.replace(DEFAULTS, model="qwen2.5 7b"))

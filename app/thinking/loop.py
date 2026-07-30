@@ -80,6 +80,23 @@ async def _get_client(client: Any | None, *, kind: str) -> Any:
     return make_client(kind=kind)
 
 
+def _pin_model(client: Any, model: object) -> None:
+    """Force a client created inside this module onto ``model``.
+
+    Copied from ``app.integrations.telegram.ambient._pin_model`` rather than
+    imported — a thinking module should not depend on the Telegram
+    integration. Only ever call this on a client this module itself created
+    (``client=None`` was passed in); a caller-supplied client must never be
+    mutated, since callers may reuse it elsewhere.
+    """
+    chosen = str(model or "").strip()
+    if not chosen:
+        return
+    inner = getattr(client, "_inner", client)
+    if hasattr(inner, "_model"):
+        inner._model = chosen
+
+
 def _render_chain(steps: list[dict[str, Any]]) -> str:
     """Render the chain so far from its actual stored text, in order.
 
@@ -101,14 +118,20 @@ async def seed_chain(
     source_scope: str,
     source_session_id: int | None,
     client: Any | None = None,
+    model: str = "",
 ) -> int | None:
     """Ask the model for one thing to think about and open a chain with it.
 
     Returns the new ``chain_id``, or ``None`` when the model produced
     nothing usable (empty or whitespace-only reply) — nothing is written
-    in that case.
+    in that case. ``model`` pins the client to a specific model, but only
+    when this function created the client itself (``client=None``) — a
+    client passed in by the caller is never mutated.
     """
+    created_here = client is None
     llm = await _get_client(client, kind="thinking_seed")
+    if created_here:
+        _pin_model(llm, model)
     system = SEED_PROMPTS.get(seed_kind, SEED_PROMPTS["alive"])
     try:
         from app.llm.client import CompletionRequest  # noqa: PLC0415
@@ -149,7 +172,10 @@ async def advance_chain(
     cap = effective_cap(settings)
     model_decides = settings.cap_mode == "model"
 
+    created_here = client is None
     llm = await _get_client(client, kind="thinking_step")
+    if created_here:
+        _pin_model(llm, settings.model)
 
     from app.llm.client import CompletionRequest  # noqa: PLC0415
 

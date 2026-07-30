@@ -121,6 +121,23 @@ async def test_model_decides_mode_still_stops_at_the_emergency_cap(db) -> None:
     assert outcomes[-1] == "closed"
 
 
+async def test_caller_supplied_client_is_never_pinned_to_a_model(db) -> None:
+    """settings.model must only steer clients this module creates itself —
+    a client the caller handed in may be reused elsewhere and must be left
+    untouched, even when a model is configured."""
+    await _user(db)
+    store = ThoughtStore()
+    chain_id = await store.open_chain(
+        7, seed_text="s", seed_kind="alive",
+        source_scope="owner_private", source_session_id=None,
+    )
+    client = FakeClient(["шаг один"])
+    assert not hasattr(client, "_model")
+    settings = _settings(model="qwen2.5:7b")
+    await advance_chain(store, settings, chain_id=chain_id, client=client)
+    assert not hasattr(client, "_model"), "caller-owned client must never be mutated"
+
+
 def test_seed_kind_rotates_only_through_enabled_kinds() -> None:
     settings = ThinkingSettings(
         enabled=True, cap_mode="fixed", step_cap=5, emergency_cap=50,
