@@ -404,6 +404,35 @@ async def test_owner_private_chat_skips_expensive_tool_prompt() -> None:
 
 
 @pytest.mark.asyncio
+async def test_worker_picks_up_a_rebound_owner_without_restart() -> None:
+    """The worker caches ``self._binding`` and runs as a separate process
+    from the web settings page, so a rebind must be noticed without a
+    restart. Simulate the settings-page reassignment updating the stored
+    binding directly (as ``rebind_owner_and_sync_person`` does) while the
+    worker keeps running, and confirm authority moves on the very next
+    message -- old owner denied, new owner accepted."""
+    repository = FakeRepository(TelegramBinding(100, 42))
+    worker, _api, service = _worker(repository)
+
+    await worker.handle_update(_private(100, "hi", 1))
+    assert len(service.responses) == 1
+    assert service.responses[-1]["is_owner"] is True
+
+    # Simulate the DB-level rebind the settings page performs; the worker
+    # never restarts and never re-reads this itself except on demand.
+    repository.binding = TelegramBinding(555, 42)
+
+    await worker.handle_update(_private(555, "hi", 2))
+    assert len(service.responses) == 2
+    assert service.responses[-1]["is_owner"] is True
+
+    # The old account is a private chat sender that is no longer the
+    # owner, so it must be silently denied (private chats require is_owner).
+    await worker.handle_update(_private(100, "hi", 3))
+    assert len(service.responses) == 2
+
+
+@pytest.mark.asyncio
 async def test_allowed_group_passive_message_is_stored_without_reply() -> None:
     repository = FakeRepository(TelegramBinding(1, 42))
     repository.groups.add(-100)

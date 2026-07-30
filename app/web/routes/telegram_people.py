@@ -11,10 +11,12 @@ from app.auth import current_user_required
 from app.auth.owner import is_owner
 from app.auth.sessions import SessionRecord
 from app.integrations.telegram.people import TelegramPeopleRepository
+from app.integrations.telegram.repository import TelegramRepository
 from app.web.templates_engine import templates
 
 router = APIRouter(tags=["settings"])
 _people = TelegramPeopleRepository()
+_telegram = TelegramRepository()
 
 
 async def _owner_id(session: SessionRecord) -> int:
@@ -96,7 +98,11 @@ async def telegram_person_make_owner(
     user_id = await _owner_id(session)
     if await _people.get_person(user_id, telegram_user_id) is None:
         raise HTTPException(status_code=404, detail="Telegram-пользователь не найден")
-    await _people.set_owner(user_id, telegram_user_id)
+    # Rebind the real authority (telegram_binding, read by the worker) and
+    # sync telegram_person.is_owner in one transaction -- not just the
+    # display flag, which the worker never consults and which
+    # observe_message would silently revert on the next incoming message.
+    await _telegram.rebind_owner_and_sync_person(telegram_user_id, user_id)
     return RedirectResponse(
         f"/settings/telegram-people/{telegram_user_id}", status_code=303
     )

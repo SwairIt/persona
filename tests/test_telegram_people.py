@@ -12,6 +12,7 @@ from app.integrations.telegram.people import (
     _bound_claims,
     TelegramPeopleRepository,
 )
+from app.integrations.telegram.repository import TelegramRepository
 
 
 async def _user(db, user_id: int = 7) -> None:
@@ -614,6 +615,112 @@ async def test_set_owner_when_another_owner_already_exists_does_not_raise(db) ->
     people = {int(p["telegram_user_id"]): p for p in await repository.list_people(7)}
     assert sum(p["is_owner"] for p in people.values()) == 1
     assert people[555]["is_owner"] == 1
+
+
+async def test_rebind_owner_updates_the_real_binding_not_just_the_flag(db) -> None:
+    """The web reassignment must move telegram_binding (the worker's actual
+    authority), not only the telegram_person.is_owner display flag."""
+    await _user(db)
+    people = TelegramPeopleRepository()
+    telegram_repo = TelegramRepository()
+    await people.observe_message(
+        persona_user_id=7,
+        owner_telegram_user_id=100,
+        chat_id=-5,
+        sender={"id": 100, "first_name": "Empty"},
+        message_id=1,
+        text="привет",
+    )
+    await people.observe_message(
+        persona_user_id=7,
+        owner_telegram_user_id=100,
+        chat_id=-5,
+        sender={"id": 555, "first_name": "Олег"},
+        message_id=2,
+        text="привет",
+    )
+
+    await telegram_repo.rebind_owner_and_sync_person(555, 7)
+
+    binding = await telegram_repo.get_binding()
+    assert binding is not None
+    assert binding.telegram_user_id == 555
+    assert binding.persona_user_id == 7
+
+
+async def test_rebind_survives_ordinary_message_traffic(db) -> None:
+    """observe_message re-derives is_owner from the binding on every call --
+    the whole point of this fix is that a rebind is not silently reverted by
+    the next incoming message."""
+    await _user(db)
+    people = TelegramPeopleRepository()
+    telegram_repo = TelegramRepository()
+    await people.observe_message(
+        persona_user_id=7,
+        owner_telegram_user_id=100,
+        chat_id=-5,
+        sender={"id": 100, "first_name": "Empty"},
+        message_id=1,
+        text="привет",
+    )
+    await people.observe_message(
+        persona_user_id=7,
+        owner_telegram_user_id=100,
+        chat_id=-5,
+        sender={"id": 555, "first_name": "Олег"},
+        message_id=2,
+        text="привет",
+    )
+
+    await telegram_repo.rebind_owner_and_sync_person(555, 7)
+    binding = await telegram_repo.get_binding()
+    assert binding is not None
+
+    # Simulate the worker handling the NEXT ordinary message from either
+    # account, exactly as worker.py does: it passes the (now rebound)
+    # binding's telegram_user_id as owner_telegram_user_id.
+    await people.observe_message(
+        persona_user_id=7,
+        owner_telegram_user_id=binding.telegram_user_id,
+        chat_id=-5,
+        sender={"id": 100, "first_name": "Empty"},
+        message_id=3,
+        text="ещё сообщение",
+    )
+    await people.observe_message(
+        persona_user_id=7,
+        owner_telegram_user_id=binding.telegram_user_id,
+        chat_id=-5,
+        sender={"id": 555, "first_name": "Олег"},
+        message_id=4,
+        text="ещё сообщение",
+    )
+
+    roster = {int(p["telegram_user_id"]): p for p in await people.list_people(7)}
+    assert roster[555]["is_owner"] == 1
+    assert roster[100]["is_owner"] == 0
+
+
+async def test_rebind_owner_keeps_single_owner_invariant(db) -> None:
+    await _user(db)
+    people = TelegramPeopleRepository()
+    telegram_repo = TelegramRepository()
+    for tg_id, name in ((100, "Empty"), (555, "Олег"), (777, "Ира")):
+        await people.observe_message(
+            persona_user_id=7,
+            owner_telegram_user_id=100,
+            chat_id=-5,
+            sender={"id": tg_id, "first_name": name},
+            message_id=tg_id,
+            text="привет",
+        )
+
+    await telegram_repo.rebind_owner_and_sync_person(555, 7)
+
+    roster = await people.list_people(7)
+    owners = [p for p in roster if p["is_owner"] == 1]
+    assert len(owners) == 1
+    assert int(owners[0]["telegram_user_id"]) == 555
 
 
 async def test_ignored_flag_round_trips(db) -> None:

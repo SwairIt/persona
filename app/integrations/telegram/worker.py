@@ -426,9 +426,21 @@ class TelegramWorker:
             )
             return
 
-        binding = self._binding or await self.repository.get_binding()
+        # Always re-read the binding rather than trusting the in-memory
+        # cache: the owner can rebind it from the settings UI
+        # (rebind_owner_and_sync_person) while this worker keeps running as
+        # a separate process. This is cheap (two kv_settings reads) and only
+        # runs when a message actually arrives -- it piggybacks on work the
+        # loop already does per update rather than adding a background poll.
+        binding = await self.repository.get_binding()
         if binding is None:
             return
+        if self._binding is not None and self._binding != binding:
+            log.info(
+                "telegram.worker.owner_rebound",
+                previous_owner_id=self._binding.telegram_user_id,
+                new_owner_id=binding.telegram_user_id,
+            )
         self._binding = binding
         is_owner = incoming.sender_id == binding.telegram_user_id
 

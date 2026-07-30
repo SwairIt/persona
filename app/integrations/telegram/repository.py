@@ -325,6 +325,59 @@ class TelegramRepository:
             )
         return TelegramBinding(telegram_id, persona_id)
 
+    async def rebind_owner_and_sync_person(
+        self,
+        telegram_user_id: int,
+        persona_user_id: int,
+    ) -> TelegramBinding:
+        """Reassign the owner binding from the owner-authenticated web UI.
+
+        Unlike ``bind_owner`` (immutable once set -- the guard against a
+        Telegram-side hijack via ``/claim``), this unconditionally
+        overwrites the binding. Callers MUST have already verified the
+        caller is the authenticated site owner (see
+        ``app/web/routes/telegram_people.py::_owner_id``).
+
+        The worker's per-message authorization (``worker.py``) and
+        ``telegram_person.is_owner`` (the display flag re-derived on every
+        ``observe_message``) both key off this binding, so both writes
+        happen in ONE transaction here -- they can never disagree even if
+        the process crashes mid-call.
+        """
+        telegram_id = int(telegram_user_id)
+        persona_id = int(persona_user_id)
+        if telegram_id <= 0 or persona_id <= 0:
+            raise ValueError("owner ids must be positive")
+        async with write_transaction() as conn:
+            await conn.executemany(
+                """
+                INSERT INTO kv_settings(key, value, updated_at)
+                VALUES(?, ?, datetime('now'))
+                ON CONFLICT(key) DO UPDATE SET
+                    value=excluded.value,
+                    updated_at=excluded.updated_at
+                """,
+                (
+                    (_OWNER_TG_KEY, str(telegram_id)),
+                    (_OWNER_PERSONA_KEY, str(persona_id)),
+                ),
+            )
+            await conn.execute(
+                "DELETE FROM kv_settings WHERE key=?",
+                (_PAIRING_HASH_KEY,),
+            )
+            await conn.execute(
+                "UPDATE telegram_person SET is_owner=0 "
+                "WHERE persona_user_id=? AND telegram_user_id<>?",
+                (persona_id, telegram_id),
+            )
+            await conn.execute(
+                "UPDATE telegram_person SET is_owner=1 "
+                "WHERE persona_user_id=? AND telegram_user_id=?",
+                (persona_id, telegram_id),
+            )
+        return TelegramBinding(telegram_id, persona_id)
+
     async def allowed_chat_ids(self) -> set[int]:
         async with get_connection() as conn:
             raw = await get_kv(conn, _ALLOWED_CHATS_KEY)
