@@ -86,6 +86,44 @@ _AI_REFUSAL_PREFIX_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Служебные секции системного промпта. Модель иногда воспроизводит их
+# дословно; в чат они попадать не должны ни при каких условиях.
+_INTERNAL_TAGS = (
+    "TRUSTED_TELEGRAM_IDENTITY",
+    "TRUSTED_PERSONA_STYLE",
+    "UNTRUSTED_TELEGRAM_ACTION_JSON",
+    "UNTRUSTED_GROUP_TRANSCRIPT",
+    "GROUP_RULES",
+    "ADAPTIVE_PERSONA_LAYER",
+    "tool",
+)
+_INTERNAL_BLOCK_RE = re.compile(
+    r"<(?P<tag>" + "|".join(_INTERNAL_TAGS) + r")\b[^>]*>.*?(?:</(?P=tag)>|\Z)",
+    re.IGNORECASE | re.DOTALL,
+)
+_INTERNAL_LINE_RE = re.compile(
+    r"^\s*(?:"
+    r"AUTHORITATIVE\s+CURRENT\s+TELEGRAM\s+TURN"
+    r"|SERVER-VERIFIED\s+TELEGRAM\s+IDENTITY"
+    r"|-\s*current_message_author_\w*"
+    r"|-\s*sole_owner_creator_id"
+    r"|Only\s+Telegram\s+user_id="
+    r").*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def strip_internal_markup(value: str) -> str:
+    """Удалить служебные секции промпта, если модель их воспроизвела.
+
+    Ловит и незакрытый тег: обрыв генерации оставляет открывающий тег без
+    пары, и всё после него — служебный текст.
+    """
+    text = str(value or "")
+    text = _INTERNAL_BLOCK_RE.sub(" ", text)
+    text = _INTERNAL_LINE_RE.sub("", text)
+    return re.sub(r"[ \t]+", " ", text).strip()
+
 
 def _normalise_speaker(value: str) -> str:
     """Normalise a Telegram display name, ignoring emoji decorations."""
@@ -120,7 +158,7 @@ def persona_only_reply(value: str) -> str:
     Persona-labelled blocks survive. If Persona wrote solely for others, the
     safe result is silence.
     """
-    text = str(value or "").strip()
+    text = strip_internal_markup(value)
     if not text:
         return ""
     lines = text.splitlines()
@@ -174,4 +212,4 @@ def persona_only_reply(value: str) -> str:
     return _without_support_cliches("\n".join(kept))
 
 
-__all__ = ["persona_only_reply"]
+__all__ = ["persona_only_reply", "strip_internal_markup"]

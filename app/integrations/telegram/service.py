@@ -107,7 +107,7 @@ class PersonaTelegramService:
             )
         )
         guarded = persona_only_reply(result.answer)
-        return guarded or "Я не буду придумывать ответы за других участников."
+        return guarded or "Что-то пошло не так с ответом — переспроси, пожалуйста."
 
     async def record_passive_group_message(
         self,

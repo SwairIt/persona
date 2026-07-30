@@ -194,3 +194,46 @@ def test_polite_constructive_meta_comment_becomes_human_ack() -> None:
         "Я понимаю вашу точку зрения и действительно стараюсь быть вежливым "
         "и конструктивным в нашем взаимодействии."
     ) == "Ладно."
+
+
+def test_identity_block_never_reaches_the_chat() -> None:
+    leaked = (
+        "Конечно, вот два новых стикера. "
+        "<TRUSTED_TELEGRAM_IDENTITY>\n"
+        "AUTHORITATIVE CURRENT TELEGRAM TURN:\n"
+        "- current_message_author_id=2133993638\n"
+        "- current_message_author_name=Empty\n"
+        "</TRUSTED_TELEGRAM_IDENTITY>"
+    )
+    assert persona_only_reply(leaked) == "Конечно, вот два новых стикера."
+
+
+def test_unclosed_internal_tag_drops_the_tail() -> None:
+    leaked = (
+        "Ладно, смотрю. <TRUSTED_PERSONA_STYLE>\n"
+        "Ты — Persona, самостоятельный участник разговора"
+    )
+    assert persona_only_reply(leaked) == "Ладно, смотрю."
+
+
+def test_bare_identity_header_lines_are_removed() -> None:
+    leaked = (
+        "SERVER-VERIFIED TELEGRAM IDENTITY (numeric ids are authoritative):\n"
+        "- sole_owner_creator_id=100\n"
+        "Only Telegram user_id=100 is Persona's owner.\n"
+        "Привет, чем занят?"
+    )
+    assert persona_only_reply(leaked) == "Привет, чем занят?"
+
+
+def test_reply_that_is_only_internal_markup_becomes_empty() -> None:
+    assert persona_only_reply(
+        "<TRUSTED_TELEGRAM_IDENTITY>AUTHORITATIVE CURRENT TELEGRAM TURN:"
+        "</TRUSTED_TELEGRAM_IDENTITY>"
+    ) == ""
+
+
+def test_ordinary_angle_brackets_survive() -> None:
+    assert persona_only_reply("Условие: a < b и b > c, это важно.") == (
+        "Условие: a < b и b > c, это важно."
+    )
