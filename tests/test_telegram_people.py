@@ -7,7 +7,11 @@ from app.integrations.telegram.output_guard import (
     persona_only_reply,
     strip_internal_markup,
 )
-from app.integrations.telegram.people import TelegramPeopleRepository
+from app.integrations.telegram.people import (
+    _IDENTITY_BLOCK_BUDGET_CHARS,
+    _bound_claims,
+    TelegramPeopleRepository,
+)
 
 
 async def _user(db, user_id: int = 7) -> None:
@@ -375,13 +379,107 @@ async def test_identity_context_bounds_owner_notes_under_construction_pressure(
         chat_id=-5,
     )
 
-    assert len(context) < 12_000, "assembled block must stay under the transport limit"
+    assert len(context) < _IDENTITY_BLOCK_BUDGET_CHARS, (
+        "assembled block must respect the identity block budget, not just the "
+        "12_000 transport cap"
+    )
     encoded_line = next(
         line for line in context.splitlines() if "people_seen_in_this_chat" in line
     )
     parsed = json.loads(encoded_line)  # must not blow up on truncated JSON
-    assert "trusted_owner_notes" in parsed
-    assert "untrusted_remembered_claims_by_current_sender" in parsed
+
+    # Owner and current sender always survive, and at least one owner note
+    # must survive too -- owner notes are shed last, after people and claims.
+    people = parsed["people_seen_in_this_chat"]
+    ids_present = {int(p["telegram_user_id"]) for p in people}
+    assert owner_id in ids_present, "owner must never be dropped"
+    assert sender_id in ids_present, "current sender must never be dropped"
+    assert parsed["trusted_owner_notes"], (
+        "at least one owner note must survive the shedding pass"
+    )
+
+    # The shedding disclosure must accurately reflect what was actually
+    # dropped from each section. Claims and owner notes both go through
+    # `_bound_claims` (a per-item clip + running-total cap) BEFORE the
+    # shedding loop even starts, so the pre-shed count is not simply "20
+    # claims stored" / "40 notes stored" -- reproduce the same bounding the
+    # production code applies to get the true starting count.
+    assert parsed.get("people_omitted_count", 0) > 0
+    people_left = len(people)
+    assert people_left + int(parsed["people_omitted_count"]) == 40
+
+    raw_claims = [f"claim {i} " + ("x" * 19_990) for i in range(20)]
+    expected_claims_total = len(_bound_claims(raw_claims))
+    raw_notes = [
+        f"{'N' * 129} [tg_user_id={tg_id}]: note {'y' * 900}" for tg_id in all_ids
+    ]
+    expected_notes_total = len(_bound_claims(raw_notes))
+
+    if "remembered_claims_omitted_count" in parsed:
+        claims_left = len(parsed["untrusted_remembered_claims_by_current_sender"])
+        assert (
+            claims_left + int(parsed["remembered_claims_omitted_count"])
+            == expected_claims_total
+        )
+    if "trusted_owner_notes_omitted_count" in parsed:
+        notes_left = len(parsed["trusted_owner_notes"])
+        assert (
+            notes_left + int(parsed["trusted_owner_notes_omitted_count"])
+            == expected_notes_total
+        )
+
+
+async def test_identity_context_normal_chat_with_a_note_sheds_nothing(db) -> None:
+    """A normal chat (3 people, short names, one note, two claims) must not
+    trigger any shedding or disclosure keys -- the budget only bites under
+    real pressure."""
+    await _user(db)
+    repository = TelegramPeopleRepository()
+    roster = [(100, "Ярослав"), (200, "Олег"), (300, "Ира")]
+    for message_id, (tg_id, name) in enumerate(roster, start=1):
+        await repository.observe_message(
+            persona_user_id=7,
+            owner_telegram_user_id=100,
+            sender={"id": tg_id, "first_name": name},
+            chat_id=-5,
+            message_id=message_id,
+            text="я люблю чай",
+        )
+    # Second, distinct self-statement from the current sender -> two claims.
+    await repository.observe_message(
+        persona_user_id=7,
+        owner_telegram_user_id=100,
+        sender={"id": 200, "first_name": "Олег"},
+        chat_id=-5,
+        message_id=len(roster) + 1,
+        text="я работаю программистом",
+    )
+    await repository.set_override(
+        7, 200, display_name="", note="старый друг", ignored=False
+    )
+
+    context = await repository.identity_context(
+        persona_user_id=7,
+        owner_telegram_user_id=100,
+        current_sender_id=200,
+        chat_id=-5,
+    )
+
+    encoded_line = next(
+        line for line in context.splitlines() if "people_seen_in_this_chat" in line
+    )
+    parsed = json.loads(encoded_line)
+    assert len(parsed["people_seen_in_this_chat"]) == 3
+    assert "старый друг" in context
+    for key in (
+        "people_omitted_count",
+        "people_omitted_note",
+        "remembered_claims_omitted_count",
+        "remembered_claims_omitted_note",
+        "trusted_owner_notes_omitted_count",
+        "trusted_owner_notes_omitted_note",
+    ):
+        assert key not in parsed
 
 
 async def test_identity_context_small_chat_is_unaffected_by_the_budget(db) -> None:

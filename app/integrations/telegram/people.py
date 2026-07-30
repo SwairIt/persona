@@ -491,22 +491,42 @@ class TelegramPeopleRepository:
                 "facts to the owner."
             )
         )
-        def _render(people_payload: list[dict[str, Any]], omitted_count: int) -> str:
+        def _render(
+            people_payload: list[dict[str, Any]],
+            people_omitted_count: int,
+            claims_payload: list[str],
+            claims_omitted_count: int,
+            notes_payload: list[str],
+            notes_omitted_count: int,
+        ) -> str:
             payload: dict[str, Any] = {
                 "sole_owner_creator": owner,
                 "current_sender": sender,
                 "people_seen_in_this_chat": people_payload,
-                "trusted_owner_notes": owner_notes,
-                "untrusted_remembered_claims_by_current_sender": claims,
+                "trusted_owner_notes": notes_payload,
+                "untrusted_remembered_claims_by_current_sender": claims_payload,
             }
-            if omitted_count:
+            if people_omitted_count:
                 # Tell the model the roster is partial, not that the omitted
                 # people are absent from the chat.
-                payload["people_omitted_count"] = omitted_count
+                payload["people_omitted_count"] = people_omitted_count
                 payload["people_omitted_note"] = (
-                    f"{omitted_count} more chat participants exist but are "
-                    "omitted here to keep this block short; they are still "
-                    "part of the chat, just less recently active."
+                    f"{people_omitted_count} more chat participants exist but "
+                    "are omitted here to keep this block short; they are "
+                    "still part of the chat, just less recently active."
+                )
+            if claims_omitted_count:
+                payload["remembered_claims_omitted_count"] = claims_omitted_count
+                payload["remembered_claims_omitted_note"] = (
+                    f"{claims_omitted_count} more remembered claims by the "
+                    "current sender exist but are omitted here to keep this "
+                    "block short."
+                )
+            if notes_omitted_count:
+                payload["trusted_owner_notes_omitted_count"] = notes_omitted_count
+                payload["trusted_owner_notes_omitted_note"] = (
+                    f"{notes_omitted_count} more owner notes exist but are "
+                    "omitted here to keep this block short."
                 )
             encoded_payload = (
                 json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
@@ -531,15 +551,32 @@ class TelegramPeopleRepository:
 
         # Bound the WHOLE assembled block by construction: never raw-slice
         # the encoded JSON (that is exactly the truncation bug this module
-        # exists to fix). Instead, drop trailing (least-recently-seen) people
-        # and re-encode until the rendered block fits the budget. The query
-        # already orders owner first, then most-recently-seen, so the people
-        # dropped are the least relevant ones. The owner and the current
-        # sender are never dropped: correctness of identity beats the size
-        # budget if the budget is somehow too small even for those two.
+        # exists to fix). Instead, shed content and re-encode until the
+        # rendered block fits the budget. Shedding order (highest-value-first,
+        # least-value-shed-first):
+        #   1. The header and the owner/sender entries are NEVER shed:
+        #      correctness of identity beats the size budget even if the
+        #      budget is somehow too small for just those two.
+        #   2. The remaining people roster — least-recently-seen first (the
+        #      query already orders owner first, then most-recently-seen).
+        #   3. The untrusted remembered claims by the current sender.
+        #   4. The trusted owner notes, shed LAST: they are deliberately
+        #      owner-authored and are the most valuable content in the block,
+        #      so every other section is sacrificed before touching them.
+        # Every shedding step is disclosed via an *_omitted_count /
+        # *_omitted_note pair, the same way partial people rosters already
+        # are, so the model knows a section is partial rather than empty.
         current_people = list(people)
-        omitted = 0
-        rendered = _render(current_people, omitted)
+        current_claims = list(claims)
+        current_notes = list(owner_notes)
+        people_omitted = 0
+        claims_omitted = 0
+        notes_omitted = 0
+        rendered = _render(
+            current_people, people_omitted,
+            current_claims, claims_omitted,
+            current_notes, notes_omitted,
+        )
         while len(rendered) > _IDENTITY_BLOCK_BUDGET_CHARS:
             drop_at = next(
                 (
@@ -550,11 +587,22 @@ class TelegramPeopleRepository:
                 ),
                 None,
             )
-            if drop_at is None:
+            if drop_at is not None:
+                del current_people[drop_at]
+                people_omitted += 1
+            elif current_claims:
+                current_claims.pop()
+                claims_omitted += 1
+            elif current_notes:
+                current_notes.pop()
+                notes_omitted += 1
+            else:
                 break
-            del current_people[drop_at]
-            omitted += 1
-            rendered = _render(current_people, omitted)
+            rendered = _render(
+                current_people, people_omitted,
+                current_claims, claims_omitted,
+                current_notes, notes_omitted,
+            )
         return rendered
 
 
