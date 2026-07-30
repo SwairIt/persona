@@ -41,7 +41,10 @@ ROUTE_DIRECT_DB_IMPORT_BASELINE = frozenset(
 # this single unauthenticated-but-ticket-gated route.
 # Reviewed +6 owner-scoped Persona surfaces: Telegram people (2), site copilot
 # SSE (1), and adaptive prompt history/toggle/rollback (3).
-REGISTERED_ROUTE_BUDGET = 1_093
+# Reviewed +2 owner-only writes on the existing /settings/telegram-people page:
+# saving a person's display name/note/mute flag, and reassigning Telegram
+# ownership. Both are POSTs under a page that already existed; no new surface.
+REGISTERED_ROUTE_BUDGET = 1_095
 
 # After the first bootstrap extraction the reference Windows host imports the
 # web app in ~5.3 s. Keep CI headroom while preventing a return to the measured
