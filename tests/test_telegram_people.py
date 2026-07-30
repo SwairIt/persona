@@ -232,6 +232,158 @@ async def test_identity_context_bounds_whole_block_under_construction_pressure(
     assert len(people) + int(parsed["people_omitted_count"]) == 40
 
 
+async def test_identity_context_uses_owner_override_and_separates_trust(db) -> None:
+    await _user(db)
+    repository = TelegramPeopleRepository()
+    await repository.observe_message(
+        persona_user_id=7,
+        owner_telegram_user_id=100,
+        chat_id=-5,
+        sender={"id": 100, "first_name": "Empty", "username": "swairit"},
+        message_id=1,
+        text="я люблю архитектуру",
+    )
+    await repository.set_override(
+        7, 100, display_name="Ярослав", note="владелец проекта", ignored=False
+    )
+    context = await repository.identity_context(
+        persona_user_id=7,
+        owner_telegram_user_id=100,
+        current_sender_id=100,
+        chat_id=-5,
+    )
+    assert "current_message_author_name=Ярослав" in context
+    assert "Empty" not in context
+    assert "trusted_owner_notes" in context
+    assert "владелец проекта" in context
+    # Слова самого участника остаются в недоверенной секции.
+    assert "untrusted_remembered_claims_by_current_sender" in context
+
+
+async def test_identity_context_owner_notes_are_separate_key_from_claims(db) -> None:
+    await _user(db)
+    repository = TelegramPeopleRepository()
+    await repository.observe_message(
+        persona_user_id=7,
+        owner_telegram_user_id=100,
+        chat_id=-5,
+        sender={"id": 200, "first_name": "Олег"},
+        message_id=1,
+        text="я люблю шахматы",
+    )
+    await repository.set_override(
+        7, 200, display_name="", note="это Олег, коллега", ignored=False
+    )
+    context = await repository.identity_context(
+        persona_user_id=7,
+        owner_telegram_user_id=100,
+        current_sender_id=200,
+        chat_id=-5,
+    )
+    encoded_line = next(
+        line for line in context.splitlines() if "trusted_owner_notes" in line
+    )
+    parsed = json.loads(encoded_line)
+    assert "trusted_owner_notes" in parsed
+    assert any("это Олег, коллега" in note for note in parsed["trusted_owner_notes"])
+    assert "untrusted_remembered_claims_by_current_sender" in parsed
+    assert parsed["trusted_owner_notes"] != parsed[
+        "untrusted_remembered_claims_by_current_sender"
+    ]
+
+
+async def test_identity_context_override_without_note_adds_no_owner_note(db) -> None:
+    await _user(db)
+    repository = TelegramPeopleRepository()
+    await repository.observe_message(
+        persona_user_id=7,
+        owner_telegram_user_id=100,
+        chat_id=-5,
+        sender={"id": 200, "first_name": "Олег"},
+        message_id=1,
+        text="обычное сообщение",
+    )
+    await repository.set_override(
+        7, 200, display_name="Олежек", note="", ignored=False
+    )
+    context = await repository.identity_context(
+        persona_user_id=7,
+        owner_telegram_user_id=100,
+        current_sender_id=200,
+        chat_id=-5,
+    )
+    encoded_line = next(
+        line for line in context.splitlines() if "trusted_owner_notes" in line
+    )
+    parsed = json.loads(encoded_line)
+    assert parsed["trusted_owner_notes"] == []
+    assert "Олежек" in context
+
+
+async def test_identity_context_bounds_owner_notes_under_construction_pressure(
+    db,
+) -> None:
+    """40 people with long overrides and long notes must not blow the
+    transport limit -- the JSON must still parse."""
+    await _user(db)
+    repository = TelegramPeopleRepository()
+    owner_id = 100
+    sender_id = 200
+    other_ids = list(range(300, 300 + 38))
+    all_ids = [owner_id, sender_id, *other_ids]
+    for message_id, tg_id in enumerate(all_ids, start=1):
+        await repository.observe_message(
+            persona_user_id=7,
+            owner_telegram_user_id=owner_id,
+            sender={
+                "id": tg_id,
+                "first_name": "F" * 64,
+                "last_name": "L" * 64,
+                "username": (f"user{tg_id}").ljust(32, "x")[:32],
+            },
+            chat_id=-5,
+            message_id=message_id,
+            text="обычное сообщение",
+        )
+    for tg_id in all_ids:
+        await repository.set_override(
+            7,
+            tg_id,
+            display_name="N" * 129,
+            note="note " + ("y" * 900),
+            ignored=False,
+        )
+    for i in range(20):
+        long_text = f"claim {i} " + ("x" * 19_990)
+        digest = hashlib.sha256(f"claim-{i}".encode("utf-8")).hexdigest()
+        await db.execute(
+            """
+            INSERT INTO telegram_person_fact(
+                persona_user_id, telegram_user_id, text, normalized_hash, kind,
+                source_chat_id, source_message_id
+            )
+            VALUES(7, ?, ?, ?, 'self_statement', -5, 1)
+            """,
+            (sender_id, long_text, digest),
+        )
+    await db.commit()
+
+    context = await repository.identity_context(
+        persona_user_id=7,
+        owner_telegram_user_id=owner_id,
+        current_sender_id=sender_id,
+        chat_id=-5,
+    )
+
+    assert len(context) < 12_000, "assembled block must stay under the transport limit"
+    encoded_line = next(
+        line for line in context.splitlines() if "people_seen_in_this_chat" in line
+    )
+    parsed = json.loads(encoded_line)  # must not blow up on truncated JSON
+    assert "trusted_owner_notes" in parsed
+    assert "untrusted_remembered_claims_by_current_sender" in parsed
+
+
 async def test_identity_context_small_chat_is_unaffected_by_the_budget(db) -> None:
     """A normal small chat with short names must not lose anyone or gain an
     omission notice -- the budget only ever bites under real pressure."""
