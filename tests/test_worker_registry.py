@@ -65,6 +65,7 @@ _LEGACY_FULL_TASK_NAMES = (
     "email-weekly-digest-worker",
     "memory-of-day-worker",
     "dream-worker",
+    "thinking-worker",
     "memory-projection-worker",
     "telegram-worker",
     "telegram-pinned-ingest",
@@ -105,6 +106,7 @@ def test_lean_profile_starts_only_agent_critical_workers() -> None:
     assert tuple(spec.name for spec in selected) == (
         "runtime-metrics",
         "dream-worker",
+        "thinking-worker",
         "memory-projection-worker",
         "telegram-worker",
         "telegram-pinned-ingest",
@@ -333,6 +335,7 @@ async def test_lean_lifespan_selects_before_start_and_cleans_up(
     assert selected_names == [
         "runtime-metrics",
         "dream-worker",
+        "thinking-worker",
         "memory-projection-worker",
         "telegram-worker",
         "telegram-pinned-ingest",

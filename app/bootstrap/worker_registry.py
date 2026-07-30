@@ -342,6 +342,14 @@ WORKER_REGISTRY: tuple[WorkerSpec, ...] = (
         profiles=_FULL_AND_LEAN,
     ),
     _spec(
+        "thinking-worker",
+        "app.workers.thinking_worker",
+        "run_thinking_worker",
+        pass_controller=False,
+        profiles=_FULL_AND_LEAN,
+        cadence="self-directed thought chains while the owner is idle",
+    ),
+    _spec(
         "memory-projection-worker",
         "app.workers.projection_worker",
         "run_memory_projection_worker",
