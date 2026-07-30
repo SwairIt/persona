@@ -259,3 +259,19 @@ def test_orphaned_closing_tag_removes_itself_and_everything_before_it() -> None:
 def test_indented_code_block_keeps_its_indentation() -> None:
     reply = "Вот код:\n```\ndef foo():\n    return 1\n```"
     assert strip_internal_markup(reply) == reply
+
+
+def test_two_sibling_blocks_keep_the_text_between_them() -> None:
+    leaked = "<tool>a</tool> legit middle text <tool>b</tool> tail"
+    assert strip_internal_markup(leaked) == "legit middle text tail"
+
+
+def test_three_sibling_blocks_keep_both_gaps() -> None:
+    leaked = (
+        "<tool>a</tool> first gap <tool>b</tool> second gap <tool>c</tool> tail"
+    )
+    assert strip_internal_markup(leaked) == "first gap second gap tail"
+
+
+def test_unmatched_opener_still_eats_to_end_of_string() -> None:
+    assert strip_internal_markup("<tool>unclosed forever") == ""

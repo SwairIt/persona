@@ -120,8 +120,39 @@ _MID_LINE_SPACE_RE = re.compile(r"(?<=\S)[ \t]+")
 _TRAILING_LINE_SPACE_RE = re.compile(r"[ \t]+$", re.MULTILINE)
 
 
-def _closing_tag_re(tag: str) -> re.Pattern[str]:
-    return re.compile(r"</" + re.escape(tag) + r"\s*>", re.IGNORECASE)
+def _same_tag_event_re(tag: str) -> re.Pattern[str]:
+    """Match only the opening/closing pair for one specific tag name."""
+    return re.compile(
+        r"<(?P<slash>/?)" + re.escape(tag) + r"\b[^>]*>",
+        re.IGNORECASE,
+    )
+
+
+def _find_block_end(text: str, tag: str, search_from: int) -> int | None:
+    """Return the end position of the closer that matches ``tag``'s opener.
+
+    Tracks nesting depth for same-named tags: an opener increments depth, a
+    closer decrements it, and the block ends at the closer that brings depth
+    back to 0. This lets a nested occurrence of the same tag collapse fully
+    (no orphaned closer/tail) while two *sibling* blocks of the same tag each
+    close on their own nearest closer, leaving the legitimate text between
+    them untouched. Returns ``None`` if depth never reaches 0 (unmatched
+    opener) — the caller then eats to end-of-string.
+    """
+    same_tag_re = _same_tag_event_re(tag)
+    depth = 1
+    pos = search_from
+    while True:
+        match = same_tag_re.search(text, pos)
+        if match is None:
+            return None
+        if match.group("slash"):
+            depth -= 1
+            if depth == 0:
+                return match.end()
+        else:
+            depth += 1
+        pos = match.end()
 
 
 def _strip_internal_tag_blocks(text: str) -> str:
@@ -131,10 +162,11 @@ def _strip_internal_tag_blocks(text: str) -> str:
     generation leaves the rest as internal text). Symmetrically, a stray
     closing tag with no opening before it eats from the start of the string
     up to and including itself — content before it cannot be trusted either,
-    since it is what led into that unmatched closer. A matched pair consumes
-    through the *last* same-named closing tag rather than the first, so a
-    nested occurrence of the same tag cannot leave an orphaned closer and a
-    tail of internal content behind.
+    since it is what led into that unmatched closer. A matched pair closes on
+    the same-named closer that brings nesting depth back to 0 (see
+    ``_find_block_end``), so a nested occurrence of the same tag collapses
+    fully while sibling (non-nested) blocks of the same tag each close on
+    their own closer, preserving legitimate text in between.
     """
     kept: list[str] = []
     pos = 0
@@ -151,15 +183,12 @@ def _strip_internal_tag_blocks(text: str) -> str:
             pos = match.end()
             continue
         kept.append(text[pos:match.start()])
-        closing_re = _closing_tag_re(match.group("tag"))
-        last_close = None
-        for close_match in closing_re.finditer(text, match.end()):
-            last_close = close_match
-        if last_close is None:
+        end = _find_block_end(text, match.group("tag"), match.end())
+        if end is None:
             # Unmatched opening tag: everything after it is internal.
             pos = length
             break
-        pos = last_close.end()
+        pos = end
     return "".join(kept)
 
 
