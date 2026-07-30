@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Чаты Telegram</h1>
+  <p class="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
+    Где Persona отвечает, что читает молча и какую историю разбирает.
+    «Отвечать» включает чат в список, из которого бот отвечает; «Разбирать
+    историю» — в список, который ночной импорт затягивает целиком.
+  </p>
+</div>
+
+{% for chat in chats %}
+<form method="post" action="/settings/telegram-chats/{{ chat.chat_id }}"
+      class="mb-4 rounded-xl border border-ink-700 bg-ink-800 p-6">
+  <div class="flex flex-wrap items-start justify-between gap-4">
+    <div>
+      <p class="font-mono text-sm text-zinc-300 dark:text-zinc-300">tg_chat_id={{ chat.chat_id }}</p>
+      <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-500">{{ chat.message_count }} сообщений</p>
+    </div>
+    <label class="block text-sm text-zinc-400" for="title-{{ chat.chat_id }}">
+      Название (для себя)
+      <input id="title-{{ chat.chat_id }}" name="title" maxlength="240"
+             value="{{ chat.title }}"
+             placeholder="персик, клодик, индик"
+             class="mt-1 w-full rounded-lg border border-ink-700 bg-ink-900 px-3 py-2 text-sm text-zinc-100">
+    </label>
+  </div>
+
+  <div class="mt-4 flex flex-wrap items-center gap-6">
+    <fieldset class="flex flex-wrap gap-4">
+      <legend class="mb-1 w-full text-sm text-zinc-400">Режим</legend>
+      <label class="flex items-center gap-2 text-sm text-zinc-300">
+        <input type="radio" name="mode" value="reply" {% if chat.mode == "reply" %}checked{% endif %}
+               class="border-ink-700 bg-ink-900">
+        Отвечать
+      </label>
+      <label class="flex items-center gap-2 text-sm text-zinc-300">
+        <input type="radio" name="mode" value="read" {% if chat.mode == "read" %}checked{% endif %}
+               class="border-ink-700 bg-ink-900">
+        Только читать
+      </label>
+      <label class="flex items-center gap-2 text-sm text-zinc-300">
+        <input type="radio" name="mode" value="ignore" {% if chat.mode == "ignore" %}checked{% endif %}
+               class="border-ink-700 bg-ink-900">
+        Игнорировать
+      </label>
+    </fieldset>
+
+    <label class="flex items-center gap-2 text-sm text-zinc-300">
+      <input type="checkbox" name="ingest" {% if chat.ingest %}checked{% endif %}
+             class="rounded border-ink-700 bg-ink-900">
+      Разбирать историю (ночной импорт)
+    </label>
+  </div>
+
+  <button type="submit"
+          class="mt-5 rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-500">
+    Сохранить
+  </button>
+</form>
+{% else %}
+<p class="rounded-xl border border-ink-700 bg-ink-800 px-5 py-8 text-center text-sm text-zinc-500">
+  Persona ещё не видела ни одного Telegram-чата.
+</p>
+{% endfor %}
+{% endblock %}

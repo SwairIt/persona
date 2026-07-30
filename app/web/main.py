@@ -327,6 +327,7 @@ from app.web.routes import (
     qa_stream as qa_stream_routes,
     settings_ai_search as settings_ai_search_routes,
     settings_hub as settings_hub_routes,
+    telegram_chats as telegram_chats_routes,
     telegram_people as telegram_people_routes,
     thinking as thinking_routes,
     copilot as copilot_routes,
@@ -785,6 +786,7 @@ def create_app() -> FastAPI:
     app.include_router(settings_hub_routes.router)
     app.include_router(settings_ai_search_routes.router)
     app.include_router(telegram_people_routes.router)
+    app.include_router(telegram_chats_routes.router)
     app.include_router(thinking_routes.router)
     app.include_router(copilot_routes.router)
     # Phase 2 — браузер-агент + MCP-рантайм переключатель (/settings/automation).

@@ -55,6 +55,7 @@ _KEYWORDS: Final[dict[str, str]] = {
     "/settings/automation": "браузер browser mcp автоматизация playwright инструменты агент домены allowlist",
     "/settings/integrations": "интеграции календарь ics icalendar экспорт напоминания markdown integrations calendar",
     "/settings/telegram-people": "telegram телеграм люди участники аккаунты владелец олег память",
+    "/settings/telegram-chats": "telegram телеграм чаты группы доступ анализ история ингест",
     "/settings/thinking": "мышление думать мысли цепочки размышления автономность дневник",
 }
 
@@ -114,6 +115,7 @@ _CATEGORIES: Final[list[dict[str, object]]] = [
             ("/settings/profile", "Профиль — что ИИ знает обо мне"),
             ("/settings/memory", "🧠 Память — что ИИ помнит обо мне (просмотр/правка/закрепить)"),
             ("/settings/telegram-people", "👥 Люди Telegram — аккаунты, сообщения и отдельная память"),
+            ("/settings/telegram-chats", "💬 Чаты Telegram — где отвечать, что читать и разбирать"),
             ("/settings/thinking", "🧠 Мышление — сама думает, потолок шагов, дневник мыслей"),
             ("/settings/voice", "🎙️ Голосовой ассистент (вкл/выкл, выбор чата, голос)"),
             ("/settings/mac-fs", "AI и файлы — пишет прямо на Mac (allowlist) + выбор устройства"),

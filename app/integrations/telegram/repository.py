@@ -493,6 +493,35 @@ class TelegramRepository:
             rows = await cursor.fetchall()
         return {int(row["telegram_chat_id"]) for row in rows}
 
+    async def known_chat_ids(self) -> set[int]:
+        """Every chat Persona has ever retained a message from.
+
+        Used by the ``/settings/telegram-chats`` page (see
+        ``app/web/routes/telegram_chats.py``) to list chats even before the
+        owner has set any preference for them.
+        """
+        async with get_connection() as conn:
+            cursor = await conn.execute(
+                "SELECT DISTINCT telegram_chat_id FROM telegram_person_message"
+            )
+            rows = await cursor.fetchall()
+        return {int(row["telegram_chat_id"]) for row in rows}
+
+    async def chat_message_counts(self) -> dict[int, int]:
+        """Retained message count per chat, for the same settings page."""
+        async with get_connection() as conn:
+            cursor = await conn.execute(
+                """
+                SELECT telegram_chat_id, COUNT(*) AS message_count
+                  FROM telegram_person_message
+                 GROUP BY telegram_chat_id
+                """
+            )
+            rows = await cursor.fetchall()
+        return {
+            int(row["telegram_chat_id"]): int(row["message_count"]) for row in rows
+        }
+
     async def group_behavior_rules(self, chat_id: int) -> tuple[str, ...]:
         """Return owner-authored, group-local behavior rules, oldest first."""
         async with get_connection() as conn:

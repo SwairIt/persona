@@ -49,7 +49,11 @@ ROUTE_DIRECT_DB_IMPORT_BASELINE = frozenset(
 # Reviewed +4: the thinking-loop settings page and diary (GET/POST
 # /settings/thinking, GET /thoughts, POST /thoughts/{id}/confirm) — all
 # owner-gated, surfacing Task 1-4's thinking loop for the first time.
-REGISTERED_ROUTE_BUDGET = 1_100
+# Reviewed +2: GET/POST /settings/telegram-chats — the owner's UI for
+# per-chat reply/read/ignore mode and history-ingest flag (telegram_chat_pref,
+# Task 1-2 of the same plan), replacing the old "is it pinned in Telegram"
+# accident with an explicit owner choice.
+REGISTERED_ROUTE_BUDGET = 1_102
 
 # After the first bootstrap extraction the reference Windows host imports the
 # web app in ~5.3 s. Keep CI headroom while preventing a return to the measured
