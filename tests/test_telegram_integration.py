@@ -16,6 +16,7 @@ from app.integrations.telegram.repository import (
     TelegramBinding,
     TelegramRepository,
 )
+from app.integrations.telegram.tool_policy import READ_ONLY_TOOLS
 from app.integrations.telegram.worker import (
     TelegramConsumerLeaseLost,
     TelegramWorker,
@@ -331,12 +332,12 @@ async def test_only_owner_can_allow_group_then_member_can_address_persona() -> N
     assert service.responses[0]["persona_user_id"] == 42
     assert service.responses[0]["question"] == "что ты помнишь?"
     assert service.responses[0]["include_private_context"] is False
-    assert service.responses[0]["allow_tools"] is False
+    assert service.responses[0]["allowed_tools"] == READ_ONLY_TOOLS
     assert api.sent[-1][1] == "Ответ Persona"
 
     await worker.handle_update(_group(1, -100, "/persona мой контекст", 4))
     assert service.responses[1]["include_private_context"] is False
-    assert service.responses[1]["allow_tools"] is False
+    assert service.responses[1]["allowed_tools"] == READ_ONLY_TOOLS
 
     reply = _group(2, -100, "продолжи, пожалуйста", 5)
     reply["message"]["reply_to_message"] = {"from": {"id": 777, "is_bot": True}}
@@ -357,7 +358,7 @@ async def test_owner_first_group_message_auto_allows_and_gets_answer() -> None:
     assert len(service.responses) == 1
     assert service.responses[0]["question"] == "Привет, Persona"
     assert service.responses[0]["include_private_context"] is False
-    assert service.responses[0]["allow_tools"] is False
+    assert service.responses[0]["allowed_tools"] == READ_ONLY_TOOLS
     assert api.sent[-1] == (-101, "Ответ Persona", 20)
 
 
@@ -374,7 +375,7 @@ async def test_plain_persona_name_addresses_bot_without_at_mention() -> None:
     assert len(service.responses) == 1
     assert service.responses[0]["question"] == "поздоровайся со всеми"  # noqa: RUF001
     assert service.responses[0]["include_private_context"] is False
-    assert service.responses[0]["allow_tools"] is False
+    assert service.responses[0]["allowed_tools"] == READ_ONLY_TOOLS
     assert api.sent[-1] == (-102, "Ответ Persona", 21)
 
 
@@ -387,21 +388,24 @@ async def test_owner_private_turn_enables_tools_and_has_stable_correlation_id() 
     assert len(service.responses) == 1
     assert service.responses[0]["is_owner"] is True
     assert service.responses[0]["include_private_context"] is True
-    assert service.responses[0]["allow_tools"] is True
+    assert service.responses[0]["allowed_tools"] is None
     assert service.responses[0]["correlation_id"] == "telegram-update:55"
     assert "tg_user_id=1" in service.responses[0]["sender_label"]
     assert "OWNER" in service.responses[0]["sender_label"]
 
 
 @pytest.mark.asyncio
-async def test_owner_private_chat_skips_expensive_tool_prompt() -> None:
+async def test_owner_private_short_message_still_gets_every_tool() -> None:
+    """Regression test for the deleted keyword/length heuristic: a short,
+    keyword-free owner message ("найди фото кота" was the motivating
+    example) must not silently lose tool access."""
     worker, _api, service = _worker(FakeRepository(TelegramBinding(1, 42)))
 
     await worker.handle_update(_private(1, "Обосри Клода пожёстче", 56))
 
     assert len(service.responses) == 1
     assert service.responses[0]["include_private_context"] is True
-    assert service.responses[0]["allow_tools"] is False
+    assert service.responses[0]["allowed_tools"] is None
 
 
 @pytest.mark.asyncio

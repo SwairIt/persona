@@ -145,7 +145,11 @@ class TurnCommand:
             raise ValueError("conversation_id must be positive")
         if self.include_private_context and not self.actor.is_owner:
             raise ValueError("private context requires an owner actor")
-        if self.allow_tools and not self.actor.is_owner:
+        if self.allow_tools and not self.actor.is_owner and self.tool_policy is None:
+            # Unrestricted tool access ("every tool") stays owner-only. A
+            # non-owner turn (e.g. someone else addressing Persona in a
+            # group) may still carry an explicit, narrower tool_policy --
+            # see app.integrations.telegram.tool_policy.allowed_tools.
             raise ValueError("tools require an owner actor")
         if self.tool_policy is not None and not self.allow_tools:
             raise ValueError("tool_policy requires allow_tools")

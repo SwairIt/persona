@@ -37,6 +37,7 @@ from app.integrations.telegram.repository import (
     TelegramRepository,
 )
 from app.integrations.telegram.service import PersonaTelegramService
+from app.integrations.telegram.tool_policy import allowed_tools
 from app.logging_setup import get_logger
 
 if TYPE_CHECKING:
@@ -47,43 +48,6 @@ log = get_logger("persona.telegram.worker")
 _GROUP_TYPES = {"group", "supergroup"}
 _CONSUMER_LEASE_SECONDS = 600
 _PROCESSING_LEASE_HEARTBEAT_SECONDS = 20.0
-_OWNER_TOOL_HINTS = (
-    "use a tool",
-    "инструмент",
-    "на сайте",
-    "сдел",
-    "открой",
-    "создай",
-    "добавь",
-    "удали",
-    "измени",
-    "включи",
-    "выключи",
-    "запусти",
-    "останови",
-    "напомни",
-    "поставь",
-    "отправь",
-    "найди",
-    "проверь",
-    "перейди",
-    "нажми",
-    "скачай",
-    "загрузи",
-    "сохрани",
-    "запиши",
-    "календар",
-    "задач",
-    "заметк",
-    "файл",
-    "браузер",
-    "посмотри",
-    "погода",
-    "новост",
-    "курс ",
-    "сегодня",
-    "актуальн",
-)
 _BOT_COMMANDS = [
     {"command": "start", "description": "Подключить Persona"},
     {"command": "help", "description": "Показать справку"},
@@ -606,7 +570,7 @@ class TelegramWorker:
                 # executes a side-effecting tool.
                 is_owner=is_owner,
                 include_private_context=private_owner,
-                allow_tools=private_owner and _owner_tools_needed(clean_text),
+                allowed_tools=allowed_tools(is_owner=is_owner, is_group=incoming.is_group),
                 correlation_id=f"telegram-update:{incoming.update_id}",
                 trusted_identity_context=identity_context,
             )
@@ -1045,18 +1009,6 @@ def _command(text: str) -> tuple[str, str]:
     if not match:
         return "", text
     return match.group(1).casefold(), (match.group(2) or "").strip()
-
-
-def _owner_tools_needed(text: str) -> bool:
-    """Avoid injecting all tool schemas into clearly conversational turns."""
-    clean = str(text or "").strip().casefold()
-    if not clean:
-        return False
-    if any(marker in clean for marker in _OWNER_TOOL_HINTS):
-        return True
-    # Long/ambiguous instructions stay fail-open so Persona does not lose an
-    # action merely because the local intent heuristic missed it.
-    return len(clean) > 160
 
 
 def _int(value: object) -> int | None:

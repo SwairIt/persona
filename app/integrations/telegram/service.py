@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 from app.adapters.conversation import build_conversation_service
 from app.application.ambient_group import AmbientGroupService, AmbientGroupTurn
-from app.application.chat import ConversationService, TurnCommand
+from app.application.chat import ConversationService, ToolTurnPolicy, TurnCommand
 from app.chat import append_message, create_session, get_session, touch_session
 from app.domains.chat import (
     ActorContext,
@@ -56,7 +56,7 @@ class PersonaTelegramService:
         sender_label: str | None = None,
         is_owner: bool | None = None,
         include_private_context: bool = True,
-        allow_tools: bool = False,
+        allowed_tools: frozenset[str] | None = frozenset(),
         correlation_id: str = "",
         trusted_identity_context: str = "",
     ) -> str:
@@ -73,6 +73,12 @@ class PersonaTelegramService:
             f"[Telegram group · {sender_label}] {clean}"
             if group_turn
             else clean
+        )
+        has_tools = allowed_tools is None or bool(allowed_tools)
+        tool_policy = (
+            ToolTurnPolicy(allowed_tool_names=allowed_tools)
+            if allowed_tools
+            else None
         )
         result = await self._conversation.handle_turn(
             TurnCommand(
@@ -95,7 +101,8 @@ class PersonaTelegramService:
                     )
                 ),
                 include_private_context=include_private_context,
-                allow_tools=allow_tools,
+                allow_tools=has_tools,
+                tool_policy=tool_policy,
                 # Без жёсткого потолка: обрезка по num_predict рубила ответ на
                 # полуслове. Краткость задаётся промптом, а не счётчиком токенов.
                 max_tokens=2048,

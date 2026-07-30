@@ -241,8 +241,14 @@ class PersonaContextAdapter:
             ).strip()
         if not command.allow_tools:
             system += _TELEGRAM_TOOLS_DISABLED if telegram else _TOOLS_DISABLED
-        elif command.actor.is_owner:
-            system = await self._tools_context(system)
+        else:
+            # Owner-in-private carries no tool_policy (every enabled tool).
+            # Any other turn that reached here (e.g. a group turn) carries
+            # an explicit policy -- only advertise the tools it allows so
+            # the prompt never dangles a schema the turn cannot execute.
+            policy = command.effective_tool_policy
+            allowed = policy.allowed_tool_names if policy is not None else frozenset()
+            system = await self._tools_context(system, allowed or None)
 
         transcript = _bounded_transcript(
             history,
@@ -330,7 +336,11 @@ class PersonaContextAdapter:
             log.debug("conversation.activity.unavailable", error=type(exc).__name__)
         return system
 
-    async def _tools_context(self, system: str) -> str:
+    async def _tools_context(
+        self,
+        system: str,
+        allowed: frozenset[str] | None = None,
+    ) -> str:
         try:
             from app.mcp import (  # noqa: PLC0415
                 all_enabled_tool_names,
@@ -338,6 +348,8 @@ class PersonaContextAdapter:
             )
 
             enabled = _safe_tool_names(await all_enabled_tool_names())
+            if allowed is not None:
+                enabled = [name for name in enabled if name in allowed]
             return system + build_tools_prompt(enabled)
         except Exception as exc:
             log.warning("conversation.tools.unavailable", error=type(exc).__name__)
@@ -390,11 +402,20 @@ class LegacyConversationTools:
     """Fail-closed adapter over the enabled built-in/external MCP registry."""
 
     async def approved_tool_names(self, command: TurnCommand) -> frozenset[str]:
-        if not command.allow_tools or not command.actor.is_owner:
+        if not command.allow_tools:
             return frozenset()
         from app.mcp import all_enabled_tool_names  # noqa: PLC0415
 
-        return frozenset(_safe_tool_names(await all_enabled_tool_names()))
+        approved = frozenset(_safe_tool_names(await all_enabled_tool_names()))
+        if not command.actor.is_owner:
+            # A non-owner turn only ever reaches here with an explicit,
+            # narrower tool_policy (see TurnCommand.__post_init__), so
+            # intersect defensively even though the caller already does
+            # this with command.effective_tool_policy.
+            policy = command.effective_tool_policy
+            allowed = policy.allowed_tool_names if policy is not None else frozenset()
+            approved &= allowed
+        return approved
 
     def parse_calls(self, text: str) -> tuple[ToolCall, ...]:
         from app.mcp import parse_tool_calls  # noqa: PLC0415
@@ -422,11 +443,15 @@ class LegacyConversationTools:
         command: TurnCommand,
         call: ToolCall,
     ) -> ToolExecution:
-        if not command.allow_tools or not command.actor.is_owner:
-            raise PermissionError("conversation tools require the owner")
+        if not command.allow_tools:
+            raise PermissionError("conversation tools require an allowed turn")
         from app.mcp import all_enabled_tool_names, call_tool  # noqa: PLC0415
 
         approved = frozenset(_safe_tool_names(await all_enabled_tool_names()))
+        if not command.actor.is_owner:
+            policy = command.effective_tool_policy
+            allowed = policy.allowed_tool_names if policy is not None else frozenset()
+            approved &= allowed
         if call.name not in approved:
             return ToolExecution(
                 call,
