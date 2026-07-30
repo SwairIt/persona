@@ -46,7 +46,10 @@ ROUTE_DIRECT_DB_IMPORT_BASELINE = frozenset(
 # ownership. Both are POSTs under a page that already existed; no new surface.
 # Reviewed +1: finished month-old orphaned work — POST /api/settings/ai-search
 # (owner-gated, AI-everywhere-gated, LLM-optional settings-palette fallback).
-REGISTERED_ROUTE_BUDGET = 1_096
+# Reviewed +4: the thinking-loop settings page and diary (GET/POST
+# /settings/thinking, GET /thoughts, POST /thoughts/{id}/confirm) — all
+# owner-gated, surfacing Task 1-4's thinking loop for the first time.
+REGISTERED_ROUTE_BUDGET = 1_100
 
 # After the first bootstrap extraction the reference Windows host imports the
 # web app in ~5.3 s. Keep CI headroom while preventing a return to the measured

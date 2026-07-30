@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block content %}
+<a href="/settings/hub" class="mb-5 inline-flex text-sm text-zinc-500 hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400">← Настройки</a>
+
+<div class="mb-6 rounded-xl border border-ink-700 bg-ink-800 p-6">
+  <h1 class="text-2xl font-bold tracking-tight">🧠 Мышление</h1>
+  <p class="mt-2 text-sm text-zinc-400">Persona сама себе задаёт вопрос и развивает его шагами, пока владелец не занят. Всё ниже — настраиваемо.</p>
+
+  <div class="mt-4 grid gap-3 sm:grid-cols-3">
+    <div class="rounded-lg border border-ink-700 bg-ink-900 px-4 py-3">
+      <div class="text-xs text-zinc-500">Шагов сегодня</div>
+      <div class="mt-1 text-lg font-semibold">{{ steps_used_today }} / {{ settings.daily_budget }}</div>
+    </div>
+    <div class="rounded-lg border border-ink-700 bg-ink-900 px-4 py-3">
+      <div class="text-xs text-zinc-500">Открытая цепочка</div>
+      <div class="mt-1 text-lg font-semibold">
+        {% if open_chain %}да, seed: {{ open_chain.seed_kind }}{% else %}нет{% endif %}
+      </div>
+    </div>
+    <div class="rounded-lg border border-ink-700 bg-ink-900 px-4 py-3">
+      <div class="text-xs text-zinc-500">Модель воркера сейчас</div>
+      <div class="mt-1 text-lg font-semibold font-mono">{{ worker_model or '—' }}</div>
+    </div>
+  </div>
+</div>
+
+<form method="post" action="/settings/thinking" class="rounded-xl border border-ink-700 bg-ink-800 p-6">
+  <label class="flex items-center gap-2 text-sm text-zinc-300">
+    <input type="checkbox" name="enabled" {% if settings.enabled %}checked{% endif %}
+           class="rounded border-ink-700 bg-ink-900">
+    Включить самостоятельное мышление
+  </label>
+
+  <div class="mt-5">
+    <label class="block text-sm text-zinc-400">Режим ограничения шагов</label>
+    <div class="mt-2 flex gap-4 text-sm text-zinc-300">
+      <label class="flex items-center gap-2">
+        <input type="radio" name="cap_mode" value="fixed" {% if settings.cap_mode == 'fixed' %}checked{% endif %}
+               class="border-ink-700 bg-ink-900">
+        Фиксированный потолок шагов
+      </label>
+      <label class="flex items-center gap-2">
+        <input type="radio" name="cap_mode" value="model" {% if settings.cap_mode == 'model' %}checked{% endif %}
+               class="border-ink-700 bg-ink-900">
+        Модель решает сама (с аварийным потолком)
+      </label>
+    </div>
+  </div>
+
+  <div class="mt-5 grid gap-4 sm:grid-cols-3">
+    <div>
+      <label class="block text-sm text-zinc-400" for="step_cap">Потолок шагов (fixed)</label>
+      <input id="step_cap" name="step_cap" type="number" min="1" value="{{ settings.step_cap }}"
+             class="mt-1 w-full rounded-lg border border-ink-700 bg-ink-900 px-3 py-2 text-sm">
+    </div>
+    <div>
+      <label class="block text-sm text-zinc-400" for="emergency_cap">Аварийный потолок (model)</label>
+      <input id="emergency_cap" name="emergency_cap" type="number" min="1" value="{{ settings.emergency_cap }}"
+             class="mt-1 w-full rounded-lg border border-ink-700 bg-ink-900 px-3 py-2 text-sm">
+    </div>
+    <div>
+      <label class="block text-sm text-zinc-400" for="daily_budget">Дневной бюджет шагов</label>
+      <input id="daily_budget" name="daily_budget" type="number" min="1" value="{{ settings.daily_budget }}"
+             class="mt-1 w-full rounded-lg border border-ink-700 bg-ink-900 px-3 py-2 text-sm">
+    </div>
+  </div>
+
+  <div class="mt-5">
+    <label class="block text-sm text-zinc-400" for="model">Модель для мышления</label>
+    <input id="model" name="model" maxlength="200" value="{{ settings.model }}"
+           placeholder="{{ worker_model or 'по умолчанию — модель чата' }}"
+           class="mt-1 w-full rounded-lg border border-ink-700 bg-ink-900 px-3 py-2 text-sm font-mono">
+    <p class="mt-1 text-xs text-zinc-500">
+      Пусто = использовать модель чата. Сейчас воркер анонсирует: <span class="font-mono">{{ worker_model or '—' }}</span>.
+      Можно указать любую модель, которую отдаёт ваш воркер.
+    </p>
+  </div>
+
+  <div class="mt-5">
+    <label class="block text-sm text-zinc-400">Из чего Persona может себе брать тему</label>
+    <div class="mt-2 grid gap-2 sm:grid-cols-2">
+      {% for kind in all_seed_kinds %}
+      <label class="flex items-center gap-2 text-sm text-zinc-300">
+        <input type="checkbox" name="seed_kinds" value="{{ kind }}"
+               {% if kind in settings.seed_kinds %}checked{% endif %}
+               class="rounded border-ink-700 bg-ink-900">
+        {% if kind == 'know_you' %}know_you — узнать больше о владельце
+        {% elif kind == 'unfinished' %}unfinished — незакрытая мысль из чата
+        {% elif kind == 'self_check' %}self_check — проверить саму себя
+        {% elif kind == 'alive' %}alive — просто подумать, без повода
+        {% else %}{{ kind }}{% endif %}
+      </label>
+      {% endfor %}
+    </div>
+    <p class="mt-1 text-xs text-zinc-500">Хотя бы один пункт должен быть отмечен — иначе думать не о чем.</p>
+  </div>
+
+  <label class="mt-5 flex items-center gap-2 text-sm text-zinc-300">
+    <input type="checkbox" name="may_write_to_chat" {% if settings.may_write_to_chat %}checked{% endif %}
+           class="rounded border-ink-700 bg-ink-900">
+    Разрешить иногда писать вывод мысли в чат
+  </label>
+
+  <button type="submit"
+          class="mt-6 rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold hover:bg-violet-500">
+    Сохранить
+  </button>
+</form>
+
+<a href="/thoughts" class="mt-6 inline-flex text-sm text-violet-400 hover:text-violet-300">→ Открыть дневник мыслей</a>
+{% endblock %}

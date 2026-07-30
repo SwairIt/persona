@@ -188,6 +188,59 @@ class ThoughtStore:
             )
             return [dict(row) for row in await cursor.fetchall()]
 
+    async def recent_chains(self, persona_user_id: int, *, limit: int = 100) -> list[dict[str, Any]]:
+        """Return chains newest-first for the diary page (``GET /thoughts``)."""
+        async with get_connection() as conn:
+            cursor = await conn.execute(
+                """
+                SELECT chain_id, persona_user_id, seed_kind, source_scope,
+                       source_session_id, status, created_at, closed_at
+                  FROM persona_thought_chain
+                 WHERE persona_user_id=?
+                 ORDER BY created_at DESC, chain_id DESC
+                 LIMIT ?
+                """,
+                (int(persona_user_id), int(limit)),
+            )
+            return [dict(row) for row in await cursor.fetchall()]
+
+    async def get_thought(self, thought_id: int) -> dict[str, Any] | None:
+        """Fetch a single thought row by id (used to confirm a conclusion)."""
+        async with get_connection() as conn:
+            cursor = await conn.execute(
+                """
+                SELECT id, persona_user_id, chain_id, step_no, kind, seed_kind,
+                       text, source_scope, source_session_id, created_at,
+                       certainty, confirmed_at
+                  FROM persona_thought
+                 WHERE id=?
+                """,
+                (int(thought_id),),
+            )
+            row = await cursor.fetchone()
+        return dict(row) if row is not None else None
+
+    async def mark_confirmed(self, thought_id: int) -> bool:
+        """Flip a conclusion's ``confirmed_at``, refusing to double-promote.
+
+        Returns ``False`` (no-op) if the row is missing, is not a
+        conclusion, or was already confirmed -- the caller (the web route)
+        uses this to decide whether to write the memory fact at all.
+        """
+        async with write_transaction() as conn:
+            cursor = await conn.execute(
+                "SELECT kind, confirmed_at FROM persona_thought WHERE id=?",
+                (int(thought_id),),
+            )
+            row = await cursor.fetchone()
+            if row is None or row["kind"] != "conclusion" or row["confirmed_at"] is not None:
+                return False
+            await conn.execute(
+                "UPDATE persona_thought SET confirmed_at=datetime('now') WHERE id=?",
+                (int(thought_id),),
+            )
+        return True
+
     async def steps_used_today(self, persona_user_id: int) -> int:
         async with get_connection() as conn:
             cursor = await conn.execute(
@@ -218,3 +271,4 @@ class ThoughtStore:
 
 
 __all__ = ["ThoughtStore"]
+
