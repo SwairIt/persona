@@ -1111,6 +1111,42 @@ async def test_telegram_entrypoint_maps_to_same_shared_command(
     assert command.max_tokens == 2048
 
 
+@pytest.mark.asyncio
+async def test_telegram_identity_context_survives_forty_people(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Справочник участников не должен обрываться на середине JSON."""
+    from app.integrations.telegram import service as telegram_service  # noqa: PLC0415
+
+    identity = "AUTHORITATIVE CURRENT TELEGRAM TURN:\n" + "\n".join(
+        f'{{"telegram_user_id":{1000 + i},"display_name":"Участник {i}"}}'
+        for i in range(40)
+    )
+    assert len(identity) > 2_000
+
+    capture = CapturingConversationService()
+
+    async def session(_user_id: int, _session_id: int) -> dict[str, Any]:
+        return {"id": 11}
+
+    monkeypatch.setattr(telegram_service, "get_session", session)
+    adapter = telegram_service.PersonaTelegramService(
+        FakeTelegramMapping(),  # type: ignore[arg-type]
+        conversation_service=capture,  # type: ignore[arg-type]
+    )
+    await adapter.respond(
+        persona_user_id=7,
+        telegram_chat_id=42,
+        question="кто здесь есть?",
+        chat_title="Личка",
+        sender_label="Owner",
+        is_owner=True,
+        trusted_identity_context=identity,
+    )
+    passed = capture.commands[0].metadata["telegram_identity_context"]
+    assert passed == identity, "identity context не должен обрезаться в адаптере"
+
+
 @dataclass
 class SequencedModel:
     streams: list[FakeStream]

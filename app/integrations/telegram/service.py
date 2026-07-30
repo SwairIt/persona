@@ -102,7 +102,9 @@ class PersonaTelegramService:
                 temperature=0.82,
                 correlation_id=correlation_id,
                 metadata={
-                    "telegram_identity_context": trusted_identity_context[:2_000]
+                    # 2 000 обрывало JSON участников на середине — бот переставал
+                    # различать людей. Блок строится сервером и ограничен 40 людьми.
+                    "telegram_identity_context": trusted_identity_context[:12_000]
                 },
             )
         )
