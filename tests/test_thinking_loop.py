@@ -27,6 +27,19 @@ async def _user(db, user_id: int = 7) -> None:
     await db.commit()
 
 
+async def _owner_message(db, user_id: int, text: str) -> None:
+    """Insert a real owner chat message — the evidence seed_chain may quote."""
+    cur = await db.execute(
+        "INSERT INTO chat_session(user_id, title) VALUES(?, 't')", (user_id,)
+    )
+    session_id = cur.lastrowid
+    await db.execute(
+        "INSERT INTO chat_message(session_id, role, content) VALUES(?, 'user', ?)",
+        (session_id, text),
+    )
+    await db.commit()
+
+
 def _settings(**over: Any) -> ThinkingSettings:
     base = dict(
         enabled=True, cap_mode="fixed", step_cap=2, emergency_cap=50,
@@ -37,17 +50,19 @@ def _settings(**over: Any) -> ThinkingSettings:
 
 
 async def test_seed_opens_a_chain_with_the_model_text(db) -> None:
+    """``alive`` needs no evidence — a free thought is not a claim about anyone."""
     await _user(db)
     store = ThoughtStore()
-    client = FakeClient(["Почему он просит писать короче?"])
+    client = FakeClient(["ДОГАДКА: Почему он просит писать короче?"])
     chain_id = await seed_chain(
-        store, persona_user_id=7, seed_kind="know_you",
+        store, persona_user_id=7, seed_kind="alive",
         source_scope="owner_private", source_session_id=11, client=client,
     )
     assert chain_id is not None
     steps = await store.chain_steps(chain_id)
     assert steps[0]["kind"] == "seed"
     assert steps[0]["text"] == "Почему он просит писать короче?"
+    assert steps[0]["certainty"] == "guess"
 
 
 async def test_empty_model_reply_seeds_nothing(db) -> None:
@@ -58,6 +73,57 @@ async def test_empty_model_reply_seeds_nothing(db) -> None:
         source_scope="owner_private", source_session_id=None,
         client=FakeClient(["   "]),
     ) is None
+
+
+async def test_evidence_dependent_kind_with_no_evidence_seeds_nothing(db) -> None:
+    """No evidence, no thought: with no owner messages and no memory facts,
+    ``know_you`` must return None and the model must never even be called."""
+    await _user(db)
+    store = ThoughtStore()
+    client = FakeClient(["в любом случае что-то придуманное"])
+    chain_id = await seed_chain(
+        store, persona_user_id=7, seed_kind="know_you",
+        source_scope="owner_private", source_session_id=None, client=client,
+    )
+    assert chain_id is None
+    assert client.requests == []
+    assert await store.oldest_open_chain(7) is None
+
+
+async def test_evidence_dependent_kind_with_evidence_reaches_the_model(db) -> None:
+    """With real evidence present, that evidence text must actually reach the
+    model's request — not just exist somewhere unused."""
+    await _user(db)
+    marker = "ОСОБАЯ-ФРАЗА-ВЛАДЕЛЬЦА-ДЛЯ-ТЕСТА"
+    await _owner_message(db, 7, f"Сегодня я думаю про {marker}.")
+    store = ThoughtStore()
+    client = FakeClient(["НАБЛЮДЕНИЕ: он думает про что-то конкретное"])
+    chain_id = await seed_chain(
+        store, persona_user_id=7, seed_kind="know_you",
+        source_scope="owner_private", source_session_id=None, client=client,
+    )
+    assert chain_id is not None
+    assert len(client.requests) == 1
+    assert marker in client.requests[0].user
+    steps = await store.chain_steps(chain_id)
+    assert steps[0]["certainty"] == "observation"
+    assert steps[0]["text"] == "он думает про что-то конкретное"
+
+
+async def test_unmarked_reply_is_stored_as_a_guess(db) -> None:
+    await _user(db)
+    marker = "ДРУГАЯ-ФРАЗА-ВЛАДЕЛЬЦА"
+    await _owner_message(db, 7, f"Заметка про {marker}.")
+    store = ThoughtStore()
+    client = FakeClient(["ответ без всякой пометки в начале"])
+    chain_id = await seed_chain(
+        store, persona_user_id=7, seed_kind="know_you",
+        source_scope="owner_private", source_session_id=None, client=client,
+    )
+    assert chain_id is not None
+    steps = await store.chain_steps(chain_id)
+    assert steps[0]["certainty"] == "guess"
+    assert steps[0]["text"] == "ответ без всякой пометки в начале"
 
 
 async def test_previous_steps_are_fed_back_as_input(db) -> None:

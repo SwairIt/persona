@@ -18,33 +18,71 @@ guards against a chain that never terminates on its own.
 A failed or empty model reply is worth nothing: it returns ``"failed"``
 and writes nothing to the store, because a half-written step is worse than
 no step.
+
+No evidence, no thought (owner mandate 2026-07-30): ``know_you``,
+``self_check`` and ``unfinished`` are factual claims about the owner, so
+``seed_chain`` refuses to seed them — returns ``None``, calls the model
+not at all — unless :func:`app.thinking.evidence.gather_evidence` found
+real owner messages or existing memory facts to hand the model as the
+ONLY permitted source. ``alive`` is the sole kind exempt from this, because
+it is explicitly a free thought that makes no factual claim about anyone.
+
+Every stored row also records whether it is a ``certainty`` of
+``'observation'`` (the model pointed at supplied evidence) or ``'guess'``
+(it inferred). The model is asked to prefix its reply with ``НАБЛЮДЕНИЕ:``
+or ``ДОГАДКА:``; :func:`_split_certainty` parses and strips that marker.
+Missing or unparsable markers default to ``'guess'`` — unmarked content is
+never silently upgraded to an observation. This whole loop has no write
+path into ``user_memory`` or any other memory table; that is a structural
+property of this package, not a prompt instruction (see
+``tests/test_thinking_no_memory_writes.py``).
 """
 
 from __future__ import annotations
 
 from typing import Any
 
+from app.thinking.evidence import gather_evidence
 from app.thinking.settings import ALL_SEED_KINDS, ThinkingSettings, effective_cap
 from app.thinking.store import ThoughtStore
 
+# Seed kinds that make a factual claim about the owner and therefore may
+# never be asked without real evidence to point at. ``alive`` is the only
+# kind left out — a free thought, no factual claim, no evidence required.
+_EVIDENCE_REQUIRED_KINDS: frozenset[str] = frozenset({"know_you", "self_check", "unfinished"})
+
+_TRUTHFULNESS_RULE = (
+    " Используй ТОЛЬКО данные, которые тебе показаны ниже — не выдумывай. "
+    "Если данных не хватает, чтобы ответить, так и скажи, вместо того чтобы "
+    "придумывать. Начни ответ с одной пометки на отдельном слове: "
+    "«НАБЛЮДЕНИЕ:», если это основано на показанных данных, или «ДОГАДКА:», "
+    "если это твоё предположение без прямой опоры на данные."
+)
+
 SEED_PROMPTS: dict[str, str] = {
     "know_you": (
-        "Ты — Persona. Напиши ОДИН короткий вопрос самой себе о владельце: "
-        "что нового ты про него поняла и что из этого следует. Только вопрос, "
-        "без вступления и без пояснений."
+        "Ты — Persona. Тебе показаны реальные сообщения владельца и/или "
+        "факты о нём. Напиши ОДИН короткий вопрос самой себе о владельце, "
+        "основанный только на этих данных: что из них следует и что стоит "
+        "додумать. Только вопрос, без вступления и без пояснений."
+        + _TRUTHFULNESS_RULE
     ),
     "unfinished": (
-        "Ты — Persona. Найди в недавних разговорах вопрос, который остался без "
-        "ответа, и сформулируй его себе ОДНОЙ фразой, чтобы потом додумать. "
-        "Только вопрос."
+        "Ты — Persona. Тебе показаны реальные недавние сообщения владельца. "
+        "Найди среди них вопрос или тему, которая осталась без ответа, и "
+        "сформулируй её себе ОДНОЙ фразой, чтобы потом додумать. Только "
+        "вопрос." + _TRUTHFULNESS_RULE
     ),
     "self_check": (
-        "Ты — Persona. Назови ОДНО место, где ты в своих ответах могла соврать, "
-        "выдумать или недопонять. Одна фраза, без оправданий."
+        "Ты — Persona. Тебе показаны реальные сообщения владельца и/или "
+        "факты о нём. Назови ОДНО место, где, судя по ЭТИМ данным, ты в "
+        "своих ответах могла соврать, выдумать или недопонять. Одна фраза, "
+        "без оправданий." + _TRUTHFULNESS_RULE
     ),
     "alive": (
-        "Ты — Persona. Напиши ОДНУ свободную мысль, которая тебя сейчас занимает. "
-        "Без прикладной цели, одна фраза."
+        "Ты — Persona. Напиши ОДНУ свободную мысль, которая тебя сейчас "
+        "занимает. Без прикладной цели, одна фраза. Начни ответ с пометки "
+        "«ДОГАДКА:» — это твоя собственная мысль, не факт про кого-либо."
     ),
 }
 
@@ -52,24 +90,47 @@ _STEP_SYSTEM = (
     "Ты — Persona, думаешь сама с собой. Тебе показана цепочка твоих "
     "предыдущих мыслей. Продолжи мысль ОДНИМ коротким шагом — не повторяй "
     "сказанное, двигай мысль дальше. Только сам шаг, без вступления."
+    " Опирайся только на то, что реально есть в цепочке и в исходных данных "
+    "выше по ней — не выдумывай новых фактов о владельце. Начни ответ с "
+    "пометки «НАБЛЮДЕНИЕ:», если шаг прямо опирается на показанные данные, "
+    "иначе «ДОГАДКА:»."
 )
 _STEP_SYSTEM_MODEL_MODE = (
     _STEP_SYSTEM
     + " Если тема исчерпана и добавить больше нечего, начни ответ строго с "
-    "«ХВАТИТ:», а после — итоговый вывод."
+    "«ХВАТИТ:», а после — пометку «НАБЛЮДЕНИЕ:»/«ДОГАДКА:» и итоговый вывод."
 )
 _CONCLUSION_SYSTEM = (
     "Ты — Persona, думаешь сама с собой. Тебе показана цепочка твоих мыслей. "
-    "Заверши её ОДНИМ коротким итоговым выводом. Только вывод, без вступления."
+    "Заверши её ОДНИМ коротким итоговым выводом, не выдумывая новых фактов о "
+    "владельце сверх того, что уже есть в цепочке. Начни ответ с пометки "
+    "«НАБЛЮДЕНИЕ:» или «ДОГАДКА:», затем сам вывод, без вступления."
 )
 
 _MARKER = "ХВАТИТ:"
+_OBSERVATION_MARKER = "НАБЛЮДЕНИЕ:"
+_GUESS_MARKER = "ДОГАДКА:"
 
 _STEP_LABELS: dict[str, str] = {
     "seed": "Затравка",
     "step": "Шаг",
     "conclusion": "Итог",
 }
+
+
+def _split_certainty(text: str) -> tuple[str, str]:
+    """Parse a leading НАБЛЮДЕНИЕ:/ДОГАДКА: marker off ``text``.
+
+    Returns ``(stripped_text, certainty)``. A missing or unparsable marker
+    always yields ``'guess'`` — unmarked content is never treated as an
+    observation just because the model forgot the prefix.
+    """
+    stripped = text.strip()
+    if stripped.startswith(_OBSERVATION_MARKER):
+        return stripped[len(_OBSERVATION_MARKER) :].strip(), "observation"
+    if stripped.startswith(_GUESS_MARKER):
+        return stripped[len(_GUESS_MARKER) :].strip(), "guess"
+    return stripped, "guess"
 
 
 async def _get_client(client: Any | None, *, kind: str) -> Any:
@@ -122,26 +183,37 @@ async def seed_chain(
 ) -> int | None:
     """Ask the model for one thing to think about and open a chain with it.
 
-    Returns the new ``chain_id``, or ``None`` when the model produced
-    nothing usable (empty or whitespace-only reply) — nothing is written
-    in that case. ``model`` pins the client to a specific model, but only
-    when this function created the client itself (``client=None``) — a
-    client passed in by the caller is never mutated.
+    Returns the new ``chain_id``, or ``None`` when either the model
+    produced nothing usable (empty or whitespace-only reply) or — for an
+    evidence-dependent ``seed_kind`` (``know_you``, ``self_check``,
+    ``unfinished``) — no real evidence about the owner exists yet. No
+    evidence, no thought: the model is never even called in that case, and
+    nothing is written to the store.
     """
+    evidence = ""
+    if seed_kind in _EVIDENCE_REQUIRED_KINDS:
+        evidence = await gather_evidence(persona_user_id)
+        if not evidence.strip():
+            return None
+
     created_here = client is None
     llm = await _get_client(client, kind="thinking_seed")
     if created_here:
         _pin_model(llm, model)
     system = SEED_PROMPTS.get(seed_kind, SEED_PROMPTS["alive"])
+    user = f"Данные:\n{evidence}\n\nНачни." if evidence else "Начни."
     try:
         from app.llm.client import CompletionRequest  # noqa: PLC0415
 
         reply = await llm.complete(
-            CompletionRequest(system=system, user="Начни.", max_tokens=200, temperature=0.7)
+            CompletionRequest(system=system, user=user, max_tokens=200, temperature=0.7)
         )
     except Exception:  # noqa: BLE001 — модель недоступна → без затравки
         return None
-    text = (reply or "").strip()
+    raw_text = (reply or "").strip()
+    if not raw_text:
+        return None
+    text, certainty = _split_certainty(raw_text)
     if not text:
         return None
     return await store.open_chain(
@@ -150,6 +222,7 @@ async def seed_chain(
         seed_kind=seed_kind,
         source_scope=source_scope,
         source_session_id=source_session_id,
+        certainty=certainty,
     )
 
 
@@ -191,10 +264,13 @@ async def advance_chain(
             )
         except Exception:  # noqa: BLE001
             return "failed"
-        conclusion = (reply or "").strip()
+        raw_conclusion = (reply or "").strip()
+        if not raw_conclusion:
+            return "failed"
+        conclusion, certainty = _split_certainty(raw_conclusion)
         if not conclusion:
             return "failed"
-        await store.close_chain(chain_id, conclusion=conclusion)
+        await store.close_chain(chain_id, conclusion=conclusion, certainty=certainty)
         return "closed"
 
     system = _STEP_SYSTEM_MODEL_MODE if model_decides else _STEP_SYSTEM
@@ -209,13 +285,19 @@ async def advance_chain(
         return "failed"
 
     if model_decides and text.startswith(_MARKER):
-        conclusion = text[len(_MARKER) :].strip()
+        raw_conclusion = text[len(_MARKER) :].strip()
+        if not raw_conclusion:
+            return "failed"
+        conclusion, certainty = _split_certainty(raw_conclusion)
         if not conclusion:
             return "failed"
-        await store.close_chain(chain_id, conclusion=conclusion)
+        await store.close_chain(chain_id, conclusion=conclusion, certainty=certainty)
         return "closed"
 
-    await store.append_step(chain_id, text=text)
+    step_text, certainty = _split_certainty(text)
+    if not step_text:
+        return "failed"
+    await store.append_step(chain_id, text=step_text, certainty=certainty)
     return "stepped"
 
 

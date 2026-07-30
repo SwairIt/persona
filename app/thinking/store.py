@@ -13,11 +13,22 @@ from typing import Any
 from app.storage.db import get_connection, write_transaction
 
 _MAX_TEXT_CHARS = 4000
+_CERTAINTIES = frozenset({"observation", "guess"})
 
 
 def _clip(text: str) -> str:
     """Clip stored text to the shared 4000-char bound."""
     return str(text or "")[:_MAX_TEXT_CHARS]
+
+
+def _certainty(value: str) -> str:
+    """Normalize a certainty value, defaulting anything unrecognized to 'guess'.
+
+    Unmarked or unparsable model output is never silently upgraded to an
+    observation — see ``app.thinking.loop._split_certainty``.
+    """
+    value = str(value or "").strip().lower()
+    return value if value in _CERTAINTIES else "guess"
 
 
 class ThoughtStore:
@@ -29,6 +40,7 @@ class ThoughtStore:
         seed_kind: str,
         source_scope: str,
         source_session_id: int | None,
+        certainty: str = "guess",
     ) -> int:
         """Open a new chain and write its seed row (step_no=0) atomically.
 
@@ -52,9 +64,9 @@ class ThoughtStore:
                 """
                 INSERT INTO persona_thought(
                     persona_user_id, chain_id, step_no, kind, seed_kind, text,
-                    source_scope, source_session_id
+                    source_scope, source_session_id, certainty
                 )
-                VALUES(?,?,0,'seed',?,?,?,?)
+                VALUES(?,?,0,'seed',?,?,?,?,?)
                 """,
                 (
                     tenant,
@@ -63,11 +75,12 @@ class ThoughtStore:
                     _clip(seed_text),
                     source_scope,
                     session_id,
+                    _certainty(certainty),
                 ),
             )
         return chain_id
 
-    async def append_step(self, chain_id: int, *, text: str) -> int:
+    async def append_step(self, chain_id: int, *, text: str, certainty: str = "guess") -> int:
         """Append the next step, allocating ``step_no`` inside the same
         transaction as the insert so two concurrent appends cannot collide on
         ``UNIQUE (chain_id, step_no)``.
@@ -86,9 +99,9 @@ class ThoughtStore:
                 """
                 INSERT INTO persona_thought(
                     persona_user_id, chain_id, step_no, kind, seed_kind, text,
-                    source_scope, source_session_id
+                    source_scope, source_session_id, certainty
                 )
-                VALUES(?,?,?,'step',?,?,?,?)
+                VALUES(?,?,?,'step',?,?,?,?,?)
                 """,
                 (
                     info["persona_user_id"],
@@ -98,11 +111,14 @@ class ThoughtStore:
                     _clip(text),
                     info["source_scope"],
                     info["source_session_id"],
+                    _certainty(certainty),
                 ),
             )
         return step_no
 
-    async def close_chain(self, chain_id: int, *, conclusion: str) -> None:
+    async def close_chain(
+        self, chain_id: int, *, conclusion: str, certainty: str = "guess"
+    ) -> None:
         """Write the conclusion row and flip the chain to 'closed' atomically."""
         chain = int(chain_id)
         async with write_transaction() as conn:
@@ -118,9 +134,9 @@ class ThoughtStore:
                 """
                 INSERT INTO persona_thought(
                     persona_user_id, chain_id, step_no, kind, seed_kind, text,
-                    source_scope, source_session_id
+                    source_scope, source_session_id, certainty
                 )
-                VALUES(?,?,?,'conclusion',?,?,?,?)
+                VALUES(?,?,?,'conclusion',?,?,?,?,?)
                 """,
                 (
                     info["persona_user_id"],
@@ -130,6 +146,7 @@ class ThoughtStore:
                     _clip(conclusion),
                     info["source_scope"],
                     info["source_session_id"],
+                    _certainty(certainty),
                 ),
             )
             await conn.execute(
@@ -162,7 +179,7 @@ class ThoughtStore:
             cursor = await conn.execute(
                 """
                 SELECT id, persona_user_id, chain_id, step_no, kind, seed_kind,
-                       text, source_scope, source_session_id, created_at
+                       text, source_scope, source_session_id, created_at, certainty
                   FROM persona_thought
                  WHERE chain_id=?
                  ORDER BY step_no ASC
