@@ -17,6 +17,12 @@
   "use strict";
 
   var SEARCH_ENDPOINT = "/api/settings/search";
+  // Слайс D1 — ИИ-поиск по настройкам. Дёргаем ТОЛЬКО когда обычный keyword-
+  // поиск дал 0 результатов. При 404 (мастер-режим «ИИ везде» выключен) молча
+  // остаёмся на обычной палитре — фича как будто не существует.
+  var AI_SEARCH_ENDPOINT = "/api/settings/ai-search";
+  // Раз получив 404 от ai-search, больше не долбим его в этой сессии страницы.
+  var aiSearchDisabled = false;
 
   // Переводимые строки: base.html кладёт их в глобал через t(...). Дефолты —
   // на случай, если скрипт подключили без конфига (другой шаблон/тест).
@@ -31,6 +37,7 @@
   var hintEl = null;
   var results = [];
   var focusIdx = 0;
+  var aiUsed = false; // последняя выдача пришла от ИИ-поиска (для пометки «✨»)
   var reqSeq = 0; // защита от гонки ответов /search (показываем только последний)
   var debounceTimer = null;
 
@@ -44,6 +51,7 @@
     if (!q) {
       results = [];
       focusIdx = 0;
+      aiUsed = false;
       renderEmpty(L("hint_type", "Type to search settings…"));
       return;
     }
@@ -58,11 +66,63 @@
         if (mySeq !== reqSeq) return; // пришёл устаревший ответ — игнор
         results = Array.isArray(j && j.results) ? j.results : [];
         focusIdx = 0;
+        aiUsed = false;
+        if (results.length === 0) {
+          // Обычный поиск пуст — пробуем ИИ (если «ИИ везде» включён).
+          tryAiSearch(q, mySeq);
+          return;
+        }
         render();
       })
       .catch(function () {
         if (mySeq !== reqSeq) return;
         results = [];
+        aiUsed = false;
+        renderEmpty(L("no_matches", "No matches."));
+      });
+  }
+
+  // ---------------------------------------------------------------------
+  // ИИ-поиск (слайс D1) — фоллбэк, когда keyword-поиск дал 0.
+  //
+  // POST /api/settings/ai-search {intent}. 404 → фича выключена, тихо
+  // остаёмся на «ничего не найдено» и больше не дёргаем ИИ. Иначе —
+  // показываем ИИ-результаты с пометкой «✨ ИИ нашёл».
+  // ---------------------------------------------------------------------
+
+  function tryAiSearch(q, mySeq) {
+    if (aiSearchDisabled) {
+      renderEmpty(L("no_matches", "No matches."));
+      return;
+    }
+    // Показать «ИИ ищёт…», чтобы UI не выглядел зависшим (LLM на ПК не мгновенен).
+    renderEmpty(L("ai_searching", "✨ AI is searching…"));
+    fetch(AI_SEARCH_ENDPOINT, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ intent: q }),
+    })
+      .then(function (r) {
+        if (r.status === 404) {
+          aiSearchDisabled = true; // «ИИ везде» выкл — не пробуем повторно
+          return null;
+        }
+        return r.ok ? r.json() : null;
+      })
+      .then(function (j) {
+        if (mySeq !== reqSeq) return; // устаревший ответ — игнор
+        if (!j) {
+          renderEmpty(L("no_matches", "No matches."));
+          return;
+        }
+        results = Array.isArray(j.results) ? j.results : [];
+        aiUsed = !!j.ai_used;
+        focusIdx = 0;
+        render();
+      })
+      .catch(function () {
+        if (mySeq !== reqSeq) return;
         renderEmpty(L("no_matches", "No matches."));
       });
   }
@@ -100,6 +160,12 @@
       return;
     }
     if (focusIdx >= results.length) focusIdx = 0;
+    // Слайс D1 — плашка «✨ ИИ нашёл» над результатами, если это ИИ-выдача.
+    var aiBanner = aiUsed
+      ? '<div class="px-4 py-1.5 mb-1 text-xs font-medium text-accent-300">' +
+        escapeHtml(L("ai_found", "✨ AI found")) +
+        "</div>"
+      : "";
     var rows = results.map(function (item, idx) {
       var active = idx === focusIdx;
       var cls = active
@@ -135,7 +201,7 @@
         "</a>"
       );
     });
-    listEl.innerHTML = rows.join("");
+    listEl.innerHTML = aiBanner + rows.join("");
     var activeRow = listEl.querySelector('[data-idx="' + focusIdx + '"]');
     if (activeRow && typeof activeRow.scrollIntoView === "function") {
       activeRow.scrollIntoView({ block: "nearest" });
@@ -224,6 +290,7 @@
     listEl = null;
     results = [];
     focusIdx = 0;
+    aiUsed = false;
   }
 
   function handleKey(e) {

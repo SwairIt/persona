@@ -44,7 +44,9 @@ ROUTE_DIRECT_DB_IMPORT_BASELINE = frozenset(
 # Reviewed +2 owner-only writes on the existing /settings/telegram-people page:
 # saving a person's display name/note/mute flag, and reassigning Telegram
 # ownership. Both are POSTs under a page that already existed; no new surface.
-REGISTERED_ROUTE_BUDGET = 1_095
+# Reviewed +1: finished month-old orphaned work — POST /api/settings/ai-search
+# (owner-gated, AI-everywhere-gated, LLM-optional settings-palette fallback).
+REGISTERED_ROUTE_BUDGET = 1_096
 
 # After the first bootstrap extraction the reference Windows host imports the
 # web app in ~5.3 s. Keep CI headroom while preventing a return to the measured
