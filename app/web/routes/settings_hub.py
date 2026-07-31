@@ -123,6 +123,7 @@ _CATEGORIES: Final[list[dict[str, object]]] = [
             ("/admin/mcp", "MCP-серверы и встроенные инструменты"),
             ("/admin/dataset", "Датасет Q&A для fine-tune PersonaAI"),
             ("/settings/llm", "Провайдер + ключ LLM"),
+            ("/settings/web-search", "🔎 Поиск в интернете — Brave-ключ (работает и без него)"),
         ],
     },
     {

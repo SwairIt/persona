@@ -261,6 +261,7 @@ from app.web.routes import (
     settings_backup as settings_backup_routes,
     sentiment_stats as sentiment_stats_routes,
     settings_diff as settings_diff_routes,
+    settings_web_search as settings_web_search_routes,
     setup as setup_routes,
     smtp_settings as smtp_settings_routes,
     stats,
@@ -720,6 +721,9 @@ def create_app() -> FastAPI:
     app.include_router(shot_lock_routes.router)
     app.include_router(rss_index_routes.router)
     app.include_router(llm_switcher_routes.router)
+    # Keyless web_search fallback (2026-07-31): lets the owner paste a Brave
+    # key later without local access; ratchets REGISTERED_ROUTE_BUDGET by 2.
+    app.include_router(settings_web_search_routes.router)
     # W-A — серверное ядро очереди «Persona LLM Worker» (worker-token + owner).
     app.include_router(llm_worker_routes.router)
     app.include_router(remote_browser_worker_routes.router)

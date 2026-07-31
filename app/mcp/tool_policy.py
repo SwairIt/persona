@@ -33,6 +33,7 @@ _BUILTIN_RISKS: Final[dict[str, ToolRisk]] = {
     # split into a strict GET-only, per-hop-validated variant.
     "fetch_json": ToolRisk.MUTATING,
     "web_search": ToolRisk.READ_ONLY,
+    "verify_media_url": ToolRisk.READ_ONLY,
     # Legacy recall updates access_count/last_seen and therefore future
     # salience. Keep model-driven rehearsal out of autonomous tool turns.
     "query_memory": ToolRisk.MUTATING,

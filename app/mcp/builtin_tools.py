@@ -819,41 +819,52 @@ async def fetch_json(args: dict[str, Any], user_id: int = 0) -> str:
         return f"[error] {type(exc).__name__}: {exc}"
 
 
-async def web_search(args: dict[str, Any], user_id: int = 0) -> str:
-    """Поиск в интернете (Brave API). query[, n]. Возвращает title/url/snippet."""
-    import httpx  # noqa: PLC0415
-
+async def _brave_key() -> str:
+    """Brave API key from env, else ``kv_settings`` (set from /settings/web-search)."""
     from app.storage.db import get_connection  # noqa: PLC0415
 
-    query = _pick(args, ("query", "q", "text", "search")).strip()
-    if not query:
-        return "[error] нужен query"
-    n = int(args.get("n", 5) or 5)
     key = (os.getenv("BRAVE_API_KEY") or os.getenv("PERSONA_BRAVE_API_KEY") or "").strip()
-    if not key:
-        try:
-            async with get_connection() as conn:
-                cur = await conn.execute(
-                    "SELECT value FROM kv_settings WHERE key IN ('byo_api_key_brave','brave_api_key') LIMIT 1"
-                )
-                row = await cur.fetchone()
-                if row:
-                    key = str(row[0]).strip()
-        except Exception:  # noqa: BLE001
-            key = ""
-    if not key:
-        return (
-            "[error] нет ключа поиска. Добавь Brave API-ключ (kv 'brave_api_key' или "
-            "env BRAVE_API_KEY), либо используй web_browse/browser_open для конкретного URL."
-        )
+    if key:
+        return key
+    try:
+        async with get_connection() as conn:
+            cur = await conn.execute(
+                "SELECT value FROM kv_settings WHERE key IN ('byo_api_key_brave','brave_api_key') LIMIT 1"
+            )
+            row = await cur.fetchone()
+            if row:
+                return str(row[0]).strip()
+    except Exception:  # noqa: BLE001
+        pass
+    return ""
+
+
+async def _search_brave(query: str, n: int, key: str, images: bool = False) -> str:
+    """Brave Search API — preferred provider when a key is configured."""
+    import httpx  # noqa: PLC0415
+
+    url = (
+        "https://api.search.brave.com/res/v1/images/search"
+        if images
+        else "https://api.search.brave.com/res/v1/web/search"
+    )
     try:
         async with httpx.AsyncClient(timeout=15.0) as cli:
             resp = await cli.get(
-                "https://api.search.brave.com/res/v1/web/search",
+                url,
                 params={"q": query, "count": min(n, 10)},
                 headers={"Accept": "application/json", "X-Subscription-Token": key},
             )
             data = resp.json()
+        if images:
+            results = data.get("results") or []
+            if not results:
+                return f"[ok] ничего не найдено: {query}"
+            out = [f"[ok] поиск «{query}»:"]
+            for r in results[:n]:
+                media = (r.get("properties") or {}).get("url") or r.get("url", "")
+                out.append(f"- {r.get('title', '')}\n  {media}")
+            return "\n".join(out)
         results = (data.get("web") or {}).get("results") or []
         if not results:
             return f"[ok] ничего не найдено: {query}"
@@ -861,8 +872,147 @@ async def web_search(args: dict[str, Any], user_id: int = 0) -> str:
         for r in results[:n]:
             out.append(f"- {r.get('title', '')}\n  {r.get('url', '')}\n  {r.get('description', '')[:200]}")
         return "\n".join(out)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 — network error or malformed JSON, never raise
         return f"[error] поиск не удался: {type(exc).__name__}: {exc}"
+
+
+def _ddg_extract_url(href: str) -> str:
+    """DuckDuckGo HTML results wrap links in a ``/l/?uddg=<encoded>`` redirect."""
+    from urllib.parse import parse_qs, unquote, urlparse  # noqa: PLC0415
+
+    href = href.strip()
+    if href.startswith("//"):
+        href = "https:" + href
+    parsed = urlparse(href)
+    qs = parse_qs(parsed.query)
+    if qs.get("uddg"):
+        return unquote(qs["uddg"][0])
+    return href
+
+
+def _parse_duckduckgo_html(html_text: str, n: int) -> list[dict[str, str]]:
+    """Extract title/url/snippet triples from a DuckDuckGo HTML results page."""
+    import html as html_mod  # noqa: PLC0415
+    import re  # noqa: PLC0415
+
+    pattern = re.compile(
+        r'class="result__a"[^>]*href="([^"]*)"[^>]*>(.*?)</a>.*?'
+        r'class="result__snippet"[^>]*>(.*?)</a>',
+        re.S,
+    )
+    results: list[dict[str, str]] = []
+    for href, title_html, snippet_html in pattern.findall(html_text):
+        title = html_mod.unescape(re.sub(r"<[^>]+>", "", title_html)).strip()
+        snippet = html_mod.unescape(re.sub(r"<[^>]+>", "", snippet_html)).strip()
+        url = _ddg_extract_url(href)
+        if not title or not url:
+            continue
+        results.append({"title": title, "url": url, "description": snippet})
+        if len(results) >= n:
+            break
+    return results
+
+
+async def _search_duckduckgo(query: str, n: int) -> str:
+    """Keyless web-search fallback — DuckDuckGo's HTML endpoint, no API key."""
+    import httpx  # noqa: PLC0415
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as cli:
+            resp = await cli.get(
+                "https://html.duckduckgo.com/html/",
+                params={"q": query},
+                headers={"User-Agent": "Mozilla/5.0 (compatible; PersonaBot/1.0)"},
+            )
+            html_text = resp.text
+        results = _parse_duckduckgo_html(html_text, n)
+    except Exception as exc:  # noqa: BLE001 — network error or malformed HTML, never raise
+        return f"[error] поиск не удался: {type(exc).__name__}: {exc}"
+    if not results:
+        return f"[ok] ничего не найдено: {query}"
+    out = [f"[ok] поиск «{query}»:"]
+    for r in results:
+        out.append(f"- {r['title']}\n  {r['url']}\n  {r['description'][:200]}")
+    return "\n".join(out)
+
+
+async def _search_openverse(query: str, n: int) -> str:
+    """Keyless image/GIF fallback — Openverse's public API (CC-licensed media, no key)."""
+    import httpx  # noqa: PLC0415
+
+    params: dict[str, Any] = {"q": query, "page_size": min(n, 10)}
+    if "gif" in query.lower():
+        params["extension"] = "gif"
+    try:
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as cli:
+            resp = await cli.get(
+                "https://api.openverse.org/v1/images/",
+                params=params,
+                headers={"User-Agent": "Mozilla/5.0 (compatible; PersonaBot/1.0)"},
+            )
+            data = resp.json()
+        results = data.get("results") or []
+    except Exception as exc:  # noqa: BLE001 — network error or malformed JSON, never raise
+        return f"[error] поиск не удался: {type(exc).__name__}: {exc}"
+    if not results:
+        return f"[ok] ничего не найдено: {query}"
+    out = [f"[ok] поиск «{query}»:"]
+    for r in results[:n]:
+        out.append(f"- {r.get('title', '')}\n  {r.get('url', '')}")
+    return "\n".join(out)
+
+
+_IMAGE_KINDS = frozenset({"images", "image", "gif", "gifs"})
+
+
+async def web_search(args: dict[str, Any], user_id: int = 0) -> str:
+    """Поиск в интернете. Brave (если есть ключ), иначе — без ключа (DuckDuckGo /
+    Openverse). query[, n][, kind: web|images]. Возвращает title/url/snippet
+    (или прямые ссылки на медиа при kind=images)."""
+    query = _pick(args, ("query", "q", "text", "search")).strip()
+    if not query:
+        return "[error] нужен query"
+    n = int(args.get("n", 5) or 5)
+    kind = str(args.get("kind", "web") or "web").strip().lower()
+    is_images = kind in _IMAGE_KINDS
+
+    key = await _brave_key()
+    if key:
+        result = await _search_brave(query, n, key, images=is_images)
+        if not result.startswith("[error]"):
+            return result
+        log.warning("web_search.brave_failed_fallback", detail=result[:200])
+    # Keyless fallback — either no key configured, or Brave just errored.
+    if is_images:
+        return await _search_openverse(query, n)
+    return await _search_duckduckgo(query, n)
+
+
+async def verify_media_url(args: dict[str, Any], user_id: int = 0) -> str:
+    """HEAD-проверка, что url реально отдаёт image/*, прежде чем утверждать
+    'отправил картинку/gif'. url."""
+    import httpx  # noqa: PLC0415
+
+    url = _pick(args, ("url", "media_url", "image_url")).strip()
+    if not url:
+        return "[error] нужен url"
+    ok, why = _url_is_safe(url)
+    if not ok:
+        return f"[error] {why}"
+    try:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as cli:
+            resp = await cli.head(url)
+            ctype = resp.headers.get("content-type", "")
+            if resp.status_code >= 400 or not ctype.lower().startswith("image/"):
+                # Some hosts reject HEAD (405) or omit content-type on it —
+                # fall back to a ranged GET so we don't false-negative.
+                resp = await cli.get(url, headers={"Range": "bytes=0-0"})
+                ctype = resp.headers.get("content-type", "")
+    except Exception as exc:  # noqa: BLE001
+        return f"[error] проверка не удалась: {type(exc).__name__}: {exc}"
+    if ctype.lower().startswith("image/"):
+        return f"[ok] это изображение ({ctype}): {url}"
+    return f"[error] не изображение (content-type={ctype or 'unknown'}): {url}"
 
 
 async def run_tests(args: dict[str, Any], user_id: int = 0) -> str:
@@ -1082,8 +1232,22 @@ _BUILTIN_TOOLS: dict[str, dict[str, Any]] = {
     },
     "web_search": {
         "fn": web_search,
-        "description": "Поиск в интернете (нужен Brave API-ключ). Вернёт title/url/описание.",
-        "params": {"query": "запрос", "n": "сколько результатов"},
+        "description": (
+            "Поиск в интернете. Brave, если есть ключ (/settings/web-search), "
+            "иначе — без ключа (DuckDuckGo/Openverse), поиск всегда работает. "
+            "Вернёт title/url/описание, при kind=images — прямые ссылки на медиа."
+        ),
+        "params": {"query": "запрос", "n": "сколько результатов",
+                   "kind": "необяз.: web (деф.) | images — для картинок/gif"},
+    },
+    "verify_media_url": {
+        "fn": verify_media_url,
+        "description": (
+            "HEAD-проверка, что url реально отдаёт картинку/gif (content-type image/*). "
+            "Вызывай ПЕРЕД тем, как утверждать 'я отправила картинку' — если проверка "
+            "не прошла, не притворяйся, что отправила."
+        ),
+        "params": {"url": "адрес медиа"},
     },
     "run_tests": {
         "fn": run_tests,

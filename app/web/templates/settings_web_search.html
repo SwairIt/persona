@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">Поиск в интернете</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Инструмент <code class="font-mono">web_search</code> уже работает без ключа —
+    он использует бесключевого провайдера (DuckDuckGo для текста, Openverse для
+    картинок/gif). Если добавить ключ Brave Search ниже, он станет приоритетным
+    провайдером, а при ошибке Brave поиск сам переключится обратно на бесключевой.
+  </p>
+</div>
+
+<div class="rounded-lg border border-ink-700 bg-ink-800 p-5 max-w-xl">
+  <div class="flex items-center gap-2 mb-4">
+    <span class="text-xs uppercase tracking-widest text-zinc-500">Статус ключа Brave</span>
+    {% if has_key %}
+      <span class="px-2 py-0.5 rounded text-xs font-medium bg-emerald-900/40 text-emerald-300 border border-emerald-700/40">
+        ключ задан
+      </span>
+    {% else %}
+      <span class="px-2 py-0.5 rounded text-xs font-medium bg-ink-700 text-zinc-400 border border-ink-600">
+        не задан (используется бесключевой поиск)
+      </span>
+    {% endif %}
+  </div>
+
+  <form action="/settings/web-search" method="post" class="flex flex-col gap-3">
+    <label class="flex flex-col gap-1">
+      <span class="text-xs uppercase tracking-widest text-zinc-500">Brave API-ключ</span>
+      <input type="password" name="brave_api_key" placeholder="{% if has_key %}оставь пустым, чтобы не менять{% else %}BSA...{% endif %}"
+             autocomplete="off"
+             class="px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm">
+      <span class="text-xs text-zinc-500">
+        Ключ не показывается повторно — только статус выше. Получить ключ:
+        <a href="https://api.search.brave.com/app/keys" target="_blank" rel="noopener"
+           class="text-accent-400 hover:underline">api.search.brave.com/app/keys</a>.
+      </span>
+    </label>
+
+    <div class="flex items-center gap-2 pt-2">
+      <button type="submit" name="action" value="save"
+              class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
+        Сохранить
+      </button>
+      {% if has_key %}
+        <button type="submit" name="action" value="clear"
+                class="px-4 py-2 border border-ink-700 hover:border-rose-500 rounded text-sm">
+          Удалить ключ
+        </button>
+      {% endif %}
+    </div>
+  </form>
+</div>
+{% endblock %}
