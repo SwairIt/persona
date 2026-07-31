@@ -165,6 +165,18 @@ _RESEARCH_CONCLUSION_SYSTEM = _CONCLUSION_SYSTEM + _HONESTY_RULE
 
 _RESEARCH_SEARCH_LABEL = "РЕЗУЛЬТАТЫ ПОИСКА"
 
+# Substrings a web_search result carries when it found nothing usable: a
+# clean "no hits" reply from any provider, an outright [error], or the
+# local placeholder written above when the tool call raised. Checked with
+# `in` (not a prefix match) because the stored text is always prefixed with
+# the "РЕЗУЛЬТАТЫ ПОИСКА: " label.
+_NO_RESULTS_MARKERS = ("[ok] ничего не найдено", "[error]", "(поиск не дал результатов)")
+
+
+def _search_found_nothing(result: str) -> bool:
+    """True when a web_search reply carries no usable evidence to reason from."""
+    return any(marker in result for marker in _NO_RESULTS_MARKERS)
+
 _MARKER = "ХВАТИТ:"
 _OBSERVATION_MARKER = "НАБЛЮДЕНИЕ:"
 _GUESS_MARKER = "ДОГАДКА:"
@@ -370,6 +382,16 @@ async def advance_chain(
             text=f"{_RESEARCH_SEARCH_LABEL}: {result}",
             certainty="observation",
         )
+        # No usable results: never feed an empty search into further model
+        # reasoning steps — that emptiness is exactly what the model has
+        # repeatedly filled with confident invention (a fake character, fake
+        # facts about the owner, a world-famous film declared "a metaphor").
+        # Close the chain right here, honestly, in code — not in a prompt
+        # the model can ignore.
+        if _search_found_nothing(result):
+            conclusion = f"не нашла информации о «{topic}»"
+            await store.close_chain(chain_id, conclusion=conclusion, certainty="observation")
+            return "closed"
         return "stepped"
 
     created_here = client is None

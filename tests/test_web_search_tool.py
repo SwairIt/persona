@@ -71,6 +71,20 @@ class _FakeAsyncClient:
         return self._head_impl(url, **kw)
 
 
+def _pin_public_dns(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Wikipedia lookups go through the real ``_url_is_safe`` SSRF guard,
+    which resolves the host via DNS. The sandbox has no real internet
+    egress and resolves everything to a loopback/private address, which
+    would make every Wikipedia call look unsafe regardless of the (mocked)
+    HTTP layer — pin resolution to a public IP so these tests exercise the
+    parsing/fallback logic, not the sandbox's DNS quirks."""
+
+    def fake_getaddrinfo(host: str, *a: Any, **kw: Any) -> list[tuple]:
+        return [(2, 1, 6, "", ("93.184.216.34", 0))]
+
+    monkeypatch.setattr("socket.getaddrinfo", fake_getaddrinfo)
+
+
 async def _no_kv_key(db: aiosqlite.Connection) -> None:
     """Ensure no Brave key exists in kv_settings for this test's connection."""
     await db.execute("DELETE FROM kv_settings WHERE key IN ('byo_api_key_brave','brave_api_key')")
@@ -84,6 +98,8 @@ async def test_keyless_fallback_parses_duckduckgo_html(db: aiosqlite.Connection,
     monkeypatch.delenv("PERSONA_BRAVE_API_KEY", raising=False)
 
     def fake_get(url: str, **kw: Any) -> _FakeResponse:
+        if "wikipedia.org" in url:
+            return _FakeResponse(json_data={"query": {"search": []}})
         assert "duckduckgo.com" in url
         return _FakeResponse(text=DDG_HTML)
 
@@ -122,6 +138,8 @@ async def test_brave_error_falls_through_to_keyless(db: aiosqlite.Connection, mo
     def fake_get(url: str, **kw: Any) -> _FakeResponse:
         if "brave.com" in url:
             raise httpx.ConnectError("boom", request=httpx.Request("GET", url))
+        if "wikipedia.org" in url:
+            return _FakeResponse(json_data={"query": {"search": []}})
         assert "duckduckgo.com" in url
         return _FakeResponse(text=DDG_HTML)
 
@@ -145,6 +163,76 @@ async def test_malformed_provider_response_yields_clean_error(db: aiosqlite.Conn
         out = await web_search({"query": "cat gif"})
 
     assert out.startswith("[error]")
+
+
+@pytest.mark.asyncio
+async def test_wikipedia_results_parsed_into_expected_shape(
+    db: aiosqlite.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await _no_kv_key(db)
+    monkeypatch.delenv("BRAVE_API_KEY", raising=False)
+    monkeypatch.delenv("PERSONA_BRAVE_API_KEY", raising=False)
+    _pin_public_dns(monkeypatch)
+
+    def fake_get(url: str, **kw: Any) -> _FakeResponse:
+        assert "ru.wikipedia.org" in url
+        return _FakeResponse(json_data={"query": {"search": [
+            {"title": "Лабиринт Фавна", "snippet": "фильм <span class=\"searchmatch\">Гильермо</span> дель Торо"},
+        ]}})
+
+    with patch("httpx.AsyncClient", lambda **kw: _FakeAsyncClient(get_impl=fake_get)):
+        out = await web_search({"query": "лабиринт фавна"})
+
+    assert out.startswith("[ok] поиск")
+    assert "Лабиринт Фавна" in out
+    assert "ru.wikipedia.org/wiki/Лабиринт_Фавна" in out
+    assert "Гильермо дель Торо" in out
+
+
+@pytest.mark.asyncio
+async def test_wikipedia_falls_back_to_english_when_russian_empty(
+    db: aiosqlite.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await _no_kv_key(db)
+    monkeypatch.delenv("BRAVE_API_KEY", raising=False)
+    monkeypatch.delenv("PERSONA_BRAVE_API_KEY", raising=False)
+    _pin_public_dns(monkeypatch)
+
+    def fake_get(url: str, **kw: Any) -> _FakeResponse:
+        if "ru.wikipedia.org" in url:
+            return _FakeResponse(json_data={"query": {"search": []}})
+        assert "en.wikipedia.org" in url
+        return _FakeResponse(json_data={"query": {"search": [
+            {"title": "Pan's Labyrinth", "snippet": "a 2006 film"},
+        ]}})
+
+    with patch("httpx.AsyncClient", lambda **kw: _FakeAsyncClient(get_impl=fake_get)):
+        out = await web_search({"query": "pan's labyrinth"})
+
+    assert out.startswith("[ok] поиск")
+    assert "Pan's Labyrinth" in out
+    assert "en.wikipedia.org/wiki/Pan's_Labyrinth" in out
+
+
+@pytest.mark.asyncio
+async def test_wikipedia_error_falls_through_to_duckduckgo(
+    db: aiosqlite.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await _no_kv_key(db)
+    monkeypatch.delenv("BRAVE_API_KEY", raising=False)
+    monkeypatch.delenv("PERSONA_BRAVE_API_KEY", raising=False)
+
+    def fake_get(url: str, **kw: Any) -> _FakeResponse:
+        if "wikipedia.org" in url:
+            raise httpx.ConnectError("boom", request=httpx.Request("GET", url))
+        assert "duckduckgo.com" in url
+        return _FakeResponse(text=DDG_HTML)
+
+    with patch("httpx.AsyncClient", lambda **kw: _FakeAsyncClient(get_impl=fake_get)):
+        out = await web_search({"query": "cat gif"})
+
+    assert out.startswith("[ok] поиск")
+    assert "example.com/cats" in out
 
 
 @pytest.mark.asyncio

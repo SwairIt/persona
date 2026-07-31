@@ -117,6 +117,44 @@ async def test_research_chain_calls_web_search_and_result_reaches_next_step(
     assert client2.requests[0].system == _RESEARCH_STEP_SYSTEM
 
 
+async def test_research_chain_with_no_search_results_closes_honestly_without_speculation(
+    db, monkeypatch
+) -> None:
+    """The exact defect this guard exists for: asked to look up 'лабиринт
+    фавна' (Pan's Labyrinth), the search came back empty and the model
+    invented a "metaphorical" answer instead of admitting it found nothing.
+    An empty search must close the chain right there — zero reasoning steps
+    between the search and the conclusion, no model call, no speculation."""
+    await _user(db)
+    store = ThoughtStore()
+    chain_id = await seed_research_chain(
+        store, persona_user_id=7, topic="лабиринт фавна",
+        chat_id=-100500, source_scope="group",
+    )
+
+    async def fake_web_search(args: dict[str, Any], user_id: int = 0) -> str:
+        return "[ok] ничего не найдено: лабиринт фавна"
+
+    monkeypatch.setattr("app.mcp.builtin_tools.web_search", fake_web_search)
+
+    settings = _settings(step_cap=5)
+    client = FakeClient(["не должно быть вызвано никогда"])
+    outcome = await advance_chain(store, settings, chain_id=chain_id, client=client)
+
+    assert outcome == "closed"
+    assert client.requests == []  # the model was never even consulted
+
+    steps = await store.chain_steps(chain_id)
+    kinds = [s["kind"] for s in steps]
+    assert kinds == ["seed", "step", "conclusion"], (
+        "no reasoning steps may sit between the empty search and the conclusion"
+    )
+    assert "не нашла информации" in steps[-1]["text"]
+
+    chain = await store.get_chain(chain_id)
+    assert chain["status"] == "closed"
+
+
 async def test_research_conclusion_uses_the_honesty_prompt(db, monkeypatch) -> None:
     await _user(db)
     store = ThoughtStore()

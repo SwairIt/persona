@@ -936,6 +936,61 @@ async def _search_duckduckgo(query: str, n: int) -> str:
     return "\n".join(out)
 
 
+async def _wikipedia_search_one(lang: str, query: str, n: int) -> list[dict[str, str]]:
+    """One language edition's search hits, via Wikipedia's keyless public API."""
+    import html as html_mod  # noqa: PLC0415
+    import re  # noqa: PLC0415
+
+    import httpx  # noqa: PLC0415
+
+    url = f"https://{lang}.wikipedia.org/w/api.php"
+    ok, why = _url_is_safe(url)
+    if not ok:
+        return []
+    async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as cli:
+        resp = await cli.get(
+            url,
+            params={
+                "action": "query",
+                "list": "search",
+                "format": "json",
+                "srsearch": query,
+                "srlimit": min(n, 10),
+            },
+            headers={"User-Agent": "Mozilla/5.0 (compatible; PersonaBot/1.0)"},
+        )
+        data = resp.json()
+    hits = ((data.get("query") or {}).get("search")) or []
+    results: list[dict[str, str]] = []
+    for hit in hits[:n]:
+        title = str(hit.get("title", "")).strip()
+        if not title:
+            continue
+        snippet = html_mod.unescape(re.sub(r"<[^>]+>", "", str(hit.get("snippet", "")))).strip()
+        page_url = f"https://{lang}.wikipedia.org/wiki/{title.replace(' ', '_')}"
+        results.append({"title": title, "url": page_url, "description": snippet})
+    return results
+
+
+async def _search_wikipedia(query: str, n: int) -> str:
+    """Keyless provider tried before DuckDuckGo — Wikipedia's public search API
+    needs no key and does not CAPTCHA (unlike DuckDuckGo's HTML endpoint).
+    Russian Wikipedia first; if that search is empty, fall back to English
+    (a topic may only have an English article, or the ru search may miss it)."""
+    try:
+        results = await _wikipedia_search_one("ru", query, n)
+        if not results:
+            results = await _wikipedia_search_one("en", query, n)
+    except Exception as exc:  # noqa: BLE001 — network error or malformed JSON, never raise
+        return f"[error] поиск не удался: {type(exc).__name__}: {exc}"
+    if not results:
+        return f"[ok] ничего не найдено: {query}"
+    out = [f"[ok] поиск «{query}»:"]
+    for r in results:
+        out.append(f"- {r['title']}\n  {r['url']}\n  {r['description'][:200]}")
+    return "\n".join(out)
+
+
 async def _search_openverse(query: str, n: int) -> str:
     """Keyless image/GIF fallback — Openverse's public API (CC-licensed media, no key)."""
     import httpx  # noqa: PLC0415
@@ -966,9 +1021,9 @@ _IMAGE_KINDS = frozenset({"images", "image", "gif", "gifs"})
 
 
 async def web_search(args: dict[str, Any], user_id: int = 0) -> str:
-    """Поиск в интернете. Brave (если есть ключ), иначе — без ключа (DuckDuckGo /
-    Openverse). query[, n][, kind: web|images]. Возвращает title/url/snippet
-    (или прямые ссылки на медиа при kind=images)."""
+    """Поиск в интернете. Brave (если есть ключ), иначе — без ключа (Wikipedia /
+    DuckDuckGo / Openverse). query[, n][, kind: web|images]. Возвращает
+    title/url/snippet (или прямые ссылки на медиа при kind=images)."""
     query = _pick(args, ("query", "q", "text", "search")).strip()
     if not query:
         return "[error] нужен query"
@@ -982,9 +1037,15 @@ async def web_search(args: dict[str, Any], user_id: int = 0) -> str:
         if not result.startswith("[error]"):
             return result
         log.warning("web_search.brave_failed_fallback", detail=result[:200])
-    # Keyless fallback — either no key configured, or Brave just errored.
+    # Keyless fallback chain — either no key configured, or Brave just
+    # errored. Wikipedia first (no CAPTCHA, great for exactly the kind of
+    # topic — films, books, people, events — someone asks Persona to look
+    # up), then DuckDuckGo's HTML endpoint as the last resort.
     if is_images:
         return await _search_openverse(query, n)
+    result = await _search_wikipedia(query, n)
+    if not result.startswith("[error]") and not result.startswith("[ok] ничего не найдено"):
+        return result
     return await _search_duckduckgo(query, n)
 
 
@@ -1234,7 +1295,7 @@ _BUILTIN_TOOLS: dict[str, dict[str, Any]] = {
         "fn": web_search,
         "description": (
             "Поиск в интернете. Brave, если есть ключ (/settings/web-search), "
-            "иначе — без ключа (DuckDuckGo/Openverse), поиск всегда работает. "
+            "иначе — без ключа (Wikipedia/DuckDuckGo/Openverse), поиск всегда работает. "
             "Вернёт title/url/описание, при kind=images — прямые ссылки на медиа."
         ),
         "params": {"query": "запрос", "n": "сколько результатов",
