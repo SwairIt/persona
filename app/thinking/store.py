@@ -41,23 +41,28 @@ class ThoughtStore:
         source_scope: str,
         source_session_id: int | None,
         certainty: str = "guess",
+        source_chat_id: int | None = None,
     ) -> int:
         """Open a new chain and write its seed row (step_no=0) atomically.
 
         A chain with no seed is a broken state, so both inserts happen inside
-        one ``write_transaction()``.
+        one ``write_transaction()``. ``source_chat_id`` is the Telegram chat
+        this chain must answer back into (only set for ``research`` chains
+        seeded from a chat request) — ``None`` for every other seed kind.
         """
         tenant = int(persona_user_id)
         session_id = int(source_session_id) if source_session_id is not None else None
+        chat_id = int(source_chat_id) if source_chat_id is not None else None
         async with write_transaction() as conn:
             cursor = await conn.execute(
                 """
                 INSERT INTO persona_thought_chain(
-                    persona_user_id, seed_kind, source_scope, source_session_id
+                    persona_user_id, seed_kind, source_scope, source_session_id,
+                    source_chat_id
                 )
-                VALUES(?,?,?,?)
+                VALUES(?,?,?,?,?)
                 """,
-                (tenant, seed_kind, source_scope, session_id),
+                (tenant, seed_kind, source_scope, session_id, chat_id),
             )
             chain_id = int(cursor.lastrowid)
             await conn.execute(
@@ -170,6 +175,24 @@ class ThoughtStore:
                  LIMIT 1
                 """,
                 (int(persona_user_id),),
+            )
+            row = await cursor.fetchone()
+        return dict(row) if row is not None else None
+
+    async def get_chain(self, chain_id: int) -> dict[str, Any] | None:
+        """Fetch one chain's row (open or closed), including its
+        ``source_chat_id`` — used once a research chain concludes, to know
+        which chat to deliver the conclusion back into."""
+        async with get_connection() as conn:
+            cursor = await conn.execute(
+                """
+                SELECT chain_id, persona_user_id, seed_kind, source_scope,
+                       source_session_id, source_chat_id, status, created_at,
+                       closed_at
+                  FROM persona_thought_chain
+                 WHERE chain_id=?
+                """,
+                (int(chain_id),),
             )
             row = await cursor.fetchone()
         return dict(row) if row is not None else None

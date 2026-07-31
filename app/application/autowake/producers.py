@@ -6,7 +6,7 @@ import re
 from typing import TYPE_CHECKING, Final
 
 from app.application.autowake.service import EnqueueAutowake
-from app.domains.autowake import SourceScope
+from app.domains.autowake import DeliveryTarget, DeliveryTargetKind, SourceScope
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -83,4 +83,72 @@ async def enqueue_completed_dream_report(
     )
 
 
-__all__ = ["enqueue_completed_briefing", "enqueue_completed_dream_report"]
+async def enqueue_completed_research(
+    service: AutowakeService,
+    *,
+    owner_user_id: int,
+    chain_id: int,
+    topic: str,
+    conclusion: str,
+    completed_at: datetime,
+    source_scope: SourceScope,
+    chat_id: int | None,
+) -> EnqueueResult:
+    """Deliver a concluded ``research`` chain back to the chat that asked.
+
+    The whole point of research-on-request is that it answers where it was
+    asked: a group-sourced request must land back in that SAME group, never
+    in the owner's private DM/diary as if it were owner-private data. A
+    non-group source (the owner asked in his own DM, or this was seeded some
+    other owner-private way) falls back to the owner DM.
+    """
+    clean_topic = topic.strip()
+    clean_conclusion = conclusion.strip()
+    if not clean_topic or not clean_conclusion:
+        raise ValueError("research topic and conclusion are required")
+    text = (
+        f"Почитала про «{clean_topic}» — вот что вынесла:\n\n"
+        f"{clean_conclusion[:_MAX_PRODUCER_BODY_CHARS]}"
+    )
+    idempotency_key = f"research:{chain_id}"
+
+    if source_scope is SourceScope.GROUP:
+        if chat_id is None or chat_id >= 0:
+            raise ValueError("group research delivery requires a negative Telegram chat id")
+        return await service.enqueue(
+            EnqueueAutowake(
+                owner_user_id=owner_user_id,
+                is_owner=True,
+                kind="research.completed",
+                source="telegram_group",
+                source_scope=SourceScope.GROUP,
+                text=text,
+                idempotency_key=idempotency_key,
+                target=DeliveryTarget(DeliveryTargetKind.GROUP, chat_id),
+                # The chain's chat_id was recorded only for a chat that had
+                # already asked Persona directly -- the same trust boundary
+                # the request itself crossed, not a new opt-in invented here.
+                group_opt_in_verified=True,
+            ),
+            now=completed_at,
+        )
+
+    return await service.enqueue(
+        EnqueueAutowake(
+            owner_user_id=owner_user_id,
+            is_owner=True,
+            kind="research.completed",
+            source="persona_impulse",
+            source_scope=SourceScope.DERIVED_OWNER,
+            text=text,
+            idempotency_key=idempotency_key,
+        ),
+        now=completed_at,
+    )
+
+
+__all__ = [
+    "enqueue_completed_briefing",
+    "enqueue_completed_dream_report",
+    "enqueue_completed_research",
+]

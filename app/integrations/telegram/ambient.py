@@ -16,9 +16,20 @@ from app.chat import (
 from app.chat.prompts import get_active_system_prompt
 from app.chat.dynamic_prompt import contextual_system_prompt
 from app.chat.user_memory import extract_and_store
+from app.domains.autowake import SourceScope
 from app.llm.client import CompletionRequest, make_client
 from app.integrations.telegram.labels import group_message_label
 from app.integrations.telegram.output_guard import persona_only_reply
+from app.thinking.research_request import ResearchRequest, build_research_request
+
+# NOTE: app.thinking.loop (and app.thinking.store) are imported lazily inside
+# _start_research below, not here at module level. app.thinking.loop imports
+# app.thinking.evidence, which imports app.integrations.telegram.labels --
+# and importing THIS module is already part of that same package's __init__
+# chain (via worker.py -> service.py -> ambient.py). A module-level import
+# here would close the cycle back onto a partially-initialised
+# app.thinking.loop and fail with ImportError. research_request has no
+# Telegram dependency, so it stays safe at module level.
 
 if TYPE_CHECKING:
     from app.application.ambient_group.dto import AmbientGroupTurn
@@ -132,6 +143,19 @@ class TelegramAmbientTurnAdapter:
             )
             self._memory_tasks.add(task)
             task.add_done_callback(self._memory_tasks.discard)
+        research = build_research_request(
+            turn.text,
+            chat_id=turn.external_chat_id,
+            sender=turn.sender_label,
+            source_scope=SourceScope.GROUP.value,
+        )
+        if research is not None:
+            task = asyncio.create_task(
+                self._start_research(turn.tenant_id, research),
+                name=f"telegram-research-{turn.message_id}",
+            )
+            self._memory_tasks.add(task)
+            task.add_done_callback(self._memory_tasks.discard)
 
     async def reply(self, turn: AmbientGroupTurn) -> str:
         await self.persist(turn)
@@ -195,6 +219,28 @@ class TelegramAmbientTurnAdapter:
                 turn.text,
                 "",
                 session_id=turn.conversation_id,
+            )
+        except Exception:
+            return
+
+    @staticmethod
+    async def _start_research(persona_user_id: int, request: ResearchRequest) -> None:
+        """Open a ``research`` thought chain for a detected request.
+
+        Best-effort and fire-and-forget, same shape as
+        ``_remember_owner_fact`` above: a failure here must never affect
+        the group reply already in flight.
+        """
+        try:
+            from app.thinking.loop import seed_research_chain  # noqa: PLC0415
+            from app.thinking.store import ThoughtStore  # noqa: PLC0415
+
+            await seed_research_chain(
+                ThoughtStore(),
+                persona_user_id=persona_user_id,
+                topic=request.topic,
+                chat_id=request.chat_id,
+                source_scope=request.source_scope,
             )
         except Exception:
             return

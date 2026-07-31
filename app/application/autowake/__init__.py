@@ -20,6 +20,7 @@ from app.application.autowake.ports import (
 from app.application.autowake.producers import (
     enqueue_completed_briefing,
     enqueue_completed_dream_report,
+    enqueue_completed_research,
 )
 from app.application.autowake.service import (
     AutowakeDispatcher,
@@ -46,4 +47,5 @@ __all__ = [
     "PersonaImpulseProducer",
     "enqueue_completed_briefing",
     "enqueue_completed_dream_report",
+    "enqueue_completed_research",
 ]

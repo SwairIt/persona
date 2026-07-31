@@ -43,6 +43,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.thinking.evidence import gather_evidence
+from app.thinking.research_tools import is_research_tool_allowed
 from app.thinking.settings import ALL_SEED_KINDS, ThinkingSettings, effective_cap
 from app.thinking.store import ThoughtStore
 
@@ -138,6 +139,32 @@ _CONCLUSION_SYSTEM = (
     + _RUSSIAN_RULE
 )
 
+# Research on request (owner mandate 2026-07-30/31): Persona did NOT watch a
+# film, visit a place, or experience anything she was asked to look up — she
+# only READ about it (search snippets, articles). The model has repeatedly
+# invented experiences it never had (a fictional "Ярик из будущего", fake
+# facts about the owner's hobbies) — this rule is the same guard applied to
+# a new place where the temptation is even stronger: a research chain's own
+# evidence literally is text it "read", and unmarked it reads exactly like
+# something the model could claim to have watched or witnessed instead.
+_HONESTY_RULE = (
+    " Ты НЕ смотрела фильм/шоу и нигде не была лично — ты только ПРОЧИТАЛА "
+    "об этом в интернете (результаты поиска, статьи, рецензии). Пиши именно "
+    "так: «прочитала о …», «почитала рецензии на …», «по прочитанному "
+    "складывается впечатление, что …» — и никогда не пиши, что смотрела, "
+    "видела своими глазами или сама пережила это."
+)
+
+# A research chain may call exactly RESEARCH_TOOLS between steps (see
+# app.thinking.research_tools) — no fetch_json, no shell, nothing that
+# writes. The step/conclusion prompts for this seed kind reuse the same
+# identity/Russian rules as every other chain, plus the honesty rule above.
+_RESEARCH_STEP_SYSTEM = _STEP_SYSTEM + _HONESTY_RULE
+_RESEARCH_STEP_SYSTEM_MODEL_MODE = _STEP_SYSTEM_MODEL_MODE + _HONESTY_RULE
+_RESEARCH_CONCLUSION_SYSTEM = _CONCLUSION_SYSTEM + _HONESTY_RULE
+
+_RESEARCH_SEARCH_LABEL = "РЕЗУЛЬТАТЫ ПОИСКА"
+
 _MARKER = "ХВАТИТ:"
 _OBSERVATION_MARKER = "НАБЛЮДЕНИЕ:"
 _GUESS_MARKER = "ДОГАДКА:"
@@ -200,6 +227,54 @@ def _render_chain(steps: list[dict[str, Any]]) -> str:
         label = _STEP_LABELS.get(str(step.get("kind")), str(step.get("kind")))
         lines.append(f"{label}: {step.get('text', '')}")
     return "\n".join(lines)
+
+
+async def _call_research_tool(name: str, args: dict[str, Any]) -> str:
+    """Dispatch one read-only research tool call.
+
+    Fail closed: any name outside :data:`app.thinking.research_tools.RESEARCH_TOOLS`
+    (``fetch_json``, ``run_shell``, anything that writes) raises rather than
+    running — a research chain has no owner watching a single step to catch
+    a bad call.
+    """
+    if not is_research_tool_allowed(name):
+        raise PermissionError(f"tool not allowed in a research chain: {name}")
+    from app.mcp.builtin_tools import web_browse, web_search  # noqa: PLC0415
+
+    if name == "web_search":
+        return await web_search({"query": args.get("query", "")})
+    return await web_browse({"url": args.get("url", ""), "question": args.get("question", "")})
+
+
+async def seed_research_chain(
+    store: ThoughtStore,
+    *,
+    persona_user_id: int,
+    topic: str,
+    chat_id: int,
+    source_scope: str,
+) -> int | None:
+    """Open a ``research`` chain for a topic someone asked Persona to look up.
+
+    Unlike :func:`seed_chain`, this never calls the model to invent a
+    question — the topic is the real thing a real chat message asked for,
+    so it is written verbatim as the seed (``certainty='observation'``: it
+    is not a guess, it is the request itself). ``chat_id`` is preserved on
+    the chain so the eventual conclusion can be delivered back into the
+    SAME chat that asked (see ``app.application.autowake.producers``).
+    """
+    clean_topic = topic.strip()
+    if not clean_topic:
+        return None
+    return await store.open_chain(
+        persona_user_id,
+        seed_text=clean_topic,
+        seed_kind="research",
+        source_scope=source_scope,
+        source_session_id=None,
+        certainty="observation",
+        source_chat_id=chat_id,
+    )
 
 
 async def seed_chain(
@@ -275,6 +350,27 @@ async def advance_chain(
     non_seed_steps = sum(1 for step in steps if step.get("kind") == "step")
     cap = effective_cap(settings)
     model_decides = settings.cap_mode == "model"
+    is_research = bool(steps) and steps[0].get("seed_kind") == "research"
+
+    # A research chain's very first advance gathers real evidence via
+    # web_search BEFORE any model call — deterministic, not model-invented —
+    # and is stored as an ordinary step, so the very next advance's model
+    # request sees it through the normal history rendered above (that is the
+    # whole mechanism this loop already has for feeding a chain its own
+    # accumulated text back into itself; no separate channel needed).
+    if is_research and non_seed_steps == 0:
+        topic = steps[0].get("text", "")
+        try:
+            result = await _call_research_tool("web_search", {"query": topic})
+        except Exception:  # noqa: BLE001 — search unavailable; still consumes a step
+            result = ""
+        result = (result or "").strip() or "(поиск не дал результатов)"
+        await store.append_step(
+            chain_id,
+            text=f"{_RESEARCH_SEARCH_LABEL}: {result}",
+            certainty="observation",
+        )
+        return "stepped"
 
     created_here = client is None
     llm = await _get_client(client, kind="thinking_step")
@@ -283,11 +379,17 @@ async def advance_chain(
 
     from app.llm.client import CompletionRequest  # noqa: PLC0415
 
+    conclusion_system = _RESEARCH_CONCLUSION_SYSTEM if is_research else _CONCLUSION_SYSTEM
+    step_system = _RESEARCH_STEP_SYSTEM if is_research else _STEP_SYSTEM
+    step_system_model_mode = (
+        _RESEARCH_STEP_SYSTEM_MODEL_MODE if is_research else _STEP_SYSTEM_MODEL_MODE
+    )
+
     if non_seed_steps >= cap:
         try:
             reply = await llm.complete(
                 CompletionRequest(
-                    system=_CONCLUSION_SYSTEM,
+                    system=conclusion_system,
                     user=history,
                     max_tokens=400,
                     temperature=0.7,
@@ -304,7 +406,7 @@ async def advance_chain(
         await store.close_chain(chain_id, conclusion=conclusion, certainty=certainty)
         return "closed"
 
-    system = _STEP_SYSTEM_MODEL_MODE if model_decides else _STEP_SYSTEM
+    system = step_system_model_mode if model_decides else step_system
     try:
         reply = await llm.complete(
             CompletionRequest(system=system, user=history, max_tokens=400, temperature=0.7)
@@ -347,4 +449,10 @@ def next_seed_kind(settings: ThinkingSettings, previous: str | None) -> str:
     return enabled[(idx + 1) % len(enabled)]
 
 
-__all__ = ["SEED_PROMPTS", "advance_chain", "next_seed_kind", "seed_chain"]
+__all__ = [
+    "SEED_PROMPTS",
+    "advance_chain",
+    "next_seed_kind",
+    "seed_chain",
+    "seed_research_chain",
+]

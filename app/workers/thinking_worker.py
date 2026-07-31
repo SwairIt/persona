@@ -37,6 +37,8 @@ from app.thinking.settings import load_thinking_settings
 from app.thinking.store import ThoughtStore
 from app.workers.heartbeat import beat
 
+_SOURCE_SCOPE_BY_VALUE = {scope.value: scope for scope in SourceScope}
+
 if TYPE_CHECKING:
     from datetime import datetime
 
@@ -58,6 +60,48 @@ _IDLE_SLEEP_SECONDS: float = 300.0
 # since it only guards against burning the daily budget on a single stuck
 # chain within one process lifetime.
 _CONSECUTIVE_FAILURES: dict[int, int] = {}
+
+
+async def _deliver_research_conclusion(
+    store: ThoughtStore, chain_id: int, *, now: datetime
+) -> None:
+    """After a ``research`` chain concludes, send the answer back into the
+    chat that asked -- never into the owner's private diary/DM as
+    owner-private data when the source was a group. Best-effort: a delivery
+    failure must never fail the thinking tick itself, since the conclusion
+    is already safely recorded in the diary regardless."""
+    try:
+        chain = await store.get_chain(chain_id)
+        if chain is None or chain.get("seed_kind") != "research":
+            return
+        steps = await store.chain_steps(chain_id)
+        if not steps or steps[-1].get("kind") != "conclusion":
+            return
+        scope = _SOURCE_SCOPE_BY_VALUE.get(str(chain.get("source_scope")))
+        if scope is None:
+            return
+        chat_id = chain.get("source_chat_id")
+
+        from app.adapters.autowake import SqliteAutowakeRepository  # noqa: PLC0415
+        from app.application.autowake import (  # noqa: PLC0415
+            AutowakeService,
+            enqueue_completed_research,
+        )
+
+        owner_id = int(chain["persona_user_id"])
+        service = AutowakeService(SqliteAutowakeRepository(), expected_owner_user_id=owner_id)
+        await enqueue_completed_research(
+            service,
+            owner_user_id=owner_id,
+            chain_id=chain_id,
+            topic=str(steps[0].get("text") or ""),
+            conclusion=str(steps[-1].get("text") or ""),
+            completed_at=now,
+            source_scope=scope,
+            chat_id=int(chat_id) if chat_id is not None else None,
+        )
+    except Exception:  # noqa: BLE001 — delivery is best-effort, never breaks the tick
+        log.warning("thinking.research.delivery_failed", chain_id=chain_id)
 
 
 async def tick(
@@ -91,6 +135,8 @@ async def tick(
         outcome = await advance_chain(store, settings, chain_id=chain_id, client=client)
         if outcome != "failed":
             _CONSECUTIVE_FAILURES.pop(chain_id, None)
+            if outcome == "closed":
+                await _deliver_research_conclusion(store, chain_id, now=now)
             return outcome
 
         failures = _CONSECUTIVE_FAILURES.get(chain_id, 0) + 1
@@ -105,6 +151,7 @@ async def tick(
                 chain_id=chain_id,
                 consecutive_failures=failures,
             )
+            await _deliver_research_conclusion(store, chain_id, now=now)
             return "closed"
         return "failed"
 
