@@ -40,6 +40,7 @@ property of this package, not a prompt instruction (see
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from app.thinking.evidence import gather_evidence
@@ -160,10 +161,44 @@ _HONESTY_RULE = (
 # writes. The step/conclusion prompts for this seed kind reuse the same
 # identity/Russian rules as every other chain, plus the honesty rule above.
 _RESEARCH_STEP_SYSTEM = _STEP_SYSTEM + _HONESTY_RULE
-_RESEARCH_STEP_SYSTEM_MODEL_MODE = _STEP_SYSTEM_MODEL_MODE + _HONESTY_RULE
 _RESEARCH_CONCLUSION_SYSTEM = _CONCLUSION_SYSTEM + _HONESTY_RULE
 
+# Owner mandate 2026-07-31: in model-decides mode Persona must decide for
+# HERSELF whether she needs to look further or already knows enough — not
+# just deterministically run one search and reason over it forever. Only
+# offered in cap_mode="model" (the mode where she already decides WHEN to
+# stop with ХВАТИТ:) — the same marker, plus two more for the same choice.
+# ОТКРЫВАЮ: is restricted in code (see _handle_research_open) to a URL that
+# actually appeared in this chain's own search results — a model that can
+# invent a URL to "open" is exactly the failure this project has been bitten
+# by before (see _IDENTITY_RULE's history).
+_RESEARCH_ACTIONS_RULE = (
+    " У тебя есть ровно три допустимых варианта ответа на этом шаге, выбери "
+    "один: начни ответ строго с «ИЩУ: <запрос>», если нужно поискать ещё "
+    "что-то; начни строго с «ОТКРЫВАЮ: <ссылка>», если хочешь открыть одну "
+    "из ссылок, которая уже встречалась в результатах поиска ЭТОЙ цепочки "
+    "(ссылку, которой не было в результатах поиска, открыть нельзя — не "
+    "выдумывай ссылки); или начни строго с «ХВАТИТ: <вывод>», если данных "
+    "уже достаточно, чтобы ответить."
+)
+_RESEARCH_STEP_SYSTEM_MODEL_MODE = (
+    _STEP_SYSTEM_MODEL_MODE + _HONESTY_RULE + _RESEARCH_ACTIONS_RULE
+)
+
 _RESEARCH_SEARCH_LABEL = "РЕЗУЛЬТАТЫ ПОИСКА"
+_RESEARCH_PAGE_LABEL = "СТРАНИЦА"
+
+# Bounded research loop (owner mandate 2026-07-31): a small model left to
+# call web_search/web_browse without a hard limit will not stop on its own.
+# At most this many of EACH per chain, counting the deterministic first
+# search too — see _research_progress/_handle_research_search/_handle_research_open.
+_MAX_LOOKUPS_PER_CHAIN = 5
+
+_SEARCH_MARKER = "ИЩУ:"
+_OPEN_MARKER = "ОТКРЫВАЮ:"
+
+_URL_RE = re.compile(r"https?://\S+")
+_BRACKET_RE = re.compile(r"«([^»]+)»")
 
 # Substrings a web_search result carries when it found nothing usable: a
 # clean "no hits" reply from any provider, an outright [error], or the
@@ -256,6 +291,146 @@ async def _call_research_tool(name: str, args: dict[str, Any]) -> str:
     if name == "web_search":
         return await web_search({"query": args.get("query", "")})
     return await web_browse({"url": args.get("url", ""), "question": args.get("question", "")})
+
+
+def _extract_bracket(text: str) -> str | None:
+    """Pull the first «…» quoted value out of a stored step's text, or
+    ``None`` when there isn't one."""
+    match = _BRACKET_RE.search(text)
+    return match.group(1) if match else None
+
+
+def _clean_url(url: str) -> str:
+    """Strip whitespace and common trailing punctuation off a URL taken
+    from a model reply or from a stored search-result step's text."""
+    return url.strip().rstrip(").,;»\"'")
+
+
+def _research_progress(
+    steps: list[dict[str, Any]],
+) -> tuple[list[str], list[str], set[str]]:
+    """Reconstruct a research chain's own history of lookups from its
+    stored steps — no separate table, the chain's own text IS the state.
+
+    Returns ``(queries_searched, urls_opened, urls_seen_in_search_results)``.
+    The first two are in step order (for the ``_MAX_LOOKUPS_PER_CHAIN``
+    count and dedup); the third is the set ``ОТКРЫВАЮ:`` is validated
+    against — a URL never handed back by ``web_search`` in this chain may
+    never be opened.
+    """
+    queries: list[str] = []
+    opens: list[str] = []
+    seen_urls: set[str] = set()
+    for step in steps:
+        text = str(step.get("text", ""))
+        if text.startswith(_RESEARCH_SEARCH_LABEL):
+            query = _extract_bracket(text)
+            if query:
+                queries.append(query)
+            seen_urls.update(_clean_url(u) for u in _URL_RE.findall(text))
+        elif text.startswith(_RESEARCH_PAGE_LABEL):
+            url = _extract_bracket(text)
+            if url:
+                opens.append(url)
+    return queries, opens, seen_urls
+
+
+async def _handle_research_search(
+    store: ThoughtStore, chain_id: int, steps: list[dict[str, Any]], query: str
+) -> str:
+    """Handle an ``ИЩУ: <query>`` reply: run the search, dedup, and enforce
+    ``_MAX_LOOKUPS_PER_CHAIN`` — all in code, never left to the prompt."""
+    query = query.strip()
+    if not query:
+        return "failed"
+    queries, _opens, _seen = _research_progress(steps)
+    if len(queries) >= _MAX_LOOKUPS_PER_CHAIN:
+        await store.append_step(
+            chain_id,
+            text=(
+                "НАБЛЮДЕНИЕ: лимит поисков в этой цепочке исчерпан "
+                f"({_MAX_LOOKUPS_PER_CHAIN}) — больше искать нельзя, нужно "
+                "закончить вывод тем, что уже есть."
+            ),
+            certainty="observation",
+        )
+        return "stepped"
+    normalized = query.lower()
+    if any(normalized == used.strip().lower() for used in queries):
+        await store.append_step(
+            chain_id,
+            text=(
+                f"НАБЛЮДЕНИЕ: запрос «{query}» уже искала в этой цепочке — "
+                "результат не изменится, повторный поиск не нужен."
+            ),
+            certainty="observation",
+        )
+        return "stepped"
+    try:
+        result = await _call_research_tool("web_search", {"query": query})
+    except Exception:  # noqa: BLE001 — search unavailable; still consumes a step
+        result = ""
+    result = (result or "").strip() or "(поиск не дал результатов)"
+    await store.append_step(
+        chain_id,
+        text=f"{_RESEARCH_SEARCH_LABEL} «{query}»: {result}",
+        certainty="observation",
+    )
+    return "stepped"
+
+
+async def _handle_research_open(
+    store: ThoughtStore, chain_id: int, steps: list[dict[str, Any]], url: str
+) -> str:
+    """Handle an ``ОТКРЫВАЮ: <url>`` reply: refuse anything not already
+    seen in this chain's own search results, dedup, and enforce
+    ``_MAX_LOOKUPS_PER_CHAIN`` — all in code, never left to the prompt."""
+    clean = _clean_url(url)
+    if not clean:
+        return "failed"
+    _queries, opens, seen_urls = _research_progress(steps)
+    if len(opens) >= _MAX_LOOKUPS_PER_CHAIN:
+        await store.append_step(
+            chain_id,
+            text=(
+                "НАБЛЮДЕНИЕ: лимит открытых страниц в этой цепочке исчерпан "
+                f"({_MAX_LOOKUPS_PER_CHAIN}) — больше открывать нельзя, нужно "
+                "закончить вывод тем, что уже есть."
+            ),
+            certainty="observation",
+        )
+        return "stepped"
+    if any(clean == opened.strip() for opened in opens):
+        await store.append_step(
+            chain_id,
+            text=(
+                f"НАБЛЮДЕНИЕ: ссылка «{clean}» уже открывалась в этой "
+                "цепочке — повторно открывать не нужно."
+            ),
+            certainty="observation",
+        )
+        return "stepped"
+    if clean not in seen_urls:
+        await store.append_step(
+            chain_id,
+            text=(
+                f"НАБЛЮДЕНИЕ: ссылка «{clean}» не встречалась в результатах "
+                "поиска этой цепочки, поэтому открыть её нельзя — отказ."
+            ),
+            certainty="observation",
+        )
+        return "stepped"
+    try:
+        result = await _call_research_tool("web_browse", {"url": clean})
+    except Exception:  # noqa: BLE001 — page unavailable; still consumes a step
+        result = ""
+    result = (result or "").strip() or "(страницу не удалось открыть)"
+    await store.append_step(
+        chain_id,
+        text=f"{_RESEARCH_PAGE_LABEL} «{clean}»: {result}",
+        certainty="observation",
+    )
+    return "stepped"
 
 
 async def seed_research_chain(
@@ -379,7 +554,7 @@ async def advance_chain(
         result = (result or "").strip() or "(поиск не дал результатов)"
         await store.append_step(
             chain_id,
-            text=f"{_RESEARCH_SEARCH_LABEL}: {result}",
+            text=f"{_RESEARCH_SEARCH_LABEL} «{topic}»: {result}",
             certainty="observation",
         )
         # No usable results: never feed an empty search into further model
@@ -448,6 +623,19 @@ async def advance_chain(
             return "failed"
         await store.close_chain(chain_id, conclusion=conclusion, certainty=certainty)
         return "closed"
+
+    # She decides for herself whether she needs to look further (owner
+    # mandate 2026-07-31) — only offered alongside ХВАТИТ:, in model-decides
+    # research chains. Bounds (_MAX_LOOKUPS_PER_CHAIN, dedup, URL provenance)
+    # are enforced inside the handlers, in code, not left to the prompt.
+    if is_research and model_decides and text.startswith(_SEARCH_MARKER):
+        return await _handle_research_search(
+            store, chain_id, steps, text[len(_SEARCH_MARKER) :]
+        )
+    if is_research and model_decides and text.startswith(_OPEN_MARKER):
+        return await _handle_research_open(
+            store, chain_id, steps, text[len(_OPEN_MARKER) :]
+        )
 
     step_text, certainty = _split_certainty(text)
     if not step_text:

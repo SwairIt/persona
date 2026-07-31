@@ -179,6 +179,217 @@ async def test_research_conclusion_uses_the_honesty_prompt(db, monkeypatch) -> N
     assert client.requests[0].system == _RESEARCH_CONCLUSION_SYSTEM
 
 
+def _model_settings(**over: Any) -> ThinkingSettings:
+    return _settings(cap_mode="model", emergency_cap=50, **over)
+
+
+async def test_research_chain_ishu_triggers_second_search_and_reaches_next_step(
+    db, monkeypatch
+) -> None:
+    """Owner mandate: she decides for herself whether to look further. An
+    ``ИЩУ: <query>`` reply must run a real (mocked) web_search and the
+    result must reach the NEXT step's model request."""
+    await _user(db)
+    store = ThoughtStore()
+    chain_id = await seed_research_chain(
+        store, persona_user_id=7, topic="гильермо дель торо",
+        chat_id=-100500, source_scope="group",
+    )
+
+    async def fake_web_search(args: dict[str, Any], user_id: int = 0) -> str:
+        query = args.get("query", "")
+        return f"[ok] поиск «{query}»:\n- https://example.test/bio\n  биография"
+
+    monkeypatch.setattr("app.mcp.builtin_tools.web_search", fake_web_search)
+    settings = _model_settings()
+
+    # Step 1: automatic first search (deterministic, no model call).
+    await advance_chain(store, settings, chain_id=chain_id, client=FakeClient([]))
+
+    # Step 2: model asks to search again with a refined query.
+    client = FakeClient(["ИЩУ: гильермо дель торо фильмография"])
+    outcome = await advance_chain(store, settings, chain_id=chain_id, client=client)
+    assert outcome == "stepped"
+
+    steps = await store.chain_steps(chain_id)
+    assert "гильермо дель торо фильмография" in steps[-1]["text"]
+    assert "биография" in steps[-1]["text"]
+
+    # Step 3: the new search results must reach the next model call.
+    client2 = FakeClient(["НАБЛЮДЕНИЕ: по прочитанному это известный режиссёр"])
+    outcome2 = await advance_chain(store, settings, chain_id=chain_id, client=client2)
+    assert outcome2 == "stepped"
+    assert "фильмография" in client2.requests[0].user
+
+
+async def test_research_chain_otkryvayu_known_url_fetches_it(db, monkeypatch) -> None:
+    """``ОТКРЫВАЮ: <url>`` for a URL that appeared in an earlier search
+    result of THIS chain must fetch it (web_browse, mocked)."""
+    await _user(db)
+    store = ThoughtStore()
+    chain_id = await seed_research_chain(
+        store, persona_user_id=7, topic="Лабиринт Фавна",
+        chat_id=-100500, source_scope="group",
+    )
+    url = "https://example.test/labyrinth"
+
+    async def fake_web_search(args: dict[str, Any], user_id: int = 0) -> str:
+        return f"[ok] поиск «{args.get('query')}»:\n- {url}\n  рецензия"
+
+    browse_calls: list[dict[str, Any]] = []
+
+    async def fake_web_browse(args: dict[str, Any], user_id: int = 0) -> str:
+        browse_calls.append(args)
+        return "[ok] содержимое страницы про Лабиринт Фавна"
+
+    monkeypatch.setattr("app.mcp.builtin_tools.web_search", fake_web_search)
+    monkeypatch.setattr("app.mcp.builtin_tools.web_browse", fake_web_browse)
+    settings = _model_settings()
+
+    await advance_chain(store, settings, chain_id=chain_id, client=FakeClient([]))
+
+    client = FakeClient([f"ОТКРЫВАЮ: {url}"])
+    outcome = await advance_chain(store, settings, chain_id=chain_id, client=client)
+    assert outcome == "stepped"
+    assert browse_calls and browse_calls[0]["url"] == url
+
+    steps = await store.chain_steps(chain_id)
+    assert "содержимое страницы" in steps[-1]["text"]
+
+
+async def test_research_chain_otkryvayu_unseen_url_is_refused(db, monkeypatch) -> None:
+    """A URL that never appeared in this chain's own search results must be
+    refused — never fetched — otherwise the model can invent URLs."""
+    await _user(db)
+    store = ThoughtStore()
+    chain_id = await seed_research_chain(
+        store, persona_user_id=7, topic="Лабиринт Фавна",
+        chat_id=-100500, source_scope="group",
+    )
+
+    async def fake_web_search(args: dict[str, Any], user_id: int = 0) -> str:
+        return "[ok] поиск «...»:\n- https://example.test/real\n  рецензия"
+
+    browse_calls: list[dict[str, Any]] = []
+
+    async def fake_web_browse(args: dict[str, Any], user_id: int = 0) -> str:
+        browse_calls.append(args)
+        return "[ok] should never happen"
+
+    monkeypatch.setattr("app.mcp.builtin_tools.web_search", fake_web_search)
+    monkeypatch.setattr("app.mcp.builtin_tools.web_browse", fake_web_browse)
+    settings = _model_settings()
+
+    await advance_chain(store, settings, chain_id=chain_id, client=FakeClient([]))
+
+    invented_url = "https://invented.test/does-not-exist"
+    client = FakeClient([f"ОТКРЫВАЮ: {invented_url}"])
+    outcome = await advance_chain(store, settings, chain_id=chain_id, client=client)
+    assert outcome == "stepped"
+    assert browse_calls == []  # never fetched
+
+    steps = await store.chain_steps(chain_id)
+    assert "не встречалась" in steps[-1]["text"]
+    assert invented_url in steps[-1]["text"]
+
+
+async def test_research_chain_sixth_search_is_refused_and_told_to_conclude(
+    db, monkeypatch
+) -> None:
+    """At most 5 searches per chain (the deterministic first one included).
+    A 6th ИЩУ must be refused in code, without calling web_search again."""
+    await _user(db)
+    store = ThoughtStore()
+    chain_id = await seed_research_chain(
+        store, persona_user_id=7, topic="тема", chat_id=-100500, source_scope="group",
+    )
+
+    search_calls: list[str] = []
+
+    async def fake_web_search(args: dict[str, Any], user_id: int = 0) -> str:
+        search_calls.append(args.get("query", ""))
+        return f"[ok] поиск «{args.get('query')}»:\n- https://example.test/{len(search_calls)}\n  X"
+
+    monkeypatch.setattr("app.mcp.builtin_tools.web_search", fake_web_search)
+    settings = _model_settings()
+
+    # Step 1: automatic first search (search #1).
+    await advance_chain(store, settings, chain_id=chain_id, client=FakeClient([]))
+    # Steps 2-5: four more distinct ИЩУ searches (#2-#5).
+    for i in range(4):
+        client = FakeClient([f"ИЩУ: запрос номер {i}"])
+        outcome = await advance_chain(store, settings, chain_id=chain_id, client=client)
+        assert outcome == "stepped"
+    assert len(search_calls) == 5
+
+    # 6th search attempt: must be refused, web_search must not be called again.
+    client = FakeClient(["ИЩУ: запрос номер 5"])
+    outcome = await advance_chain(store, settings, chain_id=chain_id, client=client)
+    assert outcome == "stepped"
+    assert len(search_calls) == 5  # unchanged — refused before calling the tool
+
+    steps = await store.chain_steps(chain_id)
+    assert "лимит поисков" in steps[-1]["text"]
+    assert "закончить" in steps[-1]["text"]
+
+
+async def test_research_chain_repeated_query_does_not_spend_lookup_or_refetch(
+    db, monkeypatch
+) -> None:
+    """Repeating an identical query must not spend a lookup and must not
+    re-fetch — she is told it was already tried instead."""
+    await _user(db)
+    store = ThoughtStore()
+    chain_id = await seed_research_chain(
+        store, persona_user_id=7, topic="гильермо дель торо",
+        chat_id=-100500, source_scope="group",
+    )
+
+    search_calls: list[str] = []
+
+    async def fake_web_search(args: dict[str, Any], user_id: int = 0) -> str:
+        search_calls.append(args.get("query", ""))
+        return f"[ok] поиск «{args.get('query')}»:\n- https://example.test/x\n  X"
+
+    monkeypatch.setattr("app.mcp.builtin_tools.web_search", fake_web_search)
+    settings = _model_settings()
+
+    await advance_chain(store, settings, chain_id=chain_id, client=FakeClient([]))
+    assert search_calls == ["гильермо дель торо"]
+
+    # Repeat the exact same query the automatic first search already used.
+    client = FakeClient(["ИЩУ: гильермо дель торо"])
+    outcome = await advance_chain(store, settings, chain_id=chain_id, client=client)
+    assert outcome == "stepped"
+    assert search_calls == ["гильермо дель торо"]  # not called again
+
+    steps = await store.chain_steps(chain_id)
+    assert "уже искала" in steps[-1]["text"]
+
+
+async def test_research_chain_hvatit_still_closes_the_chain(db, monkeypatch) -> None:
+    await _user(db)
+    store = ThoughtStore()
+    chain_id = await seed_research_chain(
+        store, persona_user_id=7, topic="тема", chat_id=-100500, source_scope="group",
+    )
+
+    async def fake_web_search(args: dict[str, Any], user_id: int = 0) -> str:
+        return "[ok] нашла кое-что полезное"
+
+    monkeypatch.setattr("app.mcp.builtin_tools.web_search", fake_web_search)
+    settings = _model_settings()
+
+    await advance_chain(store, settings, chain_id=chain_id, client=FakeClient([]))
+
+    client = FakeClient(["ХВАТИТ: данных достаточно, вот вывод"])
+    outcome = await advance_chain(store, settings, chain_id=chain_id, client=client)
+    assert outcome == "closed"
+
+    chain = await store.get_chain(chain_id)
+    assert chain["status"] == "closed"
+
+
 def test_research_tools_allowlist_excludes_writing_and_fetch_json() -> None:
     assert RESEARCH_TOOLS == frozenset({"web_search", "web_browse"})
     assert is_research_tool_allowed("web_search")
