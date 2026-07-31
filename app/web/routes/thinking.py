@@ -87,6 +87,7 @@ async def thinking_settings_save(
     may_write_to_chat: str = Form(""),
     model: str = Form(""),
     seed_kinds: list[str] = Form([]),
+    quiet_minutes: int = Form(3),
 ) -> RedirectResponse:
     await _owner_id(session)
 
@@ -99,6 +100,7 @@ async def thinking_settings_save(
         seed_kinds=tuple(seed_kinds),
         may_write_to_chat=may_write_to_chat == "on",
         model=model.strip(),
+        quiet_minutes=quiet_minutes,
     )
     try:
         await save_thinking_settings(new_settings)

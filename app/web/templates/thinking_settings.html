@@ -66,6 +66,18 @@
   </div>
 
   <div class="mt-5">
+    <label class="block text-sm text-zinc-400" for="quiet_minutes">Минут тишины перед мыслью</label>
+    <input id="quiet_minutes" name="quiet_minutes" type="number" min="1" max="1440" value="{{ settings.quiet_minutes }}"
+           class="mt-1 w-40 rounded-lg border border-ink-700 bg-ink-900 px-3 py-2 text-sm">
+    <p class="mt-1 text-xs text-zinc-500">
+      Сколько минут владелец должен молчать в чате, прежде чем Persona начнёт (или продолжит) думать сама.
+      Меньше — она живее и думает почти постоянно, но шаг мышления занимает ~30 сек на общей модели,
+      и на это время может задержаться ответ владельцу. Запросы «посмотри/узнай про …» отвечают почти
+      сразу и этой настройке не подчиняются.
+    </p>
+  </div>
+
+  <div class="mt-5">
     <label class="block text-sm text-zinc-400" for="model">Модель для мышления</label>
     <input id="model" name="model" maxlength="200" value="{{ settings.model }}"
            placeholder="{{ worker_model or 'по умолчанию — модель чата' }}"

@@ -33,12 +33,26 @@ def _settings(**over: Any) -> ThinkingSettings:
     return ThinkingSettings(**base)
 
 
-async def _quiet(_now: Any) -> bool:
+async def _quiet(_now: Any, _minutes: Any = None) -> bool:
     return True
 
 
-async def _busy(_now: Any) -> bool:
+async def _busy(_now: Any, _minutes: Any = None) -> bool:
     return False
+
+
+async def _message(db, session_id: int = 1, *, minutes_ago: float, user_id: int = 7) -> None:
+    """Insert a chat message whose ``created_at`` is ``minutes_ago`` in the past."""
+    await db.execute(
+        "INSERT OR IGNORE INTO chat_session(id, user_id, title) VALUES(?,?,?)",
+        (session_id, user_id, "t"),
+    )
+    await db.execute(
+        "INSERT INTO chat_message(session_id, role, content, created_at) "
+        "VALUES(?, 'user', 'hi', datetime('now', ?))",
+        (session_id, f"-{minutes_ago} minutes"),
+    )
+    await db.commit()
 
 
 async def test_disabled_setting_stops_everything(db, monkeypatch) -> None:
@@ -157,3 +171,64 @@ async def test_chain_force_closes_after_repeated_failures(db, monkeypatch) -> No
     assert steps[-1]["kind"] == "conclusion"
     assert "прерв" in steps[-1]["text"]
     assert chain_id not in _CONSECUTIVE_FAILURES
+
+
+async def test_quiet_minutes_setting_thinks_when_quiet_long_enough(db) -> None:
+    """quiet_minutes=3, last message 4 minutes ago: the owner is quiet enough."""
+    await _user(db)
+    await _message(db, minutes_ago=4)
+    result = await tick(
+        ThoughtStore(), _settings(quiet_minutes=3, seed_kinds=("alive",)),
+        persona_user_id=7, now=datetime.now(UTC), client=FakeClient(["новая мысль"]),
+    )
+    assert result == "seeded"
+
+
+async def test_quiet_minutes_setting_blocks_when_too_recent(db) -> None:
+    """quiet_minutes=3, last message 2 minutes ago: still owner-active, must not think."""
+    await _user(db)
+    await _message(db, minutes_ago=2)
+    result = await tick(
+        ThoughtStore(), _settings(quiet_minutes=3, seed_kinds=("alive",)),
+        persona_user_id=7, now=datetime.now(UTC), client=FakeClient(["новая мысль"]),
+    )
+    assert result == "busy"
+
+
+async def test_research_chain_runs_under_the_short_gate_not_the_full_setting(db) -> None:
+    """A research chain must not wait behind the (much longer) self-directed
+    quiet_minutes setting: 40s of quiet is not enough for a 3-minute
+    self-directed gate, but is enough for the ~30s research gate. The
+    chain's first advance always does a real (deterministic) web_search
+    before any model call, so the outcome here is "stepped" or "closed"
+    depending on whether that search found anything — either is proof the
+    gate let the tick through instead of returning "busy"."""
+    await _user(db)
+    await _message(db, minutes_ago=40 / 60)
+    store = ThoughtStore()
+    await store.open_chain(
+        7, seed_text="что за Лабиринт Фавна", seed_kind="research",
+        source_scope="group", source_session_id=None,
+    )
+    result = await tick(
+        store, _settings(quiet_minutes=3),
+        persona_user_id=7, now=datetime.now(UTC), client=FakeClient(["шаг"]),
+    )
+    assert result in ("stepped", "closed")
+
+
+async def test_owner_activity_inside_research_window_still_blocks(db) -> None:
+    """Even a waiting research request must not cut in front of the owner:
+    10 seconds of quiet is under the ~30s research gate too."""
+    await _user(db)
+    await _message(db, minutes_ago=10 / 60)
+    store = ThoughtStore()
+    await store.open_chain(
+        7, seed_text="что за Лабиринт Фавна", seed_kind="research",
+        source_scope="group", source_session_id=None,
+    )
+    result = await tick(
+        store, _settings(quiet_minutes=3),
+        persona_user_id=7, now=datetime.now(UTC), client=FakeClient(["шаг"]),
+    )
+    assert result == "busy"

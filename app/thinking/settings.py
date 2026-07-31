@@ -32,6 +32,13 @@ _CAP_MODES: Final[frozenset[str]] = frozenset({"fixed", "model"})
 
 _MODEL_MAX_LEN: Final[int] = 200
 
+# Sane bounds for quiet_minutes: below 1 the gate is meaningless (a single
+# in-flight ~30s model step would already violate it); above a day is not a
+# "thinking" setting anymore. Validation on save rejects outside this range;
+# loading just falls back to the default (see module docstring).
+_QUIET_MINUTES_MIN: Final[int] = 1
+_QUIET_MINUTES_MAX: Final[int] = 1440
+
 
 @dataclass(frozen=True, slots=True)
 class ThinkingSettings:
@@ -43,6 +50,7 @@ class ThinkingSettings:
     seed_kinds: tuple[str, ...]
     may_write_to_chat: bool
     model: str = ""
+    quiet_minutes: int = 3
 
 
 DEFAULTS: Final[ThinkingSettings] = ThinkingSettings(
@@ -54,6 +62,7 @@ DEFAULTS: Final[ThinkingSettings] = ThinkingSettings(
     seed_kinds=ALL_SEED_KINDS,
     may_write_to_chat=False,
     model="",
+    quiet_minutes=3,
 )
 
 _KEY_ENABLED = "thinking_enabled"
@@ -64,6 +73,7 @@ _KEY_DAILY_BUDGET = "thinking_daily_budget"
 _KEY_SEED_KINDS = "thinking_seed_kinds"
 _KEY_MAY_WRITE_TO_CHAT = "thinking_may_write_to_chat"
 _KEY_MODEL = "thinking_model"
+_KEY_QUIET_MINUTES = "thinking_quiet_minutes"
 
 
 def _parse_bool(raw: str | None, default: bool) -> bool:
@@ -117,6 +127,13 @@ def _parse_model(raw: str | None, default: str) -> str:
     return raw.strip()[:_MODEL_MAX_LEN]
 
 
+def _parse_quiet_minutes(raw: str | None, default: int) -> int:
+    value = _parse_positive_int(raw, default)
+    if not (_QUIET_MINUTES_MIN <= value <= _QUIET_MINUTES_MAX):
+        return default
+    return value
+
+
 async def load_thinking_settings() -> ThinkingSettings:
     """Load thinking settings from ``kv_settings``, never raising.
 
@@ -135,6 +152,7 @@ async def load_thinking_settings() -> ThinkingSettings:
             raw_seed_kinds = await get_kv(conn, _KEY_SEED_KINDS)
             raw_may_write_to_chat = await get_kv(conn, _KEY_MAY_WRITE_TO_CHAT)
             raw_model = await get_kv(conn, _KEY_MODEL)
+            raw_quiet_minutes = await get_kv(conn, _KEY_QUIET_MINUTES)
     except Exception:
         return DEFAULTS
 
@@ -147,6 +165,7 @@ async def load_thinking_settings() -> ThinkingSettings:
         seed_kinds=_parse_seed_kinds(raw_seed_kinds, DEFAULTS.seed_kinds),
         may_write_to_chat=_parse_bool(raw_may_write_to_chat, DEFAULTS.may_write_to_chat),
         model=_parse_model(raw_model, DEFAULTS.model),
+        quiet_minutes=_parse_quiet_minutes(raw_quiet_minutes, DEFAULTS.quiet_minutes),
     )
 
 
@@ -166,6 +185,11 @@ def _validate(settings: ThinkingSettings) -> None:
         raise ValueError(f"unknown seed kinds: {unknown!r}")
     if any(ch.isspace() or not ch.isprintable() for ch in settings.model):
         raise ValueError(f"invalid model name: {settings.model!r}")
+    if not (_QUIET_MINUTES_MIN <= settings.quiet_minutes <= _QUIET_MINUTES_MAX):
+        raise ValueError(
+            f"quiet_minutes must be between {_QUIET_MINUTES_MIN} and "
+            f"{_QUIET_MINUTES_MAX}: {settings.quiet_minutes!r}"
+        )
 
 
 async def save_thinking_settings(settings: ThinkingSettings) -> None:
@@ -188,6 +212,7 @@ async def save_thinking_settings(settings: ThinkingSettings) -> None:
             conn, _KEY_MAY_WRITE_TO_CHAT, "true" if settings.may_write_to_chat else "false"
         )
         await set_kv(conn, _KEY_MODEL, settings.model)
+        await set_kv(conn, _KEY_QUIET_MINUTES, str(settings.quiet_minutes))
 
 
 def effective_cap(settings: ThinkingSettings) -> int:

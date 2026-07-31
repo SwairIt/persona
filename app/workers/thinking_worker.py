@@ -11,6 +11,13 @@ checks, in this exact order, ``enabled`` → owner idleness → the daily
 budget → an already-open chain → seeding a new one. Every check that finds
 a reason not to think returns immediately without touching the model.
 
+"Owner idleness" is not one fixed number: a self-directed chain waits for
+``settings.quiet_minutes`` (owner-configurable, default 3), but a
+``research`` chain — opened because someone explicitly asked Persona to
+look something up — only waits for :data:`_RESEARCH_QUIET_MINUTES`, since
+the requester is waiting and should not be made to wait behind Persona's
+own musings.
+
 A chain can get stuck if the model keeps failing right at its cap: each
 call to ``advance_chain`` retries the same conclusion request, and a
 persistently broken model would burn the whole daily budget retrying a
@@ -26,12 +33,14 @@ interrupted.
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Any
+from datetime import timedelta
+from typing import TYPE_CHECKING, Any, Final
 
 from app.auth.owner import get_owner_user_id
-from app.chat.reflection import _is_quiet
+from app.chat.reflection import _parse_sqlite_dt
 from app.domains.autowake.policy import SourceScope
 from app.logging_setup import get_logger
+from app.storage.db import get_connection
 from app.thinking.loop import advance_chain, next_seed_kind, seed_chain
 from app.thinking.settings import load_thinking_settings
 from app.thinking.store import ThoughtStore
@@ -54,6 +63,39 @@ _FALLBACK_CONCLUSION: str = (
 
 _PRODUCTIVE_SLEEP_SECONDS: float = 60.0
 _IDLE_SLEEP_SECONDS: float = 300.0
+
+# A ``research`` chain exists because a real person explicitly asked Persona
+# to go look something up (see app.thinking.research_request) — the
+# requester is waiting, so it must not sit behind the same quiet window as
+# self-directed thought. It still needs SOME gate, since a step cannot be
+# interrupted once it starts generating on the one shared model: half a
+# minute of quiet is enough to avoid cutting in mid-exchange without making
+# the requester wait anywhere near as long as self-directed thinking does.
+_RESEARCH_QUIET_MINUTES: Final[float] = 0.5
+
+
+async def _is_quiet(now: datetime, quiet_minutes: float) -> bool:
+    """True if the last chat message is older than ``quiet_minutes``.
+
+    Deliberately separate from ``app.chat.reflection._is_quiet``: that one
+    gates the nightly dream cycle, where an hour of silence is correct.
+    Reusing it for the thinking loop was the original mistake this module is
+    fixing — thinking needs its own, much shorter, owner-configurable gate.
+    Same underlying signal (latest ``chat_message.created_at``), different
+    threshold.
+    """
+    try:
+        async with get_connection() as conn:
+            cur = await conn.execute("SELECT MAX(created_at) AS mx FROM chat_message")
+            row = await cur.fetchone()
+    except Exception as exc:  # noqa: BLE001 — no table/DB → treat as quiet
+        log.debug("thinking.quiet_check_failed", error=str(exc))
+        return True
+    last = _parse_sqlite_dt(row["mx"] if row else None)
+    if last is None:
+        return True
+    return (now - last) >= timedelta(minutes=quiet_minutes)
+
 
 # In-process circuit breaker: consecutive "failed" advance_chain outcomes per
 # chain_id. Not persisted — a worker restart resetting this is acceptable,
@@ -122,14 +164,20 @@ async def tick(
     if not settings.enabled:
         return "disabled"
 
-    if not await _is_quiet(now):
+    # Fetched before the quiet check (not after, as in the budget/seed logic
+    # below) because which gate applies depends on what it is: a "research"
+    # chain gets the short research gate, anything else gets the owner's
+    # configured quiet_minutes.
+    open_chain = await store.oldest_open_chain(persona_user_id)
+    is_research = open_chain is not None and open_chain["seed_kind"] == "research"
+    gate_minutes = _RESEARCH_QUIET_MINUTES if is_research else settings.quiet_minutes
+    if not await _is_quiet(now, gate_minutes):
         return "busy"
 
     used = await store.steps_used_today(persona_user_id)
     if used >= settings.daily_budget:
         return "budget"
 
-    open_chain = await store.oldest_open_chain(persona_user_id)
     if open_chain is not None:
         chain_id = int(open_chain["chain_id"])
         outcome = await advance_chain(store, settings, chain_id=chain_id, client=client)

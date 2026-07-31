@@ -19,6 +19,7 @@ async def test_defaults_are_returned_when_nothing_is_stored(db) -> None:
     assert loaded == DEFAULTS
     assert loaded.enabled is False, "thinking must be OFF until the owner turns it on"
     assert set(loaded.seed_kinds) == set(ALL_SEED_KINDS)
+    assert loaded.quiet_minutes == 3, "thinking's own gate, not the dream cycle's 60"
 
 
 async def test_settings_round_trip(db) -> None:
@@ -97,3 +98,29 @@ async def test_model_round_trips_through_save_and_load(db) -> None:
 async def test_model_with_whitespace_is_rejected_on_save(db) -> None:
     with pytest.raises(ValueError):
         await save_thinking_settings(dataclasses.replace(DEFAULTS, model="qwen2.5 7b"))
+
+
+async def test_quiet_minutes_round_trips_through_save_and_load(db) -> None:
+    saved = dataclasses.replace(DEFAULTS, quiet_minutes=10)
+    await save_thinking_settings(saved)
+    loaded = await load_thinking_settings()
+    assert loaded.quiet_minutes == 10
+
+
+async def test_quiet_minutes_out_of_range_is_rejected_on_save(db) -> None:
+    with pytest.raises(ValueError):
+        await save_thinking_settings(dataclasses.replace(DEFAULTS, quiet_minutes=0))
+    with pytest.raises(ValueError):
+        await save_thinking_settings(dataclasses.replace(DEFAULTS, quiet_minutes=999999))
+
+
+async def test_quiet_minutes_corrupt_stored_value_falls_back_to_default(db) -> None:
+    from app.storage.db import get_connection
+    from app.storage.repository import set_kv
+
+    async with get_connection() as conn:
+        await set_kv(conn, "thinking_quiet_minutes", "не число")
+        await conn.commit()
+
+    loaded = await load_thinking_settings()
+    assert loaded.quiet_minutes == DEFAULTS.quiet_minutes
