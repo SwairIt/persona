@@ -188,6 +188,29 @@ _RESEARCH_STEP_SYSTEM_MODEL_MODE = (
 _RESEARCH_SEARCH_LABEL = "РЕЗУЛЬТАТЫ ПОИСКА"
 _RESEARCH_PAGE_LABEL = "СТРАНИЦА"
 
+
+def _research_search_attempted(steps: list[dict[str, Any]]) -> bool:
+    """True once a web_search has been attempted (and its outcome
+    recorded) anywhere in this chain's stored steps.
+
+    Defect 4 (owner-observed live run, "лабиринт фавна"): a research chain
+    ran 15 speculative steps with no search ever attempted, because the
+    mandatory-first-search branch below used to be gated on
+    ``non_seed_steps == 0`` — a proxy for "has this chain searched yet"
+    that is only true the very first time a *freshly created* chain is
+    advanced. A chain already mid-flight when that gate was introduced (or
+    any future bug that appends a non-search step before the gate runs)
+    would have ``non_seed_steps > 0`` forever after and would never search
+    at all, no matter how many times it advances — the actual cause, not
+    a missing extra guard. Checking the chain's own recorded steps for a
+    search label instead of counting them makes the invariant a structural
+    fact about the chain's history rather than an assumption about when it
+    was created relative to this code.
+    """
+    return any(
+        str(step.get("text", "")).startswith(_RESEARCH_SEARCH_LABEL) for step in steps
+    )
+
 # Bounded research loop (owner mandate 2026-07-31): a small model left to
 # call web_search/web_browse without a hard limit will not stop on its own.
 # At most this many of EACH per chain, counting the deterministic first
@@ -222,6 +245,63 @@ _STEP_LABELS: dict[str, str] = {
     "conclusion": "Итог",
 }
 
+# Defect 1 (owner-observed, live run "лабиринт фавна", 2026-07): the model
+# wrote "Хватит:" and even "Хвatiт:" — mixed Latin/Cyrillic — and the exact
+# upper-case match on _MARKER never fired, so the chain never closed and
+# repeated the same paragraph eight times. This table folds the common
+# Latin lookalikes onto their Cyrillic counterparts (а/a, е/e, о/o, с/c,
+# х/x, и/i, т/t) so marker matching is homoglyph-tolerant, on top of being
+# case-insensitive and whitespace-tolerant. Length-preserving (one char in,
+# one char out) so offsets into the original string still line up after
+# translation — this is relied on by ``_match_leading_marker`` below.
+_HOMOGLYPH_TABLE = str.maketrans(
+    {
+        "a": "а",
+        "e": "е",
+        "o": "о",
+        "c": "с",
+        "x": "х",
+        "i": "и",
+        "t": "т",
+    }
+)
+
+
+def _canon(s: str) -> str:
+    """Fold case and the Latin/Cyrillic homoglyph mix onto one canonical
+    form, for tolerant marker matching (see ``_HOMOGLYPH_TABLE``)."""
+    return s.lower().translate(_HOMOGLYPH_TABLE)
+
+
+def _match_leading_marker(text: str, marker: str, *, allow_label: bool = False) -> str | None:
+    """Return the text after ``marker`` if ``text`` starts with it, else
+    ``None``. Tolerant of: case, surrounding whitespace, the Latin/Cyrillic
+    homoglyph mix (``_canon``), and — when ``allow_label`` is set — one
+    leading НАБЛЮДЕНИЕ:/ДОГАДКА: label before the marker (the model has been
+    observed emitting the certainty label before ХВАТИТ: instead of after,
+    e.g. ``"Наблюдение:\\n\\nХватит: всё понятно"``).
+
+    Both ``text`` and ``marker`` are canonicalised through ``_canon``, which
+    is length-preserving (one character maps to exactly one character), so
+    an index found in the canonical form is a valid index into the
+    original ``stripped`` text too.
+    """
+    stripped = text.strip()
+    canon = _canon(stripped)
+    offset = 0
+    if allow_label:
+        for label in (_OBSERVATION_MARKER, _GUESS_MARKER):
+            label_canon = _canon(label)
+            if canon.startswith(label_canon):
+                rest = canon[len(label_canon) :]
+                skipped_ws = len(rest) - len(rest.lstrip())
+                offset = len(label_canon) + skipped_ws
+                break
+    marker_canon = _canon(marker)
+    if canon[offset:].startswith(marker_canon):
+        return stripped[offset + len(marker_canon) :]
+    return None
+
 
 def _split_certainty(text: str) -> tuple[str, str]:
     """Parse a leading НАБЛЮДЕНИЕ:/ДОГАДКА: marker off ``text``.
@@ -236,6 +316,43 @@ def _split_certainty(text: str) -> tuple[str, str]:
     if stripped.startswith(_GUESS_MARKER):
         return stripped[len(_GUESS_MARKER) :].strip(), "guess"
     return stripped, "guess"
+
+
+# Defect 2 (same live run): steps 6-11 of the observed chain were
+# near-identical restatements of the same paragraph — nothing noticed,
+# because nothing in code was watching for it. The model cannot be trusted
+# to police its own repetition (it demonstrably didn't), so this is a code
+# guard: a new step whose normalised text is near-identical to either of
+# the previous two steps closes the chain immediately instead of appending
+# the duplicate.
+_REPETITION_SIMILARITY_THRESHOLD = 0.85
+
+
+def _normalize_for_repetition(text: str) -> str:
+    """Case-fold and collapse whitespace for repetition comparison only —
+    deliberately not the homoglyph canonicalisation above, which is for
+    short exact markers, not paragraph similarity."""
+    return " ".join(text.split()).casefold()
+
+
+def _is_near_duplicate_step(candidate: str, previous: str) -> bool:
+    """True when ``candidate`` is a near-restatement of ``previous``."""
+    import difflib  # noqa: PLC0415
+
+    a = _normalize_for_repetition(candidate)
+    b = _normalize_for_repetition(previous)
+    if not a or not b:
+        return False
+    return difflib.SequenceMatcher(None, a, b).ratio() >= _REPETITION_SIMILARITY_THRESHOLD
+
+
+def _repeats_recent_step(step_text: str, steps: list[dict[str, Any]]) -> bool:
+    """True when ``step_text`` near-duplicates either of the chain's last
+    two stored rows (seed, step, or conclusion — whichever they are)."""
+    return any(
+        _is_near_duplicate_step(step_text, str(row.get("text", "")))
+        for row in steps[-2:]
+    )
 
 
 async def _get_client(client: Any | None, *, kind: str) -> Any:
@@ -545,7 +662,11 @@ async def advance_chain(
     # request sees it through the normal history rendered above (that is the
     # whole mechanism this loop already has for feeding a chain its own
     # accumulated text back into itself; no separate channel needed).
-    if is_research and non_seed_steps == 0:
+    #
+    # Gated on whether a search was actually recorded (``_research_search_
+    # attempted``), not on ``non_seed_steps == 0`` — see that function's
+    # docstring for why the step-count proxy is the actual defect 4 cause.
+    if is_research and not _research_search_attempted(steps):
         topic = steps[0].get("text", "")
         try:
             result = await _call_research_tool("web_search", {"query": topic})
@@ -614,32 +735,39 @@ async def advance_chain(
     if not text:
         return "failed"
 
-    if model_decides and text.startswith(_MARKER):
-        raw_conclusion = text[len(_MARKER) :].strip()
-        if not raw_conclusion:
-            return "failed"
-        conclusion, certainty = _split_certainty(raw_conclusion)
-        if not conclusion:
-            return "failed"
-        await store.close_chain(chain_id, conclusion=conclusion, certainty=certainty)
-        return "closed"
+    if model_decides:
+        stop_remainder = _match_leading_marker(text, _MARKER, allow_label=True)
+        if stop_remainder is not None:
+            raw_conclusion = stop_remainder.strip()
+            if not raw_conclusion:
+                return "failed"
+            conclusion, certainty = _split_certainty(raw_conclusion)
+            if not conclusion:
+                return "failed"
+            await store.close_chain(chain_id, conclusion=conclusion, certainty=certainty)
+            return "closed"
 
     # She decides for herself whether she needs to look further (owner
     # mandate 2026-07-31) — only offered alongside ХВАТИТ:, in model-decides
     # research chains. Bounds (_MAX_LOOKUPS_PER_CHAIN, dedup, URL provenance)
     # are enforced inside the handlers, in code, not left to the prompt.
-    if is_research and model_decides and text.startswith(_SEARCH_MARKER):
-        return await _handle_research_search(
-            store, chain_id, steps, text[len(_SEARCH_MARKER) :]
-        )
-    if is_research and model_decides and text.startswith(_OPEN_MARKER):
-        return await _handle_research_open(
-            store, chain_id, steps, text[len(_OPEN_MARKER) :]
-        )
+    if is_research and model_decides:
+        search_remainder = _match_leading_marker(text, _SEARCH_MARKER)
+        if search_remainder is not None:
+            return await _handle_research_search(store, chain_id, steps, search_remainder)
+        open_remainder = _match_leading_marker(text, _OPEN_MARKER)
+        if open_remainder is not None:
+            return await _handle_research_open(store, chain_id, steps, open_remainder)
 
     step_text, certainty = _split_certainty(text)
     if not step_text:
         return "failed"
+    if _repeats_recent_step(step_text, steps):
+        # Defect 2: nothing new to say — close now with this step's own
+        # text as the conclusion rather than appending a duplicate and
+        # letting the chain grind on repeating itself.
+        await store.close_chain(chain_id, conclusion=step_text, certainty=certainty)
+        return "closed"
     await store.append_step(chain_id, text=step_text, certainty=certainty)
     return "stepped"
 

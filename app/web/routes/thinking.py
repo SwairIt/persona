@@ -88,6 +88,8 @@ async def thinking_settings_save(
     model: str = Form(""),
     seed_kinds: list[str] = Form([]),
     quiet_minutes: int = Form(3),
+    impulse_cooldown_minutes: int = Form(30),
+    impulse_daily_cap: int = Form(12),
 ) -> RedirectResponse:
     await _owner_id(session)
 
@@ -101,6 +103,8 @@ async def thinking_settings_save(
         may_write_to_chat=may_write_to_chat == "on",
         model=model.strip(),
         quiet_minutes=quiet_minutes,
+        impulse_cooldown_minutes=impulse_cooldown_minutes,
+        impulse_daily_cap=impulse_daily_cap,
     )
     try:
         await save_thinking_settings(new_settings)

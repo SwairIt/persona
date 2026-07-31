@@ -39,6 +39,18 @@ _MODEL_MAX_LEN: Final[int] = 200
 _QUIET_MINUTES_MIN: Final[int] = 1
 _QUIET_MINUTES_MAX: Final[int] = 1440
 
+# Bounds for Persona's spontaneous-message (autowake impulse) anti-spam
+# knobs — owner mandate (2026-07-31): everything tunable must live in
+# settings, not hardcoded in app/workers/persona_impulse_producer.py. Upper
+# bound on the cooldown is generous (a week) since it is a "how autonomous
+# is she" dial, not a safety limit; the daily cap mirrors the range already
+# enforced by ``app.domains.autowake.policy.AutowakePolicyConfig`` itself
+# (1..24) so a value that passes validation here can never fail there.
+_IMPULSE_COOLDOWN_MINUTES_MIN: Final[int] = 1
+_IMPULSE_COOLDOWN_MINUTES_MAX: Final[int] = 10_080
+_IMPULSE_DAILY_CAP_MIN: Final[int] = 1
+_IMPULSE_DAILY_CAP_MAX: Final[int] = 24
+
 
 @dataclass(frozen=True, slots=True)
 class ThinkingSettings:
@@ -51,6 +63,8 @@ class ThinkingSettings:
     may_write_to_chat: bool
     model: str = ""
     quiet_minutes: int = 3
+    impulse_cooldown_minutes: int = 30
+    impulse_daily_cap: int = 12
 
 
 DEFAULTS: Final[ThinkingSettings] = ThinkingSettings(
@@ -63,6 +77,8 @@ DEFAULTS: Final[ThinkingSettings] = ThinkingSettings(
     may_write_to_chat=False,
     model="",
     quiet_minutes=3,
+    impulse_cooldown_minutes=30,
+    impulse_daily_cap=12,
 )
 
 _KEY_ENABLED = "thinking_enabled"
@@ -74,6 +90,8 @@ _KEY_SEED_KINDS = "thinking_seed_kinds"
 _KEY_MAY_WRITE_TO_CHAT = "thinking_may_write_to_chat"
 _KEY_MODEL = "thinking_model"
 _KEY_QUIET_MINUTES = "thinking_quiet_minutes"
+_KEY_IMPULSE_COOLDOWN_MINUTES = "thinking_impulse_cooldown_minutes"
+_KEY_IMPULSE_DAILY_CAP = "thinking_impulse_daily_cap"
 
 
 def _parse_bool(raw: str | None, default: bool) -> bool:
@@ -134,6 +152,20 @@ def _parse_quiet_minutes(raw: str | None, default: int) -> int:
     return value
 
 
+def _parse_impulse_cooldown_minutes(raw: str | None, default: int) -> int:
+    value = _parse_positive_int(raw, default)
+    if not (_IMPULSE_COOLDOWN_MINUTES_MIN <= value <= _IMPULSE_COOLDOWN_MINUTES_MAX):
+        return default
+    return value
+
+
+def _parse_impulse_daily_cap(raw: str | None, default: int) -> int:
+    value = _parse_positive_int(raw, default)
+    if not (_IMPULSE_DAILY_CAP_MIN <= value <= _IMPULSE_DAILY_CAP_MAX):
+        return default
+    return value
+
+
 async def load_thinking_settings() -> ThinkingSettings:
     """Load thinking settings from ``kv_settings``, never raising.
 
@@ -153,6 +185,8 @@ async def load_thinking_settings() -> ThinkingSettings:
             raw_may_write_to_chat = await get_kv(conn, _KEY_MAY_WRITE_TO_CHAT)
             raw_model = await get_kv(conn, _KEY_MODEL)
             raw_quiet_minutes = await get_kv(conn, _KEY_QUIET_MINUTES)
+            raw_impulse_cooldown = await get_kv(conn, _KEY_IMPULSE_COOLDOWN_MINUTES)
+            raw_impulse_daily_cap = await get_kv(conn, _KEY_IMPULSE_DAILY_CAP)
     except Exception:
         return DEFAULTS
 
@@ -166,6 +200,12 @@ async def load_thinking_settings() -> ThinkingSettings:
         may_write_to_chat=_parse_bool(raw_may_write_to_chat, DEFAULTS.may_write_to_chat),
         model=_parse_model(raw_model, DEFAULTS.model),
         quiet_minutes=_parse_quiet_minutes(raw_quiet_minutes, DEFAULTS.quiet_minutes),
+        impulse_cooldown_minutes=_parse_impulse_cooldown_minutes(
+            raw_impulse_cooldown, DEFAULTS.impulse_cooldown_minutes
+        ),
+        impulse_daily_cap=_parse_impulse_daily_cap(
+            raw_impulse_daily_cap, DEFAULTS.impulse_daily_cap
+        ),
     )
 
 
@@ -190,6 +230,21 @@ def _validate(settings: ThinkingSettings) -> None:
             f"quiet_minutes must be between {_QUIET_MINUTES_MIN} and "
             f"{_QUIET_MINUTES_MAX}: {settings.quiet_minutes!r}"
         )
+    if not (
+        _IMPULSE_COOLDOWN_MINUTES_MIN
+        <= settings.impulse_cooldown_minutes
+        <= _IMPULSE_COOLDOWN_MINUTES_MAX
+    ):
+        raise ValueError(
+            "impulse_cooldown_minutes must be between "
+            f"{_IMPULSE_COOLDOWN_MINUTES_MIN} and {_IMPULSE_COOLDOWN_MINUTES_MAX}: "
+            f"{settings.impulse_cooldown_minutes!r}"
+        )
+    if not (_IMPULSE_DAILY_CAP_MIN <= settings.impulse_daily_cap <= _IMPULSE_DAILY_CAP_MAX):
+        raise ValueError(
+            f"impulse_daily_cap must be between {_IMPULSE_DAILY_CAP_MIN} and "
+            f"{_IMPULSE_DAILY_CAP_MAX}: {settings.impulse_daily_cap!r}"
+        )
 
 
 async def save_thinking_settings(settings: ThinkingSettings) -> None:
@@ -213,6 +268,10 @@ async def save_thinking_settings(settings: ThinkingSettings) -> None:
         )
         await set_kv(conn, _KEY_MODEL, settings.model)
         await set_kv(conn, _KEY_QUIET_MINUTES, str(settings.quiet_minutes))
+        await set_kv(
+            conn, _KEY_IMPULSE_COOLDOWN_MINUTES, str(settings.impulse_cooldown_minutes)
+        )
+        await set_kv(conn, _KEY_IMPULSE_DAILY_CAP, str(settings.impulse_daily_cap))
 
 
 def effective_cap(settings: ThinkingSettings) -> int:

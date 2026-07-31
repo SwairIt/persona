@@ -113,6 +113,24 @@
     Разрешить иногда писать вывод мысли в чат
   </label>
 
+  <div class="mt-5 grid gap-4 sm:grid-cols-2">
+    <div>
+      <label class="block text-sm text-zinc-400" for="impulse_cooldown_minutes">Пауза между спонтанными сообщениями (мин)</label>
+      <input id="impulse_cooldown_minutes" name="impulse_cooldown_minutes" type="number" min="1" max="10080"
+             value="{{ settings.impulse_cooldown_minutes }}"
+             class="mt-1 w-full rounded-lg border border-ink-700 bg-ink-900 px-3 py-2 text-sm">
+    </div>
+    <div>
+      <label class="block text-sm text-zinc-400" for="impulse_daily_cap">Спонтанных сообщений в день (максимум)</label>
+      <input id="impulse_daily_cap" name="impulse_daily_cap" type="number" min="1" max="24"
+             value="{{ settings.impulse_daily_cap }}"
+             class="mt-1 w-full rounded-lg border border-ink-700 bg-ink-900 px-3 py-2 text-sm">
+    </div>
+    <p class="col-span-full text-xs text-zinc-500">
+      Ограничивают, как часто Persona сама пишет первой в Telegram (не в ответ, а по собственной инициативе).
+    </p>
+  </div>
+
   <button type="submit"
           class="mt-6 rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold hover:bg-violet-500">
     Сохранить

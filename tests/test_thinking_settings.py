@@ -124,3 +124,54 @@ async def test_quiet_minutes_corrupt_stored_value_falls_back_to_default(db) -> N
 
     loaded = await load_thinking_settings()
     assert loaded.quiet_minutes == DEFAULTS.quiet_minutes
+
+
+async def test_impulse_defaults_match_the_previously_hardcoded_producer_values() -> None:
+    """Owner mandate (defect 5): moving cooldown/daily_cap into settings must
+    not change Persona's current behaviour — the defaults must be the exact
+    values that used to be hardcoded in
+    ``app.workers.persona_impulse_producer``."""
+    assert DEFAULTS.impulse_cooldown_minutes == 30
+    assert DEFAULTS.impulse_daily_cap == 12
+
+
+async def test_impulse_settings_round_trip_through_save_and_load(db) -> None:
+    saved = dataclasses.replace(
+        DEFAULTS, impulse_cooldown_minutes=45, impulse_daily_cap=6
+    )
+    await save_thinking_settings(saved)
+    loaded = await load_thinking_settings()
+    assert loaded.impulse_cooldown_minutes == 45
+    assert loaded.impulse_daily_cap == 6
+
+
+async def test_impulse_cooldown_out_of_range_is_rejected_on_save(db) -> None:
+    with pytest.raises(ValueError):
+        await save_thinking_settings(
+            dataclasses.replace(DEFAULTS, impulse_cooldown_minutes=0)
+        )
+    with pytest.raises(ValueError):
+        await save_thinking_settings(
+            dataclasses.replace(DEFAULTS, impulse_cooldown_minutes=999_999)
+        )
+
+
+async def test_impulse_daily_cap_out_of_range_is_rejected_on_save(db) -> None:
+    with pytest.raises(ValueError):
+        await save_thinking_settings(dataclasses.replace(DEFAULTS, impulse_daily_cap=0))
+    with pytest.raises(ValueError):
+        await save_thinking_settings(dataclasses.replace(DEFAULTS, impulse_daily_cap=25))
+
+
+async def test_impulse_settings_corrupt_stored_values_fall_back_to_defaults(db) -> None:
+    from app.storage.db import get_connection
+    from app.storage.repository import set_kv
+
+    async with get_connection() as conn:
+        await set_kv(conn, "thinking_impulse_cooldown_minutes", "не число")
+        await set_kv(conn, "thinking_impulse_daily_cap", "999")
+        await conn.commit()
+
+    loaded = await load_thinking_settings()
+    assert loaded.impulse_cooldown_minutes == DEFAULTS.impulse_cooldown_minutes
+    assert loaded.impulse_daily_cap == DEFAULTS.impulse_daily_cap

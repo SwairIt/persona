@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from app.thinking.loop import advance_chain, next_seed_kind, seed_chain
 from app.thinking.settings import ALL_SEED_KINDS, ThinkingSettings
 from app.thinking.store import ThoughtStore
@@ -202,6 +204,74 @@ async def test_caller_supplied_client_is_never_pinned_to_a_model(db) -> None:
     settings = _settings(model="qwen2.5:7b")
     await advance_chain(store, settings, chain_id=chain_id, client=client)
     assert not hasattr(client, "_model"), "caller-owned client must never be mutated"
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "Хватит: всё понятно",
+        "ХВАТИТ: всё понятно",
+        "Хвatiт: всё понятно",
+        "Наблюдение:\n\nХватит: всё понятно",
+    ],
+)
+async def test_stop_marker_closes_regardless_of_case_homoglyphs_or_label_order(
+    db, reply: str
+) -> None:
+    """Defect 1, owner-observed live run: the model wrote "Хватит:" and even
+    "Хвatiт:" (mixed Latin/Cyrillic) — none of these matched the old exact
+    upper-case ``ХВАТИТ:`` check, so the chain never closed and repeated
+    itself eight times. Every one of these real, observed variants must
+    close the chain."""
+    await _user(db)
+    store = ThoughtStore()
+    chain_id = await store.open_chain(
+        7, seed_text="s", seed_kind="alive",
+        source_scope="owner_private", source_session_id=None,
+    )
+    settings = _settings(cap_mode="model", emergency_cap=50)
+    client = FakeClient([reply])
+    outcome = await advance_chain(store, settings, chain_id=chain_id, client=client)
+    assert outcome == "closed"
+    chain = await store.get_chain(chain_id)
+    assert chain["status"] == "closed"
+
+
+async def test_three_near_identical_steps_force_the_chain_closed(db) -> None:
+    """Defect 2, same live run: steps 6-11 were near-identical restatements
+    of the same paragraph and nothing noticed. A repeated step must close
+    the chain in code rather than being appended again and again."""
+    await _user(db)
+    store = ThoughtStore()
+    chain_id = await store.open_chain(
+        7, seed_text="s", seed_kind="alive",
+        source_scope="owner_private", source_session_id=None,
+    )
+    settings = _settings(step_cap=10)
+    paragraph = (
+        "Наблюдение: владелец может столкнуться с необходимостью найти "
+        "баланс между разными частями своей жизни"
+    )
+    # Same restatement each time, differing only in trivial ways (case,
+    # trailing punctuation) — exactly the shape of the observed defect 2
+    # transcript, where steps 6-11 were the same paragraph over and over.
+    near_duplicates = [
+        paragraph,
+        paragraph + ".",
+        paragraph.upper(),
+    ]
+    client = FakeClient(near_duplicates)
+    outcomes = []
+    for _ in range(3):
+        outcomes.append(await advance_chain(store, settings, chain_id=chain_id, client=client))
+        if outcomes[-1] == "closed":
+            break
+    assert "closed" in outcomes, "repeated near-identical steps must force a close"
+    steps = await store.chain_steps(chain_id)
+    # No more than one repeated paragraph may ever have been appended as a
+    # plain step before the guard closed the chain.
+    step_kinds = [s["kind"] for s in steps if s["kind"] == "step"]
+    assert len(step_kinds) <= 1
 
 
 def test_seed_kind_rotates_only_through_enabled_kinds() -> None:

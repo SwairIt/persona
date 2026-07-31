@@ -17,6 +17,7 @@ from app.domains.autowake import AutowakePolicy, AutowakePolicyConfig
 from app.integrations.telegram.config import TelegramConfig
 from app.integrations.telegram.repository import TelegramRepository
 from app.logging_setup import get_logger
+from app.thinking.settings import load_thinking_settings
 from app.workers.heartbeat import beat
 
 if TYPE_CHECKING:
@@ -37,8 +38,15 @@ async def run_persona_impulse_worker() -> None:
     if owner_id is None:
         raise RuntimeError("Persona owner account is not configured")
 
+    # Owner-tunable (2026-07-31): these used to be hardcoded here, invisible
+    # to the "how autonomous is she" controls on /settings/thinking. Defaults
+    # (30 min cooldown, 12/day) are unchanged — see app.thinking.settings.
+    thinking_settings = await load_thinking_settings()
     policy = AutowakePolicy(
-        AutowakePolicyConfig(cooldown=timedelta(minutes=30), daily_cap=12)
+        AutowakePolicyConfig(
+            cooldown=timedelta(minutes=thinking_settings.impulse_cooldown_minutes),
+            daily_cap=thinking_settings.impulse_daily_cap,
+        )
     )
     repository = SqliteAutowakeRepository()
     producer = PersonaImpulseProducer(

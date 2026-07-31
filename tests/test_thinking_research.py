@@ -404,6 +404,48 @@ async def test_research_chain_cannot_call_fetch_json_or_run_shell() -> None:
             await _call_research_tool(forbidden, {})
 
 
+async def test_research_chain_still_searches_before_reasoning_despite_a_stray_legacy_step(
+    db, monkeypatch
+) -> None:
+    """Defect 4 (owner-observed live run "лабиринт фавна"): the mandatory
+    first-search branch used to be gated on ``non_seed_steps == 0`` — a
+    proxy for "hasn't searched yet" that is permanently false once ANY
+    step exists, even one that was never a real search (e.g. a chain left
+    open from before this guard was added, or any future bug that appends
+    a step before the search runs). Simulate exactly that corrupted state
+    — a reasoning step already stored, no search ever attempted — and
+    confirm ``advance_chain`` still refuses to call the model and instead
+    performs the mandatory search, never leaving a research chain able to
+    reason before a search has been attempted and recorded."""
+    await _user(db)
+    store = ThoughtStore()
+    chain_id = await store.open_chain(
+        7, seed_text="лабиринт фавна", seed_kind="research",
+        source_scope="group", source_session_id=None, certainty="observation",
+        source_chat_id=-100500,
+    )
+    # The exact corrupted state defect 4 exploited: a reasoning step already
+    # exists, but no search was ever attempted or recorded for this chain.
+    await store.append_step(
+        chain_id,
+        text="Лабиринт фавна может символизировать сложность внутреннего мира",
+        certainty="guess",
+    )
+
+    async def fake_web_search(args: dict[str, Any], user_id: int = 0) -> str:
+        return "[ok] поиск «лабиринт фавна»:\n- рецензия про тёмную сказку"
+
+    monkeypatch.setattr("app.mcp.builtin_tools.web_search", fake_web_search)
+    settings = _settings(step_cap=5)
+    client = FakeClient(["не должно быть вызвано никогда"])
+    outcome = await advance_chain(store, settings, chain_id=chain_id, client=client)
+
+    assert outcome == "stepped"
+    assert client.requests == [], "the model must never be called before a search is recorded"
+    steps = await store.chain_steps(chain_id)
+    assert "РЕЗУЛЬТАТЫ ПОИСКА" in steps[-1]["text"]
+
+
 def test_research_prompts_state_persona_only_read_never_watched() -> None:
     honesty_markers = ("прочита", "не смотрела")
     for prompt in (_RESEARCH_STEP_SYSTEM, _RESEARCH_CONCLUSION_SYSTEM):
