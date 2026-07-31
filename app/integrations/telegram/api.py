@@ -14,6 +14,8 @@ from dataclasses import dataclass, field
 from typing import Any
 from urllib import error, request
 
+from app.integrations.telegram import formatting
+
 
 class TelegramAPIError(RuntimeError):
     """An upstream failure that never contains the token-bearing URL."""
@@ -98,20 +100,35 @@ class TelegramBotAPI:
         *,
         reply_to_message_id: int | None = None,
     ) -> tuple[int, ...]:
-        chunks = _split_message(text)
+        chunks = formatting.render_chunks(text)
         sent_ids: list[int] = []
-        for index, chunk in enumerate(chunks):
+        for index, (chunk_text, parse_mode) in enumerate(chunks):
             payload: dict[str, Any] = {
                 "chat_id": chat_id,
-                "text": chunk,
+                "text": chunk_text,
                 "link_preview_options": {"is_disabled": True},
             }
+            if parse_mode:
+                payload["parse_mode"] = parse_mode
             if index == 0 and reply_to_message_id is not None:
                 payload["reply_parameters"] = {
                     "message_id": reply_to_message_id,
                     "allow_sending_without_reply": True,
                 }
-            result = await self.call("sendMessage", payload, timeout=30.0)
+            try:
+                result = await self.call("sendMessage", payload, timeout=30.0)
+            except TelegramAPIError as exc:
+                # Belt and braces: Telegram itself may still reject markup
+                # this module considered well-formed (e.g. an unsupported
+                # entity combination). Retry once as plain text rather than
+                # losing the message outright.
+                if parse_mode and _looks_like_parse_error(exc):
+                    plain_payload = dict(payload)
+                    plain_payload["text"] = formatting.strip_formatting(chunk_text)
+                    plain_payload.pop("parse_mode", None)
+                    result = await self.call("sendMessage", plain_payload, timeout=30.0)
+                else:
+                    raise
             message_id = _message_id(result)
             if message_id is not None:
                 sent_ids.append(message_id)
@@ -398,6 +415,12 @@ def _split_message(text: str, limit: int = 3900) -> list[str]:
     if remaining:
         chunks.append(remaining)
     return chunks
+
+
+def _looks_like_parse_error(exc: TelegramAPIError) -> bool:
+    """Detect a Telegram 400 about markup, e.g. ``can't parse entities``."""
+    lowered = str(exc).casefold()
+    return "parse" in lowered or "entit" in lowered or "tag" in lowered
 
 
 def _message_id(result: Any) -> int | None:
