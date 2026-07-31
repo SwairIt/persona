@@ -82,8 +82,10 @@ _TELEGRAM_RULES = (
     "не сочиняй ответы, мысли или строки вида «Инди:», «Клод:» и другие реплики "
     "за людей или ботов. Если нужно обратиться к Инди и Клоду, назови их только "
     "в начале своей реплики и дальше говори исключительно от лица Persona. "
-    "Не начинай и не подписывай ответ словами «Persona:», «Персик:» или любым "
-    "другим собственным именем: Telegram уже показывает автора сообщения. "
+    "Никогда не начинай сообщение с «Имя:» — ни своим именем («Persona:», "
+    "«Персик:»), ни чужим («Клод:», «Инди:» или любым другим): Telegram уже "
+    "показывает автора, и такое начало выглядит так, будто ты — этот другой "
+    "человек или бот. "
     "Держи ответ компактным — обычно двух-трёх фраз достаточно, — но обязательно "
     "договаривай начатое предложение и мысль. Никогда не обрывай реплику на "
     "полуслове; если тема требует подробностей, пиши длиннее."
@@ -162,9 +164,31 @@ class LegacyConversationRepository:
         max_turns: int,
         exclude_message_id: int,
     ) -> tuple[ConversationMessage, ...]:
+        # Deferred import: app.integrations.telegram's package __init__ pulls
+        # in worker.py, which imports this very module -- a top-level import
+        # here would be circular. output_guard itself has no such
+        # dependency, so importing it lazily on first use is safe.
+        from app.integrations.telegram.output_guard import (
+            strip_leading_speaker_label,
+        )
+
         rows = await build_history_for_llm(int(conversation_id), max_turns=max_turns)
         history = tuple(
-            ConversationMessage(id=0, role=row["role"], content=row["content"])
+            ConversationMessage(
+                id=0,
+                role=row["role"],
+                # A past assistant reply may have slipped through the
+                # output guard with a leading "Имя:" label (e.g. before this
+                # guard existed, or a bug). Normalise on read so a stored
+                # mistake doesn't keep teaching Persona that voice every
+                # time it is replayed into a later prompt as her own words.
+                # The stored row itself is left untouched.
+                content=(
+                    strip_leading_speaker_label(row["content"])
+                    if row["role"] == "assistant"
+                    else row["content"]
+                ),
+            )
             for row in rows
         )
         if history and history[-1].role == "user":

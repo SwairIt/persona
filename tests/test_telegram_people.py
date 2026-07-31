@@ -1017,9 +1017,12 @@ def test_multi_speaker_script_keeps_only_persona_voice() -> None:
     )
 
 
-def test_single_addressee_prefix_is_not_mistaken_for_script() -> None:
+def test_single_addressee_colon_label_is_stripped_not_impersonated() -> None:
+    # Telegram already shows the sender, so a leading "Клод: ..." on
+    # Persona's own message reads as her *being* Клод, not addressing him.
+    # A single leading name-colon label is stripped even outside script mode.
     assert persona_only_reply("Клод: посмотри, пожалуйста.") == (
-        "Клод: посмотри, пожалуйста."
+        "посмотри, пожалуйста."
     )
 
 
@@ -1027,6 +1030,44 @@ def test_single_persona_prefix_is_removed() -> None:
     assert persona_only_reply("Персик: Я говорю только от своего лица.") == (
         "Я говорю только от своего лица."
     )
+
+
+def test_known_other_agent_prefix_is_removed() -> None:
+    text = (
+        "Клод: Да, понял. Хорошо, давайте замолчим немного и подумаем "
+        "о следующей теме."
+    )
+    assert persona_only_reply(text) == (
+        "Да, понял. Хорошо, давайте замолчим немного и подумаем "
+        "о следующей теме."
+    )
+
+
+def test_arbitrary_name_prefix_is_removed_too() -> None:
+    # Not a known Persona alias or agent — an arbitrary person's name.
+    # Persona must never sound like it wrote as someone else, whoever it is.
+    assert persona_only_reply("Дима: я не знаю") == "я не знаю"
+
+
+def test_addressing_someone_by_name_survives_unchanged() -> None:
+    # No colon right after the name — this is natural speech addressing
+    # someone, not a speaker label, and must never be touched.
+    assert persona_only_reply("Клод, глянь пожалуйста логи") == (
+        "Клод, глянь пожалуйста логи"
+    )
+
+
+def test_ordinary_colon_sentences_are_not_mistaken_for_speaker_labels() -> None:
+    # The trap: a naive ``^\w+:`` regex eats ordinary Russian prose that
+    # happens to start with a capitalised word followed by a colon.
+    cases = [
+        "Условие: a < b и b > c, это важно.",
+        "Итог: всё прошло нормально.",
+        "Вопрос: почему тут ошибка?",
+        "Внимание: файл будет перезаписан.",
+    ]
+    for text in cases:
+        assert persona_only_reply(text) == text, text
 
 
 def test_script_with_emoji_decorated_participant_keeps_only_persona() -> None:

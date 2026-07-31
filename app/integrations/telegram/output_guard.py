@@ -23,6 +23,26 @@ _KNOWN_OTHERS = {
     "индик",
     "indi",
 }
+# Common Russian discourse nouns that are routinely followed by a colon in
+# ordinary prose (``Условие: a < b``, ``Итог: ...``). A bare regex cannot
+# tell these apart from a person's name by shape alone (both are a single
+# capitalised word), so anything on this list is never treated as a speaker
+# label even when it otherwise matches the name shape below.
+_NON_NAME_LEAD_WORDS = {
+    "условие", "пример", "итог", "итого", "вопрос", "внимание", "важно",
+    "примечание", "кстати", "итак", "вывод", "заметка", "результат",
+    "причина", "решение", "проблема", "совет", "подсказка", "файл",
+    "ссылка", "ошибка", "статус", "дата", "время", "тема", "цель",
+    "задача", "плюс", "минус", "всего", "например", "формула", "правило",
+    "определение", "замечание", "справка", "инструкция", "заголовок",
+    "note", "example", "warning", "important", "result", "summary",
+}
+# A plausible person name: one or two Title-Case words made of letters only
+# (Cyrillic or Latin). Rules out formulas, acronyms and punctuation-bearing
+# "labels" like ``a < b`` or ``TODO``.
+_NAME_LABEL_RE = re.compile(
+    r"^[A-ZА-ЯЁ][a-zа-яё]{1,19}(?:[ \-][A-ZА-ЯЁ][a-zа-яё]{1,19})?$"
+)
 _SUPPORT_CLICHE_MARKERS = (
     "спасибо за сообщение",
     "спасибо, что поделил",
@@ -223,6 +243,21 @@ def _normalise_speaker(value: str) -> str:
     return " ".join(clean.split())
 
 
+def _looks_like_speaker_name(raw_speaker: str) -> bool:
+    """Heuristic: does a leading ``Word:`` label read as someone's name?
+
+    Requires the plain Title-Case letters-only shape of a name (so a
+    formula or acronym before a colon never qualifies) and excludes common
+    Russian discourse nouns that are routinely followed by a colon in
+    ordinary prose (``\u0423\u0441\u043b\u043e\u0432\u0438\u0435: a < b``), so plain sentences are never
+    mistaken for dialogue.
+    """
+    if not _NAME_LABEL_RE.match(raw_speaker.strip()):
+        return False
+    words = _normalise_speaker(raw_speaker).split()
+    return bool(words) and not any(word in _NON_NAME_LEAD_WORDS for word in words)
+
+
 def _without_support_cliches(value: str) -> str:
     """Drop stock support/praise sentences from a conversational reply."""
     pieces = re.split(r"(?<=[.!?…])(?:\s+|$)|\n+", str(value or "").strip())
@@ -242,11 +277,48 @@ def _without_support_cliches(value: str) -> str:
     return clean
 
 
+def strip_leading_speaker_label(text: str) -> str:
+    """Strip a leading ``Имя:`` speaker label from the first line of *text*.
+
+    Telegram already shows who is speaking, so a name-colon label at the
+    very start of Persona's own words never reads as her addressing someone
+    — it reads as her impersonating them. This is the single-label half of
+    ``persona_only_reply``'s guard, factored out so it can also be applied
+    when replaying a *stored* assistant message back into the prompt: a past
+    reply that slipped through with a leading label should not keep
+    reinforcing that habit every time it is loaded into context. Returns
+    *text* unchanged if the first line isn't a name label (see
+    ``_looks_like_speaker_name`` for what counts as one).
+    """
+    if not text:
+        return text
+    lines = text.splitlines()
+    if not lines:
+        return text
+    match = _SPEAKER_RE.match(lines[0])
+    if not match:
+        return text
+    speaker_raw = match.group("speaker")
+    speaker = _normalise_speaker(speaker_raw)
+    if (
+        speaker in _PERSONA_ALIASES
+        or speaker in _KNOWN_OTHERS
+        or _looks_like_speaker_name(speaker_raw)
+    ):
+        lines[0] = match.group("text").strip()
+        return "\n".join(lines)
+    return text
+
+
 def persona_only_reply(value: str) -> str:
     """Remove fabricated multi-speaker scripts while preserving Persona's words.
 
-    A single ``Клод: проверь...`` can be a legitimate address. Two or more
-    speaker-labelled blocks indicate role-play/script output; in that case only
+    Telegram already shows who sent the message, so a leading ``Имя:``
+    label on Persona's own reply never reads as her addressing someone —
+    it reads as her *being* that someone. A single such label at the start
+    of the message is stripped regardless of whose name it is (her own,
+    another agent's, or an arbitrary person's). Two or more speaker-labelled
+    blocks indicate role-play/script output; in that case only
     Persona-labelled blocks survive. If Persona wrote solely for others, the
     safe result is silence.
     """
@@ -271,17 +343,16 @@ def persona_only_reply(value: str) -> str:
     )
     if not script_mode:
         # Even without a full role-play script, models sometimes sign their
-        # answer as ``Персик: ...``. Telegram already shows the sender, so a
-        # leading Persona label is redundant and makes the message look like
-        # generated dialogue. Strip only Persona's own label; labels naming an
-        # addressee (``Клод: ...``) remain untouched.
-        first = _SPEAKER_RE.match(lines[0])
-        if first:
-            speaker = _normalise_speaker(first.group("speaker"))
-            if speaker in _PERSONA_ALIASES:
-                lines[0] = first.group("text").strip()
-                return _without_support_cliches("\n".join(lines))
-        return _without_support_cliches(text)
+        # answer as ``Клод: ...`` or ``Персик: ...``. Telegram already shows
+        # the sender, so ANY leading name label is redundant at best and, at
+        # worst, makes Persona's own message read as though someone else
+        # wrote it. Strip it regardless of whose name it is — her own alias,
+        # a known other agent, or an arbitrary person — as long as it looks
+        # like a name label and not the start of an ordinary sentence (see
+        # ``_looks_like_speaker_name``). Addressing someone stays possible in
+        # natural speech (``Клод, глянь логи``): that has no colon, so it
+        # never matches here.
+        return _without_support_cliches(strip_leading_speaker_label(text))
 
     kept: list[str] = []
     persona_block = False
@@ -304,4 +375,8 @@ def persona_only_reply(value: str) -> str:
     return _without_support_cliches("\n".join(kept))
 
 
-__all__ = ["persona_only_reply", "strip_internal_markup"]
+__all__ = [
+    "persona_only_reply",
+    "strip_internal_markup",
+    "strip_leading_speaker_label",
+]

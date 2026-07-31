@@ -64,6 +64,48 @@ def _command(
     )
 
 
+async def test_legacy_history_normalises_stored_assistant_speaker_label(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A stored assistant reply that slipped through with a leading
+
+    ``Имя:`` label (e.g. from before the output guard learned to strip it)
+    must not keep teaching Persona that voice every time it is replayed
+    into a later prompt. ``LegacyConversationRepository.history`` normalises
+    it on read; the stored row itself stays untouched. A user message with
+    the same shape is left alone -- only Persona's own stored voice is
+    corrected.
+    """
+    from app.adapters.conversation import legacy
+
+    async def fake_history(
+        _conversation_id: int, *, max_turns: int
+    ) -> list[dict[str, str]]:
+        del max_turns
+        return [
+            {"role": "user", "content": "Дима: я не знаю"},
+            {
+                "role": "assistant",
+                "content": (
+                    "Клод: Да, понял. Хорошо, давайте замолчим немного."
+                ),
+            },
+        ]
+
+    monkeypatch.setattr(legacy, "build_history_for_llm", fake_history)
+    repository = legacy.LegacyConversationRepository()
+    history = await repository.history(
+        ConversationId(11), max_turns=10, exclude_message_id=0
+    )
+
+    assert history[0].role == "user"
+    assert history[0].content == "Дима: я не знаю"
+    assert history[-1].role == "assistant"
+    assert history[-1].content == (
+        "Да, понял. Хорошо, давайте замолчим немного."
+    )
+
+
 @dataclass
 class FakeRepository:
     conversation: ResolvedConversation | None = field(
