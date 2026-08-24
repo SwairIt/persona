@@ -120,10 +120,35 @@
   <script src="/static/hotkey_loader.js" defer></script>
   <script src="/static/timeline_scrubber.js" defer></script>
   {% block head_extra %}{% endblock %}
-  {# Яндекс.Метрика (счётчик 111901324) — общая оболочка кабинета. Партиал сам
-     дедуплицируется (проверяет document.scripts перед вставкой tag.js), но
-     подключать его в шаблонах, которые наследуют base.html, всё равно НЕ надо. #}
-  {% include "_metrika.html" %}
+  {# Яндекс.Метрика (счётчик 111901324) — в оболочке кабинета ТОЛЬКО для
+     владельца инстанса.
+
+     Почему: партиал включает webvisor + clickmap + trackLinks, то есть
+     ПОЛНУЮ запись экрана сессии. В кабинете на экране приватное: текст чата,
+     память, заметки. Записывать сессию участника в Яндекс без его согласия
+     нельзя — поэтому участник (любой зарегистрированный не-владелец) счётчика
+     не получает ВООБЩЕ. Владелец пишет только сам себя.
+
+     Публичные маркетинговые страницы (landing/blog/pricing/features/...) не
+     наследуют base.html и подключают партиал у себя — воронка остаётся под
+     аналитикой ровно как была.
+
+     Источник истины — ``request.state.is_owner`` (гейт кладёт его для любого
+     аутентифицированного запроса), затем ``is_owner`` из контекста роута.
+     Дефолт — false: «не смогли определить» = не пишем. Все обращения через
+     ``is defined``: Jinja ловит AttributeError на starlette State и отдаёт
+     Undefined, так что шаблон без request/state не падает.
+
+     Партиал сам дедуплицируется (проверяет document.scripts перед вставкой
+     tag.js), но подключать его в шаблонах, наследующих base.html, всё равно
+     НЕ надо. #}
+  {% set _metrika_owner = false %}
+  {% if request is defined and request.state is defined and request.state.is_owner is defined %}
+    {% set _metrika_owner = request.state.is_owner %}
+  {% elif is_owner is defined %}
+    {% set _metrika_owner = is_owner %}
+  {% endif %}
+  {% if _metrika_owner %}{% include "_metrika.html" %}{% endif %}
   <script>
     tailwind.config = {
       darkMode: 'class',
@@ -183,6 +208,15 @@
          без сессии рендерятся как раньше). Все обращения через ``is defined``:
          Jinja ловит AttributeError на starlette State и отдаёт Undefined,
          так что шаблон без request/state не падает. #}
+      {# Бейдж непрочитанных ЛС. Один общий опрос /api/messages/unread.json на
+         страницу (см. unreadStore ниже), сколько бы бейджей ни отрисовалось —
+         десктопный навбар + мобильный дровер подписываются на один и тот же
+         таймер, второго поллера не заводим. #}
+      {% macro unread_badge() -%}
+        <span x-data="unreadBadge()" x-init="subscribe()" x-show="count > 0" x-cloak x-text="count"
+              class="ml-1.5 inline-block text-[10px] px-1.5 py-0.5 rounded-full bg-accent-600 text-white font-semibold align-middle"></span>
+      {%- endmacro %}
+
       {% set _owner_view = is_owner if is_owner is defined else True %}
       {% if request is defined and request.state is defined and request.state.is_owner is defined %}
         {% set _owner_view = request.state.is_owner %}
@@ -216,18 +250,22 @@
         ('apps', '/apps', 'nav_apps'),
         ('voice', '/settings/voice', 'nav_voice'),
         ('advanced', '/settings/advanced', 'nav_advanced'),
+        ('friends', '/friends', 'nav_friends'),
+        ('messages', '/messages', 'nav_messages'),
       ] %}
       {% else %}
       {# Участник: только то, что ему реально открыто гейтом. Ни одной ссылки
          на личные данные владельца (/now, /timeline, /memory, /root, /m). #}
       {% set core_items = [
         ('chat', '/chat', 'nav_chat'),
+        ('messages', '/messages', 'nav_messages'),
+        ('friends', '/friends', 'nav_friends'),
         ('memory', '/settings/memory', 'nav_memory'),
         ('graph', '/graph', 'nav_graph'),
-        ('voice-live', '/voice', 'nav_voice_live'),
         ('settings', '/settings/hub', 'nav_settings'),
       ] %}
       {% set more_items = [
+        ('voice-live', '/voice', 'nav_voice_live'),
         ('skills', '/settings/skills', 'nav_skills'),
         ('system-prompt', '/settings/system-prompt', 'nav_character'),
         ('profile', '/settings/profile', 'nav_profile'),
@@ -240,7 +278,7 @@
           <a href="{{ href }}"
              class="px-3 py-1.5 rounded-md transition whitespace-nowrap
                     {% if active_nav == slug %}bg-accent-600/20 text-accent-400{% else %}text-zinc-400 hover:text-zinc-100 hover:bg-ink-800{% endif %}">
-            {{ t(label_key) }}
+            {{ t(label_key) }}{% if slug == 'messages' %}{{ unread_badge() }}{% endif %}
           </a>
         {% endfor %}
         {% if more_items %}
@@ -255,7 +293,7 @@
               <a href="{{ href }}"
                  class="block px-3 py-2 text-sm transition
                         {% if active_nav == slug %}bg-accent-600/20 text-accent-400{% else %}text-zinc-300 hover:text-zinc-100 hover:bg-ink-800{% endif %}">
-                {{ t(label_key) }}
+                {{ t(label_key) }}{% if slug == 'messages' %}{{ unread_badge() }}{% endif %}
               </a>
             {% endfor %}
           </div>
@@ -660,6 +698,65 @@
           });
         }
       }
+    }
+
+    /*
+     * unreadStore / unreadBadge — бейдж непрочитанных личных сообщений.
+     *
+     * ОДИН опрос /api/messages/unread.json на страницу: сколько бы бейджей
+     * ни было в разметке (навбар + дровер), они подписываются на общий
+     * стор. Ошибка сети — молча, бейдж просто остаётся прежним.
+     */
+    const unreadStore = {
+      count: 0,
+      listeners: [],
+      started: false,
+      notify() { this.listeners.forEach((fn) => fn(this.count)); },
+      async refresh() {
+        try {
+          const r = await fetch('/api/messages/unread.json', { headers: { 'Accept': 'application/json' } });
+          if (!r.ok) return;
+          const j = await r.json();
+          this.count = Number(j.unread) || 0;
+          this.notify();
+        } catch (e) { /* офлайн — оставляем прежнее значение */ }
+        await this.drainNotifications();
+      },
+      /*
+       * Уведомления социального слоя дренируются ЭТИМ же таймером: второй
+       * поллер на страницу ради того же такта — лишний. Если разрешения на
+       * Notification нет, очередь не трогаем вовсе: помеченные «показанными»
+       * строки уже не всплывут, и человек молча потерял бы уведомление.
+       */
+      async drainNotifications() {
+        if (typeof window.Notification === 'undefined') return;
+        if (Notification.permission !== 'granted') return;
+        try {
+          const r = await fetch('/api/social-notif/pending', { headers: { 'Accept': 'application/json' } });
+          if (!r.ok) return;
+          const j = await r.json();
+          for (const item of (j.notifications || [])) {
+            try { new Notification(item.title, { body: item.body || '' }); }
+            catch (err) { /* браузер отказал — не роняем такт */ }
+          }
+        } catch (e) { /* офлайн — следующий тик */ }
+      },
+      subscribe(fn) {
+        this.listeners.push(fn);
+        fn(this.count);
+        if (!this.started) {
+          this.started = true;
+          this.refresh();
+          setInterval(() => this.refresh(), 60000);
+        }
+      },
+    };
+
+    function unreadBadge() {
+      return {
+        count: 0,
+        subscribe() { unreadStore.subscribe((n) => { this.count = n; }); },
+      };
     }
 
     function micToggle() {

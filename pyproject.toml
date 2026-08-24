@@ -1,6 +1,6 @@
 [project]
 name = "persona"
-version = "2.29.1"
+version = "2.31.11"
 description = "Persona — open-source personal AI memory. Captures screen + builds searchable life log. 100% local, zero cloud."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -29,6 +29,13 @@ dependencies = [
     # one-time `python -m playwright install chromium` after install.
     "playwright>=1.40",
     "telethon>=1.44,<2",
+    # Транзакционная почта (magic-link, «забыл пароль», приветственное письмо
+    # с паролем, дайджесты). Раньше числилась «опциональной» и НЕ ставилась —
+    # из-за чего app/smtp_delivery.py возвращал {"status": "missing_dep"} на
+    # каждую отправку. Теперь это обязательная зависимость: почта — не
+    # единственный путь входа (пароль показывается на экране), но она должна
+    # работать там, где SMTP настроен.
+    "aiosmtplib>=3.0,<6",
 ]
 
 [project.scripts]

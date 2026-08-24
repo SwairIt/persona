@@ -86,6 +86,14 @@ def _app() -> FastAPI:
     async def _insights() -> dict[str, bool]:
         return {"insights": True}
 
+    @app.get("/billing")
+    async def _billing() -> PlainTextResponse:
+        return PlainTextResponse("BILLING")
+
+    @app.get("/billing/checkout")
+    async def _billing_checkout() -> PlainTextResponse:
+        return PlainTextResponse("CHECKOUT")
+
     return app
 
 
@@ -136,6 +144,27 @@ async def test_owner_only_surface_stays_closed_for_member(member_setup):
     api = await client.get("/api/dashboard/insights.json")
     assert api.status_code == 403
     assert api.json()["detail"] == "owner access required"
+
+
+@pytest.mark.asyncio
+async def test_billing_is_closed_for_member_and_open_for_owner(member_setup):
+    """Биллинг спит: участник в /billing НЕ попадает, владелец — попадает.
+
+    Раньше гейт пропускал ``/billing*`` любому не-владельцу. Через 3 дня после
+    авто-триала страница показывала «Триал закончился. Оформи Pro» над двумя
+    живыми кнопками оплаты на 690 ₽ — при том, что доступ к чату оставался
+    бесплатным. Роуты и шаблоны биллинга целы, закрыт только вход участника.
+    """
+    client, _db, owner_user, member_user = member_setup
+
+    await _as(client, member_user["id"])
+    for path in ("/billing", "/billing/checkout"):
+        r = await client.get(path, follow_redirects=False)
+        assert r.status_code == 303, path
+        assert r.headers["location"] == "/chat", path
+
+    await _as(client, owner_user["id"])
+    assert (await client.get("/billing", follow_redirects=False)).status_code == 200
 
 
 @pytest.mark.asyncio

@@ -103,6 +103,7 @@
           </form>
           <p class="hero-cta-note reveal">
             🎁 Бесплатно — со своим ключом. Введи почту — и через минуту ты в чате со своим ИИ
+            · <a href="/auth/signup">придумать свой пароль</a>
             · <a href="#" id="show-pw">уже есть аккаунт?</a>
           </p>
           <p class="quick-hint" id="email-hint" aria-live="polite"></p>
@@ -140,10 +141,10 @@
     <!-- STATS -->
     <section class="stats-wrap" aria-label="Коротко о Persona">
       <div class="stats">
-        <div class="stat reveal"><div class="num grad">100%</div><div class="lbl">данные локально</div></div>
+        <div class="stat reveal"><div class="num grad">0 ₽</div><div class="lbl">со своим ключом</div></div>
         <div class="stat reveal"><div class="num grad">∞</div><div class="lbl">память без лимита</div></div>
-        <div class="stat reveal"><div class="num grad">0</div><div class="lbl">утечек наружу</div></div>
-        <div class="stat reveal"><div class="num grad">1</div><div class="lbl">человек: ты</div></div>
+        <div class="stat reveal"><div class="num grad">20+</div><div class="lbl">моделей на выбор</div></div>
+        <div class="stat reveal"><div class="num grad">1</div><div class="lbl">память: только твоя</div></div>
       </div>
     </section>
 
@@ -496,6 +497,24 @@
 
     var msg=document.getElementById('auth-msg');
     function showMsg(t, ok){ if(!msg)return; msg.hidden=false; msg.textContent=t; msg.className='auth-msg '+(ok?'ok':'err'); }
+    function esc(s){ return String(s).replace(/[&<>"']/g, function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+    // Регистрация вернула пароль — показываем его НА МЕСТЕ и НЕ уводим со
+    // страницы автоматически. Раньше здесь был setTimeout→window.location, а
+    // пароль уходил только письмом (которое не отправлялось: aiosmtplib не был
+    // установлен) — человек оставался без единственного способа войти снова.
+    function showCreated(res){
+      if(!msg) return;
+      msg.hidden=false; msg.className='auth-msg ok';
+      msg.innerHTML =
+        '<div>'+esc(res.message||'Аккаунт создан.')+'</div>'+
+        '<div style="margin:10px 0 8px;font-family:ui-monospace,monospace;font-size:1.15rem;'+
+        'font-weight:700;letter-spacing:1px;word-break:break-all;user-select:all">'+
+        esc(res.password)+'</div>'+
+        '<div style="opacity:.8;font-size:.85rem">⚠️ Сохрани пароль — он показывается один раз.</div>'+
+        '<div style="margin-top:10px"><a href="'+esc(res.next||'/chat')+'">Открыть Persona →</a>'+
+        ' · <a href="'+esc(res.set_password_url||'/auth/set-password')+'">задать свой пароль</a></div>';
+    }
     async function post(url, data){
       try{
         var r=await fetch(url,{method:'POST',headers:{'X-Requested-With':'fetch','Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams(data)});
@@ -510,8 +529,11 @@
       showMsg('Создаю аккаунт…', true);
       var res=await post('/auth/register',{email:email});
       if(res.ok){
-        showMsg(res.message||'Готово! Проверь почту.', true);
-        if(res.redirect){ setTimeout(function(){ window.location=res.redirect; }, 1300); }
+        if(res.password){ showCreated(res); }
+        else {
+          showMsg(res.message||'Готово! Проверь почту.', true);
+          if(res.redirect){ setTimeout(function(){ window.location=res.redirect; }, 1300); }
+        }
       } else {
         showMsg((res.error||'Ошибка.')+(res.suggestion?(' Может, '+res.suggestion+'?'):''), false);
       }

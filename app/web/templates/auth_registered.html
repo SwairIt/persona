@@ -1,0 +1,100 @@
+{# Экран сразу после /auth/register: показываем сгенерированный пароль.
+
+   Почему на экране, а не только письмом: до этого фикса пароль уходил
+   ИСКЛЮЧИТЕЛЬНО письмом, а зависимость ``aiosmtplib`` не была установлена —
+   письмо не уходило никогда, и человек оставался с аккаунтом, в который не мог
+   войти (реальный случай в проде). Экран — основной канал, письмо — дубль.
+   Кука сессии уже выставлена, так что «Открыть Persona» работает и без пароля;
+   пароль нужен для СЛЕДУЮЩИХ входов. #}
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0a0a12" />
+  <meta name="robots" content="noindex" />
+  <title>{{ title }} — Persona</title>
+  <style>:root{color-scheme:dark}html,body{margin:0;background:#07070d;color:#eef0ff}</style>
+  <link rel="stylesheet" href="/static/landing/style.css" />
+  <link rel="stylesheet" href="/static/blog/blog.css" />
+</head>
+<body>
+  <div class="bg-mesh" aria-hidden="true"></div>
+  <div class="bg-grid" aria-hidden="true"></div>
+
+  <main class="blog-main" style="max-width:560px;text-align:center">
+    <a class="brand" href="/landing" style="justify-content:center;margin-bottom:28px;display:flex">
+      <span class="brand-dot"></span> Persona
+    </a>
+
+    <div class="glass" style="padding:40px 32px;border-radius:22px">
+      <div style="font-size:2.4rem;margin-bottom:14px">🎉</div>
+      <h1 style="font-size:1.6rem;font-weight:800;margin-bottom:12px">Аккаунт создан</h1>
+      <p style="color:var(--ink-dim);margin-bottom:18px">
+        Логин — <b style="color:var(--ink)">{{ email }}</b>
+      </p>
+
+      <div style="background:rgba(124,58,237,.10);border:1px solid rgba(147,130,255,.30);
+                  border-radius:14px;padding:16px 18px;margin-bottom:14px;text-align:left">
+        <div style="font-size:.72rem;letter-spacing:1px;text-transform:uppercase;
+                    color:var(--ink-faint);margin-bottom:6px">Твой пароль</div>
+        <div id="pw-value"
+             style="font-family:ui-monospace,'Courier New',monospace;font-size:1.35rem;
+                    font-weight:700;letter-spacing:1px;color:var(--ink);word-break:break-all;
+                    user-select:all">{{ password }}</div>
+        <button type="button" id="pw-copy" class="btn btn-ghost"
+                style="margin-top:10px;font-size:.8rem;padding:6px 12px">Скопировать</button>
+      </div>
+
+      <p style="color:#ffd6a0;font-size:.92rem;margin:0 0 8px">
+        ⚠️ <b>Сохрани его прямо сейчас</b> — эта страница показывается один раз,
+        восстановить пароль без настроенной почты невозможно.
+      </p>
+
+      {% if delivered %}
+        <p style="color:var(--ink-dim);font-size:.88rem;margin:0 0 18px">
+          Копию отправили письмом на {{ email }}.
+        </p>
+      {% elif mail_unconfigured %}
+        <p style="color:var(--ink-dim);font-size:.88rem;margin:0 0 18px">
+          Почта (SMTP) на этом сервере не настроена — письма не будет.
+          Экран выше единственный источник пароля.
+        </p>
+      {% else %}
+        <p style="color:var(--ink-dim);font-size:.88rem;margin:0 0 18px">
+          Письмо с паролем отправить не удалось. Экран выше единственный источник пароля.
+        </p>
+      {% endif %}
+
+      <a href="{{ next_url }}" class="btn btn-primary"
+         style="display:block;text-align:center;width:100%">Открыть Persona →</a>
+      <p style="margin:14px 0 0">
+        <a href="/auth/set-password" style="color:var(--accent-400,#a78bfa);font-size:.9rem">
+          Задать свой пароль →
+        </a>
+      </p>
+    </div>
+
+    <p style="margin-top:22px"><a href="/landing" style="color:var(--ink-faint)">← Persona</a></p>
+  </main>
+
+  <script>
+    (function () {
+      var btn = document.getElementById('pw-copy');
+      var val = document.getElementById('pw-value');
+      if (!btn || !val) return;
+      btn.addEventListener('click', function () {
+        var text = val.textContent || '';
+        var done = function () { btn.textContent = 'Скопировано ✓'; };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(done, function () {});
+        } else {
+          var r = document.createRange(); r.selectNodeContents(val);
+          var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+          try { document.execCommand('copy'); done(); } catch (e) {}
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

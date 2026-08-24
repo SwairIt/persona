@@ -45,6 +45,12 @@ log = get_logger("persona.auth_gate")
 # Cache window (seconds). After signup the gate activates within this.
 _FLAG_TTL = 60.0
 
+# Короткое окно кэша для РЕЗУЛЬТАТА ОШИБКИ в :func:`_gate_active`. Ошибку
+# кэшируем только как «гейт активен» и только на несколько секунд, чтобы
+# транзиентный лок SQLite не превращался в минуту закрытого сайта, но и не
+# порождал шторм запросов к упавшей БД.
+_ERROR_TTL = 5.0
+
 # Module-level cache of "is the gate active right now?"
 _cache: dict[str, float | bool] = {"value": False, "checked_at": 0.0}
 
@@ -113,7 +119,17 @@ _PUBLIC_PREFIXES: tuple[str, ...] = (
 
 
 async def _gate_active() -> bool:
-    """Return whether the gate should redirect un-authenticated requests."""
+    """Return whether the gate should redirect un-authenticated requests.
+
+    Fail-CLOSED. The only legitimate reason this function exists is to keep a
+    brand-new install (``users`` table genuinely empty) usable before the owner
+    signs up. That is a *confirmed* "no users" answer. A DB error is not an
+    answer at all — it used to be treated as "no users", i.e. the gate went
+    away and every private route was served to an anonymous request. Now an
+    error means "assume active" (deny), and the error result is cached only for
+    :data:`_ERROR_TTL` seconds so the honest answer comes back as soon as the
+    DB does.
+    """
     now = time.monotonic()
     if now - float(_cache["checked_at"]) < _FLAG_TTL:
         return bool(_cache["value"])
@@ -122,11 +138,13 @@ async def _gate_active() -> bool:
             cursor = await conn.execute("SELECT 1 FROM users LIMIT 1")
             row = await cursor.fetchone()
         active = row is not None
-    except Exception as exc:
-        # DB hiccup — fail-open (gate inactive) so a transient SQLite
-        # lock never bricks the whole site.
+    except Exception as exc:  # noqa: BLE001 — не смогли выяснить → закрываемся
         log.warning("auth_gate.check_failed", error=str(exc))
-        active = False
+        _cache["value"] = True
+        # Сдвигаем метку так, чтобы запись протухла через _ERROR_TTL, а не
+        # через полный _FLAG_TTL.
+        _cache["checked_at"] = now - (_FLAG_TTL - _ERROR_TTL)
+        return True
     _cache["value"] = active
     _cache["checked_at"] = now
     return active
@@ -156,6 +174,16 @@ _MEMBER_PREFIXES: tuple[str, ...] = (
     "/settings/skills", "/api/skills",
     "/api/account.json",
     "/api/copilot",
+    # Социальный слой: друзья и личные сообщения между аккаунтами. Данные
+    # тут по определению не «личные владельца» — каждая выборка в
+    # app/social/repository.py фильтруется по id действующего пользователя,
+    # а доступ к ветке переписки резолвится _require_thread_member.
+    "/friends", "/api/friends",
+    "/messages", "/api/messages",
+    # Уведомления социального слоя: матрица «событие × канал», СВОЙ
+    # Telegram-бот участника и его личная очередь браузерных уведомлений.
+    # Всё строго per-user (PK(user_id, …)), owner-данных тут нет.
+    "/settings/notifications-social", "/api/social-notif",
 )
 
 
@@ -393,8 +421,12 @@ class AuthGateMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
         if path == "/pending" or path.startswith("/auth/"):
             return await call_next(request)
-        if path == "/billing" or path.startswith("/billing/"):
-            return await call_next(request)
+        # /billing НЕ пропускаем участнику. Биллинг на этом MVP спит: доступ
+        # бесплатный, триалы не заводятся — а страница показывала «триал
+        # закончился, оформи Pro» над живыми кнопками оплаты на 690 ₽, хотя
+        # чат продолжал работать. Роуты и шаблоны биллинга целы и доступны
+        # владельцу (он уходит в суперсет-ветку выше); участник получает
+        # стандартный редирект на /chat, как на любую owner-зону.
         # Роле-основанная маршрутизация — ТОЛЬКО при kv role_gate_enabled=='1'.
         # При ВЫКЛ (дефолт) этот блок пропускается целиком → дальше идёт
         # СТАРЫЙ код-путь (owner-gate / pro), решения доступа не меняются.

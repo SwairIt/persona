@@ -1,9 +1,16 @@
-"""Счётчик Яндекс.Метрики (id 111901324) — подключён ровно один раз на страницу.
+"""Счётчик Яндекс.Метрики (id 111901324) — кто его получает и сколько раз.
 
 Партиал ``_metrika.html`` подключается в двух местах: в ``base.html`` (оболочка
 кабинета) и поимённо в публичных standalone-шаблонах, которые base.html НЕ
 наследуют. Двойного включения быть не должно — иначе Метрика посчитает визит
 дважды, а webvisor запишет сессию два раза.
+
+Второй, более важный инвариант: в оболочке кабинета счётчик получает ТОЛЬКО
+владелец инстанса. Партиал включает ``webvisor`` — полную запись экрана, а на
+экране кабинета приватное (текст чата, память, заметки). Писать сессию
+участника в Яндекс без его согласия нельзя, поэтому участнику счётчик не
+отдаётся вообще. Публичные маркетинговые страницы остаются под аналитикой для
+всех — это воронка, там приватных данных нет.
 """
 
 from __future__ import annotations
@@ -50,7 +57,7 @@ async def test_public_pages_carry_the_counter_once(client: AsyncClient, path: st
     assert body.count(NOSCRIPT) == 1, path
 
 
-async def test_logged_in_app_shell_carries_the_counter_once(client: AsyncClient) -> None:
+async def test_owner_app_shell_carries_the_counter_once(client: AsyncClient) -> None:
     token, _ = await issue_session(client._persona_owner_id)  # type: ignore[attr-defined]
     client.cookies.set(SESSION_COOKIE_NAME, token)
 
@@ -59,6 +66,41 @@ async def test_logged_in_app_shell_carries_the_counter_once(client: AsyncClient)
     body = response.text
     assert body.count(TAG) == 1, body.count(TAG)
     assert body.count(NOSCRIPT) == 1
+
+
+async def test_member_app_shell_carries_no_counter_at_all(client: AsyncClient) -> None:
+    """Участник не получает НИ tag.js, НИ noscript-пиксель — вебвизор молчит."""
+    member = await create_user("member@metrika.test", "member-pass-123")
+    token, _ = await issue_session(member["id"])
+    client.cookies.clear()
+    client.cookies.set(SESSION_COOKIE_NAME, token)
+
+    response = await client.get("/chat", follow_redirects=True)
+    assert response.status_code == 200
+    body = response.text
+    assert TAG not in body
+    assert NOSCRIPT not in body
+    # и это именно оболочка кабинета, а не редирект на лендинг
+    assert "/static/persona_theme.css" in body
+
+
+@pytest.mark.parametrize("path", ["/landing", "/pricing", "/features", "/blog"])
+async def test_public_pages_keep_the_counter_for_a_member(
+    client: AsyncClient, path: str
+) -> None:
+    """Маркетинговая воронка остаётся под аналитикой даже для участника.
+
+    ``/`` сюда не входит намеренно: залогиненного оно уводит в кабинет, а там
+    счётчика для участника быть и не должно.
+    """
+    member = await create_user("public@metrika.test", "member-pass-123")
+    token, _ = await issue_session(member["id"])
+    client.cookies.clear()
+    client.cookies.set(SESSION_COOKIE_NAME, token)
+
+    response = await client.get(path, follow_redirects=True)
+    assert response.status_code == 200, path
+    assert response.text.count(TAG) == 1, path
 
 
 def test_partial_is_not_included_by_templates_extending_base() -> None:

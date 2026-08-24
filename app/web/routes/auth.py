@@ -41,7 +41,6 @@ from app.auth.magic import consume_magic_link, create_magic_link
 from app.auth.owner import is_owner, is_primary_owner
 from app.auth.sessions import SessionRecord
 from app.auth.users import update_password
-from app.billing import service as billing_service
 from app.logging_setup import get_logger
 from app.mail_branding import branded_email_html
 from app.smtp_delivery import send_email
@@ -117,6 +116,35 @@ def _welcome_email_html(addr: str, password: str, login_url: str, setpw_url: str
 
 router = APIRouter(tags=["auth"])
 log = get_logger("persona.auth.routes")
+
+
+# Статусы ``send_email``, которые означают «почта на этом сервере не настроена»
+# (в отличие от ``error`` — попытались отправить, но релей отказал).
+_MAIL_UNCONFIGURED = frozenset({"disabled", "misconfigured", "missing_dep"})
+
+
+async def _send_mail_safe(
+    to_addr: str, subject: str, text: str, html: str | None, *, flow: str
+) -> str:
+    """Отправить письмо, НИКОГДА не роняя запрос. Возвращает статус-строку.
+
+    ``send_email`` уже ловит сетевые/SMTP-ошибки, но чтение настроек (kv/БД) и
+    сборка сообщения — нет. Регистрация и вход НЕ должны зависеть от почты:
+    любой сбой здесь = warning в лог + честный статус наверх, никогда 500.
+
+    ``flow`` — имя сценария для логов (``register`` / ``magic`` / ``forgot``).
+    Именно ``flow``, а не ``event``: ``event`` занят самим structlog.
+    """
+    try:
+        result = await send_email(to_addr, subject, text, html)
+    except Exception as exc:  # noqa: BLE001 — почта не может уронить auth-флоу
+        log.warning("mail.send_crashed", flow=flow, error=str(exc))
+        return "error"
+    status = str(result.get("status") or "error")
+    if status != "sent":
+        log.warning("mail.not_delivered", flow=flow, status=status)
+    return status
+
 
 # Cap on the User-Agent we persist into auth_session. The longest UAs
 # we've seen are around 200 chars; anything beyond is junk.
@@ -345,9 +373,18 @@ async def register_submit(
     email: Annotated[str, Form()],
 ) -> Response:
     """Авто-регистрация по одному email: создаём аккаунт со случайным паролем,
-    шлём пароль на почту и сразу логиним. Существующий email → ссылка для входа
-    (аккаунт НЕ пересоздаём, пароль не палим). Опечатки доменов (gmail.ru и т.п.)
-    блокируются через ``check_email``. Rate-limit как у остальных auth-роутов."""
+    ПОКАЗЫВАЕМ пароль на экране и сразу логиним. Существующий email → ссылка для
+    входа (аккаунт НЕ пересоздаём, пароль не палим). Опечатки доменов (gmail.ru
+    и т.п.) блокируются через ``check_email``. Rate-limit как у остальных
+    auth-роутов.
+
+    ВАЖНО (инвариант): экранный показ пароля БЕЗУСЛОВЕН. Раньше пароль уходил
+    только письмом — а ``aiosmtplib`` не был установлен, поэтому письмо не
+    уходило НИКОГДА, и зарегистрировавшийся получал аккаунт, в который не мог
+    войти. Письмо теперь — дубль, а не единственный канал; если SMTP не
+    настроен, страница честно об этом говорит, а не делает вид, что письмо ушло.
+    Кто хочет свой пароль сразу — ``/auth/signup`` (форма email + пароль).
+    """
     if await owner_exclusive_enabled():
         return _registration_disabled(request)
     if _rate_limited(request, "register", 5, 3600):
@@ -372,12 +409,20 @@ async def register_submit(
         # Аккаунт уже есть — не пересоздаём и не палим пароль: шлём ссылку для входа.
         token = await create_magic_link(addr)
         text, html = _magic_email_html(f"{base}/auth/magic/{token}")
-        delivered = (await send_email(addr, "Вход в Persona", text, html)).get("status") == "sent"
-        msg = (
-            f"У тебя уже есть аккаунт — отправили ссылку для входа на {addr}."
-            if delivered
-            else "Аккаунт уже существует. Войди по паролю (кнопка «войти паролем»)."
-        )
+        status = await _send_mail_safe(addr, "Вход в Persona", text, html, flow="register_existing")
+        delivered = status == "sent"
+        if delivered:
+            msg = f"У тебя уже есть аккаунт — отправили ссылку для входа на {addr}."
+        elif status in _MAIL_UNCONFIGURED:
+            msg = (
+                "Аккаунт уже существует, но почта на этом сервере не настроена — "
+                "письмо не уйдёт. Войди по паролю (кнопка «войти паролем»)."
+            )
+        else:
+            msg = (
+                "Аккаунт уже существует, но письмо отправить не удалось. "
+                "Войди по паролю (кнопка «войти паролем»)."
+            )
         if json_mode:
             return JSONResponse({"ok": True, "existing": True, "delivered": delivered, "message": msg})
         return templates.TemplateResponse(
@@ -395,28 +440,68 @@ async def register_submit(
                 {"ok": False, "error": "Не удалось создать аккаунт, попробуй войти."}, status_code=400
             )
         return RedirectResponse(url="/auth/login", status_code=303)
-    await billing_service.ensure_trial(user["id"])  # новому покупателю — 3-дневный Pro-триал
+    # Биллинг на этом MVP СПИТ: триал больше не заводим (иначе через 3 дня
+    # участник видел «триал закончился, оформи Pro» над живыми кнопками оплаты,
+    # хотя доступ бесплатный). ``billing_service.ensure_trial`` жив и доступен
+    # владельцу — его просто никто не дёргает из регистрации.
     text, html = _welcome_email_html(addr, password, f"{base}/auth/login", f"{base}/auth/set-password")
-    delivered = (
-        await send_email(addr, "Добро пожаловать в Persona — твой пароль", text, html)
-    ).get("status") == "sent"
+    mail_status = await _send_mail_safe(
+        addr, "Добро пожаловать в Persona — твой пароль", text, html, flow="register"
+    )
+    delivered = mail_status == "sent"
     if not delivered:
-        log.warning("register.not_emailed", email_domain=addr.rpartition("@")[2])
+        log.warning(
+            "register.not_emailed",
+            status=mail_status,
+            email_domain=addr.rpartition("@")[2],
+        )
     ua = _trim_ua(request.headers.get("user-agent"))
     token, _expires_at = await issue_session(user["id"], user_agent=ua)
     dest = await _post_auth_dest(user["id"])
     secure = _cookie_secure(request)
-    if json_mode:
+    if delivered:
+        msg = f"Аккаунт создан 🎉 Пароль ниже — он же продублирован письмом на {addr}. Сохрани его."
+    elif mail_status in _MAIL_UNCONFIGURED:
         msg = (
-            f"Аккаунт создан 🎉 Пароль отправлен на {addr} — сменишь его в настройках."
-            if delivered
-            else "Аккаунт создан 🎉 Письмо с паролем не ушло (SMTP не настроен) — зайди и задай пароль в настройках."
-        )
-        response: Response = JSONResponse(
-            {"ok": True, "registered": True, "delivered": delivered, "redirect": dest, "message": msg}
+            "Аккаунт создан 🎉 Почта на этом сервере не настроена, письма не будет — "
+            "сохрани пароль ниже, другого способа его узнать нет."
         )
     else:
-        response = RedirectResponse(url=dest, status_code=303)
+        msg = (
+            "Аккаунт создан 🎉 Письмо с паролем отправить не удалось — "
+            "сохрани пароль ниже, другого способа его узнать нет."
+        )
+    if json_mode:
+        # ``password`` возвращаем НАМЕРЕННО: это единственный ответ на запрос,
+        # который сам же создал аккаунт, и получатель уже залогинен этой же
+        # куки. Ключ ``redirect`` убран специально — лендинг не должен увести
+        # человека со страницы раньше, чем он увидит пароль (для перехода есть
+        # ``next``).
+        response: Response = JSONResponse(
+            {
+                "ok": True,
+                "registered": True,
+                "delivered": delivered,
+                "password": password,
+                "next": dest,
+                "set_password_url": "/auth/set-password",
+                "message": msg,
+            }
+        )
+    else:
+        response = templates.TemplateResponse(
+            request,
+            "auth_registered.html",
+            {
+                "title": "Аккаунт создан",
+                "email": addr,
+                "password": password,
+                "delivered": delivered,
+                "mail_unconfigured": mail_status in _MAIL_UNCONFIGURED,
+                "next_url": dest,
+                "message": msg,
+            },
+        )
     _set_session_cookie(response, token, secure, 30 * 24 * 3600)
     return response
 
@@ -502,10 +587,7 @@ async def magic_request(
     token = await create_magic_link(addr)
     link = str(request.base_url).rstrip("/") + f"/auth/magic/{token}"
     text, html = _magic_email_html(link)
-    result = await send_email(addr, "Вход в Persona", text, html)
-    delivered = result.get("status") == "sent"
-    if not delivered:
-        log.warning("magic.not_emailed", status=result.get("status"))
+    delivered = await _send_mail_safe(addr, "Вход в Persona", text, html, flow="magic") == "sent"
     if json_mode:
         msg = (
             f"Аккаунт создан 🎉 Ссылка для входа отправлена на {addr}."
@@ -586,9 +668,9 @@ async def forgot_password(
             token = await create_magic_link(chk["email"])
             link = str(request.base_url).rstrip("/") + f"/auth/magic/{token}?next=/auth/set-password"
             text, html = _magic_email_html(link)
-            result = await send_email(chk["email"], "Смена пароля Persona", text, html)
-            if result.get("status") != "sent":
-                log.warning("forgot.not_emailed", status=result.get("status"))
+            await _send_mail_safe(
+                chk["email"], "Смена пароля Persona", text, html, flow="forgot"
+            )
     if json_mode:
         return JSONResponse({"ok": True, "message": generic})
     return templates.TemplateResponse(

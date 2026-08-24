@@ -471,9 +471,10 @@
             {% if adv and adv.master %}🛠 <span>Рабочий режим</span>{% else %}🧑‍🤝‍🧑 <span>ИИ-ассистент · быстро</span>{% endif %}
           </a>
           <a href="/settings/system-prompt" class="text-zinc-500 hover:text-accent-400 px-1">характер ассистента →</a>
-          {% else %}
-          <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-accent-600/40 text-accent-300 bg-ink-800/60">⚡ <span>Persona Pro</span></span>
           {% endif %}
+          {# Участнику здесь раньше висел статичный бейдж «⚡ Persona Pro».
+             Он врал: подписки у участника нет, биллинг спит, доступ бесплатный —
+             и вёл прямиком к «триал закончился, оформи Pro». Убран. #}
         </div>
         {# T26 — Queue preview when user typed-ahead while AI was busy #}
         <template x-if="queuedPrompts.length > 0">
