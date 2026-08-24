@@ -109,6 +109,51 @@ def _invalidate_kv_value(key: str) -> None:
     """Сбросить процесс-кэш одной kv-строки (после записи настройки)."""
     _kv_value_cache.pop(key, None)
 
+
+# ── Тот же TTL-кэш, но для per-user настроек (таблица ``user_settings``) ────
+# Отдельный dict, а НЕ общий с ``_kv_value_cache``: ключ здесь составной
+# ``(user_id, key)``. Складывать их в один словарь по строковому ``key``
+# нельзя ни в каком виде — тема/язык одного пользователя утекли бы другому
+# (и глобальному kv). Кортеж-ключ делает коллизию между пользователями
+# структурно невозможной.
+_user_kv_value_cache: dict[tuple[int, str], tuple[str | None, float]] = {}
+
+
+def get_user_kv_sync(user_id: int, key: str, ttl: float = _KV_CACHE_TTL) -> str | None:
+    """Сырое значение строки ``user_settings`` с процесс-глобальным TTL-кэшем.
+
+    Синхронный близнец :func:`app.storage.repository.get_user_kv` — Jinja
+    синхронна, поэтому aiosqlite-пул недоступен, и читаем коротким stdlib
+    ``sqlite3`` по тому же пути к БД, что и :func:`_cached_kv_value`.
+    Возвращает строку или ``None`` (строки нет / БД недоступна / таблицы
+    ещё нет). При ошибке БД отдаём последнее известное значение, чтобы
+    рендер никогда не падал.
+    """
+    now = time.monotonic()
+    cache_key = (user_id, key)
+    cached = _user_kv_value_cache.get(cache_key)
+    if cached is not None and now < cached[1]:
+        return cached[0]
+    db_path = get_settings().db_path
+    try:
+        with sqlite3.connect(str(db_path)) as conn:
+            cursor = conn.execute(
+                "SELECT value FROM user_settings WHERE user_id = ? AND key = ?",
+                (user_id, key),
+            )
+            row = cursor.fetchone()
+    except sqlite3.Error:
+        return cached[0] if cached is not None else None
+    value = None if row is None else str(row[0])
+    _user_kv_value_cache[cache_key] = (value, now + ttl)
+    return value
+
+
+def invalidate_user_kv_sync(user_id: int, key: str) -> None:
+    """Сбросить процесс-кэш одной ``user_settings``-строки (после записи)."""
+    _user_kv_value_cache.pop((user_id, key), None)
+
+
 _compact_log = get_logger("persona.compact")
 _grayscale_log = get_logger("persona.grayscale")
 _reduce_motion_log = get_logger("persona.reduce_motion")

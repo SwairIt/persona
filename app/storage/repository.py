@@ -342,6 +342,54 @@ async def list_kv(conn: aiosqlite.Connection) -> dict[str, str]:
     return {str(row["key"]): str(row["value"]) for row in rows}
 
 
+async def get_user_kv(
+    conn: aiosqlite.Connection,
+    user_id: int,
+    key: str,
+) -> str | None:
+    """Read a value from the user_settings table (per-user twin of get_kv)."""
+    cursor = await conn.execute(
+        "SELECT value FROM user_settings WHERE user_id = ? AND key = ?",
+        (user_id, key),
+    )
+    row = await cursor.fetchone()
+    if row is None:
+        return None
+    return str(row["value"])
+
+
+async def set_user_kv(
+    conn: aiosqlite.Connection,
+    user_id: int,
+    key: str,
+    value: str,
+) -> None:
+    """Upsert a user_settings entry for one user."""
+    await conn.execute(
+        """
+        INSERT INTO user_settings (user_id, key, value, updated_at)
+        VALUES (?, ?, ?, datetime('now'))
+        ON CONFLICT(user_id, key) DO UPDATE SET
+            value = excluded.value, updated_at = datetime('now')
+        """,
+        (user_id, key, value),
+    )
+    await conn.commit()
+
+
+async def delete_user_kv(
+    conn: aiosqlite.Connection,
+    user_id: int,
+    key: str,
+) -> None:
+    """Delete one user_settings entry. No-op if the key is absent."""
+    await conn.execute(
+        "DELETE FROM user_settings WHERE user_id = ? AND key = ?",
+        (user_id, key),
+    )
+    await conn.commit()
+
+
 def _row_to_screenshot(row: aiosqlite.Row) -> Screenshot:
     keys = set(row.keys()) if hasattr(row, "keys") else set()
     tier = row["tier"] if "tier" in keys else "hot"
