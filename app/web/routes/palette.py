@@ -8,16 +8,33 @@ rules and tags so the palette tracks the live workspace without a rebuild.
 The endpoint deliberately returns an empty/partial payload when a backing
 table is missing (e.g. on a fresh install before migrations run): the palette
 must never error out the navbar.
+
+Чья это палитра (2026-08)
+-------------------------
+Роут отдавал ОДИН и тот же список всем: ~30 owner-маршрутов (/timeline, /vault,
+/audit, /doctor, /whitelist…) плюс сохранённые поиски, авто-коллекции и ТЕГИ
+владельца. Участнику эти пути закрыты гейтом (редирект на /chat), а названия
+тегов и сохранённых поисков — это уже личные данные владельца в чистом виде.
+
+Теперь личность решает содержимое: владелец получает прежний payload
+байт-в-байт, участник — свой member-каталог (единый источник —
+``_MEMBER_CATEGORIES`` в settings_hub) плюс его рабочие экраны. Динамическая
+часть (теги/поиски/коллекции) участнику не собирается вовсе — не фильтруется,
+а не запрашивается. Сессии нет (гейт выключен на пустом инстансе) → прежнее
+владельческое поведение.
 """
 
 from __future__ import annotations
 
-from typing import Any, Final
+from typing import Annotated, Any, Final
 
 import aiosqlite
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
+from app.auth import current_user_optional
+from app.auth.owner import is_owner
+from app.auth.sessions import SessionRecord  # noqa: TC001 - FastAPI inspects it
 from app.logging_setup import get_logger
 from app.storage.db import get_connection
 
@@ -137,9 +154,73 @@ async def _load_tags(conn: aiosqlite.Connection) -> list[dict[str, str]]:
 # --- Endpoint --------------------------------------------------------------
 
 
+#: Рабочие экраны участника вне каталога настроек (там только настройки).
+#: Источник истины по доступу — ``_MEMBER_PREFIXES`` (middleware/auth_gate.py).
+_MEMBER_ROUTES: Final[list[dict[str, str]]] = [
+    {"title": "Чат", "url": "/chat", "hint": "ИИ с памятью"},
+    {"title": "Голос", "url": "/voice", "hint": "разговор вслух"},
+    {"title": "Граф памяти", "url": "/graph"},
+    {"title": "Сообщения", "url": "/messages", "hint": "личные переписки"},
+    {"title": "Друзья", "url": "/friends"},
+    {"title": "Настройки", "url": "/settings/hub"},
+    {"title": "Быстрый старт", "url": "/onboarding", "hint": "подключить модель"},
+    {"title": "Как получить ключ", "url": "/help/connect-llm", "hint": "бесплатно"},
+]
+
+
+def _member_items() -> list[dict[str, Any]]:
+    """Палитра участника: его экраны + его каталог настроек. Без owner-путей."""
+    items: list[dict[str, Any]] = [
+        {**route, "kind": "route"} for route in _MEMBER_ROUTES
+    ]
+    seen = {str(item["url"]) for item in items}
+    try:
+        from app.web.routes.settings_hub import _categories_json  # noqa: PLC0415
+
+        for cat in _categories_json(member=True):
+            for page in cat["pages"]:  # type: ignore[index]
+                href = str(page["href"])
+                if href in seen:
+                    continue
+                seen.add(href)
+                items.append(
+                    {
+                        "title": str(page["label"]),
+                        "url": href,
+                        "hint": str(cat["title"]),
+                        "kind": "route",
+                    }
+                )
+    except Exception as exc:  # noqa: BLE001 — палитра не имеет права ронять навбар
+        log.warning("palette.member_catalog_failed", error=str(exc))
+    return items
+
+
+async def _viewer_is_owner(session: SessionRecord | None) -> bool:
+    """Сессии нет (гейт выключен на пустом инстансе) → прежнее поведение.
+
+    Сбой резолва владельца → участник: показать меньше безопаснее, чем
+    выдать чужие теги и owner-маршруты.
+    """
+    if session is None:
+        return True
+    try:
+        return await is_owner(session["user_id"])
+    except Exception as exc:  # noqa: BLE001 — сбой гейта → урезанная палитра
+        log.warning("palette.owner_resolve_failed", error=str(exc))
+        return False
+
+
 @router.get("/api/palette.json", response_class=JSONResponse)
-async def palette_data() -> JSONResponse:
+async def palette_data(
+    session: Annotated[SessionRecord | None, Depends(current_user_optional)] = None,
+) -> JSONResponse:
     """Return the merged static + dynamic item list for the command palette."""
+    if not await _viewer_is_owner(session):
+        items = _member_items()
+        log.info("palette.served", count=len(items), member=True)
+        return JSONResponse({"items": items})
+
     items: list[dict[str, Any]] = [
         {**route, "kind": "route"} for route in _STATIC_ROUTES
     ]

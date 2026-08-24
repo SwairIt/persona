@@ -89,7 +89,11 @@
   <script src="/static/context_menu.js" defer></script>
   <script src="/static/cal_nav.js?v={{ app_version }}" defer></script>
   <script defer src="/static/js/keyboard.js"></script>
-  <script defer src="/static/js/palette.js"></script>
+  {# /static/js/palette.js НЕ подключаем: это старый дубль палитры на том же
+     Cmd+K (открывались ДВА оверлея сразу), со вшитым списком owner-маршрутов
+     (/timeline, /whitelist, /journal…), который участнику показывали, а гейт
+     потом выкидывал его на /chat. Живая палитра одна — command_palette.js
+     выше, её содержимое приходит из роле-осведомлённого /api/palette.json. #}
   {# Палитра настроек (Ctrl+Shift+P) — поиск по всем /settings/* через
      /api/settings/search. Отдельна от навигационной палитры Ctrl+K выше.
      Переводимые строки прокидываем глобалом до подключения скрипта. #}
@@ -786,13 +790,37 @@
     }
   </script>
 
+  {# ИИ-копилот сайта. Рисуем ТОЛЬКО аутентифицированному человеку: панель
+     сразу же дёргает /api/copilot/ask, который требует сессию, поэтому на
+     публичных страницах (шара коллекции, любой шаблон без сессии) кнопка была
+     заведомо нерабочей.
+
+     Кому именно:
+       * владельцу — под его мастер-флагом «ИИ везде» (как остальные его
+         ИИ-поверхности: dashboard/search/timeline/календарь);
+       * участнику — всегда: его копилот работает на ЕГО модели и от чужого
+         тумблера не зависит. Нет модели — копилот сам скажет об этом и даст
+         ссылку на /settings/llm (кадр llm_not_configured), а не промолчит.
+
+     Личность берём из request.state (её кладёт AuthGateMiddleware для любого
+     аутентифицированного запроса). Все обращения через ``is defined``: на
+     шаблоне без request/state Jinja отдаст Undefined, а не упадёт. #}
+  {% set _copilot_uid = None %}
+  {% set _copilot_owner = True %}
+  {% if request is defined and request.state is defined %}
+    {% if request.state.user_id is defined %}{% set _copilot_uid = request.state.user_id %}{% endif %}
+    {% if request.state.is_owner is defined %}{% set _copilot_owner = request.state.is_owner %}{% endif %}
+  {% endif %}
+  {% if _copilot_uid and (not _copilot_owner or get_ai_everywhere() == '1') %}
+  {% include "_copilot_widget.html" %}
+  {% endif %}
+
   {# v1.66 — bottom-right help button. Self-contained widget: no Alpine
      dependency, vanilla JS, fixed positioning with safe-area inset so it
      never hides behind the iPhone home indicator. The list of features is
      fetched from /api/features.json (already exists from v1.x) and the
      search filters client-side. Opens a panel with: search field, top
      pages quick-links, a link to /help with the full walkthrough. #}
-  {% include "_copilot_widget.html" %}
   {% include "_help_widget.html" ignore missing %}
   {% if _persona_theme in ['cosmos', 'cosmos-dark'] %}
   <script src="/static/vendor/three-0.128.0.min.js?v={{ app_version }}" defer></script>

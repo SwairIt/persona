@@ -165,6 +165,11 @@ _MEMBER_PREFIXES: tuple[str, ...] = (
     "/voice",
     "/graph", "/api/graph.json",
     "/settings/hub", "/api/settings/search",
+    # Палитра Cmd+K. Роут роле-осведомлён (app/web/routes/palette.py): участнику
+    # он собирает ТОЛЬКО его экраны и его каталог настроек, а теги/сохранённые
+    # поиски владельца не запрашивает вовсе. Без этой строки палитра участника
+    # молча получала 403 и оставалась пустой.
+    "/api/palette.json",
     "/settings/llm", "/api/llm/models",
     "/settings/memory", "/settings/profile",
     "/settings/system-prompt", "/settings/theme", "/settings/advanced",

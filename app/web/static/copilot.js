@@ -10,8 +10,14 @@
  *   {type:"meta", ...}
  *   {type:"delta", text:"..."}
  *   {type:"done",  full_answer:"...", ...}
- *   {type:"error", reason:"disabled"|"missing_config"|"llm_offline"|
- *                         "bad_request"|"internal", detail?:"..."}
+ *   {type:"error", reason:"disabled"|"llm_not_configured"|"missing_config"|
+ *                         "llm_offline"|"bad_request"|"internal",
+ *                  detail?:"...", href?:"/settings/llm"}
+ *
+ * "disabled" бывает ТОЛЬКО у владельца (его мастер-флаг «ИИ везде»);
+ * участнику без своей модели прилетает "llm_not_configured" со ссылкой на
+ * /settings/llm — раньше ему показывали «ИИ везде выключен» и вели на
+ * owner-only страницу, которую он не может открыть.
  * Для find_setting ответ может нести ссылку — показываем кликабельно.
  *
  * Зависимостей нет (Alpine уже подключён в base.html). Переводимые строки
@@ -33,6 +39,18 @@ function copilotWidget() {
     _gotDelta: false,
 
     init() {
+      // Публичный мини-API: палитра Cmd+K умеет отправить сюда свободный
+      // вопрос («спросить помощника»), не заводя второй чат-виджет.
+      window.PersonaCopilot = {
+        open: () => this.openPanel(),
+        ask: (text) => {
+          this.mode = "ask";
+          const q = (text || "").trim();
+          if (q) this.send(q);
+          else this.openPanel();
+        },
+      };
+
       // Хоткей Ctrl+/ (и Cmd+/ на mac) — открыть панель и сфокусировать поле.
       document.addEventListener("keydown", (e) => {
         const combo = (e.ctrlKey || e.metaKey) && e.key === "/";
@@ -98,6 +116,8 @@ function copilotWidget() {
         streaming: true,
         href: "",
         hrefLabel: "",
+        href2: "",
+        hrefLabel2: "",
       };
       this.messages.push(bot);
       this.busy = true;
@@ -167,7 +187,7 @@ function copilotWidget() {
       }
       if (type === "error") {
         this._closeStream();
-        this._fail(bot, this._errorMessage(data.reason, data.detail));
+        this._fail(bot, this._errorInfo(data));
         return;
       }
     },
@@ -188,40 +208,75 @@ function copilotWidget() {
       }
     },
 
-    _errorMessage(reason, detail) {
+    // Причина отказа → что показать. Возвращаем объект, а не строку: у части
+    // причин есть действие (ссылка), и без него сообщение — тупик.
+    //
+    // Две причины намеренно РАЗВЕДЕНЫ и не путаются:
+    //   * "disabled"           — владелец выключил свой мастер-флаг «ИИ везде»;
+    //                            чинится на /settings/ai-everywhere (owner-only).
+    //   * "llm_not_configured" — у участника нет СВОЕЙ модели; страница
+    //                            /settings/ai-everywhere ему недоступна и к делу
+    //                            не относится, ведём на /settings/llm.
+    _errorInfo(data) {
+      const reason = (data && data.reason) || "";
+      const detail = data && data.detail;
       switch (reason) {
         case "disabled":
-          return t("err_disabled", "Режим «ИИ везде» выключен.");
+          return {
+            text: t("err_disabled", "Режим «ИИ везде» выключен."),
+            href: "/settings/ai-everywhere",
+            hrefLabel: t("err_disabled_link", "Включить «ИИ везде»"),
+          };
         case "missing_config":
         case "llm_offline":
         case "not_configured":
-          return t("err_offline", "ИИ сейчас недоступен. Попробуйте позже.");
+          return { text: t("err_offline", "ИИ сейчас недоступен. Попробуйте позже.") };
         case "llm_not_configured":
           // У пользователя нет СВОЕГО провайдера — это чинится настройкой,
           // а не ожиданием, поэтому ведём на страницу выбора провайдера.
-          return t(
-            "err_not_configured",
-            "Свой AI не подключён — открой /settings/llm."
-          );
+          return {
+            text: t(
+              "err_not_configured",
+              "Подключи свою модель — и помощник заработает на всём сайте."
+            ),
+            href: (data && data.href) || "/settings/llm",
+            hrefLabel: t("err_not_configured_link", "Подключить модель → /settings/llm"),
+            href2: "/help/connect-llm",
+            hrefLabel2: t("err_not_configured_help", "как получить ключ бесплатно"),
+          };
         case "bad_request":
-          return t("err_empty", "Пустой запрос.");
+          return { text: t("err_empty", "Пустой запрос.") };
         default:
-          return detail
-            ? t("err_generic", "Что-то пошло не так.") + " (" + detail + ")"
-            : t("err_generic", "Что-то пошло не так.");
+          return {
+            text: detail
+              ? t("err_generic", "Что-то пошло не так.") + " (" + detail + ")"
+              : t("err_generic", "Что-то пошло не так."),
+          };
       }
     },
 
-    _fail(bot, message) {
+    _fail(bot, info) {
+      // info — строка (внутренние вызовы) или объект {text, href, ...}.
+      const data = typeof info === "string" ? { text: info } : (info || {});
       // Превращаем «печатающийся» пузырь в ошибку, если он пуст; иначе —
       // добавляем отдельный пузырь-ошибку, чтобы не терять частичный ответ.
+      let target = bot;
       if (bot && bot.streaming && !bot.text) {
         bot.role = "error";
-        bot.text = message;
+        bot.text = data.text;
         bot.streaming = false;
       } else {
         if (bot) bot.streaming = false;
-        this.messages.push({ role: "error", text: message });
+        target = { role: "error", text: data.text, href: "", hrefLabel: "", href2: "", hrefLabel2: "" };
+        this.messages.push(target);
+      }
+      if (data.href) {
+        target.href = data.href;
+        target.hrefLabel = data.hrefLabel || data.href;
+      }
+      if (data.href2) {
+        target.href2 = data.href2;
+        target.hrefLabel2 = data.hrefLabel2 || data.href2;
       }
       this.busy = false;
       this.$nextTick(() => this._scrollToEnd());

@@ -3,7 +3,7 @@ from __future__ import annotations
 from app.auth import owner as owner_mod
 from app.auth.users import create_user
 from app.llm.copilot_stream import stream_copilot
-from app.storage.repository import get_kv, set_kv
+from app.storage.repository import get_kv, get_user_kv, set_kv
 
 
 def _reset_owner_cache() -> None:
@@ -34,12 +34,16 @@ async def test_copilot_can_enable_allowlisted_setting_without_llm(db) -> None:
     assert await get_kv(db, "feat_tools") == "1"
 
 
-async def test_copilot_setting_action_is_owner_only(db) -> None:
+async def test_copilot_setting_action_never_touches_global_flags(db) -> None:
     """Обычный пользователь НЕ переключает глобальные флаги владельца.
 
     ``ai_everywhere`` / ``advanced_mode`` / ``feat_tools`` — общие kv-строки
     инстанса. До гейта любой зарегистрированный аккаунт мог фразой «включи
     инструменты» в копилоте поменять их владельцу.
+
+    Фича у участника при этом ЕСТЬ — роль выбирает адрес записи, а не наличие
+    действия: та же фраза пишет ЕГО ``user_settings`` (см. подробные проверки
+    в tests/test_copilot_member.py).
     """
     owner = await create_user("owner@example.test", "owner-pass-123")
     member = await create_user("member@example.test", "member-pass-123")
@@ -55,10 +59,10 @@ async def test_copilot_setting_action_is_owner_only(db) -> None:
         )
     ]
 
-    # Настройка не применена: флаги владельца не тронуты.
+    # Глобальные флаги владельца не тронуты — это и был исходный баг.
     assert await get_kv(db, "advanced_mode") is None
     assert await get_kv(db, "feat_tools") is None
-    # И это не «тихо ок»: раз своей модели у него нет, копилот честно говорит
-    # про /settings/llm, а не делает вид, что что-то включил.
-    assert [event["type"] for event in events] == ["meta", "error"]
-    assert events[-1]["reason"] == "llm_not_configured"
+    # Участнику применилось СВОЁ, и он это видит.
+    assert [event["type"] for event in events] == ["meta", "delta", "done"]
+    assert events[-1]["href"] == "/settings/advanced"
+    assert await get_user_kv(db, int(member["id"]), "feat_tools") == "1"

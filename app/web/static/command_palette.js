@@ -170,6 +170,8 @@
         return `<span class="${base} bg-emerald-600/30 text-emerald-200">coll</span>`;
       case "tag":
         return `<span class="${base} bg-sky-600/30 text-sky-200">tag</span>`;
+      case "ask":
+        return `<span class="${base} bg-violet-600/30 text-violet-200">ai</span>`;
       default:
         return "";
     }
@@ -184,6 +186,37 @@
       .replace(/'/g, "&#39;");
   }
 
+  // «Спросить помощника» — свободный вопрос прямо из палитры. Строка
+  // появляется, как только человек что-то набрал: палитра умеет искать только
+  // по названиям страниц, а вопрос «где включить тёмную тему?» ни одному
+  // названию не соответствует. Требует копилота на странице (он есть только у
+  // аутентифицированного — см. base.html), иначе строки просто нет.
+  function askItem(query) {
+    if (!query || !window.PersonaCopilot) return null;
+    return {
+      title: "Спросить помощника: " + query,
+      url: "",
+      hint: "ответит ИИ прямо здесь",
+      kind: "ask",
+      ask: query,
+    };
+  }
+
+  function activate(item) {
+    if (!item) return;
+    if (item.kind === "ask") {
+      close();
+      try {
+        window.PersonaCopilot.ask(item.ask);
+      } catch (_e) {
+        /* копилот не загрузился — молча ничего не делаем */
+      }
+      return;
+    }
+    pushRecent(item.url);
+    window.location.href = item.url;
+  }
+
   function render() {
     if (!inputEl || !listEl) return;
     const q = inputEl.value.trim();
@@ -195,6 +228,8 @@
       scored.sort((a, b) => b.score - a.score);
     }
     visibleItems = scored.slice(0, 60).map((x) => x.item);
+    const ask = askItem(q);
+    if (ask) visibleItems.push(ask);
     if (focusIdx >= visibleItems.length) focusIdx = 0;
 
     if (visibleItems.length === 0) {
@@ -212,7 +247,7 @@
         ? `<span class="ml-2 text-xs text-zinc-500">${escapeHtml(item.hint)}</span>`
         : "";
       return (
-        `<a href="${escapeHtml(item.url)}" data-idx="${idx}" ` +
+        `<a href="${escapeHtml(item.url || "#")}" data-idx="${idx}" ` +
         `class="palette-item flex items-center justify-between px-4 py-2 rounded ${cls}">` +
         `<span class="truncate">` +
         `<span class="font-medium">${escapeHtml(item.title)}</span>` +
@@ -282,13 +317,18 @@
     inputEl.addEventListener("keydown", handleKey);
     listEl.addEventListener("click", (e) => {
       const a = e.target && e.target.closest && e.target.closest(".palette-item");
-      if (a) {
-        // Let the browser navigate via the href; but record the click first.
-        const idx = Number(a.getAttribute("data-idx"));
-        if (!Number.isNaN(idx) && visibleItems[idx]) {
-          pushRecent(visibleItems[idx].url);
-        }
+      if (!a) return;
+      const idx = Number(a.getAttribute("data-idx"));
+      const item = Number.isNaN(idx) ? null : visibleItems[idx];
+      if (!item) return;
+      if (item.kind === "ask") {
+        // У этой строки нет адреса — она открывает копилота, а не страницу.
+        e.preventDefault();
+        activate(item);
+        return;
       }
+      // Let the browser navigate via the href; but record the click first.
+      pushRecent(item.url);
     });
 
     // Render immediately with whatever we already have, then refresh on load.
@@ -326,11 +366,7 @@
       render();
     } else if (e.key === "Enter") {
       e.preventDefault();
-      const target = visibleItems[focusIdx];
-      if (target) {
-        pushRecent(target.url);
-        window.location.href = target.url;
-      }
+      activate(visibleItems[focusIdx]);
     } else if (e.key === "Escape") {
       e.preventDefault();
       close();

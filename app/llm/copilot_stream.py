@@ -38,9 +38,52 @@ _COPILOT_SYSTEM = (
     "коротко и по делу, по-русски."
 )
 
+#: Характер копилота для УЧАСТНИКА (зарегистрированный не-владелец).
+#:
+#: Отличий от владельческого два, и оба про границу данных:
+#: 1. явно сказано, что кроме СВОИХ данных у копилота ничего нет — чтобы модель
+#:    не выдумывала «твой захват экрана» и «твои напоминания», которых у
+#:    участника физически не существует (это поверхность владельца);
+#: 2. запрет ссылаться на пути вне member-каталога: owner-only URL участнику
+#:    отдаётся редиректом на /chat, и совет «зайди в /settings/capture» —
+#:    просто ложь.
+_MEMBER_SYSTEM = (
+    "Ты — встроенный копилот Persona, помогаешь пользователю прямо на сайте, "
+    "коротко и по делу, по-русски.\n"
+    "Перед тобой участник Persona: у него свой аккаунт, своя подключённая "
+    "модель, своя память и свои настройки. Никаких чужих данных (в том числе "
+    "владельца инстанса) у тебя нет — не выдумывай их и не обещай.\n"
+    "Захвата экрана, микрофона, таймлайна, заметок и напоминаний у него НЕТ: "
+    "это поверхность владельца инстанса, не предлагай их.\n"
+    "Ссылайся ТОЛЬКО на пути из списка «Страницы, которые ему доступны» ниже. "
+    "Любой другой путь ему закрыт — совет открыть его будет неправдой."
+)
+
+#: Открытые участнику страницы ВНЕ каталога настроек (_MEMBER_CATEGORIES).
+#: Держим списком здесь, а не в хабе: это не настройки, а рабочие экраны.
+#: Источник истины по доступу — ``_MEMBER_PREFIXES`` в middleware/auth_gate.py.
+_MEMBER_EXTRA_PAGES: tuple[tuple[str, str], ...] = (
+    ("/chat", "Чат с ИИ и памятью — главный экран"),
+    ("/voice", "Голосовой разговор"),
+    ("/onboarding", "Быстрый старт: подключить модель"),
+    ("/settings/hub", "Все настройки одним списком"),
+    ("/help/connect-llm", "Как бесплатно получить ключ для модели"),
+)
+
 #: Допустимые режимы. Неизвестный режим тихо трактуем как обычный вопрос,
 #: чтобы кривой ?mode= не ронял стрим.
 _VALID_MODES = ("ask", "summary", "find_setting")
+
+#: Единственный кадр для «у пользователя нет своей модели». Форма закреплена
+#: слайсом 1 (``reason='llm_not_configured'``); ``href`` даёт UI кликабельную
+#: ссылку, а не путь внутри текста. Один объект на оба пути — предварительную
+#: проверку в роуте и мягкую обработку внутри стрима, чтобы они не разъезжались.
+LLM_NOT_CONFIGURED_EVENT: dict[str, Any] = {
+    "type": "error",
+    "reason": "llm_not_configured",
+    "message": "Свой AI не подключён — открой /settings/llm",
+    "href": "/settings/llm",
+}
 
 #: Бюджет ответа — копилот отвечает кратко, длинные простыни тут не нужны.
 _MAX_TOKENS = 500
@@ -105,29 +148,225 @@ def _find_settings_block(question: str, *, member: bool = False) -> str:
     return "\n".join(lines)
 
 
+def _member_pages() -> list[tuple[str, str]]:
+    """Плоский список «путь → подпись» всего, что открыто участнику.
+
+    Источник — member-каталог настроек (``_MEMBER_CATEGORIES``) плюс рабочие
+    экраны из :data:`_MEMBER_EXTRA_PAGES`. Owner-only путей тут физически нет,
+    поэтому промпт, собранный из этого списка, не может посоветовать участнику
+    страницу, которую гейт всё равно закроет.
+    """
+    pages: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    try:
+        from app.web.routes.settings_hub import _categories_json  # noqa: PLC0415
+
+        for cat in _categories_json(member=True):
+            for page in cat["pages"]:  # type: ignore[index]
+                href = str(page["href"])
+                if href in seen:
+                    continue
+                seen.add(href)
+                pages.append((href, str(page["label"])))
+    except Exception as exc:  # noqa: BLE001 — каталог опционален, не роняем стрим
+        log.debug("copilot.member_catalog_failed", error=str(exc))
+    for href, label in _MEMBER_EXTRA_PAGES:
+        if href not in seen:
+            seen.add(href)
+            pages.append((href, label))
+    return pages
+
+
+def _member_pages_block() -> str:
+    """Тот же список, но готовым текстом для системного промпта участника."""
+    lines = [f"• {href} — {label}" for href, label in _member_pages()]
+    return "\n".join(lines)
+
+
+def _normalize_path(page_url: str) -> str:
+    """``/settings/theme?x=1#y`` → ``/settings/theme`` (для сверки с каталогом)."""
+    path = str(page_url or "").split("?", 1)[0].split("#", 1)[0].strip()
+    if not path:
+        return ""
+    if len(path) > 1:
+        path = path.rstrip("/")
+    return path or "/"
+
+
+def _member_page_label(page_url: str) -> str:
+    """Подпись страницы участника по URL (или '' — страница вне его зоны)."""
+    path = _normalize_path(page_url)
+    if not path:
+        return ""
+    for href, label in _member_pages():
+        if href == path:
+            return label
+    return ""
+
+
+def _system_prompt(*, member: bool) -> str:
+    """Системный промпт под роль. Владельцу — прежняя строка, байт-в-байт."""
+    if not member:
+        return _COPILOT_SYSTEM
+    pages = _member_pages_block()
+    if not pages:
+        return _MEMBER_SYSTEM
+    return f"{_MEMBER_SYSTEM}\n\nСтраницы, которые ему доступны:\n{pages}"
+
+
+async def _personal_memory_block(user_id: int | None) -> str:
+    """Личная память УЧАСТНИКА (``user_memory``, строго по его ``user_id``).
+
+    Best-effort: нет таблицы/пусто/ошибка → пустая строка. Ничего глобального
+    тут не читается, поэтому чужие факты сюда попасть не могут.
+    """
+    if not user_id:
+        return ""
+    try:
+        from app.chat.user_memory import build_memory_block  # noqa: PLC0415
+
+        return (await build_memory_block(int(user_id), max_items=8)) or ""
+    except Exception as exc:  # noqa: BLE001 — память опциональна
+        log.debug("copilot.user_memory_failed", error=str(exc))
+        return ""
+
+
+# ── Действия участника: пишем в ЕГО user_settings, не в глобальный kv ────────
+
+#: Слова, по которым узнаём просьбу про тему оформления.
+_THEME_MARKERS = ("тем", "theme", "оформлен")
+
+#: …и обязательный глагол-приказ. Без него «какая у меня тема в Persona?»
+#: попадало бы под маркеры «тем» + «persona» и ВОПРОС молча переключал бы
+#: человеку оформление. Действие применяется только на явную просьбу.
+_THEME_VERBS = (
+    *_ENABLE_MARKERS,
+    "сделай", "сделать", "поставь", "поставить", "смени", "сменить",
+    "поменяй", "поменять", "переключи", "переключить", "set ", "switch",
+)
+
+#: Значение темы → маркеры. Порядок важен: «тёмный космос» должен стать
+#: ``cosmos-dark``, а не ``dark``, поэтому составные варианты идут первыми.
+#: Набор значений — 1:1 с ``_VALID_THEMES`` в app/web/routes/theme.py.
+_THEME_VALUES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("cosmos-dark", ("cosmos dark", "космос тёмн", "космос темн",
+                     "тёмный космос", "темный космос")),
+    ("cosmos", ("cosmos", "космос")),
+    ("persona", ("persona", "персона")),
+    ("auto", ("авто", "auto", "системн", "как в системе")),
+    ("light", ("светл", "light")),
+    ("dark", ("тёмн", "темн", "dark")),
+)
+
+#: Человеческие названия тем для ответа копилота.
+_THEME_LABELS = {
+    "dark": "тёмную",
+    "light": "светлую",
+    "auto": "системную (auto)",
+    "persona": "Persona",
+    "cosmos": "Cosmos",
+    "cosmos-dark": "Cosmos Dark",
+}
+
+
+def _match_theme(lowered: str) -> str | None:
+    """Какую тему ПРОСИТ переключить участник (``None`` → это не просьба)."""
+    if not any(marker in lowered for marker in _THEME_MARKERS):
+        return None
+    if not any(verb in lowered for verb in _THEME_VERBS):
+        return None
+    for value, markers in _THEME_VALUES:
+        if any(marker in lowered for marker in markers):
+            return value
+    return None
+
+
+async def _apply_member_setting_action(
+    lowered: str, user_id: int
+) -> tuple[str, str] | None:
+    """Тот же класс действий, что у владельца, но по СВОИМ настройкам.
+
+    Владелец переключает глобальные kv-строки инстанса; участнику писать туда
+    нельзя (это чужие настройки), но его собственные ``user_settings`` —
+    ровно его. Адреса записи те же, что у страниц настроек участника:
+    ``theme`` (см. app/web/routes/theme.py) и ``advanced_mode`` / ``feat_*``
+    (см. app/web/routes/advanced_settings.py) — так что применённое копилотом
+    видно в форме, а не живёт отдельной невидимой жизнью.
+    """
+    from app.storage.repository import set_user_kv  # noqa: PLC0415
+
+    uid = int(user_id)
+
+    theme = _match_theme(lowered)
+    if theme is not None:
+        async with get_connection() as conn:
+            await set_user_kv(conn, uid, "theme", theme)
+        # Тема читается синхронным Jinja-глобалом через процесс-кэш: без сброса
+        # следующий рендер до 15 с показывал бы старую тему, и «включил» выглядел
+        # бы враньём.
+        try:
+            from app.web.templates_engine import (  # noqa: PLC0415
+                invalidate_theme_cache,
+                invalidate_user_kv_sync,
+            )
+
+            invalidate_theme_cache()
+            invalidate_user_kv_sync(uid, "theme")
+        except Exception as exc:  # noqa: BLE001 — кэш опционален
+            log.debug("copilot.theme_cache_skip", error=str(exc))
+        return f"Поставил тебе {_THEME_LABELS.get(theme, theme)} тему.", "/settings/theme"
+
+    enabled: bool | None = None
+    if any(marker in lowered for marker in _ENABLE_MARKERS):
+        enabled = True
+    elif any(marker in lowered for marker in _DISABLE_MARKERS):
+        enabled = False
+    if enabled is None:
+        return None
+
+    if "расширенн" in lowered:
+        key, label = "advanced_mode", "расширенный режим"
+    elif "инструмент" in lowered:
+        key, label = "feat_tools", "инструменты Persona"
+    else:
+        return None
+
+    async with get_connection() as conn:
+        if key == "feat_tools" and enabled:
+            await set_user_kv(conn, uid, "advanced_mode", "1")
+        await set_user_kv(conn, uid, key, "1" if enabled else "0")
+    verb = "Включил" if enabled else "Выключил"
+    return f"{verb} тебе {label}.", "/settings/advanced"
+
+
 async def _apply_safe_setting_action(
     question: str, user_id: int | None = None
 ) -> tuple[str, str] | None:
-    """Apply a tiny owner-safe allowlist of explicit setting requests.
+    """Apply a tiny allowlist of explicit setting requests — по адресу роли.
 
-    «Owner-safe» тут буквально: строки, в которые пишет эта функция
-    (``ai_everywhere`` / ``advanced_mode`` / ``feat_tools``) — ГЛОБАЛЬНЫЕ
-    kv-флаги владельца, общие для всего инстанса. Раньше гейта не было, и
-    любой зарегистрированный пользователь фразой «включи инструменты» в
-    копилоте переключал флаги ВЛАДЕЛЬЦА. Теперь не-владельцу действие не
-    применяется вовсе (``None``) — копилот просто ответит текстом, а чужие
-    настройки останутся как были.
+    Строки, в которые пишет владельческая ветка (``ai_everywhere`` /
+    ``advanced_mode`` / ``feat_tools``) — ГЛОБАЛЬНЫЕ kv-флаги, общие для всего
+    инстанса. Раньше гейта не было, и любой зарегистрированный пользователь
+    фразой «включи инструменты» переключал флаги ВЛАДЕЛЬЦА; потом участнику
+    просто запретили действие целиком.
+
+    Теперь роль выбирает АДРЕС записи, а не наличие фичи: владелец пишет
+    глобальный kv (ровно как раньше), участник — свою строку в
+    ``user_settings`` (:func:`_apply_member_setting_action`). Глобальные флаги
+    инстанса участник по-прежнему не трогает ничем.
     """
+    lowered = " ".join(str(question or "").casefold().split())
+
     if user_id is not None:
         try:
             from app.auth.owner import is_owner  # noqa: PLC0415
 
-            if not await is_owner(int(user_id)):
-                return None
-        except Exception:  # noqa: BLE001 — сбой гейта → ничего не пишем
+            owner = await is_owner(int(user_id))
+        except Exception:  # noqa: BLE001 — сбой гейта → глобальное не трогаем
             return None
+        if not owner:
+            return await _apply_member_setting_action(lowered, int(user_id))
 
-    lowered = " ".join(str(question or "").casefold().split())
     enabled: bool | None = None
     if any(marker in lowered for marker in _ENABLE_MARKERS):
         enabled = True
@@ -155,9 +394,23 @@ async def _apply_safe_setting_action(
     return f"{verb} {label}.", href
 
 
-def _build_prompt(question: str, page_url: str, mode: str, extra: str) -> str:
-    """Собрать пользовательский промпт под конкретный режим копилота."""
+def _build_prompt(
+    question: str, page_url: str, mode: str, extra: str, *, member: bool = False
+) -> str:
+    """Собрать пользовательский промпт под конкретный режим копилота.
+
+    ``member=True`` добавляет осведомлённость о странице: голый URL модель
+    трактует как угодно, а подпись из member-каталога («/settings/llm —
+    провайдер и ключ твоей модели») сразу говорит, что это за экран и что там
+    делают. Для владельца промпт собирается ровно как раньше.
+    """
     page_url = (page_url or "").strip()
+    page_label = _member_page_label(page_url) if member else ""
+    page_line = (
+        f"Пользователь сейчас на странице {_normalize_path(page_url)} — {page_label}."
+        if page_label
+        else ""
+    )
     if mode == "summary":
         parts = [
             "Пользователь просит кратко объяснить/суммировать текущую страницу "
@@ -165,6 +418,8 @@ def _build_prompt(question: str, page_url: str, mode: str, extra: str) -> str:
         ]
         if page_url:
             parts.append(f"URL страницы: {page_url}")
+        if page_line:
+            parts.append(page_line)
         if question:
             parts.append(f"Уточнение пользователя: {question}")
         parts.append(
@@ -179,6 +434,8 @@ def _build_prompt(question: str, page_url: str, mode: str, extra: str) -> str:
             "своему намерению.",
             f"Намерение: {question}" if question else "Намерение: (не указано)",
         ]
+        if page_line:
+            parts.append(page_line)
         if extra:
             parts.append(
                 "Подходящие страницы настроек (label → путь):\n" + extra
@@ -199,6 +456,8 @@ def _build_prompt(question: str, page_url: str, mode: str, extra: str) -> str:
     parts = [f"Вопрос пользователя: {question}"]
     if page_url:
         parts.append(f"(Пользователь сейчас на странице: {page_url})")
+    if page_line:
+        parts.append(page_line)
     if extra:
         parts.append(
             "Что известно из памяти по прошлым чатам (может пригодиться):\n"
@@ -206,6 +465,37 @@ def _build_prompt(question: str, page_url: str, mode: str, extra: str) -> str:
         )
     parts.append("Ответь коротко и по делу.")
     return "\n".join(parts)
+
+
+async def _assemble_context(
+    question: str, mode: str, user_id: int | None, *, member: bool
+) -> str:
+    """Весь контекст, который уезжает в модель. ГРАНИЦА ДАННЫХ живёт здесь.
+
+    Каждый источник ниже — строго per-user либо ролевой:
+
+    * :func:`_recall_context` → ``recall_relevant(user_id, …)``: SQL фильтрует
+      по ``chat_session.user_id``, чужие чаты недостижимы;
+    * :func:`_personal_memory_block` → ``user_memory`` по ЕГО ``user_id``
+      (только участнику — владельцу промпт остаётся прежним, байт-в-байт);
+    * :func:`_find_settings_block` → member-каталог настроек при ``member``.
+
+    Захвата экрана/OCR/аудио, часовых карточек, заметок, напоминаний и
+    глобального ``chat_system_prompt`` владельца тут НЕТ ни одного источника.
+    Добавлять их сюда без ролевого гейта нельзя: канареечные тесты в
+    ``tests/test_copilot_member.py`` ловят именно такую утечку.
+    """
+    if mode == "find_setting":
+        return _find_settings_block(question, member=member)
+    if mode != "ask":
+        return ""
+    extra = await _recall_context(question, user_id)
+    if not member:
+        return extra
+    facts = await _personal_memory_block(user_id)
+    if not facts:
+        return extra
+    return f"{extra}\n\n{facts}".strip()
 
 
 async def _not_configured_event(
@@ -234,11 +524,7 @@ async def _not_configured_event(
             "message": "ПК-воркер офлайн",
         }
     log.info("copilot.llm_not_configured", error=str(exc))
-    return {
-        "type": "error",
-        "reason": "llm_not_configured",
-        "message": "Свой AI не подключён — открой /settings/llm",
-    }
+    return dict(LLM_NOT_CONFIGURED_EVENT)
 
 
 async def stream_copilot(
@@ -262,12 +548,7 @@ async def stream_copilot(
     # Каталог настроек урезаем для не-владельца (тот же гейт, что у хаба).
     member = await _is_member(user_id)
 
-    # Собираем режимо-зависимый контекст ДО открытия стрима.
-    extra = ""
-    if mode == "ask":
-        extra = await _recall_context(question, user_id)
-    elif mode == "find_setting":
-        extra = _find_settings_block(question, member=member)
+    extra = await _assemble_context(question, mode, user_id, member=member)
 
     yield {"type": "meta", "mode": mode, "has_context": bool(extra)}
 
@@ -283,9 +564,9 @@ async def stream_copilot(
         }
         return
 
-    prompt = _build_prompt(question, page_url, mode, extra)
+    prompt = _build_prompt(question, page_url, mode, extra, member=member)
     request = CompletionRequest(
-        system=_COPILOT_SYSTEM,
+        system=_system_prompt(member=member),
         user=prompt,
         max_tokens=_MAX_TOKENS,
     )
@@ -346,4 +627,4 @@ async def stream_copilot(
     yield done
 
 
-__all__ = ["stream_copilot"]
+__all__ = ["LLM_NOT_CONFIGURED_EVENT", "stream_copilot"]

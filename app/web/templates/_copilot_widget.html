@@ -27,6 +27,10 @@
             <span></span><span></span><span></span>
           </span>
           <a x-show="message.href" :href="message.href" x-text="message.hrefLabel || message.href" class="mt-2 block"></a>
+          {# Вторая ссылка — только у «нет своей модели»: сама страница провайдера
+             плюс гайд «как получить ключ бесплатно». Одной ссылки мало: человек,
+             у которого нет ключа, на /settings/llm упрётся в пустую форму. #}
+          <a x-show="message.href2" :href="message.href2" x-text="message.hrefLabel2 || message.href2" class="mt-1 block text-xs underline opacity-80"></a>
         </div>
       </template>
     </div>

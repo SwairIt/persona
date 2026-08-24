@@ -6,12 +6,24 @@ Server-Sent Events, оборачивая :func:`app.llm.copilot_stream.stream_co
 
     data: {"type": "delta", "text": "..."}\\n\\n
 
-Гейты:
+Гейты (роль решает, какой из них применяется):
+
 * Авторизация — ``current_user_required`` (копилот привязан к пользователю,
   его память/настройки не для анонимов).
-* Мастер-флаг «ИИ везде» — если выключен, отдаём один event
-  ``{type:'error', reason:'disabled'}`` и закрываем стрим (200 OK, чтобы
-  браузерный EventSource открыл канал и увидел причину, а не завис).
+* ВЛАДЕЛЕЦ — мастер-флаг «ИИ везде» (kv ``ai_everywhere``). Выключен → один
+  event ``{type:'error', reason:'disabled'}`` и закрываем стрим (200 OK, чтобы
+  браузерный EventSource открыл канал и увидел причину, а не завис). Это тот
+  же гейт, что у остальных owner-поверхностей ИИ (dashboard_ai, search_ai,
+  timeline_ai, ai_calendar).
+* УЧАСТНИК — наличие СВОЕЙ модели (:func:`user_llm_configured`: собственный
+  провайдер или явно выданная другом квота). Нет модели → один event
+  ``{type:'error', reason:'llm_not_configured', href:'/settings/llm'}``.
+
+Раньше тут стоял один гейт на всех — ``is_owner``, — и любой участник получал
+кадр ``disabled`` с подписью «режим ИИ везде выключен» и ссылкой на
+owner-only страницу ``/settings/ai-everywhere``, которую он не может открыть.
+То есть копилот врал о причине и вёл в тупик. Мастер-флаг владельца НЕ
+управляет копилотом участника: это настройка чужого аккаунта.
 """
 
 # ruff: noqa: RUF002
@@ -29,9 +41,10 @@ from starlette.responses import StreamingResponse
 from app.auth import current_user_required
 from app.auth.owner import is_owner
 from app.auth.sessions import SessionRecord  # noqa: TC001 - FastAPI inspects it
-from app.llm.client import LLMNotConfigured
-from app.llm.copilot_stream import stream_copilot
+from app.llm.client import LLMNotConfigured, user_llm_configured
+from app.llm.copilot_stream import LLM_NOT_CONFIGURED_EVENT, stream_copilot
 from app.logging_setup import get_logger
+from app.web.routes.ai_everywhere_settings import is_ai_everywhere
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -102,9 +115,33 @@ async def _event_stream(
                 await close()
 
 
-async def _disabled_stream() -> AsyncIterator[bytes]:
-    """Единственный event при выключенном мастер-флаге «ИИ везде»."""
-    yield _encode_sse({"type": "error", "reason": "disabled"})
+async def _single_event_stream(event: dict[str, Any]) -> AsyncIterator[bytes]:
+    """Стрим из одного event-а: причина отказа вместо пустого канала."""
+    yield _encode_sse(event)
+
+
+async def _copilot_gate(user_id: int) -> dict[str, Any] | None:
+    """Решение гейта: ``None`` — пускаем, dict — отдаём этот кадр и всё.
+
+    Сбой резолва владельца трактуем как «участник»: хуже открыть участнику
+    owner-путь, чем показать владельцу подсказку про свою модель.
+    """
+    try:
+        owner = await is_owner(user_id)
+    except Exception as exc:  # noqa: BLE001 — сбой гейта → урезанная роль
+        log.warning("copilot.route.owner_resolve_failed", error=str(exc))
+        owner = False
+
+    if owner:
+        # Владелец: ровно тот гейт, что у остальных его ИИ-поверхностей.
+        return None if await is_ai_everywhere() else {"type": "error", "reason": "disabled"}
+
+    # Участник: единственная настоящая причина отказа — нет своей модели.
+    # ``user_llm_configured`` учитывает и одолженную другом (app/llm/grants.py)
+    # и никогда не бросает.
+    if await user_llm_configured(user_id):
+        return None
+    return dict(LLM_NOT_CONFIGURED_EVENT)
 
 
 @router.get("/api/copilot/ask")
@@ -115,6 +152,10 @@ async def copilot_ask(
     mode: str = "ask",
 ) -> StreamingResponse:
     """Стрим ответа копилота как Server-Sent Events.
+
+    Владелец → мастер-флаг «ИИ везде»; участник → своя подключённая модель
+    (см. :func:`_copilot_gate`). Отказ — всегда один event с честной причиной
+    и 200 OK, чтобы EventSource показал текст, а не молча ретраил.
 
     Query-параметры:
         q: вопрос/намерение пользователя.
@@ -127,9 +168,10 @@ async def copilot_ask(
         "Connection": "keep-alive",
     }
     user_id = int(session["user_id"])
-    if not await is_owner(user_id):
+    refusal = await _copilot_gate(user_id)
+    if refusal is not None:
         return StreamingResponse(
-            _disabled_stream(),
+            _single_event_stream(refusal),
             media_type="text/event-stream",
             headers=headers,
         )
