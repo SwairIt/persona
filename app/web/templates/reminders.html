@@ -8,6 +8,92 @@
   </p>
 </div>
 
+{% if get_ai_everywhere() == '1' %}
+<section class="mb-6 rounded-lg border border-accent-600/40 bg-accent-900/10 p-4">
+  <h2 class="text-sm font-semibold text-accent-300 mb-1 flex items-center gap-2">
+    <span>✨</span>{{ t('ai_calendar_title') }}
+  </h2>
+  <p class="text-zinc-500 text-xs mb-3">{{ t('ai_calendar_hint') }}</p>
+  <div class="flex gap-2">
+    <input id="ai-cal-text" type="text" placeholder="{{ t('ai_calendar_placeholder') }}"
+           autocomplete="off"
+           class="flex-1 px-3 py-2 bg-ink-800 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">
+    <button id="ai-cal-add" type="button"
+            class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium whitespace-nowrap">
+      {{ t('ai_calendar_add') }}
+    </button>
+  </div>
+  <div id="ai-cal-preview" class="mt-2 text-xs hidden"></div>
+</section>
+
+<script>
+(function () {
+  "use strict";
+  const input = document.getElementById("ai-cal-text");
+  const btn = document.getElementById("ai-cal-add");
+  const preview = document.getElementById("ai-cal-preview");
+  if (!input || !btn || !preview) return;
+
+  const I18N = {
+    parsing: {{ t('ai_calendar_parsing') | tojson }},
+    saving: {{ t('ai_calendar_saving') | tojson }},
+    error: {{ t('ai_calendar_error') | tojson }},
+    disabled: {{ t('ai_calendar_disabled') | tojson }},
+    on: {{ t('ai_calendar_preview_on') | tojson }},
+    guessed: {{ t('ai_calendar_preview_guessed') | tojson }}
+  };
+
+  function show(msg, cls) {
+    preview.textContent = msg;
+    preview.className = "mt-2 text-xs " + (cls || "text-zinc-400");
+    preview.classList.remove("hidden");
+  }
+
+  async function postJson(url, body) {
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    if (resp.status === 404) throw new Error("disabled");
+    const data = await resp.json().catch(function () { return {}; });
+    if (!resp.ok || data.ok === false) throw new Error(data.detail || "error");
+    return data;
+  }
+
+  let busy = false;
+  async function submit() {
+    const text = (input.value || "").trim();
+    if (!text || busy) return;
+    busy = true;
+    btn.disabled = true;
+    try {
+      // 1) предпросмотр даты
+      show(I18N.parsing, "text-zinc-400");
+      const p = await postJson("/api/ai-calendar/parse", { text: text });
+      const label = p.matched_date ? I18N.on : I18N.guessed;
+      show(label.replace("{date}", p.due_date).replace("{body}", p.body), "text-accent-300");
+      // 2) создать
+      show(I18N.saving, "text-zinc-400");
+      await postJson("/api/ai-calendar/create", { text: text });
+      // перезагрузить на день напоминания, чтобы оно сразу было видно
+      const url = "/reminders?day=" + encodeURIComponent(p.due_date);
+      window.location.href = url;
+    } catch (e) {
+      show(e && e.message === "disabled" ? I18N.disabled : I18N.error, "text-rose-400");
+      busy = false;
+      btn.disabled = false;
+    }
+  }
+
+  btn.addEventListener("click", submit);
+  input.addEventListener("keydown", function (ev) {
+    if (ev.key === "Enter") { ev.preventDefault(); submit(); }
+  });
+})();
+</script>
+{% endif %}
+
 <form action="/reminders/create" method="post" class="flex gap-2 mb-6">
   <input name="body" placeholder="{{ t('reminders_placeholder') }}" required
          class="flex-1 px-3 py-2 bg-ink-800 border border-ink-700 rounded text-sm focus:outline-none focus:border-accent-500">

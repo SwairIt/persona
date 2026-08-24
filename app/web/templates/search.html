@@ -373,6 +373,63 @@
 </div>
 {% endif %}
 
+{# ── ИИ-подсказки «Возможно, вы искали…» ──────────────────────────────
+   Аддитивный блок: показываем только при мастер-режиме «ИИ везде» ON и
+   наличии запроса. Данные тянем async из /api/search/suggest.json — это
+   НЕ блокирует и не меняет основной FTS-поиск (тот рисуется в #results
+   как обычно). При OFF блок не рендерится вовсе → поиск без изменений. #}
+{% if get_ai_everywhere() == '1' and query %}
+<div id="search-ai-suggest" class="mb-6" x-data="searchAiSuggest()" x-init="load()"
+     x-show="dym || terms.length" x-cloak>
+  <div class="rounded-lg border border-accent-700/40 bg-accent-900/10 px-4 py-3 text-sm">
+    <template x-if="dym">
+      <p class="mb-2 text-zinc-300">
+        <span class="text-zinc-500">{{ t('search_ai_did_you_mean') }}</span>
+        <a :href="'/search?q=' + encodeURIComponent(dym) + '{% if mode %}&mode={{ mode | urlencode }}{% endif %}'"
+           class="ml-1 font-mono text-accent-300 hover:text-accent-200 underline decoration-dotted"
+           x-text="dym"></a>
+      </p>
+    </template>
+    <template x-if="terms.length">
+      <div class="flex flex-wrap items-center gap-2">
+        <span class="text-xs uppercase tracking-wider text-zinc-500">{{ t('search_ai_related') }}</span>
+        <template x-for="term in terms" :key="term">
+          <a :href="'/search?q=' + encodeURIComponent(term) + '{% if mode %}&mode={{ mode | urlencode }}{% endif %}'"
+             class="inline-flex items-center gap-1.5 px-3 py-1 bg-ink-800 hover:bg-ink-700 border border-ink-700 rounded-full text-xs text-zinc-300 transition">
+            <span class="font-mono" x-text="term"></span>
+          </a>
+        </template>
+      </div>
+    </template>
+  </div>
+</div>
+
+<script>
+  /* searchAiSuggest — фоновый (async) запрос ИИ-подсказок к текущему поиску.
+     Ничего не блокирует: основной результат уже отрисован сервером в #results.
+     Любая ошибка/пустой ответ → блок просто остаётся скрытым (x-show). */
+  function searchAiSuggest() {
+    return {
+      dym: null,
+      terms: [],
+      async load() {
+        try {
+          const q = {{ query | tojson }};
+          const r = await fetch('/api/search/suggest.json?q=' + encodeURIComponent(q),
+                                { headers: { 'Accept': 'application/json' } });
+          if (!r.ok) { return; }  // 404 при OFF или любая ошибка — молча пропускаем
+          const data = await r.json();
+          this.dym = data && data.did_you_mean ? data.did_you_mean : null;
+          this.terms = (data && Array.isArray(data.related_terms)) ? data.related_terms : [];
+        } catch (e) {
+          // Сеть отвалилась — не мешаем основному поиску.
+        }
+      }
+    };
+  }
+</script>
+{% endif %}
+
 <div id="results">
   {% include "_search_results.html" %}
 </div>

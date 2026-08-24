@@ -443,6 +443,10 @@ from app.web.routes import (
     dataset_admin as dataset_admin_routes,
     mcp_admin as mcp_admin_routes,
     workspace_admin as workspace_admin_routes,
+    ai_calendar as ai_calendar_routes,
+    dashboard_ai as dashboard_ai_routes,
+    search_ai as search_ai_routes,
+    timeline_ai as timeline_ai_routes,
 )
 from app.web.routes.setup_gate import SetupGateMiddleware
 log = get_logger("persona.web")
@@ -628,6 +632,10 @@ def create_app() -> FastAPI:
     app.include_router(system_monitor_routes.router)
     app.include_router(account_routes.router)
     app.include_router(ai_everywhere_settings_routes.router)
+    app.include_router(ai_calendar_routes.router)
+    app.include_router(dashboard_ai_routes.router)
+    app.include_router(search_ai_routes.router)
+    app.include_router(timeline_ai_routes.router)
     app.include_router(inbox_routes.router)
     app.include_router(palette_routes.router)
     app.include_router(shot_of_week_routes.router)

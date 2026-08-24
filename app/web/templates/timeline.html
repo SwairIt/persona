@@ -111,9 +111,20 @@
   <div class="space-y-8">
     {% for hour, shots in groups.items() %}
       <section>
-        <h2 class="text-sm font-mono text-zinc-500 uppercase tracking-widest mb-3">
-          {{ hour }} · <span class="text-zinc-600">{{ shots | length }} {{ t('status_frames') }}</span>
+        <h2 class="text-sm font-mono text-zinc-500 uppercase tracking-widest mb-3 flex items-center gap-3 flex-wrap">
+          <span>{{ hour }} · <span class="text-zinc-600">{{ shots | length }} {{ t('status_frames') }}</span></span>
+          {% if get_ai_everywhere() == '1' %}
+            {# СЛАЙС E1 — «✨ саммари часа»: iso = день + час в зоне отображения #}
+            <button type="button"
+                    class="hour-ai-btn normal-case tracking-normal px-2 py-0.5 rounded-full text-[11px] bg-accent-600/15 text-accent-300 border border-accent-600/30 hover:bg-accent-600/25 transition"
+                    data-hour-iso="{{ target_day.strftime('%Y-%m-%d') }}T{{ hour }}">
+              {{ t('btn_hour_ai_summary') }}
+            </button>
+          {% endif %}
         </h2>
+        {% if get_ai_everywhere() == '1' %}
+          <p class="hour-ai-summary hidden text-xs text-accent-200/90 italic mb-3 -mt-1" aria-live="polite"></p>
+        {% endif %}
         <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
           {% for shot in shots %}
             <div class="relative">
@@ -129,5 +140,42 @@
       </section>
     {% endfor %}
   </div>
+{% endif %}
+
+{% if get_ai_everywhere() == '1' %}
+<script>
+  // СЛАЙС E1 — по клику тянем ИИ-саммари часа и показываем под заголовком.
+  // Делегируем на document: групп-часов может быть много, вешать по одному
+  // обработчику дороже и хуже для «N новых» перерисовки.
+  document.addEventListener('click', async (e) => {
+    const btn = e.target.closest('.hour-ai-btn');
+    if (!btn) return;
+    const iso = btn.dataset.hourIso;
+    if (!iso) return;
+    const section = btn.closest('section');
+    const out = section ? section.querySelector('.hour-ai-summary') : null;
+    if (btn.dataset.loading === '1') return;              // защита от двойного клика
+    btn.dataset.loading = '1';
+    const original = btn.textContent;
+    btn.textContent = '{{ t('status_thinking') }}';
+    try {
+      const r = await fetch(`/api/timeline/hour/${encodeURIComponent(iso)}/summary`);
+      if (!r.ok) throw new Error('http ' + r.status);
+      const j = await r.json();
+      if (out) {
+        out.textContent = j.summary || j.error || '{{ t('msg_hour_ai_empty') }}';
+        out.classList.remove('hidden');
+      }
+    } catch (err) {
+      if (out) {
+        out.textContent = '{{ t('msg_hour_ai_error') }}';
+        out.classList.remove('hidden');
+      }
+    } finally {
+      btn.textContent = original;
+      delete btn.dataset.loading;
+    }
+  });
+</script>
 {% endif %}
 {% endblock %}

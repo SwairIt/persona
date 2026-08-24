@@ -266,6 +266,79 @@
   </section>
 
   {#
+    E2 — умная карточка «Интеллект». Показывается только при мастер-режиме
+    «ИИ везде» (get_ai_everywhere() == '1'). Инсайты подгружаются АСИНХРОННО
+    через fetch('/api/dashboard/insights.json'), чтобы LLM (модель на ПК) не
+    блокировал первичный рендер страницы. Эндпоинт кэширует расчёт на сутки.
+    При OFF карточки нет вовсе.
+  #}
+  {% if get_ai_everywhere() == '1' %}
+  <section class="rounded-lg border border-ink-700 bg-ink-800 p-5"
+           data-tile="ai_insights">
+    <div class="text-xs uppercase tracking-widest text-zinc-500">
+      🧠 {{ t('label_ai_insights') }}
+    </div>
+    <div id="ai-insights-body" class="mt-3 text-sm">
+      <div id="ai-insights-loading" class="flex items-center gap-2 text-zinc-500">
+        <span class="w-1.5 h-1.5 rounded-full bg-accent-400 animate-pulse"
+              aria-hidden="true"></span>
+        <span>{{ t('msg_ai_insights_loading') }}</span>
+      </div>
+      <ul id="ai-insights-list" class="hidden list-none space-y-2"></ul>
+      <p id="ai-insights-empty" class="hidden text-zinc-500">
+        {{ t('msg_ai_insights_empty') }}
+      </p>
+    </div>
+    <div class="mt-3 text-[10px] text-zinc-600">{{ t('msg_ai_insights_hint') }}</div>
+  </section>
+  <script>
+    // E2 — асинхронная подгрузка ИИ-инсайтов. Не роняем дашборд ни при какой
+    // ошибке: 404 (ИИ везде выключили между рендером и fetch), пустой список,
+    // сетевой сбой — всё сводится к мягкой заглушке.
+    (function () {
+      var loading = document.getElementById("ai-insights-loading");
+      var list = document.getElementById("ai-insights-list");
+      var empty = document.getElementById("ai-insights-empty");
+      if (!loading || !list || !empty) { return; }
+
+      function showEmpty() {
+        loading.classList.add("hidden");
+        list.classList.add("hidden");
+        empty.classList.remove("hidden");
+      }
+
+      fetch("/api/dashboard/insights.json", {
+        headers: { "Accept": "application/json" },
+        credentials: "same-origin",
+      })
+        .then(function (r) {
+          if (!r.ok) { return null; } // 404 при выключенном «ИИ везде» и т.п.
+          return r.json();
+        })
+        .then(function (data) {
+          var items = (data && Array.isArray(data.insights)) ? data.insights : [];
+          if (!items.length) { showEmpty(); return; }
+          loading.classList.add("hidden");
+          items.slice(0, 3).forEach(function (text) {
+            var li = document.createElement("li");
+            li.className = "flex gap-2 text-zinc-200";
+            var dot = document.createElement("span");
+            dot.className = "text-accent-400 shrink-0";
+            dot.textContent = "•";
+            var span = document.createElement("span");
+            span.textContent = String(text); // textContent → без XSS
+            li.appendChild(dot);
+            li.appendChild(span);
+            list.appendChild(li);
+          });
+          list.classList.remove("hidden");
+        })
+        .catch(function () { showEmpty(); });
+    })();
+  </script>
+  {% endif %}
+
+  {#
     v0.86 — user-defined widgets. Each tile shows the saved title and
     the live match count for the saved FTS query. Counts at the cap
     render as ``N+`` because the route layer caps the per-widget
