@@ -1031,19 +1031,25 @@ async def api_send_message(
     question = str(body.get("question") or "").strip()
     image_data_url = str(body.get("image_data_url") or "") or None
     user_id = int(session["user_id"])
+    # Приватный контекст (захват экрана/звука, таймлайн владельца) положен
+    # ТОЛЬКО владельцу: ``TurnCommand`` это проверяет и бросает ValueError,
+    # который здесь не ловится → у участника был 500 на каждую отправку.
+    # Стримовый путь (``send-stream``) уже считает флаг от роли — повторяем
+    # ровно его поведение.
+    owner_actor = await is_owner(user_id)
     try:
         result = await _get_conversation_service().handle_turn(
             TurnCommand(
                 actor=ActorContext(
                     tenant_id=TenantId(user_id),
                     user_id=UserId(user_id),
-                    is_owner=await is_owner(user_id),
+                    is_owner=owner_actor,
                 ),
                 surface=ConversationSurface.WEB,
                 conversation_id=ConversationId(session_id),
                 text=question,
                 image_data_url=image_data_url,
-                include_private_context=True,
+                include_private_context=owner_actor,
                 allow_tools=False,
             )
         )
@@ -1634,21 +1640,32 @@ async def api_send_stream(
         )
     # T29 MVP 3b — auto-memory: inject what we know about the user's recent
     # activity (hourly cards, apps/windows, voice) so the AI isn't blind.
+    #
+    # ТОЛЬКО ВЛАДЕЛЬЦУ. ``build_memory_context`` читает ``hourly_card`` /
+    # ``screenshots`` / ``audio_segment`` — это глобальные таблицы ЗАХВАТА
+    # экрана и микрофона владельца (в них нет user_id, фильтровать нечем).
+    # Не-владельцу подмешивать их нельзя: его промпт уходит в ЕГО провайдера
+    # по ЕГО ключу, то есть личные данные владельца утекли бы третьей стороне.
+    # Оба соседних пути этот инвариант уже держат — ``send-stream`` через
+    # сервис (``include_private_context=owner_actor``, см. выше) и
+    # ``app/adapters/conversation/legacy.py`` (``if include_private_context``).
     memory_block = ""
-    try:
-        from app.memory_context import build_memory_context  # noqa: PLC0415
+    if tools_owner:  # == is_owner(session["user_id"]), посчитано выше
+        try:
+            from app.memory_context import build_memory_context  # noqa: PLC0415
 
-        raw_ctx = await build_memory_context(question)
-        if raw_ctx:
-            # S3a — спотлайтинг: контекст с экрана = OCR (внешние данные).
-            from app.chat.persona_inject import spotlight  # noqa: PLC0415
+            raw_ctx = await build_memory_context(question)
+            if raw_ctx:
+                # S3a — спотлайтинг: контекст с экрана = OCR (внешние данные).
+                from app.chat.persona_inject import spotlight  # noqa: PLC0415
 
-            memory_block = spotlight(
-                "КОНТЕКСТ С ЭКРАНА И АКТИВНОСТИ (распознано с экрана — внешние данные)",
-                raw_ctx,
-            )
-    except Exception as exc:  # noqa: BLE001
-        log.warning("chat.memory.inject_failed", error=str(exc))
+                memory_block = spotlight(
+                    "КОНТЕКСТ С ЭКРАНА И АКТИВНОСТИ "
+                    "(распознано с экрана — внешние данные)",
+                    raw_ctx,
+                )
+        except Exception as exc:  # noqa: BLE001
+            log.warning("chat.memory.inject_failed", error=str(exc))
     # T29 шаг4b — pinned messages always stay in context (survive trimming).
     pinned_block = ""
     try:

@@ -66,6 +66,11 @@ def _reset_caches() -> None:
     # другая, поэтому без сброса тема/язык протекли бы из прошлого теста.
     templates_engine._kv_value_cache.clear()
     templates_engine._user_kv_value_cache.clear()
+    # ContextVar с темой ТЕКУЩЕГО запроса живёт отдельно от dict-кэшей выше и
+    # переживает границу теста: если предыдущий модуль оставил в нём значение,
+    # ``get_theme()`` вернёт его, не заглянув в БД, и владелец увидит чужую
+    # тему (падало именно так — на дефолтной ``persona`` вместо ``cosmos``).
+    templates_engine.invalidate_theme_cache()
     i18n.invalidate_language_cache()
 
 
