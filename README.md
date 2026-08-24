@@ -1,18 +1,64 @@
 # Persona
 
-**Your personal AI memory. 100% local. Zero cloud. Zero subscription.**
+**A personal AI with long-term memory. Free. Bring your own model.**
 
-Persona is an open-source second brain that runs entirely on your own machine. It captures your screen, OCRs every frame, and builds a private, searchable timeline of your digital life. Ask it "what was that PDF I was reading on Tuesday?" — get an answer in milliseconds. No account, no signup, no telemetry.
+Persona is a self-hostable personal AI: a chat assistant with persistent memory,
+a memory graph, voice, and skills — plus, on the machine that runs it, a screen
+capture pipeline that OCRs every frame and builds a searchable timeline of your
+digital life. Ask it "what was that PDF I was reading on Tuesday?" — get an
+answer in milliseconds.
+
+You can run it yourself, or register on the hosted instance
+(<https://persona.getdoday.ru>) and connect your own LLM key. Registration is
+free and open; nothing is being sold today.
 
 ---
 
 ## What it is
 
-- **Open source** — AGPL-3.0-or-later. Audit every line.
-- **100% local** — your data lives in a SQLite file on your disk. The HTTP server binds to `127.0.0.1` by default and is not reachable from the network.
-- **Zero cloud** — there is no Persona cloud. There is no Persona company in the payment loop. There is no "free tier."
-- **BYO LLM** — if you want AI-generated digests / Q&A / auto-tags, you plug in your own API key (Anthropic, OpenAI, Groq, …) and the requests go directly from your computer to the provider, billed to your card. Persona never sees a token.
-- **Production-ready** — single-machine, single-user, batteries included. ~100+ HTTP endpoints, ~25 background workers, hundreds of tests.
+- **Free today** — anyone can register on the hosted instance at no cost. There
+  is no trial, no subscription and no paywall being sold right now. A Pro tier
+  (`app/billing/`, migration 193) exists in the codebase but is dormant: the
+  Pro card on `/pricing` is commented out and the checkout, webhook and
+  recurring-payment slices were never implemented. See
+  [`docs/BILLING_PLAN.md`](docs/BILLING_PLAN.md).
+- **Bring your own model** — every registered non-owner user connects their own
+  LLM: a cloud API key (OpenRouter, Groq, DeepSeek, Anthropic, OpenAI, Gemini,
+  ProxyAPI, AITunnel, …) or their own Ollama URL. Step-by-step guide at
+  `/help/connect-llm`. The instance owner's model — the owner's PC worker and
+  the owner's local Ollama — is strictly inaccessible to other users.
+- **Your data is a SQLite file** — self-hosted, everything lives in `data/` on
+  your own disk. The HTTP server binds to `127.0.0.1` by default; you decide
+  whether to expose it.
+- **Multi-user, partly** — chat, personal memory, the memory graph, voice,
+  skills, character prompt, theme and language are per-user. Screen/audio
+  capture, timeline, search, notes, reminders, dashboards, stats, Telegram, the
+  thinking loop, dreams and the briefing remain **owner-only**: capture data is
+  still global and single-tenant by design. Multi-tenant capture is a future
+  phase, not a shipped feature.
+- **Batteries included** — ~100+ HTTP endpoints, ~25 background workers,
+  hundreds of tests.
+
+---
+
+## Who can use an instance
+
+Persona has one **owner** — the account that owns the machine, the capture
+pipeline and the global configuration — and any number of **members**.
+
+| | Owner | Member |
+|---|---|---|
+| Chat with memory, memory graph, voice, skills | ✅ | ✅ |
+| Own character prompt, theme, language, profile | ✅ | ✅ |
+| LLM | owner's PC worker / owner's Ollama / any key | **own key or own Ollama, required** |
+| Screen & audio capture, timeline, search | ✅ | ❌ |
+| Notes, reminders, dashboards, stats | ✅ | ❌ |
+| Telegram, thinking loop, dreams, briefing | ✅ | ❌ |
+
+Member-reachable routes are an explicit allowlist (`_MEMBER_PREFIXES` in
+`app/web/middleware/auth_gate.py`); everything else answers 403 or redirects to
+`/chat`. Per-user settings live in the `user_settings` table (migration 228),
+separate from the owner's global `kv`.
 
 ---
 
@@ -148,10 +194,14 @@ digests/chat.
 - Click 🎙 in the header to silently pause the audio worker — perfect for "I'm watching a film in headphones, stop recording the room". Resume with the same button. Effect within ~5 seconds, no daemon restart.
 - Optional Whisper transcription (opt-in, costs ~244 MB model cache).
 
-**LLM provider — free option first (v1.14)**
-- Default suggestion is **Google Gemini** — 1M tokens/day and 1500 requests/day free, no credit card.
-- Other providers: Anthropic Claude (Haiku/Sonnet/Opus), OpenAI GPT-4o-mini, Groq Llama 3.3.
-- All BYO. Persona never proxies your queries.
+**LLM provider — bring your own**
+- Cloud keys: OpenRouter, Groq, DeepSeek, Anthropic, OpenAI, Google Gemini, plus
+  Russian-card aggregators (ProxyAPI, AITunnel). Several have usable free tiers.
+- Or point Persona at your own Ollama instance and run everything locally.
+- Required for members: without a key or an Ollama URL, chat shows a setup
+  banner instead of answering. Guide: `/help/connect-llm`.
+- Persona does not proxy your queries — they go from the server to the provider
+  you configured, on your account.
 
 **Remote-agent uploads (v1.12)**
 - Optional Mac daemon (`mac-agent/`) captures screen + speech and pushes to your Persona server over HTTPS.
@@ -243,7 +293,7 @@ All configuration is via environment variables (or `.env` in the project root). 
 | `PERSONA_EMBEDDINGS_ENABLED` | `false` | Local semantic search |
 | `PERSONA_EMBEDDINGS_MODEL` | `intfloat/multilingual-e5-small` | ONNX model |
 | `PERSONA_BYO_API_PROVIDER` | *(empty)* | `anthropic`, `openai`, `groq`, … |
-| `PERSONA_BYO_API_KEY` | *(empty)* | Your own key — never leaves your machine |
+| `PERSONA_BYO_API_KEY` | *(empty)* | Your own key — stored locally, sent only to that provider. Owner-level default; members store theirs in `user_settings`, not here |
 | `PERSONA_LLM_VISION_ENABLED` | `false` | Use BYO vision LLM as OCR fallback |
 | `PERSONA_AUTO_DIGEST_ENABLED` | `false` | Daily TL;DR scheduler |
 | `PERSONA_WEEKLY_DIGEST_ENABLED` | `false` | Weekly digest scheduler |
@@ -288,18 +338,41 @@ Move the entire `data/` folder to another disk and point `PERSONA_DATA_DIR` at i
 
 ## Privacy and trust model
 
-**What stays on your machine, always:**
-- Every screenshot.
-- Every OCR string.
-- Every embedding vector.
+**Read this before assuming Persona is "100% local" — it is not, in two
+specific ways.**
+
+1. **Your chat text goes to whatever LLM provider you configured.** Unless you
+   point Persona at your own Ollama, every message you send — and the memory
+   context Persona attaches to it — is transmitted to that cloud provider
+   (OpenRouter, Groq, DeepSeek, Anthropic, OpenAI, Gemini, an aggregator, …) on
+   your account. Persona does not proxy or store a copy on any Persona server,
+   but the provider sees the text. That is what bring-your-own-key means.
+2. **The hosted instance runs analytics with session recording.**
+   <https://persona.getdoday.ru> loads Yandex.Metrika (counter `111901324`) on
+   the public pages **and on the logged-in application shell**, with **webvisor
+   session recording enabled**. That means your in-app clicks, navigation and
+   page interactions on the hosted instance are recorded and sent to Yandex.
+   If you do not want this, self-host: the counter is a single include
+   (`_metrika.html`) you can remove.
+
+**What stays in your own `data/` folder on a self-hosted instance:**
+- Every screenshot, OCR string and embedding vector.
 - Every note, tag, digest, share-link target.
 - The encrypted vault and every backup.
 
-**What can leave your machine, only when you explicitly opt in:**
-- LLM digest / Q&A / auto-tag prompts — sent to **the provider whose key you pasted**, using **your account**, billed to **your card**. Persona has no API, no proxy, no telemetry endpoint.
+**What leaves the machine, only when you configure it:**
+- LLM prompts — see point 1 above.
 - Webhook payloads — only to URLs you configure.
 - Share-link page views — only when you create a share link and give it to someone.
 - SMTP emails — only when you configure outbound SMTP credentials.
+
+**Between users on one instance:** the owner's LLM (the `worker` provider and
+the owner's Ollama) is refused to members with `LLMProviderForbidden`; member
+text never reaches the owner's hardware, and vector indexing is owner-only for
+the same reason. Capture data is global and owner-only — members cannot reach
+the timeline, search, notes or dashboards at all. Do not treat this as a
+hardened multi-tenant boundary: it is an allowlist plus per-user settings on a
+codebase that started single-user, and it is still being audited.
 
 **Defaults that protect you:**
 - Server binds to `127.0.0.1`. Not on your LAN.
@@ -320,21 +393,44 @@ If you find a security issue, please open a private security advisory on the Git
 
 ## Roadmap
 
-Persona is at **v1.0** — feature-complete for the single-machine, single-user use case. The roadmap from here is intentionally small:
+Persona is at **v2.31** — the personal-AI and multi-user layers ship; the
+capture layer is still single-tenant and owner-only.
 
-- **macOS and Linux capture parity.** Windows is the daily-driver platform today; the capture path is mostly cross-platform via `mss` but needs hardening, packaging, and CI on the other two.
-- **One-click installers** for non-developer users (signed binaries, no `uv` required to start).
-- **Multi-device sync** via the user's own object storage (S3 / B2 / WebDAV) — encrypted end-to-end, no Persona server in the path.
-- **More BYO LLM providers** out of the box (currently Anthropic / OpenAI / Groq; community PRs welcome for Ollama, llama.cpp, OpenRouter, etc.).
+Planned:
 
-Explicitly **not** planned:
-- Persona-hosted cloud. There will not be one.
-- A paid tier. There will not be one.
-- Mobile native apps with background screen capture. Apple and Google both block this; the PWA + browser-extension path is as far as we go.
-- Built-in gamification, social features, "productivity scores," or engagement metrics. This is a memory, not a slot machine.
+- **Multi-tenant capture.** Today capture, timeline, search, notes and
+  dashboards are global and owner-only. Making them per-user is the next big
+  phase, and it is not done.
+- **macOS and Linux capture parity.** Windows is the daily-driver platform; the
+  capture path is mostly cross-platform via `mss` but needs hardening,
+  packaging and CI on the other two.
+
+Never shipped — listed here as *not available*, not as a promise:
+
+- **One-click signed installers.** Not built. Installing still means `uv` (or
+  Docker).
+- **Multi-device sync** via your own S3 / B2 / WebDAV. Not built. The migration
+  story is still "copy the `data/` folder".
+- **Mobile native apps with background screen capture.** Not built and not
+  planned — Apple and Google both block it; the PWA + browser-extension path is
+  as far as this goes.
+
+Not planned:
+- Built-in gamification, social features, "productivity scores" or engagement
+  metrics. This is a memory, not a slot machine.
+
+On money: everything is free today and you bring your own LLM key. A Pro tier
+exists in the codebase but is **not being sold** — the checkout, webhook,
+recurring-billing and licence-client slices were never implemented, and the Pro
+card is commented out on `/pricing`. If that ever changes, it will change here
+first. See [`docs/BILLING_PLAN.md`](docs/BILLING_PLAN.md).
 
 ---
 
 ## License
 
-AGPL-3.0-or-later. See `LICENSE`.
+**There is no `LICENSE` file in this repository.** `pyproject.toml` declares
+`license = { text = "AGPL-3.0-or-later" }`, but no licence text is checked in,
+so the AGPL terms are asserted in metadata only and the repository is not
+usable as open source in its current state. Treat the code as
+all-rights-reserved until an actual `LICENSE` file lands.

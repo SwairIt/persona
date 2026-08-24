@@ -7,6 +7,120 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.31.7] - 2026-08-24
+
+### Added
+- Members keep their own character prompt, advanced-mode / `feat_*` chat
+  flags, theme and interface language in `user_settings`, starting from the
+  defaults and never inheriting the owner's values.
+- Member-safe `POST /api/settings/ui-language` for changing the interface
+  language without touching global configuration.
+
+### Changed
+- Memory-engine saving, the engine and training blocks, and vector indexing
+  are owner-only: embeddings resolve the global configuration, so member text
+  must never reach the owner's hardware.
+- Skill installation is restricted to GitHub hosts over HTTPS, re-checked
+  after redirects.
+- Copilot settings search returns only the pages the current role may open.
+
+### Fixed
+- `/settings/system-prompt` and `/settings/theme` had no authentication at
+  all and are now gated.
+- IDOR in the chat mode and effort endpoints: session ownership was never
+  checked, so a member could force the owner's session into bypass mode.
+
+## [2.31.6] - 2026-08-24
+
+### Changed
+- Onboarding drops the trial countdown and `/billing/checkout` forms in
+  favour of three steps that show live "your LLM is connected" status and
+  link to `/help/connect-llm`.
+
+### Fixed
+- A member without an LLM key now sees a setup banner with links instead of
+  the owner-flavoured "model offline, come back later" dead end, in both the
+  active-session and first-visit chat blocks.
+
+## [2.31.5] - 2026-08-24
+
+### Changed
+- `make_client(user_id)`: non-owners resolve provider and key from their own
+  `user_settings` only — no `kv`, environment or vault fallback. The `worker`
+  provider (the owner's PC) raises `LLMProviderForbidden`, and Ollama requires
+  the member's own URL with no localhost fallback. Threaded through chat
+  send / stream / compare / recall, voice, copilot, memory extraction,
+  summaries and `ConversationService`.
+- `/settings/llm` is per-user and no longer offers the worker provider to
+  members; LLM usage is attributed per user.
+
+### Fixed
+- Chat model switching and `auto_prompt` wrote global `kv`; session building
+  bypassed `make_client` straight onto the owner's Ollama; the vision probe
+  exposed the owner's model list; copilot "safe actions" let members flip
+  owner flags; `/api/llm/models` leaked the owner's configuration.
+
+## [2.31.4] - 2026-08-24
+
+### Added
+- Member navbar, drawer and account chip, plus a member settings hub with
+  its own categories (My AI / Memory / Profile / Appearance / Account); the
+  owner hub is regrouped into a starred main section and a collapsed
+  advanced section, with role-aware settings search and href de-duplication.
+- Yandex.Metrika counter 111901324 via `_metrika.html` on the application
+  shell and ten public templates.
+
+### Changed
+- Capture controls are owner-only in the UI, and authentication copy is
+  neutral instead of advertising an early-access waitlist.
+
+### Fixed
+- The owner view is resolved from `request.state.is_owner` instead of
+  defaulting to owner when the flag was absent.
+
+## [2.31.3] - 2026-08-24
+
+### Changed
+- The Pro-subscription gate is replaced by a free member surface: any
+  authenticated non-owner reaches an 18-prefix allowlist (chat, voice,
+  memory graph, their own settings). `/api` outside it answers 403 and pages
+  redirect to `/chat`. Post-authentication routing no longer sends anyone to
+  `/billing`.
+- `request.state.user_id` and `request.state.is_owner` are set for every
+  authenticated request.
+
+### Fixed
+- `/api/graph.json` no longer emits the owner's `hourly_card` nodes or
+  owner-only links to members.
+
+## [2.31.2] - 2026-08-24
+
+### Added
+- `/help/connect-llm`: a public step-by-step guide to connecting your own
+  model (OpenRouter, Groq, DeepSeek, your own Ollama, Russian-card
+  aggregators, direct providers) with honest requirements and an FAQ.
+
+### Changed
+- Pricing shows a free-forever card instead of the trial card; the Pro-690 ₽
+  card is commented out. Landing hero, comparison table and FAQ are reworded
+  to the bring-your-own-key model.
+
+## [2.31.1] - 2026-08-24
+
+### Added
+- Migration 228 adds `user_settings(user_id, key, value)` with cascading
+  foreign keys and makes `llm_usage.user_id` nullable — the storage
+  foundation for per-user LLM keys and interface preferences.
+- Async `get/set/delete_user_kv` in the repository and a TTL-cached
+  `get_user_kv_sync` keyed by `(user_id, key)` for templates.
+
+## [2.31.0] - 2026-08-24
+
+### Added
+- The AI-everywhere wave-2 routers (`dashboard_ai`, `search_ai`,
+  `timeline_ai`, `ai_calendar`) are registered in `main.py`, together with
+  the 20 translation keys their templates use in `ru`, `en` and `de`.
+
 ## [2.29.1] - 2026-07-29
 
 ### Changed
@@ -176,6 +290,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 First stable public release. Codifies the v0.x autonomous-loop work into a
 production-ready single-user personal-AI-memory app.
+
+> Correction (2026-08-24): the LICENSE entry below never landed — there is no
+> `LICENSE` file in this repository; `pyproject.toml` asserts
+> `AGPL-3.0-or-later` in metadata only. "Single-user" also no longer describes
+> the product: since 2.31.3 any registered user gets a member surface, while
+> capture stays owner-only.
 
 ### Added
 - Stable public API surface across timeline, search, capture, OCR, LLM, export, sharing, and admin areas.
