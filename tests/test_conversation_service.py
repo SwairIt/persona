@@ -719,10 +719,10 @@ async def test_advanced_auto_and_bypass_keep_full_legacy_context_parity(
         assert max_turns == 20
         return history
 
-    async def auto_prompt_on() -> bool:
+    async def auto_prompt_on(*_args: Any, **_kwargs: Any) -> bool:
         return True
 
-    async def recall_mode() -> str:
+    async def recall_mode(*_args: Any, **_kwargs: Any) -> str:
         return "generative"
 
     recall_calls: list[tuple[int, str, int | None, bool]] = []
@@ -764,7 +764,7 @@ async def test_advanced_auto_and_bypass_keep_full_legacy_context_parity(
     async def reaction(_session_id: int) -> str:
         return "error"
 
-    async def vision(_provider: str | None) -> str:
+    async def vision(_provider: str | None, *_args: Any, **_kwargs: Any) -> str:
         return "vision-model"
 
     async def owner(_user_id: int) -> bool:

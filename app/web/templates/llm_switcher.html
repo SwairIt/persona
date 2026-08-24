@@ -14,13 +14,24 @@
 
 <div class="mb-6">
   <h1 class="text-2xl font-bold tracking-tight">AI провайдер</h1>
+  {% if is_owner %}
   <p class="text-zinc-500 text-sm mt-1">
     Выбери на кого Persona шлёт запросы для AI-фич (ежедневный TL;DR,
     /ask, /chat, авто-теги). У каждого провайдера свой слот для ключа —
     можно держать несколько одновременно, переключаться без потери.
     «<strong>Никто</strong>» отключает AI-фичи не удаляя ключи.
   </p>
+  {% else %}
+  <p class="text-zinc-500 text-sm mt-1">
+    Здесь подключается <strong>твой собственный</strong> AI: выбери провайдера
+    и вставь свой ключ. Запросы идут ТВОИМ ключом и оплачиваются тобой —
+    чужие ключи и чужое железо не используются. У каждого провайдера свой
+    слот, можно держать несколько и переключаться без потери.
+    «<strong>Никто</strong>» отключает AI не удаляя ключи.
+  </p>
+  {% endif %}
 
+  {% if is_owner %}
   {# T29 MVP — рекомендация по модели/контексту (пункты 4+5) #}
   <div class="mt-4 rounded-xl border border-accent-500/40 bg-accent-600/10 p-4 text-sm space-y-2">
     <div class="font-semibold text-accent-200">💡 Хочешь 1М контекста и уровень ~GPT-4 — бесплатно?</div>
@@ -38,14 +49,23 @@
       кода (качаю на хост). Гибрид: Gemini для тяжёлого, локалка для личного.
     </p>
   </div>
+  {% endif %}
 </div>
 
+{% if is_owner %}
 <div class="rounded-lg border border-amber-700/40 bg-amber-900/20 text-amber-200 px-4 py-3 mb-6 text-xs">
   Ключи шифруются мастер-паролем (v0.33 vault) если установлен
   <code class="font-mono">cryptography</code> и ты ввёл пароль. Иначе
   ложатся в обычную строку <code class="font-mono">kv_settings</code>.
   Мастер-пароль <strong>никогда</strong> не сохраняется и не пишется в логи.
 </div>
+{% else %}
+<div class="rounded-lg border border-amber-700/40 bg-amber-900/20 text-amber-200 px-4 py-3 mb-6 text-xs">
+  Ключ хранится только в твоём аккаунте на этом сервере и никуда не
+  передаётся, кроме самого провайдера. В интерфейсе он больше не
+  показывается — видно лишь «сохранён». Чтобы заменить — просто вставь новый.
+</div>
+{% endif %}
 
 {% if error %}
   <div class="rounded-lg border border-rose-700/40 bg-rose-900/20 text-rose-200 px-4 py-3 mb-6 text-sm">
@@ -103,9 +123,13 @@
 
     {% for slug, label, placeholder in providers %}
       {% set info = keys.get(slug, {}) %}
+      {# Для не-владельца поле ollama — это URL ЕГО сервера, а не «ключ»:
+         дефолта на localhost у него нет (это машина сервера Persona). #}
+      {% set field_label = 'URL твоего Ollama (например http://192.168.1.10:11434)'
+                           if (slug == 'ollama' and not is_owner) else label %}
       <label class="flex flex-col gap-1">
         <span class="text-xs uppercase tracking-widest text-zinc-500 flex items-center gap-2 flex-wrap">
-          <span class="break-words">{{ label }}</span>
+          <span class="break-words">{{ field_label }}</span>
           {% if info.get('configured') == 'true' %}
             <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-900/40 border border-emerald-700/50 text-emerald-300">
               сохранён ({{ info.get('source', '?') }})
@@ -116,19 +140,27 @@
             </span>
           {% endif %}
         </span>
-        <input type="password" name="{{ slug }}_api_key"
-               placeholder="{{ placeholder }}"
+        <input type="{{ 'text' if (slug == 'ollama' and not is_owner) else 'password' }}"
+               name="{{ slug }}_api_key"
+               placeholder="{{ 'http://192.168.1.10:11434' if (slug == 'ollama' and not is_owner) else placeholder }}"
                value="{{ info.get('value', '') }}"
                autocomplete="off"
                class="px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm">
       </label>
     {% endfor %}
 
+    {% if is_owner %}
     <p class="text-xs text-zinc-500">
       Пустое поле — старый ключ остаётся как был. Чтобы удалить ключ — открой <a href="/vault" class="underline hover:text-zinc-200">/vault</a>.
     </p>
+    {% else %}
+    <p class="text-xs text-zinc-500">
+      Пустое поле — старый ключ остаётся как был.
+    </p>
+    {% endif %}
   </fieldset>
 
+  {% if is_owner %}
   <fieldset class="flex flex-col gap-2 pt-2 border-t border-ink-700">
     <legend class="text-sm font-semibold tracking-wider uppercase text-zinc-400 mb-2 mt-2">
       Мастер-пароль (необязательно)
@@ -144,6 +176,7 @@
              class="px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm">
     </label>
   </fieldset>
+  {% endif %}
 
   <div class="flex items-center gap-3 pt-2 border-t border-ink-700 flex-wrap">
     <button type="submit"
@@ -154,7 +187,9 @@
             class="px-5 py-2 border border-ink-700 hover:border-accent-500 rounded text-sm font-medium transition">
       Проверить текущий провайдер
     </button>
+    {% if is_owner %}
     <a href="/vault" class="ml-auto text-xs text-zinc-500 hover:text-zinc-200">Управление vault →</a>
+    {% endif %}
   </div>
 </form>
 
@@ -264,7 +299,9 @@
   </table>
 </details>
 
+{% if is_owner %}
 <div class="text-xs text-zinc-500">
   Старый одно-ключевой мастер настройки: <a href="/setup" class="underline hover:text-zinc-200">/setup</a>.
 </div>
+{% endif %}
 {% endblock %}

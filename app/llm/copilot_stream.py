@@ -84,8 +84,28 @@ def _find_settings_block(question: str) -> str:
     return "\n".join(lines)
 
 
-async def _apply_safe_setting_action(question: str) -> tuple[str, str] | None:
-    """Apply a tiny owner-safe allowlist of explicit setting requests."""
+async def _apply_safe_setting_action(
+    question: str, user_id: int | None = None
+) -> tuple[str, str] | None:
+    """Apply a tiny owner-safe allowlist of explicit setting requests.
+
+    «Owner-safe» тут буквально: строки, в которые пишет эта функция
+    (``ai_everywhere`` / ``advanced_mode`` / ``feat_tools``) — ГЛОБАЛЬНЫЕ
+    kv-флаги владельца, общие для всего инстанса. Раньше гейта не было, и
+    любой зарегистрированный пользователь фразой «включи инструменты» в
+    копилоте переключал флаги ВЛАДЕЛЬЦА. Теперь не-владельцу действие не
+    применяется вовсе (``None``) — копилот просто ответит текстом, а чужие
+    настройки останутся как были.
+    """
+    if user_id is not None:
+        try:
+            from app.auth.owner import is_owner  # noqa: PLC0415
+
+            if not await is_owner(int(user_id)):
+                return None
+        except Exception:  # noqa: BLE001 — сбой гейта → ничего не пишем
+            return None
+
     lowered = " ".join(str(question or "").casefold().split())
     enabled: bool | None = None
     if any(marker in lowered for marker in _ENABLE_MARKERS):
@@ -167,6 +187,39 @@ def _build_prompt(question: str, page_url: str, mode: str, extra: str) -> str:
     return "\n".join(parts)
 
 
+async def _not_configured_event(
+    user_id: int | None, exc: Exception
+) -> dict[str, Any]:
+    """Кадр ошибки «нет модели», разный для владельца и обычного юзера.
+
+    Владелец — ровно прежний кадр ``reason='llm_offline'`` («ПК-воркер
+    офлайн»): его копилот и правда крутится на домашнем ПК. Остальным этот
+    текст бессмысленен — им нужен свой провайдер, поэтому отдаём
+    ``reason='llm_not_configured'`` со ссылкой на /settings/llm.
+    """
+    owner = False
+    if user_id is not None:
+        try:
+            from app.auth.owner import is_owner  # noqa: PLC0415
+
+            owner = await is_owner(int(user_id))
+        except Exception:  # noqa: BLE001 — сбой гейта не должен ронять стрим
+            owner = False
+    if user_id is None or owner:
+        log.info("copilot.llm_offline", error=str(exc))
+        return {
+            "type": "error",
+            "reason": "llm_offline",
+            "message": "ПК-воркер офлайн",
+        }
+    log.info("copilot.llm_not_configured", error=str(exc))
+    return {
+        "type": "error",
+        "reason": "llm_not_configured",
+        "message": "Свой AI не подключён — открой /settings/llm",
+    }
+
+
 async def stream_copilot(
     question: str,
     page_url: str = "",
@@ -194,7 +247,7 @@ async def stream_copilot(
 
     yield {"type": "meta", "mode": mode, "has_context": bool(extra)}
 
-    action = await _apply_safe_setting_action(question)
+    action = await _apply_safe_setting_action(question, user_id)
     if action is not None:
         answer, href = action
         yield {"type": "delta", "text": answer}
@@ -213,17 +266,18 @@ async def stream_copilot(
         max_tokens=_MAX_TOKENS,
     )
 
-    # make_client(kind='copilot') → провайдер worker (модель на ПК), ключ не
-    # нужен. Если LLM не сконфигурирован/воркер офлайн — благородная ошибка.
+    # make_client(kind='copilot') у ВЛАДЕЛЬЦА → провайдер worker (модель на
+    # ПК), ключ не нужен. У обычного пользователя ``user_id`` уводит резолв в
+    # его собственные настройки: чужой ПК недоступен, нужен свой провайдер.
+    # Если LLM не сконфигурирован/воркер офлайн — благородная ошибка.
     try:
-        llm = client or make_client(kind="copilot")
+        llm = client or make_client(kind="copilot", user_id=user_id)
     except LLMNotConfigured as exc:
-        log.info("copilot.llm_offline", error=str(exc))
-        yield {
-            "type": "error",
-            "reason": "llm_offline",
-            "message": "ПК-воркер офлайн",
-        }
+        # Разводим два случая: у ВЛАДЕЛЬЦА это «ПК-воркер офлайн» (кадр как
+        # был, байт-в-байт), у обычного пользователя — «свой AI не подключён»,
+        # что чинится на /settings/llm, а не ожиданием.
+        error_event = await _not_configured_event(user_id, exc)
+        yield error_event
         return
 
     chunks: list[str] = []
@@ -234,13 +288,10 @@ async def stream_copilot(
             chunks.append(delta)
             yield {"type": "delta", "text": delta}
     except LLMNotConfigured as exc:
-        # Воркер мог отвалиться уже в процессе стрима (poll-таймаут/офлайн).
+        # Воркер мог отвалиться уже в процессе стрима (poll-таймаут/офлайн);
+        # у не-владельца та же ошибка означает «твой провайдер не отвечает».
         log.info("copilot.llm_offline_mid", error=str(exc))
-        yield {
-            "type": "error",
-            "reason": "llm_offline",
-            "message": "ПК-воркер офлайн",
-        }
+        yield await _not_configured_event(user_id, exc)
         return
     except Exception as exc:  # noqa: BLE001 — любой сбой стрима → мягкий done
         log.warning("copilot.stream_failed", error=str(exc))

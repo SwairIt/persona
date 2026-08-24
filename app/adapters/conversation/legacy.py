@@ -425,7 +425,11 @@ class _LegacyModelStream:
 class LegacyModelAdapter:
     async def open_stream(self, request: ModelRequest) -> _LegacyModelStream:
         try:
-            client = make_client(kind=request.purpose)
+            # Веб-чат В ПРОСТОМ РЕЖИМЕ (мастер-флаг расширенных функций
+            # выключен) и весь /api/chat/.../send идут именно сюда, значит
+            # сюда попадает и обычный пользователь — резолвим провайдера по
+            # его user_id, а не по глобальному конфигу владельца.
+            client = make_client(kind=request.purpose, user_id=request.user_id)
         except LLMNotConfigured as exc:
             raise ModelUnavailable(str(exc)) from exc
         if request.preferred_model:

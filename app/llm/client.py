@@ -8,7 +8,7 @@ import json
 import os
 import re
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol, cast, get_args
 
 import httpx
 
@@ -16,7 +16,7 @@ from app.logging_setup import get_logger
 from app.settings import get_settings
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Awaitable, Callable
 
 Provider = Literal[
     "anthropic",
@@ -81,6 +81,17 @@ def _kv_fallback_key_for(provider: str) -> str:
 
 class LLMNotConfigured(RuntimeError):
     """Raised when BYO API key is missing or provider unsupported."""
+
+
+class LLMProviderForbidden(LLMNotConfigured):
+    """Провайдер запрещён ЭТОМУ пользователю (например ``worker``).
+
+    Подкласс :class:`LLMNotConfigured` намеренно: по всему коду ~40 мест
+    ловят ``except LLMNotConfigured`` и деградируют мягко (чат пишет
+    «ассистент офлайн», фоновые задачи молча пропускают ход). Отдельный
+    базовый класс сломал бы их все, поэтому запрет — это частный случай
+    «не настроено», просто с другим текстом.
+    """
 
 
 @dataclass(frozen=True, slots=True)
@@ -1765,6 +1776,196 @@ def _read_kv_sync(key: str) -> str | None:
         return pool.submit(asyncio.run, _go()).result()
 
 
+# ---------------------------------------------------------------------------
+# Per-user (non-owner) resolution — ТОЛЬКО таблица user_settings
+# ---------------------------------------------------------------------------
+#
+# Зарегистрированный НЕ-владелец платит за свой LLM сам: провайдер и ключ
+# лежат в его личном ``user_settings``, и резолвер сюда НЕ подмешивает ни
+# ``kv_settings`` владельца, ни env/.env, ни vault. Никакого фолбэка: если
+# у пользователя ничего не настроено — LLMNotConfigured, а не тихий переход
+# на кошелёк/железо владельца.
+
+#: Все id провайдеров, которые умеет собрать :func:`make_client`. Берём из
+#: самого ``Provider``-литерала, чтобы список не разъехался при добавлении
+#: нового провайдера.
+_ALL_PROVIDERS: frozenset[str] = frozenset(get_args(Provider))
+
+#: Что разрешено НЕ-владельцу. ``worker`` вычеркнут намеренно: это домашний
+#: ПК владельца (очередь задач + локальная Ollama на его железе), и чужой
+#: аккаунт не должен считать на нём НИКОГДА — ни явным выбором, ни случайным
+#: фолбэком.
+_USER_ALLOWED_PROVIDERS: frozenset[str] = _ALL_PROVIDERS - {"worker"}
+
+#: Ключ user_settings с выбранным провайдером (близнец kv ``llm_provider``).
+_USER_KV_PROVIDER = "llm_provider"
+
+_USER_NOT_CONFIGURED = (
+    "Свой AI не подключён. Открой /settings/llm, выбери провайдера и вставь "
+    "свой ключ — Persona ходит в модель ТВОИМ ключом, чужой не используется."
+)
+
+
+def _user_kv_key_for(provider: str) -> str:
+    """Строка user_settings с ключом провайдера (близнец ``byo_api_key_*``)."""
+    return f"byo_api_key_{provider}"
+
+
+async def _read_user_kv(user_id: int, key: str) -> str | None:
+    """Одно значение из ``user_settings``. ``None``, если строки/таблицы нет."""
+    from app.storage.db import get_connection  # noqa: PLC0415
+    from app.storage.repository import get_user_kv  # noqa: PLC0415
+
+    try:
+        async with get_connection() as conn:
+            value = await get_user_kv(conn, user_id, key)
+    except Exception:  # noqa: BLE001 — старая БД без user_settings и т.п.
+        return None
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _sync_bridge(coro_factory: Callable[[], Awaitable[Any]]) -> Any:
+    """Прогнать корутину из синхронного кода (как ``_resolve_..._sync``).
+
+    ``make_client`` зовут и из sync-, и из async-кода: вне цикла событий
+    просто ``asyncio.run``, внутри работающего цикла — во временном потоке,
+    иначе вложенный ``asyncio.run`` упадёт «loop is already running».
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro_factory())
+
+    import concurrent.futures  # noqa: PLC0415 — нужен только на этой ветке
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(asyncio.run, coro_factory()).result()
+
+
+def _read_user_kv_sync(user_id: int, key: str) -> str | None:
+    """Синхронная обёртка :func:`_read_user_kv` (для extras в диспатче)."""
+    return cast("str | None", _sync_bridge(lambda: _read_user_kv(user_id, key)))
+
+
+async def _resolve_user_provider_and_key(user_id: int) -> tuple[str, str | None]:
+    """Провайдер + ключ НЕ-владельца из ``user_settings``. Только оттуда.
+
+    Поднимает :class:`LLMNotConfigured` (или его подкласс
+    :class:`LLMProviderForbidden`), если пользователь не настроил свой LLM
+    или выбрал запрещённого провайдера. НИКОГДА не возвращает значения из
+    kv владельца, env или vault — «не настроено» честнее, чем счёт на
+    чужой карте.
+    """
+    provider = (await _read_user_kv(user_id, _USER_KV_PROVIDER) or "").lower()
+
+    if not provider:
+        raise LLMNotConfigured(_USER_NOT_CONFIGURED)
+
+    if provider == "none":
+        msg = "AI выключен в твоих настройках (провайдер «никто»). Включи на /settings/llm."
+        raise LLMNotConfigured(msg)
+
+    if provider == "worker":
+        msg = (
+            "Провайдер «Persona LLM Worker» — это домашний ПК владельца, он "
+            "недоступен другим аккаунтам. Выбери своего провайдера на "
+            "/settings/llm (например свой Ollama или облачный ключ)."
+        )
+        raise LLMProviderForbidden(msg)
+
+    if provider not in _USER_ALLOWED_PROVIDERS:
+        msg = f"Неизвестный провайдер «{provider}». Выбери другого на /settings/llm."
+        raise LLMNotConfigured(msg)
+
+    key = await _read_user_kv(user_id, _user_kv_key_for(provider))
+
+    if provider == "ollama":
+        # Для Ollama «ключ» — это URL ЕГО сервера. Пусто или мусор → ошибка:
+        # OllamaClient молча откатывается на http://localhost:11434, а это
+        # машина сервера (и Ollama владельца) — ровно та утечка, которую мы
+        # закрываем. Дефолт здесь запрещён по определению.
+        if not key or not (key.startswith("http://") or key.startswith("https://")):
+            msg = (
+                "Для Ollama нужен URL ТВОЕГО сервера (например "
+                "http://192.168.1.10:11434). Впиши его на /settings/llm — "
+                "локальный сервер Persona для тебя не используется."
+            )
+            raise LLMNotConfigured(msg)
+        return (provider, key)
+
+    if not key:
+        msg = (
+            f"Нет твоего API-ключа для «{provider}». Вставь свой ключ на "
+            "/settings/llm — чужие ключи не используются."
+        )
+        raise LLMNotConfigured(msg)
+
+    return (provider, key)
+
+
+async def _is_owner_scoped(user_id: int) -> bool:
+    """Владелец ли (или доверенный full-access) этот ``user_id``.
+
+    Fail-closed: любая неожиданная ошибка резолва → «не владелец», то есть
+    строгая per-user ветка. Провалиться в глобальный конфиг владельца из-за
+    сбоя БД нельзя — это и есть та самая утечка.
+    """
+    try:
+        from app.auth.owner import is_owner  # noqa: PLC0415
+
+        return await is_owner(user_id)
+    except Exception:  # noqa: BLE001 — гейт не должен ронять LLM-слой
+        return False
+
+
+def _resolve_user_scoped_sync(user_id: int) -> tuple[str, str | None] | None:
+    """``None`` → это владелец, дальше идёт обычная глобальная резолюция."""
+    async def _go() -> tuple[str, str | None] | None:
+        if await _is_owner_scoped(user_id):
+            return None
+        return await _resolve_user_provider_and_key(user_id)
+
+    return cast(
+        "tuple[str, str | None] | None",
+        _sync_bridge(_go),
+    )
+
+
+async def user_llm_configured(user_id: int) -> bool:
+    """Есть ли у пользователя рабочая LLM-конфигурация. Никогда не бросает.
+
+    Владелец — как раньше: пробуем собрать глобального клиента (там же
+    vault/env/kv). Не-владелец — True только если в его ``user_settings``
+    лежит разрешённый провайдер И ключ (или URL для Ollama).
+    """
+    try:
+        owner = await _is_owner_scoped(user_id)
+    except Exception:  # noqa: BLE001
+        owner = False
+
+    if owner:
+        # 1:1 со старым ``_llm_configured``: неизвестная ошибка → считаем,
+        # что настроен (реальную ошибку пользователь увидит при отправке).
+        try:
+            make_client(kind="chat")
+        except LLMNotConfigured:
+            return False
+        except Exception:  # noqa: BLE001
+            return True
+        return True
+
+    try:
+        await _resolve_user_provider_and_key(user_id)
+    except LLMNotConfigured:
+        return False
+    except Exception:  # noqa: BLE001 — пустое состояние честнее ложного «ок»
+        return False
+    return True
+
+
 class _UsageRecordingClient:
     """Thin wrapper that persists a ``llm_usage`` row after every call.
 
@@ -1780,9 +1981,12 @@ class _UsageRecordingClient:
     user-facing feature.
     """
 
-    def __init__(self, inner: LLMClient, kind: str) -> None:
+    def __init__(self, inner: LLMClient, kind: str, user_id: int | None = None) -> None:
         self._inner = inner
         self._kind = kind
+        # Чей это расход. ``None`` — владелец/фоновая задача на глобальном
+        # конфиге (так писались ВСЕ строки до появления per-user настроек).
+        self._user_id = user_id
         # Surface the provider through the protocol so callers that
         # introspect ``client.provider`` (e.g. /settings/llm health
         # check) see the same value they would have got from the bare
@@ -1809,6 +2013,7 @@ class _UsageRecordingClient:
                 input_tokens=None,
                 output_tokens=None,
                 success=False,
+                user_id=self._user_id,
             )
             raise
 
@@ -1825,6 +2030,7 @@ class _UsageRecordingClient:
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             success=True,
+            user_id=self._user_id,
         )
         return text
 
@@ -1848,6 +2054,7 @@ class _UsageRecordingClient:
                 input_tokens=None,
                 output_tokens=None,
                 success=False,
+                user_id=self._user_id,
             )
             raise
 
@@ -1859,6 +2066,7 @@ class _UsageRecordingClient:
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             success=True,
+            user_id=self._user_id,
         )
 
 
@@ -1869,6 +2077,7 @@ async def _record_usage(
     input_tokens: int | None,
     output_tokens: int | None,
     success: bool,
+    user_id: int | None = None,
 ) -> None:
     """Append a single row to ``llm_usage``.
 
@@ -1884,8 +2093,15 @@ async def _record_usage(
         async with get_connection() as conn:
             await conn.execute(
                 "INSERT INTO llm_usage (kind, provider, input_tokens, "
-                "output_tokens, success) VALUES (?, ?, ?, ?, ?)",
-                (kind, provider, input_tokens, output_tokens, 1 if success else 0),
+                "output_tokens, success, user_id) VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    kind,
+                    provider,
+                    input_tokens,
+                    output_tokens,
+                    1 if success else 0,
+                    user_id,
+                ),
             )
             await conn.commit()
     except Exception as exc:
@@ -1911,6 +2127,7 @@ def make_client(
     provider: Provider | None = None,
     api_key: str | None = None,
     kind: str = "unknown",
+    user_id: int | None = None,
 ) -> LLMClient:
     """Construct a client from kv_settings (or explicit args).
 
@@ -1934,16 +2151,49 @@ def make_client(
     The literal string ``"none"`` as a provider disables every AI
     feature — :class:`LLMNotConfigured` is raised so calling features
     short-circuit rather than 500.
+
+    ``user_id`` — от чьего имени идёт вызов (веб-запрос конкретного
+    пользователя). Семантика строго двухветочная:
+
+    * ``None`` (по умолчанию) — ровно прежнее поведение: глобальный
+      конфиг владельца. Все фоновые задачи, воркеры, брифинги, телеграм
+      и т.п. остаются на этой ветке и не меняются вообще.
+    * задан и это владелец / full-access — тоже прежнее поведение
+      (владелец и есть глобальный конфиг).
+    * задан и это обычный зарегистрированный пользователь — конфиг
+      берётся ТОЛЬКО из его ``user_settings``. Провайдер ``worker``
+      (домашний ПК владельца) запрещён, фолбэка на kv/env/vault нет.
     """
     use_provider: str | None
     use_key: str | None
+    # ``user_scope`` не ``None`` только на строгой per-user ветке: тогда и
+    # extras (модель, folder_id) читаем из user_settings, а не из kv.
+    user_scope: int | None = None
 
-    if provider is not None or api_key is not None:
+    scoped: tuple[str, str | None] | None = None
+    if user_id is not None:
+        scoped = _resolve_user_scoped_sync(int(user_id))
+
+    if scoped is not None:
+        # Не-владелец: явные provider/api_key намеренно игнорируем —
+        # источник истины только его собственные настройки, иначе вызывающий
+        # код мог бы (случайно или нет) подсунуть чужого провайдера.
+        use_provider, use_key = scoped
+        user_scope = int(user_id) if user_id is not None else None
+    elif provider is not None or api_key is not None:
         cfg = get_settings()
         use_provider = (provider or cfg.byo_api_provider or "").strip().lower() or None
         use_key = (api_key or cfg.byo_api_key or "").strip() or None
     else:
         use_provider, use_key = _resolve_provider_and_key_sync()
+
+    # Extras (модель провайдера, yandex folder_id): владелец/фон читают
+    # глобальный kv, не-владелец — только свои строки.
+    if user_scope is None:
+        read_extra = _read_kv_sync
+    else:
+        def read_extra(key: str, _uid: int = user_scope) -> str | None:
+            return _read_user_kv_sync(_uid, key)
 
     if use_provider == "none":
         msg = (
@@ -1987,7 +2237,7 @@ def make_client(
         # YandexGPT needs an optional folder_id. We pull it from kv —
         # the /settings/llm page surfaces a separate text field for it
         # next to the api key when ``yandex`` is selected.
-        folder_id = _read_kv_sync("yandex_folder_id") or None
+        folder_id = read_extra("yandex_folder_id") or None
         inner = YandexGPTClient(use_key, folder_id=folder_id)
     elif use_provider == "gigachat":
         inner = GigaChatClient(use_key)
@@ -1997,28 +2247,28 @@ def make_client(
         # Ollama needs no API key — local server on user's machine.
         # The ``use_key`` here is repurposed as the endpoint URL.
         # An optional model override lives in kv ``ollama_model``.
-        model_override = _read_kv_sync("ollama_model") or None
+        model_override = read_extra("ollama_model") or None
         inner = OllamaClient(use_key, model=model_override)
     elif use_provider == "worker":
         # W-B — «Persona LLM Worker». Ключа нет: задачи кладём в очередь, ПК
         # сам забирает их long-poll'ом. Модель — та же kv ``ollama_model``
         # (на ПК крутится локальная Ollama), иначе дефолт OllamaClient.
-        model_override = _read_kv_sync("ollama_model") or None
+        model_override = read_extra("ollama_model") or None
         inner = WorkerLLMClient(model=model_override, job_kind=kind)
     elif use_provider == "openrouter":
         # OpenRouter — the user picks which underlying model in kv
         # ``openrouter_model``. If unset, fall back to the free Llama 3.1.
-        inner = OpenRouterClient(use_key, model=_read_kv_sync("openrouter_model"))
+        inner = OpenRouterClient(use_key, model=read_extra("openrouter_model"))
     elif use_provider == "mistral":
-        inner = MistralClient(use_key, model=_read_kv_sync("mistral_model"))
+        inner = MistralClient(use_key, model=read_extra("mistral_model"))
     elif use_provider == "together":
-        inner = TogetherClient(use_key, model=_read_kv_sync("together_model"))
+        inner = TogetherClient(use_key, model=read_extra("together_model"))
     elif use_provider == "xai":
-        inner = XAIClient(use_key, model=_read_kv_sync("xai_model"))
+        inner = XAIClient(use_key, model=read_extra("xai_model"))
     elif use_provider == "proxyapi":
-        inner = ProxyAPIClient(use_key, model=_read_kv_sync("proxyapi_model"))
+        inner = ProxyAPIClient(use_key, model=read_extra("proxyapi_model"))
     elif use_provider == "aitunnel":
-        inner = AITunnelClient(use_key, model=_read_kv_sync("aitunnel_model"))
+        inner = AITunnelClient(use_key, model=read_extra("aitunnel_model"))
     else:
         msg = f"Unsupported LLM provider: {use_provider}"
         raise LLMNotConfigured(msg)
@@ -2028,4 +2278,6 @@ def make_client(
     # Existing callers that don't pass ``kind`` show up as ``"unknown"``
     # — better than dropping the row, since the chart total still adds
     # up to the operator's actual provider bill.
-    return _UsageRecordingClient(inner, kind=kind)
+    # ``user_id`` пишется в леджер только для per-user ветки: у владельца и
+    # фоновых задач там остаётся NULL, как и во всех строках до этой правки.
+    return _UsageRecordingClient(inner, kind=kind, user_id=user_scope)

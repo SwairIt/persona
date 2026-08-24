@@ -326,14 +326,18 @@ async def _candidates(user_id: int, text: str, kind: str, top_k: int = 12) -> li
     return [r for _s, r in scored[:top_k]]
 
 
-async def _llm_decide(new_text: str, candidates: list[dict[str, Any]]) -> dict[str, Any] | None:
+async def _llm_decide(
+    new_text: str,
+    candidates: list[dict[str, Any]],
+    user_id: int | None = None,
+) -> dict[str, Any] | None:
     """Решение ADD/UPDATE/DELETE/NOOP через GBNF (только Ollama). None если LLM нет."""
     if not candidates:
         return None
     try:
         from app.llm.client import CompletionRequest, make_client  # noqa: PLC0415
 
-        client = make_client(kind="chat_summary")
+        client = make_client(kind="chat_summary", user_id=user_id)
     except Exception:  # noqa: BLE001
         return None
     if not hasattr(client, "complete_json"):  # GBNF-схема — только Ollama
@@ -383,8 +387,13 @@ async def reconcile_and_add(
     for c in cands:
         if c["text"].casefold() == text.casefold():
             return {"action": "noop", "id": c["id"]}
-    decide = decider or _llm_decide
-    decision = await decide(text, cands)
+    # Дефолтный решатель ходит в LLM — значит ходит КОНФИГОМ ЭТОГО юзера
+    # (у не-владельца свой провайдер/ключ). Тестовые ``decider``-ы остаются
+    # двухаргументными, поэтому user_id прокидываем только в свой дефолт.
+    if decider is not None:
+        decision = await decider(text, cands)
+    else:
+        decision = await _llm_decide(text, cands, user_id=user_id)
     action = str((decision or {}).get("action") or "add").lower()
     target = (decision or {}).get("target_id")
     valid_targets = {c["id"] for c in cands}
@@ -649,7 +658,7 @@ async def extract_and_store(
         )
         return 0
     try:
-        client = make_client(kind="chat_summary")
+        client = make_client(kind="chat_summary", user_id=user_id)
     except LLMNotConfigured:
         return 0
     existing = await list_memory(user_id, limit=60)

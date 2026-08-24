@@ -137,22 +137,41 @@ def _contains_tool_markup(text: str) -> bool:
     )
 
 
-async def _provider_badge() -> dict[str, object]:
+async def _provider_badge(user_id: int | None = None) -> dict[str, object]:
     """Активный LLM-провайдер для бейджа приватности в шапке чата.
 
     Пользователь всегда видит, уходит ли текущий разговор в облако (☁) или
     остаётся локально (🔒). Дешёвый kv-чит, дополняет /settings/privacy.
+
+    У НЕ-владельца свой провайдер (``user_settings``), поэтому бейдж должен
+    показывать ЕГО выбор, а не глобальный конфиг владельца — иначе человек
+    видел бы 🔒 «локально» там, где на самом деле его облачный ключ.
     """
+    if user_id is not None and not await is_owner(user_id):
+        from app.storage.repository import get_user_kv  # noqa: PLC0415
+
+        async with get_connection() as conn:
+            provider = (
+                await get_user_kv(conn, int(user_id), "llm_provider") or ""
+            ).strip().lower()
+        return {"provider": provider or "none", "is_local": provider in _LOCAL_PROVIDERS}
     async with get_connection() as conn:
         provider = (await get_kv(conn, "llm_provider") or "ollama").strip().lower()
     return {"provider": provider, "is_local": provider in _LOCAL_PROVIDERS}
 
 
-async def _llm_configured() -> bool:
+async def _llm_configured(user_id: int | None = None) -> bool:
     """Подключён ли LLM-провайдер (для empty-state «ассистент офлайн»).
     Дёшево: пробуем собрать клиента; LLMNotConfigured → False. Любая иная
     ошибка не должна ронять страницу — считаем, что настроен (UI всё равно
-    покажет реальную ошибку при отправке)."""
+    покажет реальную ошибку при отправке).
+
+    С ``user_id`` проверка идёт по конфигу ИМЕННО этого пользователя:
+    у не-владельца «настроен» означает его собственный провайдер+ключ."""
+    if user_id is not None:
+        from app.llm.client import user_llm_configured  # noqa: PLC0415
+
+        return await user_llm_configured(int(user_id))
     try:
         make_client(kind="chat")
         return True
@@ -162,7 +181,9 @@ async def _llm_configured() -> bool:
         return True
 
 
-async def _find_vision_model_for_provider(provider: str | None) -> str | None:
+async def _find_vision_model_for_provider(
+    provider: str | None, user_id: int | None = None
+) -> str | None:
     """T24 — return the first vision-capable installed model for the
     given provider, or None if none available. Used by auto-switch when
     user attaches an image but is currently on a text-only model."""
@@ -172,14 +193,30 @@ async def _find_vision_model_for_provider(provider: str | None) -> str | None:
         # For cloud providers we don't auto-swap; their picker default
         # is usually multimodal (gpt-4o, gemini, claude all see images).
         return None
-    import httpx  # noqa: PLC0415
-
     from app.storage.db import get_connection  # noqa: PLC0415
-    from app.storage.repository import get_kv  # noqa: PLC0415
+    from app.storage.repository import get_kv, get_user_kv  # noqa: PLC0415
+
+    if user_id is not None and not await is_owner(user_id):
+        # Свой Ollama — свой список моделей. Без этого сервер ходил на
+        # endpoint ВЛАДЕЛЬЦА (или на localhost) и показывал чужие модели.
+        async with get_connection() as conn:
+            endpoint = (
+                await get_user_kv(conn, int(user_id), "byo_api_key_ollama") or ""
+            ).strip()
+        if not (endpoint.startswith("http://") or endpoint.startswith("https://")):
+            return None
+        return await _first_vision_tag(endpoint)
 
     async with get_connection() as conn:
         endpoint = (await get_kv(conn, "byo_api_key_ollama") or "").strip()
     endpoint = endpoint or "http://localhost:11434"
+    return await _first_vision_tag(endpoint)
+
+
+async def _first_vision_tag(endpoint: str) -> str | None:
+    """Первая vision-модель среди установленных на данном Ollama-endpoint."""
+    import httpx  # noqa: PLC0415
+
     try:
         async with httpx.AsyncClient(timeout=4.0) as cli:
             resp = await cli.get(endpoint.rstrip("/") + "/api/tags")
@@ -365,19 +402,31 @@ async def _set_mode(session_id: int, mode: str) -> None:
         await conn.commit()
 
 
-# T31 E5 — авто-подбор системного промпта под задачу (глобальный флаг).
-async def _get_auto_prompt() -> bool:
+# T31 E5 — авто-подбор системного промпта под задачу.
+# Флаг глобальный для владельца и ПЕР-ЮЗЕРНЫЙ для остальных: раньше любой
+# зарегистрированный пользователь своим тумблером перезаписывал kv владельца.
+async def _get_auto_prompt(user_id: int | None = None) -> bool:
     from app.storage.db import get_connection  # noqa: PLC0415
-    from app.storage.repository import get_kv  # noqa: PLC0415
+    from app.storage.repository import get_kv, get_user_kv  # noqa: PLC0415
 
+    if user_id is not None and not await is_owner(user_id):
+        async with get_connection() as conn:
+            raw = await get_user_kv(conn, int(user_id), "auto_prompt")
+        return (raw or "0").strip() == "1"
     async with get_connection() as conn:
         return (await get_kv(conn, "auto_prompt") or "0").strip() == "1"
 
 
-async def _set_auto_prompt(on: bool) -> None:
+async def _set_auto_prompt(on: bool, user_id: int | None = None) -> None:
     from app.storage.db import get_connection  # noqa: PLC0415
-    from app.storage.repository import set_kv  # noqa: PLC0415
+    from app.storage.repository import set_kv, set_user_kv  # noqa: PLC0415
 
+    if user_id is not None and not await is_owner(user_id):
+        async with get_connection() as conn:
+            await set_user_kv(
+                conn, int(user_id), "auto_prompt", "1" if on else "0"
+            )
+        return
     async with get_connection() as conn:
         await set_kv(conn, "auto_prompt", "1" if on else "0")
         await conn.commit()
@@ -410,10 +459,16 @@ async def _is_stopped(session_id: int) -> bool:
 _RECALL_MODES = ("off", "keyword", "smart", "hybrid", "vector", "generative")
 
 
-async def _get_recall_mode() -> str:
+async def _get_recall_mode(user_id: int | None = None) -> str:
     from app.storage.db import get_connection, sqlite_vec_available  # noqa: PLC0415
     from app.storage.repository import get_kv  # noqa: PLC0415
 
+    # Не-владелец: hybrid/vector/generative считают эмбеддинги через Ollama
+    # владельца (app.memory_vec ходит в глобальный конфиг), а smart — жжёт
+    # LLM-вызов. Пока свой embed-конфиг per-user не сделан, у чужих аккаунтов
+    # recall всегда keyword: чистый SQL по ИХ сообщениям, без чужого железа.
+    if user_id is not None and not await is_owner(user_id):
+        return "keyword"
     async with get_connection() as conn:
         v = (await get_kv(conn, "recall_mode") or "").strip()
     if v in _RECALL_MODES:
@@ -423,13 +478,13 @@ async def _get_recall_mode() -> str:
     return "hybrid" if sqlite_vec_available() else "keyword"
 
 
-async def _smart_recall_terms(question: str) -> list[str]:
+async def _smart_recall_terms(question: str, user_id: int | None = None) -> list[str]:
     """Умный режим: ИИ сам решает, что искать в истории — имена, темы,
     синонимы и падежные формы. Возвращает список терминов (или []) ."""
     import re  # noqa: PLC0415
 
     try:
-        client = make_client(kind="chat")
+        client = make_client(kind="chat", user_id=user_id)
         raw = await client.complete(
             CompletionRequest(
                 system=(
@@ -613,8 +668,8 @@ async def chat_index(
             "active_session": None,
             "messages": [],
             "adv": await get_advanced_flags(),
-            "provider_badge": await _provider_badge(),
-            "llm_configured": await _llm_configured(),
+            "provider_badge": await _provider_badge(session["user_id"]),
+            "llm_configured": await _llm_configured(session["user_id"]),
         },
     )
 
@@ -637,7 +692,7 @@ async def chat_thread(
         m["span_ratings"] = spans.get(int(m["id"]), [])
     effort = await _get_effort(session_id)
     mode = await _get_mode(session_id)
-    auto_prompt = await _get_auto_prompt()
+    auto_prompt = await _get_auto_prompt(session["user_id"])
     return templates.TemplateResponse(
         request,
         "chat_index.html",
@@ -652,8 +707,8 @@ async def chat_thread(
             "mode": mode,
             "auto_prompt": auto_prompt,
             "adv": await get_advanced_flags(),
-            "provider_badge": await _provider_badge(),
-            "llm_configured": await _llm_configured(),
+            "provider_badge": await _provider_badge(session["user_id"]),
+            "llm_configured": await _llm_configured(session["user_id"]),
         },
     )
 
@@ -846,12 +901,30 @@ async def api_build_files(
     from app.llm.client import OllamaClient  # noqa: PLC0415
     from app.mcp import call_tool  # noqa: PLC0415
     from app.storage.db import get_connection  # noqa: PLC0415
-    from app.storage.repository import get_kv  # noqa: PLC0415
+    from app.storage.repository import get_kv, get_user_kv  # noqa: PLC0415
 
-    async with get_connection() as conn:
-        endpoint = (await get_kv(conn, "byo_api_key_ollama") or "").strip()
-        model = (await get_kv(conn, "ollama_model") or "").strip()
-    endpoint = endpoint or "http://localhost:11434"
+    # Этот роут собирает OllamaClient В ОБХОД make_client, поэтому per-user
+    # правило надо повторить здесь ЯВНО: без этого любой пользователь на
+    # /api/chat/*/build считал бы генерацию файлов на Ollama владельца
+    # (endpoint из глобального kv, при пустом — localhost сервера).
+    uid = int(session["user_id"])
+    if not await is_owner(uid):
+        async with get_connection() as conn:
+            endpoint = (await get_user_kv(conn, uid, "byo_api_key_ollama") or "").strip()
+            model = (await get_user_kv(conn, uid, "ollama_model") or "").strip()
+        if not (endpoint.startswith("http://") or endpoint.startswith("https://")):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Для сборки файлов нужен свой Ollama: укажи его URL на "
+                    "/settings/llm."
+                ),
+            )
+    else:
+        async with get_connection() as conn:
+            endpoint = (await get_kv(conn, "byo_api_key_ollama") or "").strip()
+            model = (await get_kv(conn, "ollama_model") or "").strip()
+        endpoint = endpoint or "http://localhost:11434"
     model = model or "qwen2.5:7b"
     client = OllamaClient(api_key=endpoint, model=model)
 
@@ -1048,7 +1121,7 @@ async def _legacy_api_send_message(
     # (env fallback) instead of the per-provider kv slot — bug found
     # 2026-06-08: previous Yandex token leaked into OllamaClient URL.
     try:
-        client = make_client(kind="chat")
+        client = make_client(kind="chat", user_id=int(session["user_id"]))
     except LLMNotConfigured as exc:
         log.warning("chat.send.llm_not_configured", session_id=session_id)
         # Surface the error so the UI can render a friendly hint, and
@@ -1388,7 +1461,7 @@ async def api_send_stream(
     persona_core = base_prompt
 
     # T31 E5 — авто-подбор промпта под задачу (накладка по триггерам вопроса).
-    if adv["auto_prompt"] and await _get_auto_prompt():
+    if adv["auto_prompt"] and await _get_auto_prompt(session["user_id"]):
         from app.chat.auto_prompts import detect_overlay  # noqa: PLC0415
 
         base_prompt = base_prompt + detect_overlay(question)
@@ -1426,7 +1499,7 @@ async def api_send_stream(
     try:
         from app.chat import recall_by_terms, recall_relevant  # noqa: PLC0415
 
-        _rmode = await _get_recall_mode()
+        _rmode = await _get_recall_mode(session["user_id"])
         recalled = ""
         if _rmode in ("hybrid", "vector", "generative"):
             # FTS5 + векторный KNN (RRF). Внутри тихий fallback на recall_relevant,
@@ -1443,7 +1516,7 @@ async def api_send_stream(
             # Падение LLM-выбора терминов НЕ должно обнулять всю память: при любой
             # ошибке деградируем на keyword-recall (recall_relevant), а не на пусто.
             try:
-                _terms = await _smart_recall_terms(question)
+                _terms = await _smart_recall_terms(question, session["user_id"])
                 recalled = (
                     await recall_by_terms(
                         session["user_id"], _terms, exclude_session_id=session_id
@@ -1602,7 +1675,7 @@ async def api_send_stream(
             return f"data: {json.dumps(obj, ensure_ascii=False)}\n\n"
 
         try:
-            client = make_client(kind="chat_stream")
+            client = make_client(kind="chat_stream", user_id=int(session["user_id"]))
         except LLMNotConfigured:
             # Грациозно: владельцу — actionable, Pro-юзеру — понятное «офлайн»
             # (настройки LLM ему недоступны, так что не зовём в /settings/llm).
@@ -1630,7 +1703,9 @@ async def api_send_stream(
             if not any(kw in chosen_model.lower() for kw in (
                 "vl", "vision", "llava", "moondream",
             )):
-                vision_model = await _find_vision_model_for_provider(thread.get("provider"))
+                vision_model = await _find_vision_model_for_provider(
+                    thread.get("provider"), int(session["user_id"])
+                )
                 if vision_model:
                     log.info(
                         "chat.stream.auto_vision_swap",
@@ -2192,6 +2267,39 @@ async def api_set_model(
     model = str(body.get("model") or "").strip()
     if not provider:
         raise HTTPException(status_code=400, detail="provider required")
+
+    uid = int(session["user_id"])
+    owner = await is_owner(uid)
+
+    if not owner:
+        # Не-владелец переключает ТОЛЬКО свой конфиг. Раньше этот роут писал
+        # глобальные kv llm_provider/byo_api_provider/{provider}_model — то
+        # есть любой зарегистрированный пользователь мог сменить провайдера
+        # владельцу (и всем фоновым задачам) из пикера моделей в чате.
+        from app.llm.client import _USER_ALLOWED_PROVIDERS  # noqa: PLC0415
+        from app.storage.db import get_connection  # noqa: PLC0415
+        from app.storage.repository import set_user_kv  # noqa: PLC0415
+
+        if provider == "worker":
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Провайдер «worker» — это домашний ПК владельца, он "
+                    "недоступен. Подключи своего провайдера на /settings/llm."
+                ),
+            )
+        if provider not in _USER_ALLOWED_PROVIDERS:
+            raise HTTPException(status_code=400, detail="unknown provider")
+        ok = await update_session_model(uid, session_id, provider, model or None)
+        if not ok:
+            raise HTTPException(status_code=404)
+        async with get_connection() as conn:
+            await set_user_kv(conn, uid, "llm_provider", provider)
+            if model:
+                model_kv = "ollama_model" if provider == "ollama" else f"{provider}_model"
+                await set_user_kv(conn, uid, model_kv, model)
+        return JSONResponse({"ok": True, "provider": provider, "model": model or None})
+
     # Модели Ollama у этого юзера крутятся на ПК через worker (outbound long-poll),
     # прямого ollama-endpoint нет. Если выбрали «ollama», но валидного URL-эндпоинта
     # (byo_api_key_ollama) нет — маршрутизируем на worker: иначе OllamaClient
@@ -2264,7 +2372,9 @@ async def api_compare_models(
 
     async def one(provider: str, model: str) -> dict[str, Any]:
         try:
-            client = make_client(kind="chat_compare")
+            client = make_client(
+                kind="chat_compare", user_id=int(session["user_id"])
+            )
         except LLMNotConfigured as exc:
             return {"provider": provider, "model": model, "answer": "", "error": str(exc)}
         inner_obj = getattr(client, "_inner", client)
@@ -2522,7 +2632,7 @@ async def api_set_auto_prompt(
 ) -> JSONResponse:
     """T31 E5 — вкл/выкл авто-подбор системного промпта под задачу."""
     on = bool(body.get("on"))
-    await _set_auto_prompt(on)
+    await _set_auto_prompt(on, session["user_id"])
     return JSONResponse({"ok": True, "on": on})
 
 

@@ -187,6 +187,10 @@ class ModelRequest:
     image_data_url: str | None = None
     preferred_model: str | None = None
     purpose: str = "conversation"
+    #: Чей это ход. Адаптер модели резолвит провайдера/ключ по этому id:
+    #: у владельца — глобальный конфиг, у обычного пользователя — только его
+    #: собственные настройки. ``None`` = фоновая задача на конфиге владельца.
+    user_id: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

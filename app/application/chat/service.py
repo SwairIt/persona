@@ -214,6 +214,7 @@ class ConversationService:
                 image_data_url=command.image_data_url,
                 preferred_model=conversation.model,
                 purpose=f"{command.surface.value}_conversation",
+                user_id=int(command.actor.user_id),
             )
         )
 
@@ -392,6 +393,7 @@ class ConversationService:
                     image_data_url=None,
                     preferred_model=conversation.model,
                     purpose=f"{command.surface.value}_tool_followup",
+                    user_id=int(command.actor.user_id),
                 )
             )
             response_text = await self._collect_private(command, follow_stream, state)
@@ -464,6 +466,7 @@ class ConversationService:
                 image_data_url=command.image_data_url,
                 preferred_model=conversation.model,
                 purpose=f"{command.surface.value}_anti_repeat_conversation",
+                user_id=int(command.actor.user_id),
             )
         )
         retry_chunks = await self._collect_private_chunks(

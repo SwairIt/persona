@@ -195,6 +195,150 @@ async def _key_status_per_provider(
 
 
 # ---------------------------------------------------------------------------
+# Per-user ветка: обычный пользователь настраивает СВОЙ LLM
+# ---------------------------------------------------------------------------
+#
+# Владелец работает как раньше (kv_settings + vault + мастер-пароль). У всех
+# остальных зарегистрированных аккаунтов свой провайдер и свой ключ в
+# ``user_settings``: их запросы идут ИХ ключом, а «worker» (домашний ПК
+# владельца) им недоступен в принципе.
+
+#: Провайдеры, доступные не-владельцу — те же, что и в make_client, минус
+#: worker. Импортируем из llm-слоя, чтобы список не разъезжался.
+def _user_providers() -> tuple[tuple[str, str, str], ...]:
+    from app.llm.client import _USER_ALLOWED_PROVIDERS  # noqa: PLC0415
+
+    return tuple(
+        (slug, label, placeholder)
+        for slug, label, placeholder in PROVIDERS
+        if slug in _USER_ALLOWED_PROVIDERS
+    )
+
+
+async def _user_current_provider(user_id: int) -> str:
+    """Выбранный пользователем провайдер. Дефолта нет — «не настроено»."""
+    from app.storage.repository import get_user_kv  # noqa: PLC0415
+
+    async with get_connection() as conn:
+        raw = await get_user_kv(conn, user_id, KV_LLM_PROVIDER)
+    candidate = (raw or "").strip().lower()
+    from app.llm.client import _USER_ALLOWED_PROVIDERS  # noqa: PLC0415
+
+    if candidate == "none" or candidate in _USER_ALLOWED_PROVIDERS:
+        return candidate
+    return "none"
+
+
+async def _user_key_status(user_id: int) -> dict[str, dict[str, str]]:
+    """``{provider: {"configured": ..., "source": "user"}}`` по user_settings.
+
+    Значения ключей НИКОГДА не попадают в результат — только факт наличия,
+    как и в owner-ветке (см. ``safe_keys`` в :func:`_render`).
+    """
+    from app.storage.repository import get_user_kv  # noqa: PLC0415
+
+    result: dict[str, dict[str, str]] = {}
+    async with get_connection() as conn:
+        for slug, _label, _placeholder in _user_providers():
+            raw = (await get_user_kv(conn, user_id, _kv_fallback_key_for(slug)) or "").strip()
+            result[slug] = {
+                "configured": "true" if raw else "false",
+                "source": "user" if raw else "",
+            }
+    return result
+
+
+async def _persist_user_choice(
+    user_id: int,
+    provider: str,
+    form: dict[str, str],
+) -> dict[str, str]:
+    """Сохранить провайдера + непустые ключи пользователя. Возвращает записанное."""
+    from app.storage.repository import set_user_kv  # noqa: PLC0415
+    from app.web.templates_engine import invalidate_user_kv_sync  # noqa: PLC0415
+
+    written: dict[str, str] = {}
+    async with get_connection() as conn:
+        await set_user_kv(conn, user_id, KV_LLM_PROVIDER, provider)
+        invalidate_user_kv_sync(user_id, KV_LLM_PROVIDER)
+        for slug, _label, _placeholder in _user_providers():
+            raw = str(form.get(f"{slug}_api_key", "") or "").strip()
+            if not raw:
+                continue
+            await set_user_kv(conn, user_id, _kv_fallback_key_for(slug), raw)
+            invalidate_user_kv_sync(user_id, _kv_fallback_key_for(slug))
+            written[slug] = "user"
+    return written
+
+
+def _user_save_notice(provider: str, written: dict[str, str]) -> str:
+    """Текст подтверждения для per-user сохранения."""
+    if provider == "none":
+        return "AI выключен. Твои ключи сохранены, но не используются."
+    if provider == "ollama":
+        return "Сохранено: твой Ollama. Запросы идут на указанный тобой URL."
+    if written:
+        return (
+            f"Сохранено. Твой провайдер: {provider}. "
+            f"Ключи обновлены: {', '.join(written)}."
+        )
+    return (
+        f"Твой провайдер: {provider}. Поля ключей пустые — "
+        "старые ключи остались на месте."
+    )
+
+
+async def _save_user_choice(
+    request: Request,
+    user_id: int,
+    provider: str,
+    form: dict[str, str],
+) -> HTMLResponse:
+    """POST /settings/llm для НЕ-владельца: пишем только его user_settings.
+
+    Ни kv, ни vault, ни мастер-пароль тут не участвуют: чужие ключи ему
+    недоступны, а свои живут в его личном пространстве. ``worker`` не
+    проходит валидацию, потому что его нет в ``_USER_ALLOWED_PROVIDERS``.
+    """
+    from app.llm.client import _USER_ALLOWED_PROVIDERS  # noqa: PLC0415
+
+    if provider != "none" and provider not in _USER_ALLOWED_PROVIDERS:
+        await log_action(
+            "llm.switcher.save",
+            target=provider,
+            detail="bad provider (user)",
+            success=False,
+        )
+        return _render(
+            request,
+            current_provider=await _user_current_provider(user_id),
+            keys=await _user_key_status(user_id),
+            error=(
+                "Этот провайдер недоступен. Выбери своего — например свой "
+                "Ollama или облачный ключ."
+            ),
+            is_owner_user=False,
+            status_code=400,
+        )
+
+    written = await _persist_user_choice(user_id, provider, form)
+    await log_action(
+        "llm.switcher.save",
+        target=provider,
+        detail="user_scope written=" + ",".join(written),
+        success=True,
+    )
+    log.info("llm.switcher.saved_user", provider=provider, keys_written=list(written))
+    return _render(
+        request,
+        current_provider=provider,
+        keys=await _user_key_status(user_id),
+        notice=_user_save_notice(provider, written),
+        is_owner_user=False,
+    )
+
+
+# ---------------------------------------------------------------------------
 # W-D: статус ПК-воркера (best-effort, ленивый импорт — зависит от W-A)
 # ---------------------------------------------------------------------------
 
@@ -287,7 +431,8 @@ def _render(
         {
             "title": "AI провайдер",
             "active_nav": "settings",
-            "providers": PROVIDERS,
+            # Не-владельцу «worker» не показываем даже как вариант выбора.
+            "providers": PROVIDERS if is_owner_user else _user_providers(),
             "current_provider": current_provider,
             "keys": safe_keys,
             "notice": notice,
@@ -318,9 +463,17 @@ async def llm_switcher_page(
     No query parameters — the master password is never accepted via GET
     so it never lands in the access log or browser history.
     """
+    uid = int(session["user_id"])
+    owner = await is_owner(uid)
+    if not owner:
+        return _render(
+            request,
+            current_provider=await _user_current_provider(uid),
+            keys=await _user_key_status(uid),
+            is_owner_user=False,
+        )
     current = await _current_provider()
     keys = await _key_status_per_provider(master_password=None)
-    owner = await is_owner(int(session["user_id"]))
     log.info(
         "llm.switcher.render",
         current_provider=current,
@@ -358,7 +511,12 @@ async def llm_switcher_save(
     form = await request.form()
     provider = str(form.get("provider", "")).strip().lower()
     master_password = str(form.get("master_password", ""))
-    owner = await is_owner(int(session["user_id"]))
+    uid = int(session["user_id"])
+    owner = await is_owner(uid)
+
+    if not owner:
+        plain_form = {k: str(v) for k, v in form.items() if isinstance(v, str)}
+        return await _save_user_choice(request, uid, provider, plain_form)
 
     if provider not in _VALID_PROVIDERS:
         current = await _current_provider()
@@ -435,6 +593,66 @@ async def llm_switcher_save(
     )
 
 
+async def _test_user_config(request: Request, user_id: int) -> HTMLResponse:
+    """Тот же «пинг», но собранный ИЗ КОНФИГА ПОЛЬЗОВАТЕЛЯ.
+
+    ``make_client(user_id=...)`` для не-владельца читает только его
+    ``user_settings``, поэтому кнопка «Проверить» проверяет именно его
+    провайдера и его ключ, а не глобальный конфиг владельца.
+    """
+    import asyncio  # noqa: PLC0415
+
+    current = await _user_current_provider(user_id)
+    keys = await _user_key_status(user_id)
+
+    def _out(result: str) -> HTMLResponse:
+        return _render(
+            request,
+            current_provider=current,
+            keys=keys,
+            test_result=result,
+            is_owner_user=False,
+        )
+
+    if current == "none":
+        return _out("AI выключен (провайдер «никто»).")
+
+    try:
+        client = make_client(kind="llm_switcher_test", user_id=user_id)
+    except LLMNotConfigured as exc:
+        log.info("llm.switcher.test.user_not_configured", provider=current)
+        return _out(f"Не настроено: {exc}")
+
+    try:
+        await asyncio.wait_for(
+            client.complete(
+                CompletionRequest(
+                    system="Reply with the single word: pong.",
+                    user="ping",
+                    max_tokens=4,
+                    temperature=0.0,
+                )
+            ),
+            timeout=15.0,
+        )
+    except asyncio.TimeoutError:
+        log.info("llm.switcher.test.user_timeout", provider=current)
+        return _out(
+            "Таймаут (15с). Если это твой Ollama — первый запрос грузит модель "
+            "в память, это 30-60 сек. Попробуй ещё раз."
+        )
+    except Exception as exc:  # noqa: BLE001 — текст ошибки, но НИКОГДА не ключ
+        log.warning(
+            "llm.switcher.test.user_fail",
+            provider=current,
+            error_type=type(exc).__name__,
+        )
+        return _out(f"Не получилось: {type(exc).__name__}")
+
+    log.info("llm.switcher.test.user_ok", provider=current)
+    return _out(f"OK — {current} ответил.")
+
+
 @router.post("/settings/llm/test", response_class=HTMLResponse, response_model=None)
 async def llm_switcher_test(
     request: Request,
@@ -447,9 +665,13 @@ async def llm_switcher_test(
     key) is rendered back into the same page so the user gets immediate
     feedback without leaving ``/settings/llm``.
     """
+    uid = int(session["user_id"])
+    owner = await is_owner(uid)
+    if not owner:
+        return await _test_user_config(request, uid)
+
     current = await _current_provider()
     keys = await _key_status_per_provider(master_password=master_password or None)
-    owner = await is_owner(int(session["user_id"]))
     wstatus = await _worker_status_safe()
 
     if current == "none":

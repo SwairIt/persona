@@ -21,6 +21,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
 from app.auth import current_user_required
+from app.auth.owner import is_owner
 from app.auth.sessions import SessionRecord
 from app.logging_setup import get_logger
 from app.storage.db import get_connection
@@ -190,6 +191,100 @@ def _installed_models_struct(names: list[str]) -> list[dict[str, object]]:
     return out
 
 
+async def _list_models_for_user(
+    user_id: int,
+    providers_tuple: tuple[tuple[str, str, str], ...],
+) -> JSONResponse:
+    """Пикер моделей для ОБЫЧНОГО пользователя — только его собственный конфиг.
+
+    Раньше этот эндпоинт отдавал одно и то же всем авторизованным: активного
+    провайдера ВЛАДЕЛЬЦА, живой список моделей с его Ollama-эндпоинта,
+    курируемый список моделей его ПК-воркера и ``configured=True`` для
+    ollama/worker. То есть чужой аккаунт видел железо владельца и мог выбрать
+    его в пикере. Здесь всё считается из ``user_settings``:
+
+    * провайдера ``worker`` в списке нет вообще (это домашний ПК владельца);
+    * ``configured`` — только по СВОЕМУ ключу (для ollama — по своему URL);
+    * список моделей Ollama тянем ТОЛЬКО с его эндпоинта, нет URL → пусто
+      плюс подсказка, а не чужие модели.
+    """
+    from app.storage.repository import get_user_kv  # noqa: PLC0415
+
+    async with get_connection() as conn:
+        current_provider = (
+            await get_user_kv(conn, user_id, "llm_provider") or "none"
+        ).strip().lower()
+        own_ollama = (
+            await get_user_kv(conn, user_id, "byo_api_key_ollama") or ""
+        ).strip()
+        provider_keys: dict[str, bool] = {}
+        current_models: dict[str, str | None] = {}
+        for slug, _label, _placeholder in providers_tuple:
+            if slug == "worker":
+                continue
+            key = (await get_user_kv(conn, user_id, f"byo_api_key_{slug}") or "").strip()
+            # Для ollama «ключ» — это URL, и он ОБЯЗАТЕЛЕН: дефолта на
+            # localhost для чужого аккаунта нет (это машина сервера).
+            provider_keys[slug] = (
+                bool(key) and (key.startswith("http://") or key.startswith("https://"))
+                if slug == "ollama"
+                else bool(key)
+            )
+            model_kv = "ollama_model" if slug == "ollama" else f"{slug}_model"
+            current_models[slug] = await get_user_kv(conn, user_id, model_kv) or None
+
+    providers_out: list[dict[str, object]] = []
+    for slug, label, _placeholder in providers_tuple:
+        if slug == "worker":
+            continue
+        models_struct: list[dict[str, object]]
+        hint: str | None = None
+        if slug == "ollama":
+            models_struct = (
+                await _list_ollama_models(own_ollama) if own_ollama else []
+            )
+            for m in models_struct:
+                m["description"] = _OLLAMA_DESCRIPTIONS.get(str(m.get("name", "")), "")
+            if not models_struct:
+                hint = (
+                    "Укажи URL своего Ollama на /settings/llm "
+                    "(например http://192.168.1.10:11434)"
+                    if not own_ollama
+                    else "Твой Ollama не отвечает — проверь, что он запущен и доступен"
+                )
+        else:
+            defaults = _PROVIDER_DEFAULTS.get(slug, [])
+            models_struct = [
+                {
+                    "name": name,
+                    "description": desc,
+                    "vision": any(kw in name.lower() for kw in (
+                        "vision", "vl", "4o", "claude", "gemini",
+                        "sonnet", "opus", "grok", "haiku",
+                    )),
+                }
+                for name, desc in defaults
+            ]
+        entry: dict[str, object] = {
+            "slug": slug,
+            "label": label,
+            "configured": provider_keys.get(slug, False),
+            "models": models_struct,
+            "current_model": current_models.get(slug),
+        }
+        if hint:
+            entry["hint"] = hint
+        providers_out.append(entry)
+
+    return JSONResponse({
+        "providers": providers_out,
+        "current": {
+            "provider": current_provider,
+            "model": current_models.get(current_provider),
+        },
+    })
+
+
 @router.get("/api/llm/models", response_class=JSONResponse)
 async def list_models(
     session: Annotated[SessionRecord, Depends(current_user_required)],
@@ -201,6 +296,9 @@ async def list_models(
     grey-out unreachable providers in the dropdown.
     """
     from app.web.routes.llm_switcher import PROVIDERS as PROVIDERS_TUPLE  # noqa: PLC0415
+
+    if not await is_owner(int(session["user_id"])):
+        return await _list_models_for_user(int(session["user_id"]), PROVIDERS_TUPLE)
 
     async with get_connection() as conn:
         current_provider = (

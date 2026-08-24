@@ -898,7 +898,7 @@ async def maybe_summarise(session_id: int) -> bool:
             return False
 
         cursor = await conn.execute(
-            "SELECT summary, summary_up_to_id FROM chat_session WHERE id = ?",
+            "SELECT user_id, summary, summary_up_to_id FROM chat_session WHERE id = ?",
             (session_id,),
         )
         sess = await cursor.fetchone()
@@ -906,6 +906,11 @@ async def maybe_summarise(session_id: int) -> bool:
             str(sess["summary"]) if sess and sess["summary"] is not None else ""
         )
         existing_up_to = int(sess["summary_up_to_id"] or 0) if sess else 0
+        # Чей это чат — тем конфигом и суммаризируем. Иначе сводка чужого
+        # разговора считалась бы на модели/ключе владельца.
+        owner_of_session = (
+            int(sess["user_id"]) if sess and sess["user_id"] is not None else None
+        )
 
         # Pull messages newer than the existing summary watermark, up
         # to the cutoff (the ones we want to FOLD into the summary).
@@ -935,7 +940,7 @@ async def maybe_summarise(session_id: int) -> bool:
     )
 
     try:
-        client = make_client(kind="chat_summary")
+        client = make_client(kind="chat_summary", user_id=owner_of_session)
     except LLMNotConfigured:
         log.info("chat.summary.skipped_no_llm", session_id=session_id)
         return False

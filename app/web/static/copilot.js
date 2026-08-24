@@ -196,6 +196,13 @@ function copilotWidget() {
         case "llm_offline":
         case "not_configured":
           return t("err_offline", "ИИ сейчас недоступен. Попробуйте позже.");
+        case "llm_not_configured":
+          // У пользователя нет СВОЕГО провайдера — это чинится настройкой,
+          // а не ожиданием, поэтому ведём на страницу выбора провайдера.
+          return t(
+            "err_not_configured",
+            "Свой AI не подключён — открой /settings/llm."
+          );
         case "bad_request":
           return t("err_empty", "Пустой запрос.");
         default:

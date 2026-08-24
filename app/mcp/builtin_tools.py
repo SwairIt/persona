@@ -344,6 +344,17 @@ async def _resolve_ollama_endpoint() -> str:
     "API key" IS the endpoint URL, stored in plaintext (it's not a
     secret). make_client() wraps the client in a usage recorder that
     hides ``_endpoint``, so we read the kv directly.
+
+    ВНИМАНИЕ (per-user LLM): здесь СОЗНАТЕЛЬНО читается ГЛОБАЛЬНЫЙ kv, то
+    есть Ollama владельца. Это безопасно ровно потому, что инструменты —
+    зона только владельца, и это проверяется на ОБОИХ входах в чат:
+    ``_tools_on = tools_owner and _private_tool_intent`` в
+    ``app/web/routes/chat_sessions.py`` и ``tools_allowed = allow_tools and
+    owner_actor`` в ``_stream_via_conversation_service`` (у не-владельца
+    список инструментов пуст, а ``tool_policy`` = None). Если инструменты
+    когда-нибудь откроют обычным пользователям — эту функцию НЕЛЬЗЯ
+    оставлять как есть: она должна принимать ``user_id`` и читать
+    ``user_settings``, иначе чужой чат пойдёт на железо владельца.
     """
     try:
         from app.storage.db import get_connection  # noqa: PLC0415

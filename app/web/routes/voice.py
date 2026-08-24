@@ -139,7 +139,7 @@ async def _generate_reply(
         "простыми фразами, без markdown, списков, кода и эмодзи."
     )
 
-    client = make_client(kind="chat")
+    client = make_client(kind="chat", user_id=int(user_id))
     eff = await _get_effort(session_id)
     answer = await client.complete(
         CompletionRequest(
