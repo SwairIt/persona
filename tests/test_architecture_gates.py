@@ -57,7 +57,32 @@ ROUTE_DIRECT_DB_IMPORT_BASELINE = frozenset(
 # POST /settings/ui-language. Участник меняет язык интерфейса ТОЛЬКО себе
 # (user_settings), владелец — глобальный kv как раньше. Отдельный путь нужен
 # потому, что /settings (owner-зона) участнику закрыт гейтом.
-REGISTERED_ROUTE_BUDGET = 1_111  # +6 (2026-08-24): AI-everywhere wave 2 (insights, suggest, hour summary, ai-calendar parse+create)
+# Reviewed +15: социальный слой (друзья + личные сообщения) — первая
+# поверхность, где зарегистрированные аккаунты видят ДРУГ ДРУГА, а не только
+# свои данные. /friends (страница, поиск, заявка, accept/decline/cancel,
+# remove, тумблер discoverable) = 8; /messages (список, ветка, открыть-с-другом,
+# send, poll, older, unread.json) = 7. Консолидировать не во что: существующей
+# межпользовательской поверхности в приложении не было.
+# Reviewed +6: «одолжить свою модель другу» (/settings/llm/sharing) — страница,
+# выдача доступа, правка лимита, пауза, отзыв и 308-редирект с хвостового
+# слэша. Консолидировать не во что: /settings/llm — это МОЙ провайдер и МОЙ
+# ключ (одна форма, один POST), а здесь другой объект (выдачи другим людям,
+# со своим состоянием и своими лимитами) и другой набор действий; впихнуть их
+# в ту же форму значило бы смешать «моя настройка» и «права других людей» на
+# одном экране — ровно то, что потом читается неправильно и раздаётся лишнее.
+# Reviewed +8: ИИ-ответы в личных сообщениях и уведомления социального слоя.
+# /api/messages/{id}/ai (чтение настройки+черновика, запись, «убрать
+# черновик») + /api/messages/ai/off-everywhere = 4; страница уведомлений
+# (GET/POST /settings/notifications-social), её опрос очереди
+# (/api/social-notif/pending) и проверка своего Telegram-бота
+# (/api/social-notif/telegram/test) = 4. Консолидировать не во что:
+# /api/messages/* — это СООБЩЕНИЯ (их чтение и отправка), а здесь настройка
+# «отвечать за меня» и приватный черновик, который в dm_message не попадает
+# вовсе; сунуть их в /send значило бы, что запрос на отправку сообщения умеет
+# менять правила автоответов. Уведомления — отдельная от переписки поверхность
+# (каналы, свой бот, антиспам почты), и её опрос дренирует уже существующий
+# таймер unreadStore, а не заводит второй поллер.
+REGISTERED_ROUTE_BUDGET = 1_140  # +6 (2026-08-24): AI-everywhere wave 2 (insights, suggest, hour summary, ai-calendar parse+create); +15 (2026-08-24): social layer; +6 (2026-08-24): llm sharing grants; +8 (2026-08-24): DM AI replies + social notifications
 
 # After the first bootstrap extraction the reference Windows host imports the
 # web app in ~5.3 s. Keep CI headroom while preventing a return to the measured

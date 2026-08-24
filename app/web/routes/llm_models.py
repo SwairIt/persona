@@ -93,6 +93,24 @@ _PROVIDER_DEFAULTS: dict[str, list[tuple[str, str]]] = {
     ],
 }
 
+# Пресеты OpenAI-совместимых сервисов приезжают ДАННЫМИ из app/llm/providers.py.
+# Держать здесь вторую копию их моделей значило бы завести список, который
+# разъедется с каталогом при первом же обновлении — поэтому разворачиваем
+# каталог в тот же формат. У пресета одна «модель по умолчанию»: остальное
+# пользователь вписывает руками, потому что у каждого сервиса свой каталог
+# на сотни имён и enumerate-эндпоинты у всех разные.
+def _merge_preset_defaults() -> None:
+    from app.llm.providers import PRESETS  # noqa: PLC0415
+
+    for preset in PRESETS:
+        _PROVIDER_DEFAULTS.setdefault(
+            preset.slug,
+            [(preset.default_model, "модель по умолчанию — можно заменить в /settings/llm")],
+        )
+
+
+_merge_preset_defaults()
+
 # T24 — Ollama installed-model description map. Lookup by model name.
 _OLLAMA_DESCRIPTIONS: dict[str, str] = {
     "qwen2.5:1.5b": "крошечная, быстрая, для простых задач",
@@ -232,6 +250,16 @@ async def _list_models_for_user(
             )
             model_kv = "ollama_model" if slug == "ollama" else f"{slug}_model"
             current_models[slug] = await get_user_kv(conn, user_id, model_kv) or None
+            if slug == "openai_compatible":
+                # Универсальному провайдеру одного ключа мало: без адреса и без
+                # имени модели он не соберётся вообще, поэтому «настроен» тут
+                # означает все три поля, а не одно.
+                own_base = (
+                    await get_user_kv(conn, user_id, "openai_compatible_base_url") or ""
+                ).strip()
+                provider_keys[slug] = bool(
+                    key and own_base and current_models[slug]
+                )
 
     providers_out: list[dict[str, object]] = []
     for slug, label, _placeholder in providers_tuple:
@@ -251,6 +279,20 @@ async def _list_models_for_user(
                     "(например http://192.168.1.10:11434)"
                     if not own_ollama
                     else "Твой Ollama не отвечает — проверь, что он запущен и доступен"
+                )
+        elif slug == "openai_compatible":
+            # Каталога у «своего сервиса» нет по определению — показываем ровно
+            # ту модель, которую человек вписал сам.
+            own_model = current_models.get(slug)
+            models_struct = (
+                [{"name": own_model, "description": "твоя модель", "vision": False}]
+                if own_model
+                else []
+            )
+            if not own_model:
+                hint = (
+                    "Впиши адрес эндпоинта и имя модели на /settings/llm — "
+                    "для своего сервиса каталога моделей у нас нет."
                 )
         else:
             defaults = _PROVIDER_DEFAULTS.get(slug, [])

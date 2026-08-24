@@ -50,6 +50,31 @@ Provider = Literal[
     # С точки зрения сервера это ещё один провайдер: задачи кладутся в очередь
     # (app.llm.worker_queue), а WorkerLLMClient.stream поллит готовые чанки.
     "worker",
+    # ── Универсальный OpenAI-совместимый эндпоинт ───────────────────────────
+    # Пользователь сам вписывает base URL + модель + ключ. Один этот провайдер
+    # закрывает ЛЮБОЙ сервис с OpenAI-протоколом — и те, что уже есть в списке
+    # ниже, и те, которых ещё не существует. Добавлять новый сервис в код
+    # больше не обязательно: пресеты ниже — просто удобные заготовки.
+    "openai_compatible",
+    # ── Пресеты (тот же протокол, отличается только базовый URL) ────────────
+    # Ровно те же слаги, что в app/llm/providers.py PRESETS. Литерал держим
+    # синхронным списком, потому что из него собирается _ALL_PROVIDERS.
+    "cerebras",
+    "github_models",
+    "fireworks",
+    "deepinfra",
+    "hyperbolic",
+    "nebius",
+    "perplexity",
+    "moonshot",
+    "zhipu",
+    "dashscope",
+    "minimax",
+    "novita",
+    "ionet",
+    "chutes",
+    "featherless",
+    "targon",
 ]
 
 log = get_logger("persona.llm.switcher")
@@ -91,6 +116,17 @@ class LLMProviderForbidden(LLMNotConfigured):
     «ассистент офлайн», фоновые задачи молча пропускают ход). Отдельный
     базовый класс сломал бы их все, поэтому запрет — это частный случай
     «не настроено», просто с другим текстом.
+    """
+
+
+class LLMGrantQuotaExceeded(LLMNotConfigured):
+    """Дневной лимит, который дал друг, исчерпан.
+
+    Тоже подкласс :class:`LLMNotConfigured` и по той же причине: все места с
+    ``except LLMNotConfigured`` обязаны продолжать деградировать мягко. UI
+    отличает этот случай по типу и показывает «лимит от друга на сегодня
+    исчерпан», а не «AI не подключён» — это разные проблемы с разными
+    действиями пользователя.
     """
 
 
@@ -1514,6 +1550,36 @@ class AITunnelClient(_OpenAICompatibleClient):
     _DEFAULT_MODEL = "gpt-4o-mini"
 
 
+class PresetOpenAICompatibleClient(_OpenAICompatibleClient):
+    """Один класс на ВСЕ OpenAI-совместимые сервисы, включая будущие.
+
+    Раньше каждый новый сервис означал новый подкласс на три строки. Это
+    масштабируется ровно до момента, когда сервисов становится два десятка:
+    дальше это N копий, которые расходятся при первой правке протокола, и
+    ошибка в одной из них видна только тому, кто именно ей пользуется.
+
+    Здесь ``provider`` / ``_BASE_URL`` / ``_DEFAULT_MODEL`` задаются в
+    ``__init__`` как атрибуты ЭКЗЕМПЛЯРА — они перекрывают классовые, а вся
+    логика запроса и стрима остаётся общей и единственной. Добавление сервиса
+    = строка данных в :data:`app.llm.providers.PRESETS`, а «своего» сервиса
+    пользователем = просто другой ``base_url`` без изменения кода вообще.
+    """
+
+    def __init__(
+        self,
+        api_key: str,
+        *,
+        provider: str,
+        base_url: str,
+        model: str | None = None,
+        default_model: str = "",
+    ) -> None:
+        self.provider = cast("Provider", provider)
+        self._BASE_URL = base_url
+        self._DEFAULT_MODEL = default_model
+        super().__init__(api_key, model=model)
+
+
 async def _parse_gemini_sse(
     response: httpx.Response, client: GeminiClient
 ) -> AsyncIterator[str]:
@@ -1800,6 +1866,17 @@ _USER_ALLOWED_PROVIDERS: frozenset[str] = _ALL_PROVIDERS - {"worker"}
 #: Ключ user_settings с выбранным провайдером (близнец kv ``llm_provider``).
 _USER_KV_PROVIDER = "llm_provider"
 
+class _LLMDisabledByUser(LLMNotConfigured):
+    """Пользователь ВЫКЛЮЧИЛ AI сам (провайдер «никто»).
+
+    Отдельный тип нужен ровно для одного решения: «выключено» — это ВЫБОР, а
+    не «нечем считать». Поэтому такой пользователь НЕ проваливается на
+    одолженную модель друга: человек, который выключил AI, не должен внезапно
+    обнаружить, что он всё это время жёг чужую квоту. Публично это всё тот же
+    :class:`LLMNotConfigured`, так что внешнее поведение не меняется.
+    """
+
+
 _USER_NOT_CONFIGURED = (
     "Свой AI не подключён. Открой /settings/llm, выбери провайдера и вставь "
     "свой ключ — Persona ходит в модель ТВОИМ ключом, чужой не используется."
@@ -1866,7 +1943,7 @@ async def _resolve_user_provider_and_key(user_id: int) -> tuple[str, str | None]
 
     if provider == "none":
         msg = "AI выключен в твоих настройках (провайдер «никто»). Включи на /settings/llm."
-        raise LLMNotConfigured(msg)
+        raise _LLMDisabledByUser(msg)
 
     if provider == "worker":
         msg = (
@@ -1894,6 +1971,50 @@ async def _resolve_user_provider_and_key(user_id: int) -> tuple[str, str | None]
                 "локальный сервер Persona для тебя не используется."
             )
             raise LLMNotConfigured(msg)
+        # …и та же анти-SSRF проверка, что для универсального провайдера.
+        # Раньше проверка была «начинается на http» — а значит участник мог
+        # вписать http://127.0.0.1:11434 (Ollama НА СЕРВЕРЕ, то есть железо
+        # владельца) или http://169.254.169.254 (метадата облака) и получить
+        # ровно то, что per-user резолюция и должна была запретить.
+        from app.llm.providers import InvalidBaseURL, validate_base_url  # noqa: PLC0415
+
+        try:
+            validate_base_url(key, owner=False)
+        except InvalidBaseURL as exc:
+            raise LLMNotConfigured(f"URL твоего Ollama отклонён: {exc}") from exc
+        return (provider, key)
+
+    if provider == "openai_compatible":
+        # Универсальный провайдер требует ТРИ вещи, а не одну: ключ, base URL
+        # и имя модели. Без URL клиент некуда слать, без модели сервис почти
+        # всегда отвечает 400 — поэтому проверяем всё здесь, а не падаем
+        # непонятной сетевой ошибкой в момент первого сообщения.
+        if not key:
+            msg = (
+                "Для «свой OpenAI-совместимый сервис» нужен API-ключ. "
+                "Впиши его на /settings/llm."
+            )
+            raise LLMNotConfigured(msg)
+        base_url = await _read_user_kv(user_id, "openai_compatible_base_url")
+        model = await _read_user_kv(user_id, "openai_compatible_model")
+        if not base_url:
+            msg = (
+                "Для «свой OpenAI-совместимый сервис» нужен адрес эндпоинта "
+                "(например https://api.example.com/v1). Впиши его на /settings/llm."
+            )
+            raise LLMNotConfigured(msg)
+        if not model:
+            msg = (
+                "Для «свой OpenAI-совместимый сервис» нужно имя модели — "
+                "точно такое, как в доках сервиса. Впиши его на /settings/llm."
+            )
+            raise LLMNotConfigured(msg)
+        from app.llm.providers import InvalidBaseURL, validate_base_url  # noqa: PLC0415
+
+        try:
+            validate_base_url(base_url, owner=False)
+        except InvalidBaseURL as exc:
+            raise LLMNotConfigured(f"Адрес эндпоинта отклонён: {exc}") from exc
         return (provider, key)
 
     if not key:
@@ -1921,17 +2042,128 @@ async def _is_owner_scoped(user_id: int) -> bool:
         return False
 
 
-def _resolve_user_scoped_sync(user_id: int) -> tuple[str, str | None] | None:
+# ---------------------------------------------------------------------------
+# Одолженная модель друга (llm_grant) — резолюция и квота
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class _UserResolution:
+    """Чем именно будет считать этот пользователь.
+
+    ``extras_user_id`` — ЧЬИ настройки читать для «допов» (имя модели,
+    yandex folder_id, свой base URL). Для собственной конфигурации это сам
+    пользователь; для одолженной — ВЫДАВШИЙ (``None`` = владелец, то есть
+    глобальный ``kv_settings``). Ровно из-за этого поля «расход пишем на
+    получателя, а настройки читаем у выдавшего» выражается без ветвлений в
+    двадцати местах.
+    """
+
+    provider: str
+    key: str | None
+    extras_user_id: int | None
+    grant_id: int | None = None
+    grant_day: str | None = None
+    grantor_email: str = ""
+
+
+async def _grantor_config(grantor_id: int) -> tuple[str, str | None, int | None]:
+    """Провайдер+ключ ВЫДАВШЕГО и то, чьи «допы» читать.
+
+    Владелец держит конфиг в глобальном ``kv_settings`` (там же и ``worker`` —
+    его домашний ПК), участник — в своём ``user_settings``. Возврат
+    ``extras_user_id=None`` означает «читать глобальный kv».
+
+    Именно и ТОЛЬКО этот путь может отдать ``worker``: он живёт исключительно
+    в конфиге владельца, а ``_resolve_user_provider_and_key`` для не-владельца
+    бросает :class:`LLMProviderForbidden` раньше. То есть чужой ПК владельца
+    достижим лишь через ЯВНУЮ выдачу самого владельца, как и требовалось.
+    """
+    if await _is_owner_scoped(grantor_id):
+        provider, key = await _resolve_provider_and_key()
+        if not provider or provider == "none":
+            msg = "Друг, который дал тебе доступ, сейчас не подключил модель."
+            raise LLMNotConfigured(msg)
+        if not key and provider not in ("ollama", "worker"):
+            msg = "У друга, который дал тебе доступ, не заполнен ключ провайдера."
+            raise LLMNotConfigured(msg)
+        return (provider, key, None)
+    provider, key = await _resolve_user_provider_and_key(grantor_id)
+    return (provider, key, int(grantor_id))
+
+
+async def _resolve_borrowed(user_id: int, own_error: LLMNotConfigured) -> _UserResolution:
+    """Найти живую выдачу, списать один запрос и собрать конфиг ВЫДАВШЕГО.
+
+    Порядок важен: сначала убеждаемся, что у выдавшего вообще есть рабочая
+    конфигурация, и только потом трогаем счётчик — иначе сломанная настройка
+    друга молча сжигала бы его же дневной лимит.
+    """
+    from app.llm import grants as grants_mod  # noqa: PLC0415 — модуль тянет БД
+
+    grants = await grants_mod.active_grants_for(int(user_id))
+    if not grants:
+        raise own_error
+
+    day = grants_mod._today()
+    exhausted = False
+    last_error: LLMNotConfigured = own_error
+    for grant in grants:
+        grantor_id = int(grant["grantor_id"])
+        try:
+            provider, key, extras = await _grantor_config(grantor_id)
+        except LLMNotConfigured as exc:
+            last_error = exc
+            continue
+        limit = int(grant["daily_limit"])
+        if not await grants_mod.consume_quota(int(grant["id"]), limit, day):
+            exhausted = True
+            continue
+        log.info(
+            "llm.client.borrowed",
+            grantee=int(user_id),
+            grantor=grantor_id,
+            provider=provider,
+            daily_limit=limit,
+        )
+        return _UserResolution(
+            provider=provider,
+            key=key,
+            extras_user_id=extras,
+            grant_id=int(grant["id"]),
+            grant_day=day,
+            grantor_email=str(grant.get("grantor_email") or ""),
+        )
+
+    if exhausted:
+        msg = (
+            "Лимит от друга на сегодня исчерпан. Подключи свою модель на "
+            "/settings/llm или попроси поднять лимит — счётчик обнулится завтра."
+        )
+        raise LLMGrantQuotaExceeded(msg)
+    raise last_error
+
+
+def _resolve_user_scoped_sync(user_id: int) -> _UserResolution | None:
     """``None`` → это владелец, дальше идёт обычная глобальная резолюция."""
-    async def _go() -> tuple[str, str | None] | None:
+    async def _go() -> _UserResolution | None:
         if await _is_owner_scoped(user_id):
             return None
-        return await _resolve_user_provider_and_key(user_id)
+        try:
+            provider, key = await _resolve_user_provider_and_key(user_id)
+        except _LLMDisabledByUser:
+            # «Никто» — это осознанное «выключить», а не «нечем считать».
+            # Проваливаться отсюда на чужую квоту нельзя.
+            raise
+        except LLMNotConfigured as exc:
+            # Своего конфига нет (или он запрещён) — единственный оставшийся
+            # честный путь это ЯВНАЯ выдача от конкретного человека.
+            return await _resolve_borrowed(user_id, exc)
+        return _UserResolution(
+            provider=provider, key=key, extras_user_id=int(user_id)
+        )
 
-    return cast(
-        "tuple[str, str | None] | None",
-        _sync_bridge(_go),
-    )
+    return cast("_UserResolution | None", _sync_bridge(_go))
 
 
 async def user_llm_configured(user_id: int) -> bool:
@@ -1959,8 +2191,18 @@ async def user_llm_configured(user_id: int) -> bool:
 
     try:
         await _resolve_user_provider_and_key(user_id)
-    except LLMNotConfigured:
+    except _LLMDisabledByUser:
         return False
+    except LLMNotConfigured:
+        # Своей модели нет — но друг мог одолжить свою. Проверяем БЕЗ списания
+        # квоты: «настроен ли AI» спрашивают при каждой отрисовке чата, и
+        # ответ на этот вопрос не имеет права стоить человеку запроса.
+        try:
+            from app.llm import grants as grants_mod  # noqa: PLC0415
+
+            return bool(await grants_mod.active_grants_for(int(user_id)))
+        except Exception:  # noqa: BLE001
+            return False
     except Exception:  # noqa: BLE001 — пустое состояние честнее ложного «ок»
         return False
     return True
@@ -2123,6 +2365,101 @@ async def _record_usage(
     )
 
 
+def _preset_slugs() -> frozenset[str]:
+    from app.llm.providers import PRESETS_BY_SLUG  # noqa: PLC0415
+
+    return frozenset(PRESETS_BY_SLUG)
+
+
+#: Слаги «пресетных» сервисов. Импорт на уровне модуля дешёвый (providers.py
+#: это только данные + stdlib), но держим его лениво-вычисленным, чтобы
+#: порядок импортов внутри пакета оставался свободным.
+_PRESET_SLUGS: frozenset[str] = _preset_slugs()
+
+
+def _make_openai_compatible_inner(
+    slug: str,
+    api_key: str,
+    read_extra: Callable[[str], str | None],
+    *,
+    owner: bool,
+) -> LLMClient:
+    """Собрать клиент для пресета или для «своего» OpenAI-совместимого сервиса.
+
+    Базовый URL берётся из настроек ``<slug>_base_url`` и падает на дефолт
+    пресета, если пользователь ничего не вписал. У ``openai_compatible``
+    дефолта нет по определению — там URL и модель обязательны.
+
+    Проверка URL (:func:`app.llm.providers.validate_base_url`) выполняется
+    ЗДЕСЬ, а не только в форме: значение может приехать из БД, написанной
+    другой версией кода, и валидатор в форме — это удобство, а не граница
+    безопасности. Граница — вот эта.
+    """
+    from app.llm.providers import (  # noqa: PLC0415
+        PRESETS_BY_SLUG,
+        InvalidBaseURL,
+        normalise_chat_completions_url,
+        validate_base_url,
+    )
+
+    preset = PRESETS_BY_SLUG.get(slug)
+    override = (read_extra(f"{slug}_base_url") or "").strip()
+    model = (read_extra(f"{slug}_model") or "").strip() or None
+
+    if preset is None:
+        # Универсальный провайдер: без URL и модели ехать некуда.
+        if not override:
+            msg = (
+                "Для «свой OpenAI-совместимый сервис» нужен адрес эндпоинта. "
+                "Впиши его на /settings/llm (например https://api.example.com/v1)."
+            )
+            raise LLMNotConfigured(msg)
+        if not model:
+            msg = (
+                "Для «свой OpenAI-совместимый сервис» нужно имя модели — "
+                "ровно такое, как в доках сервиса. Впиши его на /settings/llm."
+            )
+            raise LLMNotConfigured(msg)
+        default_model = ""
+    else:
+        default_model = preset.default_model
+
+    raw_url = override or (preset.base_url if preset else "")
+    try:
+        checked = validate_base_url(raw_url, owner=owner)
+    except InvalidBaseURL as exc:
+        raise LLMNotConfigured(f"Адрес эндпоинта отклонён: {exc}") from exc
+
+    return PresetOpenAICompatibleClient(
+        api_key,
+        provider=slug,
+        base_url=normalise_chat_completions_url(checked),
+        model=model,
+        default_model=default_model,
+    )
+
+
+def _refund_grant(scoped: _UserResolution | None) -> None:
+    """Вернуть списанную единицу лимита, если клиент так и не собрался.
+
+    Без этого сломанная конфигурация выдавшего съедала бы его же дневной
+    лимит на каждой попытке получателя — то есть друг «тратил» бы деньги,
+    которых никто не потратил.
+    """
+    if scoped is None or scoped.grant_id is None:
+        return
+
+    async def _go() -> None:
+        from app.llm import grants as grants_mod  # noqa: PLC0415
+
+        await grants_mod.refund_quota(scoped.grant_id, scoped.grant_day)
+
+    try:
+        _sync_bridge(_go)
+    except Exception as exc:  # noqa: BLE001 — возврат квоты best-effort
+        log.warning("llm.grant.refund_failed", error=str(exc))
+
+
 def make_client(
     provider: Provider | None = None,
     api_key: str | None = None,
@@ -2169,8 +2506,10 @@ def make_client(
     # ``user_scope`` не ``None`` только на строгой per-user ветке: тогда и
     # extras (модель, folder_id) читаем из user_settings, а не из kv.
     user_scope: int | None = None
-
-    scoped: tuple[str, str | None] | None = None
+    # Чей расход пишем в леджер. На per-user ветке это ВСЕГДА сам вызывающий,
+    # даже когда модель одолжена: потратил её он, а не тот, кто дал доступ.
+    ledger_user: int | None = None
+    scoped: _UserResolution | None = None
     if user_id is not None:
         scoped = _resolve_user_scoped_sync(int(user_id))
 
@@ -2178,8 +2517,9 @@ def make_client(
         # Не-владелец: явные provider/api_key намеренно игнорируем —
         # источник истины только его собственные настройки, иначе вызывающий
         # код мог бы (случайно или нет) подсунуть чужого провайдера.
-        use_provider, use_key = scoped
-        user_scope = int(user_id) if user_id is not None else None
+        use_provider, use_key = scoped.provider, scoped.key
+        user_scope = scoped.extras_user_id
+        ledger_user = int(user_id) if user_id is not None else None
     elif provider is not None or api_key is not None:
         cfg = get_settings()
         use_provider = (provider or cfg.byo_api_provider or "").strip().lower() or None
@@ -2269,7 +2609,19 @@ def make_client(
         inner = ProxyAPIClient(use_key, model=read_extra("proxyapi_model"))
     elif use_provider == "aitunnel":
         inner = AITunnelClient(use_key, model=read_extra("aitunnel_model"))
+    elif use_provider == "openai_compatible" or use_provider in _PRESET_SLUGS:
+        try:
+            inner = _make_openai_compatible_inner(
+                use_provider,
+                use_key or "",
+                read_extra,
+                owner=user_scope is None and scoped is None,
+            )
+        except LLMNotConfigured:
+            _refund_grant(scoped)
+            raise
     else:
+        _refund_grant(scoped)
         msg = f"Unsupported LLM provider: {use_provider}"
         raise LLMNotConfigured(msg)
 
@@ -2280,4 +2632,5 @@ def make_client(
     # up to the operator's actual provider bill.
     # ``user_id`` пишется в леджер только для per-user ветки: у владельца и
     # фоновых задач там остаётся NULL, как и во всех строках до этой правки.
-    return _UsageRecordingClient(inner, kind=kind, user_id=user_scope)
+    # На одолженной модели это ПОЛУЧАТЕЛЬ (потратил он), а не выдавший.
+    return _UsageRecordingClient(inner, kind=kind, user_id=ledger_user)

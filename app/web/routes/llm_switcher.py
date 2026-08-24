@@ -47,6 +47,13 @@ from app.auth import current_user_required
 from app.auth.owner import is_owner
 from app.auth.sessions import SessionRecord
 from app.llm.client import CompletionRequest, LLMNotConfigured, make_client
+from app.llm.providers import (
+    PRESETS,
+    PRESETS_BY_SLUG,
+    UNIVERSAL_SLUG,
+    InvalidBaseURL,
+    validate_base_url,
+)
 from app.logging_setup import get_logger
 from app.storage.db import get_connection
 from app.storage.repository import get_kv, set_kv
@@ -98,6 +105,21 @@ PROVIDERS: Final[tuple[tuple[str, str, str], ...]] = (
     ("openai", "OpenAI (GPT-4o family) — VPN из РФ", "sk-..."),
     ("gemini", "Google Gemini — VPN из РФ", "AIza..."),
     ("xai", "xAI Grok — VPN из РФ", "ключ с x.ai/api"),
+
+    # === Универсальный: любой сервис с OpenAI-совместимым API ===
+    # Единственный пункт, который не устаревает. Вписываешь адрес эндпоинта,
+    # имя модели и ключ — работает ЛЮБОЙ сервис, говорящий протоколом
+    # /chat/completions, включая те, которых ещё не существует.
+    (
+        UNIVERSAL_SLUG,
+        "🔧 Свой OpenAI-совместимый сервис (адрес + модель + ключ)",
+        "ключ сервиса",
+    ),
+
+    # === Пресеты: тот же протокол, отличается только базовый URL ===
+    # Данные лежат в app/llm/providers.py — здесь просто разворачиваем их в
+    # тот же кортеж, чтобы не держать две копии списка.
+    *tuple((p.slug, p.label, p.placeholder) for p in PRESETS),
 )
 
 #: ``none`` disables AI features without deleting any stored key.
@@ -123,6 +145,89 @@ def _vault_key_for(provider: str) -> str:
 def _kv_fallback_key_for(provider: str) -> str:
     """kv_settings row name used when the vault is unavailable."""
     return f"byo_api_key_{provider}"
+
+
+# ---------------------------------------------------------------------------
+# Дополнительные поля OpenAI-совместимых сервисов (адрес эндпоинта + модель)
+# ---------------------------------------------------------------------------
+#
+# У «обычного» провайдера ключ — единственное, что нужно ввести. У пресетов и
+# у универсального ``openai_compatible`` полей три: ключ, адрес и модель.
+# Адрес переопределяем У ВСЕХ пресетов намеренно (см. app/llm/providers.py):
+# сервисы переезжают с домена на домен, и зашитая константа превращает переезд
+# в баг, который чинится только релизом.
+
+#: Слаги, у которых есть поля «свой URL» и «модель».
+_URL_EDITABLE_SLUGS: Final[frozenset[str]] = (
+    frozenset(PRESETS_BY_SLUG) | {UNIVERSAL_SLUG}
+)
+
+
+def _base_url_kv(slug: str) -> str:
+    return f"{slug}_base_url"
+
+
+def _model_kv(slug: str) -> str:
+    return f"{slug}_model"
+
+
+async def _extras_status(user_id: int | None) -> dict[str, dict[str, str]]:
+    """Текущие адрес/модель + справка по каждому OpenAI-совместимому сервису.
+
+    ``user_id is None`` — владелец (глобальный ``kv_settings``); иначе строки
+    из ``user_settings`` конкретного участника. Ключи здесь НЕ читаются вовсе.
+    """
+    from app.storage.repository import get_user_kv  # noqa: PLC0415
+
+    out: dict[str, dict[str, str]] = {}
+    async with get_connection() as conn:
+        for slug in sorted(_URL_EDITABLE_SLUGS):
+            preset = PRESETS_BY_SLUG.get(slug)
+            if user_id is None:
+                base_url = await get_kv(conn, _base_url_kv(slug))
+                model = await get_kv(conn, _model_kv(slug))
+            else:
+                base_url = await get_user_kv(conn, user_id, _base_url_kv(slug))
+                model = await get_user_kv(conn, user_id, _model_kv(slug))
+            out[slug] = {
+                "base_url": (base_url or "").strip(),
+                "model": (model or "").strip(),
+                "default_base_url": preset.base_url if preset else "",
+                "default_model": preset.default_model if preset else "",
+                "key_hint": preset.key_hint if preset else (
+                    "Ключ выдаёт сам сервис. Адрес пиши так, как он написан в "
+                    "его доках (обычно .../v1) — хвост /chat/completions "
+                    "допишется сам."
+                ),
+                "key_url": preset.key_url if preset else "",
+                "confidence": preset.confidence if preset else "",
+                "note": preset.note if preset else "",
+                "required": "true" if preset is None else "false",
+            }
+    return out
+
+
+def _collect_extras(
+    form: dict[str, str], *, owner: bool
+) -> tuple[dict[str, tuple[str | None, str | None]], str | None]:
+    """Разобрать поля адреса/модели из формы. Второй элемент — текст ошибки.
+
+    Пустое поле = «не трогать сохранённое» (та же семантика, что у ключей).
+    Непустой адрес проверяется анти-SSRF правилом ПРЯМО ЗДЕСЬ, чтобы человек
+    увидел понятную причину в форме, а не сетевую ошибку в чате через минуту.
+    """
+    parsed: dict[str, tuple[str | None, str | None]] = {}
+    for slug in sorted(_URL_EDITABLE_SLUGS):
+        raw_url = str(form.get(f"{slug}_base_url", "") or "").strip()
+        raw_model = str(form.get(f"{slug}_model", "") or "").strip()
+        if raw_url:
+            try:
+                raw_url = validate_base_url(raw_url, owner=owner)
+            except InvalidBaseURL as exc:
+                label = PRESETS_BY_SLUG[slug].label if slug in PRESETS_BY_SLUG else slug
+                return ({}, f"Адрес для «{label}» отклонён: {exc}")
+        parsed[slug] = (raw_url or None, raw_model or None)
+    return (parsed, None)
 
 
 # ---------------------------------------------------------------------------
@@ -159,6 +264,15 @@ async def _key_status_per_provider(
     just without the value.
     """
     result: dict[str, dict[str, str]] = {}
+    # Существование vault-строк спрашиваем ОДИН раз на всю страницу, а не по
+    # разу на провайдера: список providers вырос втрое, и прежний вызов
+    # ``list_keys()`` внутри цикла превратился бы в три десятка запросов на
+    # каждую отрисовку /settings/llm.
+    vault_names: set[str] = set()
+    if not master_password:
+        from app.vault import list_keys  # noqa: PLC0415 — keep import surface small
+
+        vault_names = {row["key"] for row in await list_keys()}
     async with get_connection() as conn:
         for slug, _label, _placeholder in PROVIDERS:
             kv_value = await get_kv(conn, _kv_fallback_key_for(slug))
@@ -172,12 +286,7 @@ async def _key_status_per_provider(
                 if vault_configured:
                     vault_value = str(vault_result.get("value", ""))
             else:
-                # Cheap existence probe — we list keys instead of
-                # decrypting so we never need the password.
-                from app.vault import list_keys  # noqa: PLC0415 — keep import surface small
-
-                names = {row["key"] for row in await list_keys()}
-                vault_configured = _vault_key_for(slug) in names
+                vault_configured = _vault_key_for(slug) in vault_names
 
             entry: dict[str, str] = {
                 "configured": "true" if (vault_configured or kv_configured) else "false",
@@ -252,6 +361,7 @@ async def _persist_user_choice(
     user_id: int,
     provider: str,
     form: dict[str, str],
+    extras: dict[str, tuple[str | None, str | None]] | None = None,
 ) -> dict[str, str]:
     """Сохранить провайдера + непустые ключи пользователя. Возвращает записанное."""
     from app.storage.repository import set_user_kv  # noqa: PLC0415
@@ -268,6 +378,13 @@ async def _persist_user_choice(
             await set_user_kv(conn, user_id, _kv_fallback_key_for(slug), raw)
             invalidate_user_kv_sync(user_id, _kv_fallback_key_for(slug))
             written[slug] = "user"
+        for slug, (base_url, model) in (extras or {}).items():
+            if base_url:
+                await set_user_kv(conn, user_id, _base_url_kv(slug), base_url)
+                invalidate_user_kv_sync(user_id, _base_url_kv(slug))
+            if model:
+                await set_user_kv(conn, user_id, _model_kv(slug), model)
+                invalidate_user_kv_sync(user_id, _model_kv(slug))
     return written
 
 
@@ -318,10 +435,23 @@ async def _save_user_choice(
                 "Ollama или облачный ключ."
             ),
             is_owner_user=False,
+            extras=await _extras_status(user_id),
             status_code=400,
         )
 
-    written = await _persist_user_choice(user_id, provider, form)
+    parsed_extras, extras_error = _collect_extras(form, owner=False)
+    if extras_error:
+        return _render(
+            request,
+            current_provider=await _user_current_provider(user_id),
+            keys=await _user_key_status(user_id),
+            error=extras_error,
+            is_owner_user=False,
+            extras=await _extras_status(user_id),
+            status_code=400,
+        )
+
+    written = await _persist_user_choice(user_id, provider, form, parsed_extras)
     await log_action(
         "llm.switcher.save",
         target=provider,
@@ -335,6 +465,7 @@ async def _save_user_choice(
         keys=await _user_key_status(user_id),
         notice=_user_save_notice(provider, written),
         is_owner_user=False,
+        extras=await _extras_status(user_id),
     )
 
 
@@ -416,6 +547,7 @@ def _render(
     worker_token: str | None = None,
     worker_status: dict[str, object] | None = None,
     is_owner_user: bool = False,
+    extras: dict[str, dict[str, str]] | None = None,
     status_code: int = 200,
 ) -> HTMLResponse:
     """Single render entry-point so every code path uses the same context."""
@@ -443,6 +575,11 @@ def _render(
             "worker_token": worker_token,
             "worker_status": worker_status,
             "is_owner": is_owner_user,
+            # Адрес эндпоинта + модель для OpenAI-совместимых сервисов.
+            # Ключей здесь нет и быть не может — только адреса и имена моделей.
+            "extras": extras or {},
+            "url_editable": sorted(_URL_EDITABLE_SLUGS),
+            "universal_slug": UNIVERSAL_SLUG,
         },
         status_code=status_code,
     )
@@ -471,6 +608,7 @@ async def llm_switcher_page(
             current_provider=await _user_current_provider(uid),
             keys=await _user_key_status(uid),
             is_owner_user=False,
+            extras=await _extras_status(uid),
         )
     current = await _current_provider()
     keys = await _key_status_per_provider(master_password=None)
@@ -485,6 +623,7 @@ async def llm_switcher_page(
         keys=keys,
         worker_status=await _worker_status_safe(),
         is_owner_user=owner,
+        extras=await _extras_status(None),
     )
 
 
@@ -535,6 +674,21 @@ async def llm_switcher_save(
             error=f"Неизвестный провайдер «{provider}».",
             worker_status=await _worker_status_safe(),
             is_owner_user=owner,
+            extras=await _extras_status(None),
+            status_code=400,
+        )
+
+    plain_form = {k: str(v) for k, v in form.items() if isinstance(v, str)}
+    parsed_extras, extras_error = _collect_extras(plain_form, owner=True)
+    if extras_error:
+        return _render(
+            request,
+            current_provider=await _current_provider(),
+            keys=await _key_status_per_provider(master_password=None),
+            error=extras_error,
+            worker_status=await _worker_status_safe(),
+            is_owner_user=owner,
+            extras=await _extras_status(None),
             status_code=400,
         )
 
@@ -547,6 +701,13 @@ async def llm_switcher_save(
             continue
         source = await _persist_key(slug, raw, master_password)
         written[slug] = source
+
+    async with get_connection() as conn:
+        for slug, (base_url, model) in parsed_extras.items():
+            if base_url:
+                await set_kv(conn, _base_url_kv(slug), base_url)
+            if model:
+                await set_kv(conn, _model_kv(slug), model)
 
     keys = await _key_status_per_provider(master_password=master_password or None)
 
@@ -590,6 +751,7 @@ async def llm_switcher_save(
         notice=notice,
         worker_status=await _worker_status_safe(),
         is_owner_user=owner,
+        extras=await _extras_status(None),
     )
 
 
@@ -604,6 +766,7 @@ async def _test_user_config(request: Request, user_id: int) -> HTMLResponse:
 
     current = await _user_current_provider(user_id)
     keys = await _user_key_status(user_id)
+    extras = await _extras_status(user_id)
 
     def _out(result: str) -> HTMLResponse:
         return _render(
@@ -612,6 +775,7 @@ async def _test_user_config(request: Request, user_id: int) -> HTMLResponse:
             keys=keys,
             test_result=result,
             is_owner_user=False,
+            extras=extras,
         )
 
     if current == "none":
@@ -673,6 +837,7 @@ async def llm_switcher_test(
     current = await _current_provider()
     keys = await _key_status_per_provider(master_password=master_password or None)
     wstatus = await _worker_status_safe()
+    owner_extras = await _extras_status(None)
 
     if current == "none":
         return _render(
@@ -682,6 +847,7 @@ async def llm_switcher_test(
             test_result="AI features are disabled (provider=none).",
             worker_status=wstatus,
             is_owner_user=owner,
+            extras=owner_extras,
         )
 
     try:
@@ -701,6 +867,7 @@ async def llm_switcher_test(
             test_result=f"Not configured: {exc}",
             worker_status=wstatus,
             is_owner_user=owner,
+            extras=owner_extras,
         )
 
     # T19 fix (2026-06-07) — bound the test call with asyncio timeout
@@ -735,6 +902,7 @@ async def llm_switcher_test(
             ),
             worker_status=wstatus,
             is_owner_user=owner,
+            extras=owner_extras,
         )
     except Exception as exc:
         log.warning(
@@ -755,6 +923,7 @@ async def llm_switcher_test(
             test_result=f"Failed: {type(exc).__name__}",
             worker_status=wstatus,
             is_owner_user=owner,
+            extras=owner_extras,
         )
 
     log.info("llm.switcher.test.ok", provider=current)
@@ -771,4 +940,5 @@ async def llm_switcher_test(
         test_result=f"OK — {current} responded.",
         worker_status=wstatus,
         is_owner_user=owner,
+        extras=owner_extras,
     )

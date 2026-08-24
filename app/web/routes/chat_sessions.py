@@ -154,7 +154,40 @@ async def _provider_badge(user_id: int | None = None) -> dict[str, object]:
             provider = (
                 await get_user_kv(conn, int(user_id), "llm_provider") or ""
             ).strip().lower()
-        return {"provider": provider or "none", "is_local": provider in _LOCAL_PROVIDERS}
+            # «Провайдер выбран» ещё не значит «работает»: без ключа (или без
+            # URL для Ollama) резолвер уедет на одолженную модель, и бейдж,
+            # смотрящий только на выбор, соврал бы про то, чей это ключ.
+            own_key = (
+                await get_user_kv(conn, int(user_id), f"byo_api_key_{provider}") or ""
+            ).strip() if provider and provider != "none" else ""
+        badge: dict[str, object] = {
+            "provider": provider or "none",
+            "is_local": provider in _LOCAL_PROVIDERS,
+        }
+        # «none» — осознанное «выключить AI»: одолженную модель туда не
+        # подставляем, иначе выключатель бы врал.
+        if provider != "none" and (not provider or not own_key):
+            # Своей модели нет — но кто-то мог одолжить свою. Человек обязан
+            # видеть, что он на ЧУЖОМ ключе и сколько запросов ему осталось:
+            # иначе «внезапно перестало работать» посреди дня выглядит как
+            # поломка, а не как исчерпанный лимит друга.
+            from app.llm.grants import borrowed_status  # noqa: PLC0415
+
+            borrowed = await borrowed_status(int(user_id))
+            if borrowed:
+                real = str(borrowed["provider"])
+                badge["is_local"] = real in _LOCAL_PROVIDERS
+                # Текст кладём прямо в ``provider``: шаблон чата печатает это
+                # поле как есть, так что человек видит правду в шапке без
+                # правки шаблона. Структура ``borrowed`` рядом — для тех мест,
+                # которым нужны числа, а не фраза.
+                badge["provider"] = (
+                    f"{real} друга — лимит на сегодня исчерпан"
+                    if borrowed["exhausted"]
+                    else f"{real} друга: осталось {borrowed['remaining']} запросов сегодня"
+                )
+                badge["borrowed"] = borrowed
+        return badge
     async with get_connection() as conn:
         provider = (await get_kv(conn, "llm_provider") or "ollama").strip().lower()
     return {"provider": provider, "is_local": provider in _LOCAL_PROVIDERS}

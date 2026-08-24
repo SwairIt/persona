@@ -1,0 +1,194 @@
+{% extends "base.html" %}
+
+{% block content %}
+{# «Одолжить свою модель другу». Осознанно поимённо: ни одного элемента
+   «выдать всем друзьям» на странице нет и быть не должно — это чужие деньги
+   и чужое железо, и массовая выдача такого не должна быть в один клик. #}
+
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight">🤝 Доступ к модели</h1>
+  <p class="text-zinc-500 text-sm mt-1">
+    Можно одолжить <strong>свою</strong> подключённую модель конкретному человеку —
+    с обязательным дневным лимитом. Он будет писать в чат, а запросы пойдут
+    твоим ключом (или на твоё железо). Твой ключ ему <strong>не показывается</strong>
+    и не передаётся — он живёт только на сервере.
+  </p>
+</div>
+
+<div class="rounded-lg border border-amber-700/40 bg-amber-900/20 text-amber-200 px-4 py-3 mb-6 text-sm">
+  Это <strong>твои деньги / твоё железо</strong>. Лимит обязателен — без него
+  выдачи не существует. Отозвать можно в любой момент, отзыв срабатывает
+  с того же запроса. Расход по каждой выдаче видно ниже.
+</div>
+
+{% if error %}
+  <div class="rounded-lg border border-rose-700/40 bg-rose-900/20 text-rose-200 px-4 py-3 mb-6 text-sm">{{ error }}</div>
+{% endif %}
+{% if notice %}
+  <div class="rounded-lg border border-emerald-700/40 bg-emerald-900/20 text-emerald-200 px-4 py-3 mb-6 text-sm">{{ notice }}</div>
+{% endif %}
+
+{# ── Выдать доступ ──────────────────────────────────────────────────────── #}
+<form action="/settings/llm/sharing/grant" method="post"
+      class="rounded-lg border border-ink-700 bg-ink-800 p-5 flex flex-col gap-4 mb-8">
+  <div>
+    <h2 class="text-sm font-semibold tracking-wider uppercase text-zinc-400">Выдать доступ</h2>
+    <p class="text-xs text-zinc-500 mt-1">
+      Твоя текущая модель: <code class="font-mono text-zinc-300">{{ own_provider }}</code>.
+      {% if own_provider in ('не выбран', 'none', '?') %}
+        <span class="text-amber-400">Сначала подключи свою на
+        <a href="/settings/llm" class="underline">/settings/llm</a> — делиться пока нечем.</span>
+      {% endif %}
+    </p>
+  </div>
+
+  <div class="grid gap-3 sm:grid-cols-[2fr_1fr]">
+    <label class="flex flex-col gap-1">
+      <span class="text-xs uppercase tracking-widest text-zinc-500">Email человека (точный)</span>
+      <input type="email" name="email" required
+             list="friend-emails"
+             placeholder="drug@example.com"
+             autocomplete="off"
+             class="px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm">
+      {% if friends %}
+        <datalist id="friend-emails">
+          {% for f in friends %}<option value="{{ f.email }}"></option>{% endfor %}
+        </datalist>
+        <span class="text-[11px] text-zinc-600">В подсказке — твои друзья.</span>
+      {% endif %}
+    </label>
+
+    <label class="flex flex-col gap-1">
+      <span class="text-xs uppercase tracking-widest text-zinc-500">Лимит, запросов в сутки</span>
+      <input type="number" name="daily_limit" min="1" max="{{ max_limit }}"
+             value="{{ default_limit }}" required
+             class="px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm">
+    </label>
+  </div>
+
+  <label class="flex flex-col gap-1">
+    <span class="text-xs uppercase tracking-widest text-zinc-500">Заметка (необязательно)</span>
+    <input type="text" name="note" maxlength="200"
+           placeholder="например: на время, пока Саша не заведёт свой ключ"
+           class="px-3 py-2 bg-ink-900 border border-ink-700 rounded text-sm">
+  </label>
+
+  <div>
+    <button type="submit"
+            class="px-5 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
+      Выдать доступ
+    </button>
+  </div>
+</form>
+
+{# ── Я делюсь ───────────────────────────────────────────────────────────── #}
+<h2 class="text-sm font-semibold tracking-wider uppercase text-zinc-400 mb-3">Я делюсь</h2>
+{% if not issued %}
+  <p class="text-sm text-zinc-500 mb-8">Пока никому не выдавал. И это нормально.</p>
+{% else %}
+  <div class="flex flex-col gap-3 mb-8">
+    {% for g in issued %}
+      <div class="rounded-lg border border-ink-700 bg-ink-800 p-4 flex flex-col gap-3">
+        <div class="flex items-start justify-between gap-3 flex-wrap">
+          <div class="min-w-0">
+            <div class="font-mono text-sm break-all">{{ g.grantee_email }}</div>
+            {% if g.note %}<div class="text-xs text-zinc-500 mt-0.5">{{ g.note }}</div>{% endif %}
+            <div class="text-xs text-zinc-500 mt-1">
+              Сегодня: <span class="font-mono {{ 'text-rose-400' if g.used_today >= g.daily_limit else 'text-zinc-300' }}">{{ g.used_today }}</span>
+              / <span class="font-mono">{{ g.daily_limit }}</span> запросов
+            </div>
+            {% if not g.friends %}
+              <div class="text-xs text-amber-400 mt-1">
+                ⚠️ Вы пока не подтверждённые друзья — доступ не работает, пока это не так.
+              </div>
+            {% endif %}
+          </div>
+          <div class="flex items-center gap-2">
+            {% if g.enabled %}
+              <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-900/40 border border-emerald-700/50 text-emerald-300">включён</span>
+            {% else %}
+              <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 border border-ink-700 text-zinc-500">на паузе</span>
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="flex items-end gap-2 flex-wrap pt-2 border-t border-ink-700">
+          <form action="/settings/llm/sharing/{{ g.id }}/limit" method="post" class="flex items-end gap-2">
+            <label class="flex flex-col gap-1">
+              <span class="text-[10px] uppercase tracking-widest text-zinc-500">Лимит</span>
+              <input type="number" name="daily_limit" min="1" max="{{ max_limit }}"
+                     value="{{ g.daily_limit }}"
+                     class="w-24 px-2 py-1.5 bg-ink-900 border border-ink-700 rounded font-mono text-xs">
+            </label>
+            <button type="submit" class="px-3 py-1.5 border border-ink-700 hover:border-accent-500 rounded text-xs">
+              Сохранить
+            </button>
+          </form>
+
+          <form action="/settings/llm/sharing/{{ g.id }}/toggle" method="post">
+            <input type="hidden" name="enabled" value="{{ '0' if g.enabled else '1' }}">
+            <button type="submit" class="px-3 py-1.5 border border-ink-700 hover:border-accent-500 rounded text-xs">
+              {{ 'Поставить на паузу' if g.enabled else 'Включить обратно' }}
+            </button>
+          </form>
+
+          <form action="/settings/llm/sharing/{{ g.id }}/revoke" method="post" class="ml-auto">
+            <button type="submit"
+                    class="px-3 py-1.5 border border-rose-700/50 text-rose-300 hover:bg-rose-900/30 rounded text-xs">
+              Отозвать насовсем
+            </button>
+          </form>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+{% endif %}
+
+{# ── Мне дали доступ ────────────────────────────────────────────────────── #}
+<h2 class="text-sm font-semibold tracking-wider uppercase text-zinc-400 mb-3">Мне дали доступ</h2>
+{% if not received %}
+  <p class="text-sm text-zinc-500">
+    Никто пока не одолжил тебе свою модель. Подключи свою на
+    <a href="/settings/llm" class="text-accent-400 underline">/settings/llm</a> —
+    так надёжнее: чужой доступ могут отозвать в любой момент.
+  </p>
+{% else %}
+  <div class="flex flex-col gap-3">
+    {% for g in received %}
+      <div class="rounded-lg border border-ink-700 bg-ink-800 p-4">
+        <div class="flex items-start justify-between gap-3 flex-wrap">
+          <div class="min-w-0">
+            <div class="font-mono text-sm break-all">{{ g.grantor_email }}</div>
+            <div class="text-xs text-zinc-500 mt-1">
+              Провайдер: <code class="font-mono text-zinc-300">{{ g.provider }}</code>
+              <span class="text-zinc-600">— ключ друга тебе не показывается и не выдаётся ни одним API</span>
+            </div>
+            <div class="text-xs text-zinc-500 mt-1">
+              Сегодня: <span class="font-mono {{ 'text-rose-400' if g.used_today >= g.daily_limit else 'text-zinc-300' }}">{{ g.used_today }}</span>
+              / <span class="font-mono">{{ g.daily_limit }}</span>
+              — осталось <span class="font-mono">{{ [g.daily_limit - g.used_today, 0]|max }}</span>
+            </div>
+            {% if g.note %}<div class="text-xs text-zinc-500 mt-1">{{ g.note }}</div>{% endif %}
+            {% if not g.friends %}
+              <div class="text-xs text-amber-400 mt-1">⚠️ Доступ выдан, но вы пока не подтверждённые друзья.</div>
+            {% endif %}
+          </div>
+          {% if g.enabled %}
+            <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-900/40 border border-emerald-700/50 text-emerald-300">активен</span>
+          {% else %}
+            <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 border border-ink-700 text-zinc-500">на паузе</span>
+          {% endif %}
+        </div>
+        <p class="text-[11px] text-zinc-600 mt-3 pt-2 border-t border-ink-700">
+          Это чужая модель. Друг может отозвать доступ в любой момент и без
+          предупреждения — свой ключ надёжнее.
+        </p>
+      </div>
+    {% endfor %}
+  </div>
+{% endif %}
+
+<div class="text-xs text-zinc-500 mt-8">
+  ← <a href="/settings/llm" class="underline hover:text-zinc-200">Назад к провайдеру и ключу</a>
+</div>
+{% endblock %}

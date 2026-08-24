@@ -38,6 +38,7 @@ _KEYWORDS: Final[dict[str, str]] = {
     "/settings/system-prompt": "характер роль личность промпт persona system prompt",
     "/settings/system-prompt/history": "живой динамический адаптивный характер версии промпта история откат",
     "/settings/llm": "модель провайдер ключ api llm gpt ollama claude",
+    "/settings/llm/sharing": "поделиться одолжить дать доступ друг лимит квота share grant модель другу",
     "/settings/smtp": "почта email письмо уведомления smtp",
     "/vault": "секреты пароли заметки шифрование vault",
     "/settings/backup/manage": "бэкап резерв копия восстановление backup",
@@ -62,6 +63,9 @@ _KEYWORDS: Final[dict[str, str]] = {
     "/settings/profile": "профиль обо мне имя возраст город факты что знает profile",
     "/auth/set-password": "пароль сменить пароль password вход логин",
     "/auth/logout": "выйти выход logout разлогиниться сменить аккаунт",
+    "/friends": "друзья заявки добавить друга поиск людей контакты friends социальное приватность найти меня скрыться невидимка discoverable",
+    "/messages": "сообщения лс переписка написать чат с человеком messages dm личка ии отвечает за меня автоответ черновик",
+    "/settings/notifications-social": "уведомления пуш браузер почта email телеграм telegram заявка сообщение ии ответил за меня notifications оповещения бот токен",
 }
 
 
@@ -78,6 +82,7 @@ _MEMBER_CATEGORIES: Final[list[dict[str, object]]] = [
         "icon": "🤖",
         "pages": [
             ("/settings/llm", "Провайдер и ключ твоей модели"),
+            ("/settings/llm/sharing", "Одолжить свою модель другу (с лимитом)"),
             ("/settings/system-prompt", "Характер ассистента"),
             ("/settings/advanced", "Режимы и инструменты чата"),
             ("/settings/skills", "Навыки"),
@@ -98,6 +103,23 @@ _MEMBER_CATEGORIES: Final[list[dict[str, object]]] = [
         "icon": "👤",
         "pages": [
             ("/settings/profile", "Что ИИ знает о тебе"),
+        ],
+    },
+    {
+        "title_key": "settings_cat_people_title",
+        "desc_key": "settings_cat_people_desc",
+        "icon": "👥",
+        "pages": [
+            # Тумблер «меня можно найти по поиску» живёт на самой /friends
+            # (отдельной страницы под один чекбокс не заводим), поэтому он
+            # назван прямо в подписи и в синонимах поиска — ссылки с якорем
+            # в каталоге нет: гейт проверяет пути, а не фрагменты.
+            ("/friends", "Друзья, заявки, поиск людей и «меня можно найти»"),
+            ("/messages", "Личные сообщения"),
+            (
+                "/settings/notifications-social",
+                "Уведомления: браузер / почта / Telegram + «выключить ИИ везде»",
+            ),
         ],
     },
     {
@@ -130,6 +152,7 @@ _CATEGORIES: Final[list[dict[str, object]]] = [
         "icon": "⭐",
         "pages": [
             ("/settings/llm", "Провайдер + ключ LLM"),
+            ("/settings/llm/sharing", "Одолжить свою модель другу (с лимитом)"),
             ("/settings/system-prompt", "Характер ассистента (пресеты + редактор)"),
             ("/settings/advanced", "Расширенные функции (друг ⇄ рабочий)"),
             ("/settings/memory", "🧠 Память — что ИИ помнит обо мне"),
@@ -200,6 +223,7 @@ _CATEGORIES: Final[list[dict[str, object]]] = [
             ("/admin/mcp", "MCP-серверы и встроенные инструменты"),
             ("/admin/dataset", "Датасет Q&A для fine-tune PersonaAI"),
             ("/settings/llm", "Провайдер + ключ LLM"),
+            ("/settings/llm/sharing", "Одолжить свою модель другу (с лимитом)"),
             ("/settings/web-search", "🔎 Поиск в интернете — Brave-ключ (работает и без него)"),
         ],
     },
@@ -287,6 +311,20 @@ _CATEGORIES: Final[list[dict[str, object]]] = [
             ("/settings/system-monitor", "🖥️ Монитор нагрузки ПК — CPU/RAM/диск/сеть в реальном времени"),
             ("/doctor", "Доктор (диагностика)"),
             ("/settings", "Все настройки одним списком (advanced)"),
+        ],
+    },
+    # Социальный слой доступен и владельцу: он тоже человек с друзьями.
+    {
+        "title_key": "settings_cat_people_title",
+        "desc_key": "settings_cat_people_desc",
+        "icon": "👥",
+        "pages": [
+            ("/friends", "Друзья, заявки, поиск людей и «меня можно найти»"),
+            ("/messages", "Личные сообщения"),
+            (
+                "/settings/notifications-social",
+                "Уведомления: браузер / почта / Telegram + «выключить ИИ везде»",
+            ),
         ],
     },
 ]

@@ -346,6 +346,63 @@ class _StubInner:
 
 
 @pytest.mark.asyncio
+async def test_borrowed_model_records_the_spender_not_the_lender(
+    db: aiosqlite.Connection, users: dict[str, int]
+) -> None:
+    """Одолженная модель: строка расхода на ПОЛУЧАТЕЛЯ, а не на дарителя.
+
+    Иначе счёт друга выглядел бы так, будто это он сидел в чате, — и человек
+    не смог бы понять, куда ушли его токены.
+    """
+    from app.llm import grants as grants_mod
+
+    lender = await create_user("lender@example.test", "lender-pass-123")
+    lender_id = int(lender["id"])
+    await db.execute(
+        "INSERT OR IGNORE INTO friendship (user_id, friend_id) VALUES (?, ?)",
+        (lender_id, users["member"]),
+    )
+    await db.commit()
+    await set_user_kv(db, lender_id, "llm_provider", "openrouter")
+    await set_user_kv(db, lender_id, "byo_api_key_openrouter", "sk-or-LENDER-KEY")
+    await grants_mod.upsert_grant(lender_id, users["member"], 5)
+
+    client = make_client(kind="chat", user_id=users["member"])
+    assert client.provider == "openrouter"
+    assert client._user_id == users["member"]
+    assert _inner(client)._api_key == "sk-or-LENDER-KEY"
+
+
+@pytest.mark.asyncio
+async def test_member_without_settings_and_without_grant_still_raises(
+    users: dict[str, int]
+) -> None:
+    """Без своей модели И без выдачи — по-прежнему честное «не настроено»."""
+    with pytest.raises(LLMNotConfigured) as excinfo:
+        make_client(kind="chat", user_id=users["member"])
+    assert "/settings/llm" in str(excinfo.value)
+
+
+@pytest.mark.asyncio
+async def test_universal_provider_is_allowed_for_members(
+    db: aiosqlite.Connection, users: dict[str, int]
+) -> None:
+    """Универсальный OpenAI-совместимый доступен участнику наравне с прочими."""
+    from app.llm.client import _USER_ALLOWED_PROVIDERS
+
+    assert "openai_compatible" in _USER_ALLOWED_PROVIDERS
+    uid = users["member"]
+    await set_user_kv(db, uid, "llm_provider", "openai_compatible")
+    await set_user_kv(db, uid, "byo_api_key_openai_compatible", "sk-MINE")
+    await set_user_kv(db, uid, "openai_compatible_base_url", "https://api.mine.test/v1")
+    await set_user_kv(db, uid, "openai_compatible_model", "mine-1")
+
+    inner = _inner(make_client(kind="chat", user_id=uid))
+    assert inner._api_key == "sk-MINE"
+    assert inner._BASE_URL == "https://api.mine.test/v1/chat/completions"
+
+
+@pytest.mark.asyncio
 async def test_usage_row_records_user_id(db: aiosqlite.Connection) -> None:
     """Расход не-владельца пишется с его user_id, глобальный — с NULL."""
     from app.llm.client import _UsageRecordingClient

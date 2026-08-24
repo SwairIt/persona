@@ -143,12 +143,18 @@ async def test_member_hub_lists_exactly_the_shipped_pages(hub_setup):
     ]
     assert hrefs == [
         "/settings/llm",
+        "/settings/llm/sharing",
         "/settings/system-prompt",
         "/settings/advanced",
         "/settings/skills",
         "/settings/memory",
         "/graph",
         "/settings/profile",
+        # Категория «Люди» — социальный слой (друзья + личные сообщения +
+        # уведомления о них и рубильник «ИИ отвечает за меня»).
+        "/friends",
+        "/messages",
+        "/settings/notifications-social",
         "/settings/theme",
         "/auth/set-password",
         "/auth/logout",

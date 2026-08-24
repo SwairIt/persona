@@ -86,6 +86,17 @@
   </div>
 {% endif %}
 
+<div class="rounded-lg border border-ink-700 bg-ink-800/60 px-4 py-3 mb-6 text-sm flex items-center gap-3 flex-wrap">
+  <span>🤝</span>
+  <span class="text-zinc-300">
+    Подключил свою модель — можешь <strong>одолжить её конкретному другу</strong>
+    с дневным лимитом. Или посмотреть, кто одолжил свою тебе.
+  </span>
+  <a href="/settings/llm/sharing" class="ml-auto text-accent-400 underline whitespace-nowrap">
+    Доступ друзьям →
+  </a>
+</div>
+
 <form action="/settings/llm" method="post"
       class="rounded-lg border border-ink-700 bg-ink-800 p-5 flex flex-col gap-5 mb-6">
 
@@ -147,6 +158,60 @@
                autocomplete="off"
                class="px-3 py-2 bg-ink-900 border border-ink-700 rounded font-mono text-sm">
       </label>
+
+      {# OpenAI-совместимые сервисы: адрес эндпоинта + имя модели.
+         Адрес переопределяем У ВСЕХ таких сервисов намеренно — они переезжают
+         с домена на домен, и «зашитая константа» превращает переезд в баг,
+         который чинится только релизом. Пусто = использовать дефолт. #}
+      {% set ex = extras.get(slug) %}
+      {% if ex %}
+        <div class="ml-1 pl-3 border-l border-ink-700 flex flex-col gap-2 mb-1">
+          {% if ex.get('key_hint') %}
+            <p class="text-[11px] text-zinc-500 leading-relaxed">
+              {{ ex.get('key_hint') }}
+              {% if ex.get('key_url') %}
+                <a href="{{ ex.get('key_url') }}" target="_blank" rel="noopener"
+                   class="text-accent-400 underline">где взять ключ →</a>
+              {% endif %}
+            </p>
+          {% endif %}
+          {% if ex.get('note') %}
+            <p class="text-[11px] text-amber-300/80 leading-relaxed">⚠️ {{ ex.get('note') }}</p>
+          {% endif %}
+          <label class="flex flex-col gap-1">
+            <span class="text-[10px] uppercase tracking-widest text-zinc-500">
+              Адрес эндпоинта
+              {% if ex.get('required') == 'true' %}
+                <span class="text-rose-400">— обязателен</span>
+              {% elif ex.get('confidence') in ('medium', 'low') %}
+                <span class="text-amber-400">— дефолт может устареть, проверь в доках</span>
+              {% else %}
+                <span class="text-zinc-600">— пусто = дефолт</span>
+              {% endif %}
+            </span>
+            <input type="text" name="{{ slug }}_base_url"
+                   value="{{ ex.get('base_url', '') }}"
+                   placeholder="{{ ex.get('default_base_url') or 'https://api.example.com/v1' }}"
+                   autocomplete="off" spellcheck="false"
+                   class="px-3 py-1.5 bg-ink-900 border border-ink-700 rounded font-mono text-xs">
+          </label>
+          <label class="flex flex-col gap-1">
+            <span class="text-[10px] uppercase tracking-widest text-zinc-500">
+              Модель
+              {% if ex.get('required') == 'true' %}
+                <span class="text-rose-400">— обязательна</span>
+              {% else %}
+                <span class="text-zinc-600">— пусто = {{ ex.get('default_model') }}</span>
+              {% endif %}
+            </span>
+            <input type="text" name="{{ slug }}_model"
+                   value="{{ ex.get('model', '') }}"
+                   placeholder="{{ ex.get('default_model') or 'имя модели из доков сервиса' }}"
+                   autocomplete="off" spellcheck="false"
+                   class="px-3 py-1.5 bg-ink-900 border border-ink-700 rounded font-mono text-xs">
+          </label>
+        </div>
+      {% endif %}
     {% endfor %}
 
     {% if is_owner %}
@@ -295,6 +360,24 @@
       <tr class="border-b border-ink-800"><td class="py-2 font-mono">openai</td><td class="py-2"><a href="https://platform.openai.com/api-keys" class="text-accent-400" target="_blank">platform.openai.com</a></td><td class="py-2 text-zinc-500">GPT-4o. <strong>VPN из РФ.</strong></td></tr>
       <tr class="border-b border-ink-800"><td class="py-2 font-mono">gemini</td><td class="py-2"><a href="https://aistudio.google.com/apikey" class="text-accent-400" target="_blank">aistudio.google.com</a></td><td class="py-2 text-zinc-500">Google AI Studio. <strong>VPN из РФ.</strong></td></tr>
       <tr class="border-b border-ink-800"><td class="py-2 font-mono">xai</td><td class="py-2"><a href="https://x.ai/api" class="text-accent-400" target="_blank">x.ai/api</a></td><td class="py-2 text-zinc-500">Grok от Илона. <strong>VPN из РФ.</strong></td></tr>
+      <tr class="border-b border-ink-800"><td class="py-2 font-mono">{{ universal_slug }}</td><td class="py-2 text-zinc-500">любой сервис</td><td class="py-2 text-zinc-500">Универсальный: сам вписываешь адрес + модель + ключ. Работает с чем угодно, что говорит протоколом OpenAI.</td></tr>
+      {# Пресеты: подсказка «где взять ключ» показана прямо под полем ключа,
+         дублировать её здесь значило бы завести вторую копию, которая
+         разъедется с первой. #}
+      {% for slug in url_editable %}
+        {% if slug != universal_slug %}
+          {% set ex = extras.get(slug, {}) %}
+          <tr class="border-b border-ink-800">
+            <td class="py-2 font-mono">{{ slug }}</td>
+            <td class="py-2">
+              {% if ex.get('key_url') %}
+                <a href="{{ ex.get('key_url') }}" class="text-accent-400" target="_blank" rel="noopener">{{ ex.get('key_url')|replace('https://','')|replace('http://','') }}</a>
+              {% else %}—{% endif %}
+            </td>
+            <td class="py-2 text-zinc-500">{{ ex.get('key_hint', '') }}</td>
+          </tr>
+        {% endif %}
+      {% endfor %}
     </tbody>
   </table>
 </details>

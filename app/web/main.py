@@ -132,6 +132,10 @@ from app.web.routes import (
     feed_tokens as feed_tokens_routes,
     focus as focus_routes,
     focus_blocklist as focus_blocklist_routes,
+    friends as friends_routes,
+    messages as messages_routes,
+    dm_ai as dm_ai_routes,
+    social_notifications as social_notifications_routes,
     full_export as full_export_routes,
     health,
     health_dashboard as health_dashboard_routes,
@@ -152,6 +156,7 @@ from app.web.routes import (
     keywords as keywords_routes,
     lang_autodetect as lang_autodetect_routes,
     live_sse as live_sse_routes,
+    llm_sharing as llm_sharing_routes,
     llm_switcher as llm_switcher_routes,
     llm_usage as llm_usage_routes,
     llm_worker as llm_worker_routes,
@@ -729,6 +734,10 @@ def create_app() -> FastAPI:
     app.include_router(shot_lock_routes.router)
     app.include_router(rss_index_routes.router)
     app.include_router(llm_switcher_routes.router)
+    # «Одолжить свою модель другу» — поимённые выдачи с дневным лимитом
+    # (/settings/llm/sharing). Живёт в зоне /settings/llm, поэтому член-гейт
+    # покрывает её существующим префиксом.
+    app.include_router(llm_sharing_routes.router)
     # Keyless web_search fallback (2026-07-31): lets the owner paste a Brave
     # key later without local access; ratchets REGISTERED_ROUTE_BUDGET by 2.
     app.include_router(settings_web_search_routes.router)
@@ -960,6 +969,15 @@ def create_app() -> FastAPI:
     app.include_router(audio_stats_routes.router)
     app.include_router(agent_api_routes.router)
     app.include_router(agents_admin_routes.router)
+    # Социальный слой (друзья + личные сообщения) — доступен любому
+    # зарегистрированному аккаунту, префиксы открыты в _MEMBER_PREFIXES.
+    app.include_router(friends_routes.router)
+    app.include_router(messages_routes.router)
+    # Панель «ИИ отвечает за меня» в переписке и уведомления социального слоя.
+    # dm_ai живёт под уже открытым префиксом /api/messages, страница
+    # уведомлений добавлена в _MEMBER_PREFIXES отдельно.
+    app.include_router(dm_ai_routes.router)
+    app.include_router(social_notifications_routes.router)
 
     return app
 
