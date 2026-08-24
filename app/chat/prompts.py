@@ -248,25 +248,73 @@ PRESETS: list[dict[str, str]] = [
 ]
 
 
-async def get_active_system_prompt() -> str:
-    """The current chat system prompt: the user's saved text, else default."""
+# ── Кто читает/пишет: владелец (глобальный kv) или участник (user_settings) ──
+#
+# Глобальная строка ``chat_system_prompt`` — ЛИЧНЫЙ текст владельца (часто с
+# именами, привычками, деталями его жизни). Раньше её читал и перезаписывал
+# любой зарегистрированный пользователь: чужой аккаунт видел характер владельца
+# и мог подменить его для ВСЕГО инстанса. Теперь:
+#   * ``user_id is None`` (фоновые задачи, Telegram, legacy-адаптер) или
+#     владелец → глобальный ``kv_settings`` — поведение 1:1 прежнее;
+#   * участник → своя строка в ``user_settings`` с тем же ключом; её нет →
+#     встроенный :data:`DEFAULT_SYSTEM_PROMPT` (НИКОГДА не текст владельца).
+
+
+async def _reads_global(user_id: int | None) -> bool:
+    """True, если этот вызов работает с ГЛОБАЛЬНЫМ kv (владелец / фон).
+
+    Сбой резолва владельца → ``False`` (участник): безопаснее отдать дефолтный
+    промпт, чем случайно показать/переписать личный текст владельца.
+    """
+    if user_id is None:
+        return True
+    from app.auth.owner import is_owner  # noqa: PLC0415 — цикл на уровне модуля
+
+    try:
+        return await is_owner(int(user_id))
+    except Exception:  # noqa: BLE001 — сбой гейта → трактуем как «не владелец»
+        return False
+
+
+async def _read_saved(user_id: int | None) -> str:
+    """Сохранённый текст промпта для этой личности (или ``""``)."""
+    if await _reads_global(user_id):
+        async with get_connection() as conn:
+            saved = await get_kv(conn, _KV_KEY)
+    else:
+        from app.storage.repository import get_user_kv  # noqa: PLC0415
+
+        async with get_connection() as conn:
+            saved = await get_user_kv(conn, int(user_id), _KV_KEY)  # type: ignore[arg-type]
+    return saved.strip() if saved else ""
+
+
+async def get_active_system_prompt(user_id: int | None = None) -> str:
+    """The current chat system prompt: the user's saved text, else default.
+
+    ``user_id`` — чей промпт: ``None``/владелец → глобальный kv, участник →
+    его ``user_settings`` (нет строки → :data:`DEFAULT_SYSTEM_PROMPT`).
+    """
+    saved = await _read_saved(user_id)
+    return saved or DEFAULT_SYSTEM_PROMPT
+
+
+async def is_custom_system_prompt(user_id: int | None = None) -> bool:
+    return bool(await _read_saved(user_id))
+
+
+async def set_active_system_prompt(text: str, user_id: int | None = None) -> None:
+    body = (text or "").strip()
+    if await _reads_global(user_id):
+        async with get_connection() as conn:
+            await set_kv(conn, _KV_KEY, body)
+        return
+    from app.storage.repository import set_user_kv  # noqa: PLC0415
+
     async with get_connection() as conn:
-        saved = await get_kv(conn, _KV_KEY)
-    return saved.strip() if saved and saved.strip() else DEFAULT_SYSTEM_PROMPT
+        await set_user_kv(conn, int(user_id), _KV_KEY, body)  # type: ignore[arg-type]
 
 
-async def is_custom_system_prompt() -> bool:
-    async with get_connection() as conn:
-        saved = await get_kv(conn, _KV_KEY)
-    return bool(saved and saved.strip())
-
-
-async def set_active_system_prompt(text: str) -> None:
-    async with get_connection() as conn:
-        await set_kv(conn, _KV_KEY, (text or "").strip())
-
-
-async def reset_active_system_prompt() -> None:
+async def reset_active_system_prompt(user_id: int | None = None) -> None:
     """Empty string → get_active falls back to DEFAULT_SYSTEM_PROMPT."""
-    async with get_connection() as conn:
-        await set_kv(conn, _KV_KEY, "")
+    await set_active_system_prompt("", user_id)

@@ -623,7 +623,7 @@ async def test_primary_web_sse_route_uses_service_in_simple_mode(
     async def session(_user_id: int, _session_id: int) -> dict[str, Any]:
         return {"id": 11, "user_id": 7}
 
-    async def flags() -> dict[str, bool]:
+    async def flags(_user_id: int | None = None) -> dict[str, bool]:
         return {"master": False}
 
     async def stop(_session_id: int, _on: bool) -> None:
@@ -688,7 +688,7 @@ async def test_advanced_auto_and_bypass_keep_full_legacy_context_parity(
             "custom_system_prompt": "CUSTOM_PERSONA_MARKER",
         }
 
-    async def flags() -> dict[str, bool]:
+    async def flags(_user_id: int | None = None) -> dict[str, bool]:
         return {
             "master": True,
             "effort": True,
@@ -959,7 +959,7 @@ async def test_advanced_legacy_tools_never_publish_or_persist_raw_intent(
             "custom_system_prompt": "private tool persona",
         }
 
-    async def flags() -> dict[str, bool]:
+    async def flags(_user_id: int | None = None) -> dict[str, bool]:
         return {
             "master": True,
             "effort": True,

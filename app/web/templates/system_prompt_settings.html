@@ -19,6 +19,9 @@
     </p>
   </div>
 
+  {# История/адаптивный характер — owner-only зона (её нет в member-префиксах
+     гейта), участнику ссылку даже не рисуем: она бы увела на редирект. #}
+  {% if is_owner is not defined or is_owner %}
   <a href="/settings/system-prompt/history"
      class="block rounded-xl border border-accent-500/40 bg-accent-500/10 p-4
             hover:border-accent-400 focus-visible:outline-none focus-visible:ring-2
@@ -28,6 +31,7 @@
       Автоматическая смена тона, усвоенные предпочтения и все версии промпта.
     </p>
   </a>
+  {% endif %}
 
   {% if saved %}
     <div class="rounded-lg bg-emerald-500/10 border border-emerald-500/40 px-4 py-2 text-sm text-emerald-300">

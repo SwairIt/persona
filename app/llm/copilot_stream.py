@@ -66,17 +66,38 @@ async def _recall_context(question: str, user_id: int | None) -> str:
         return ""
 
 
-def _find_settings_block(question: str) -> str:
+async def _is_member(user_id: int | None) -> bool:
+    """True — не-владелец (ему отдаём ТОЛЬКО member-каталог настроек).
+
+    ``None`` (фоновый/внутренний вызов) считаем владельцем: так ведёт себя
+    весь остальной код. Сбой резолва → участник, чтобы ошибка гейта не
+    открыла owner-only ссылки.
+    """
+    if user_id is None:
+        return False
+    try:
+        from app.auth.owner import is_owner  # noqa: PLC0415
+
+        return not await is_owner(int(user_id))
+    except Exception:  # noqa: BLE001 — сбой гейта → урезанный каталог
+        return True
+
+
+def _find_settings_block(question: str, *, member: bool = False) -> str:
     """Топ-совпадения по страницам настроек для режима ``find_setting``.
 
     Чистая функция :func:`search_settings` не ходит в БД, поэтому зовём её
     синхронно. Возвращаем компактный список «label → href» для подсказки LLM
     (или пустую строку, если ничего не нашлось).
+
+    ``member=True`` ищет по урезанному каталогу участника: иначе копилот
+    подсказывал бы не-владельцу ссылки на owner-only страницы (захват, OCR,
+    диагностика), которых он даже открыть не может.
     """
     try:
         from app.web.routes.settings_hub import search_settings  # noqa: PLC0415
 
-        results = search_settings(question, limit=6)
+        results = search_settings(question, limit=6, member=member)
     except Exception as exc:  # noqa: BLE001 — поиск опционален
         log.debug("copilot.search_settings_failed", error=str(exc))
         return ""
@@ -238,12 +259,15 @@ async def stream_copilot(
     if mode not in _VALID_MODES:
         mode = "ask"
 
+    # Каталог настроек урезаем для не-владельца (тот же гейт, что у хаба).
+    member = await _is_member(user_id)
+
     # Собираем режимо-зависимый контекст ДО открытия стрима.
     extra = ""
     if mode == "ask":
         extra = await _recall_context(question, user_id)
     elif mode == "find_setting":
-        extra = _find_settings_block(question)
+        extra = _find_settings_block(question, member=member)
 
     yield {"type": "meta", "mode": mode, "has_context": bool(extra)}
 
@@ -314,7 +338,7 @@ async def stream_copilot(
         try:
             from app.web.routes.settings_hub import search_settings  # noqa: PLC0415
 
-            settings = search_settings(question, limit=3)
+            settings = search_settings(question, limit=3, member=member)
             if settings:
                 done["settings"] = settings
         except Exception:

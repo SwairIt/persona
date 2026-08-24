@@ -53,7 +53,11 @@ ROUTE_DIRECT_DB_IMPORT_BASELINE = frozenset(
 # per-chat reply/read/ignore mode and history-ingest flag (telegram_chat_pref,
 # Task 1-2 of the same plan), replacing the old "is it pinned in Telegram"
 # accident with an explicit owner choice.
-REGISTERED_ROUTE_BUDGET = 1_110  # +6 (2026-08-24): AI-everywhere wave 2 (insights, suggest, hour summary, ai-calendar parse+create)
+# Reviewed +1: POST /api/settings/ui-language — member-safe близнец owner-only
+# POST /settings/ui-language. Участник меняет язык интерфейса ТОЛЬКО себе
+# (user_settings), владелец — глобальный kv как раньше. Отдельный путь нужен
+# потому, что /settings (owner-зона) участнику закрыт гейтом.
+REGISTERED_ROUTE_BUDGET = 1_111  # +6 (2026-08-24): AI-everywhere wave 2 (insights, suggest, hour summary, ai-calendar parse+create)
 
 # After the first bootstrap extraction the reference Windows host imports the
 # web app in ~5.3 s. Keep CI headroom while preventing a return to the measured

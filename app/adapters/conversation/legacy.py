@@ -239,7 +239,10 @@ class PersonaContextAdapter:
     ) -> PreparedContext:
         persona = await contextual_system_prompt(
             persona_user_id=int(command.actor.tenant_id),
-            base_prompt=await get_active_system_prompt(),
+            # Промпт пер-юзерный: у владельца это тот же глобальный kv, что и
+            # раньше, а участник (простой режим чата идёт через этот адаптер)
+            # получает СВОЙ текст, а не личный характер владельца.
+            base_prompt=await get_active_system_prompt(int(command.actor.tenant_id)),
             message=command.text,
             surface=command.surface.value,
             is_owner=command.actor.is_owner,

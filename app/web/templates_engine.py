@@ -19,6 +19,7 @@ from app.app_aliases import resolve as _resolve_app_alias
 from app.i18n import get_ui_language as _get_ui_language
 from app.i18n import t as _translate
 from app.logging_setup import get_logger
+from app.request_ctx import get_member_uid
 from app.settings import get_settings
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
@@ -400,7 +401,19 @@ def _read_theme_from_db() -> str:
     Any failure (missing DB, missing row, corrupt value) falls back to
     the default ``"dark"`` rather than raising — a template render must
     never 500 because of a theme lookup.
+
+    Per-user (2026-08): для УЧАСТНИКА (не-владельца) читаем его строку в
+    ``user_settings`` — глобальный ``kv_settings.theme`` принадлежит
+    владельцу и раньше перекрашивал весь инстанс. Личность берём из
+    :data:`app.request_ctx.current_member_uid` (её кладёт auth-гейт); нет
+    строки — ДЕФОЛТНАЯ тема, а НЕ сохранённая владельцем.
     """
+    uid = get_member_uid()
+    if uid is not None:
+        value = get_user_kv_sync(uid, "theme")
+        if value is None or value.strip() not in _THEME_VALUES:
+            return _THEME_DEFAULT
+        return value.strip()
     value = _cached_kv_value("theme")
     if value is None or value not in _THEME_VALUES:
         return _THEME_DEFAULT
@@ -443,7 +456,13 @@ def _read_compact_from_db() -> str:
     reader against the WAL-mode database is safe alongside the async
     writers. Any failure (missing DB / row / bogus value) falls back to
     ``"0"`` so a template render never 500s because of this lookup.
+
+    Участник (не-владелец) получает ДЕФОЛТ: строка ``compact_mode``
+    глобальная (владельца), а per-user эта настройка пока не заведена —
+    навязывать чужому аккаунту вид «как у владельца» неправильно.
     """
+    if get_member_uid() is not None:
+        return _COMPACT_DEFAULT
     value = _cached_kv_value("compact_mode")
     if value is None:
         return _COMPACT_DEFAULT
@@ -490,7 +509,11 @@ def _read_grayscale_from_db() -> str:
     the async writers. Any failure (missing DB / row / bogus value)
     falls back to ``"0"`` so a template render never 500s because of
     this lookup.
+
+    Участник (не-владелец) получает ДЕФОЛТ — см. :func:`_read_compact_from_db`.
     """
+    if get_member_uid() is not None:
+        return _GRAYSCALE_DEFAULT
     value = _cached_kv_value("grayscale_mode")
     if value is None:
         return _GRAYSCALE_DEFAULT
@@ -537,7 +560,11 @@ def _read_reduce_motion_from_db() -> str:
     the async writers. Any failure (missing DB / row / bogus value)
     falls back to ``"0"`` so a template render never 500s because of
     this lookup.
+
+    Участник (не-владелец) получает ДЕФОЛТ — см. :func:`_read_compact_from_db`.
     """
+    if get_member_uid() is not None:
+        return _REDUCE_MOTION_DEFAULT
     value = _cached_kv_value("reduce_motion")
     if value is None:
         return _REDUCE_MOTION_DEFAULT

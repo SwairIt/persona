@@ -286,7 +286,13 @@ async def _base_prompt(
     Used by all chat paths (send/send-stream/compare)."""
     from app.profile import get_profile, profile_block  # noqa: PLC0415
 
-    base = _SYSTEM_PROMPT_VISION if image_data_url else await get_active_system_prompt()
+    base = (
+        _SYSTEM_PROMPT_VISION
+        if image_data_url
+        # Промпт — ПЕР-ЮЗЕРНЫЙ: владелец читает глобальный kv, участник свою
+        # строку в user_settings (нет → дефолт, не текст владельца).
+        else await get_active_system_prompt(user_id)
+    )
     hint = _CHOICES_HINT if choices else ""
     profile = profile_block(await get_profile(user_id)) if include_profile else ""
     return _PERSONA_IDENTITY + base + hint + profile
@@ -524,28 +530,47 @@ _SIMPLE_RESTRICTION = (
 )
 
 
-async def get_advanced_flags() -> dict[str, bool]:
+async def get_advanced_flags(user_id: int | None = None) -> dict[str, bool]:
     """Мастер-флаг ``advanced_mode`` + по-фичам ``feat_<name>``. Если мастер
-    выключен — все фичи False. Дефолт всё включено (как было раньше)."""
-    from app.storage.db import get_connection  # noqa: PLC0415
-    from app.storage.repository import get_kv  # noqa: PLC0415
+    выключен — все фичи False. Дефолт всё включено (как было раньше).
 
+    ``user_id`` — чьи флаги. ``None``/владелец читают ГЛОБАЛЬНЫЙ ``kv_settings``
+    (поведение 1:1 прежнее), участник — свои строки в ``user_settings`` с теми
+    же именами ключей. Раньше флаги были одни на инстанс: чужой аккаунт
+    выключал владельцу инструменты и режимы прямо из /settings/advanced.
+    Дефолты у участника те же, что у глобальных (всё ВКЛ).
+    """
+    from app.storage.db import get_connection  # noqa: PLC0415
+    from app.storage.repository import get_kv, get_user_kv  # noqa: PLC0415
+
+    per_user = user_id is not None and not await is_owner(user_id)
     async with get_connection() as conn:
-        master = (await get_kv(conn, "advanced_mode") or "1").strip() == "1"
+
+        async def _read(key: str) -> str:
+            if per_user:
+                return (await get_user_kv(conn, int(user_id), key)) or "1"  # type: ignore[arg-type]
+            return (await get_kv(conn, key)) or "1"
+
+        master = (await _read("advanced_mode")).strip() == "1"
         flags: dict[str, bool] = {"master": master}
         for f in _ADV_FEATURES:
-            on = (await get_kv(conn, f"feat_{f}") or "1").strip() == "1"
+            on = (await _read(f"feat_{f}")).strip() == "1"
             flags[f] = master and on
     return flags
 
 
-async def set_advanced_flag(key: str, on: bool) -> None:
+async def set_advanced_flag(key: str, on: bool, user_id: int | None = None) -> None:
+    """Записать один флаг: владелец/фон → глобальный kv, участник → user_settings."""
     from app.storage.db import get_connection  # noqa: PLC0415
-    from app.storage.repository import set_kv  # noqa: PLC0415
+    from app.storage.repository import set_kv, set_user_kv  # noqa: PLC0415
 
     kv_key = "advanced_mode" if key == "master" else f"feat_{key}"
+    per_user = user_id is not None and not await is_owner(user_id)
     async with get_connection() as conn:
-        await set_kv(conn, kv_key, "1" if on else "0")
+        if per_user:
+            await set_user_kv(conn, int(user_id), kv_key, "1" if on else "0")  # type: ignore[arg-type]
+        else:
+            await set_kv(conn, kv_key, "1" if on else "0")
         await conn.commit()
 
 
@@ -667,7 +692,7 @@ async def chat_index(
             "sessions": sessions,
             "active_session": None,
             "messages": [],
-            "adv": await get_advanced_flags(),
+            "adv": await get_advanced_flags(session["user_id"]),
             "provider_badge": await _provider_badge(session["user_id"]),
             "llm_configured": await _llm_configured(session["user_id"]),
         },
@@ -706,7 +731,7 @@ async def chat_thread(
             "effort": effort,
             "mode": mode,
             "auto_prompt": auto_prompt,
-            "adv": await get_advanced_flags(),
+            "adv": await get_advanced_flags(session["user_id"]),
             "provider_badge": await _provider_badge(session["user_id"]),
             "llm_configured": await _llm_configured(session["user_id"]),
         },
@@ -1403,7 +1428,7 @@ async def api_send_stream(
         question = "Опиши прикреплённую картинку."
 
     await _set_stop(session_id, False)
-    service_flags = await get_advanced_flags()
+    service_flags = await get_advanced_flags(session["user_id"])
     if not service_flags["master"]:
         return await _stream_via_conversation_service(
             session_id=session_id,
@@ -1443,9 +1468,10 @@ async def api_send_stream(
         )
         from app.profile import get_profile, profile_block  # noqa: PLC0415
 
+        uid = int(session["user_id"])
         persona = (
-            await get_active_system_prompt()
-            if await is_custom_system_prompt()
+            await get_active_system_prompt(uid)
+            if await is_custom_system_prompt(uid)
             else FRIEND_PROMPT
         )
         base_prompt = (
@@ -2165,6 +2191,11 @@ async def api_send_stream(
         # так что на ход уходит 1–2 эмбеддинга. No-op без sqlite-vec/embed-модели.
         async def _bg_vec_index(uid: int) -> None:
             try:
+                # Эмбеддинги идут через ГЛОБАЛЬНЫЙ конфиг (Ollama/worker владельца),
+                # поэтому индексируем только владельца: текст участника не должен
+                # попадать на чужое железо — участники и так на keyword-recall.
+                if not await is_owner(uid):
+                    return
                 from app.memory_vec import (  # noqa: PLC0415
                     backfill_index,
                     sqlite_vec_available,
@@ -2603,7 +2634,16 @@ async def api_set_effort(
     session: Annotated[SessionRecord, Depends(current_user_required)],
     body: Annotated[dict[str, Any], Body(default_factory=dict)],
 ) -> JSONResponse:
-    """T31 E2 — выбрать «эффорт» (мощность) для сессии: fast/normal/deep."""
+    """T31 E2 — выбрать «эффорт» (мощность) для сессии: fast/normal/deep.
+
+    Проверка владения ОБЯЗАТЕЛЬНА: ``chat_session.id`` — сквозной автоинкремент,
+    а ``_set_effort`` пишет ГЛОБАЛЬНУЮ строку ``chat_effort_<id>``. Без неё
+    участник перебором id задавал бы ``deep`` (16k токенов) чужим сессиям —
+    расход по ключу владельца — и засорял kv_settings произвольными строками.
+    Остальные роуты сессии (/stop, /system-prompt) так и делают.
+    """
+    if await get_session(int(session["user_id"]), session_id) is None:
+        raise HTTPException(status_code=404, detail="chat session not found")
     eff = str(body.get("effort") or "normal").strip()
     if eff not in _EFFORT_TOKENS:
         eff = "normal"
@@ -2617,7 +2657,15 @@ async def api_set_mode(
     session: Annotated[SessionRecord, Depends(current_user_required)],
     body: Annotated[dict[str, Any], Body(default_factory=dict)],
 ) -> JSONResponse:
-    """T31 E3 — выбрать режим работы сессии: plan/ask/auto/bypass."""
+    """T31 E3 — выбрать режим работы сессии: plan/ask/auto/bypass.
+
+    Проверка владения ОБЯЗАТЕЛЬНА (см. api_set_effort): ``_set_mode`` пишет
+    глобальную строку ``chat_mode_<id>``, а режим прилетает подсказкой прямо в
+    системный промпт хода. Чужой ``bypass`` снял бы владельцу «спрашивай перед
+    действием» на его же инструментах, чужой ``plan`` — заблокировал бы работу.
+    """
+    if await get_session(int(session["user_id"]), session_id) is None:
+        raise HTTPException(status_code=404, detail="chat session not found")
     mode = str(body.get("mode") or "auto").strip()
     if mode not in _MODES:
         mode = "auto"

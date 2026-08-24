@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Final
 
 from app.logging_setup import get_logger
+from app.request_ctx import get_member_uid
 from app.settings import get_settings
 
 _log = get_logger("persona.i18n")
@@ -177,7 +178,22 @@ def _read_ui_language_from_db() -> str:
     row, language outside :data:`SUPPORTED_LANGUAGES`) falls back to
     :data:`DEFAULT_LANGUAGE` so a template render never 500s because of
     this lookup.
+
+    Per-user (2026-08): для УЧАСТНИКА (не-владельца) язык живёт в его
+    ``user_settings`` — глобальная строка ``ui_language`` принадлежит
+    владельцу и раньше переключала интерфейс ВСЕМ. Личность берём из
+    :data:`app.request_ctx.current_member_uid`; нет своей строки →
+    :data:`DEFAULT_LANGUAGE`, а не язык владельца.
     """
+    member_uid = get_member_uid()
+    if member_uid is not None:
+        # Импорт локальный: templates_engine импортирует i18n, поэтому на
+        # уровне модуля это был бы цикл.
+        from app.web.templates_engine import get_user_kv_sync  # noqa: PLC0415
+
+        raw = get_user_kv_sync(member_uid, UI_LANGUAGE_KV_KEY)
+        value = (raw or "").strip()
+        return value if value in SUPPORTED_LANGUAGES else DEFAULT_LANGUAGE
     # Процесс-глобальный TTL-кэш (перф, 2026-07-02): раньше открывали свежий
     # sqlite3.connect на КАЖДЫЙ рендер (~30-80ms блокировки event-loop). Язык
     # меняется раз в месяц; при сохранении invalidate_language_cache() сбросит

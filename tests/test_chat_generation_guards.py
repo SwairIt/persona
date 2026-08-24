@@ -73,7 +73,7 @@ async def test_concurrent_send_stream_reserves_generation_atomically(
     async def clear_stop(_session_id: int, _on: bool) -> None:
         await asyncio.sleep(0)
 
-    async def flags() -> dict[str, bool]:
+    async def flags(_user_id: int | None = None) -> dict[str, bool]:
         return {"master": False}
 
     async def service_stream(**_kwargs: object) -> StreamingResponse:

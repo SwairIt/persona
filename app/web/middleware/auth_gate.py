@@ -36,6 +36,7 @@ from app.auth import SESSION_COOKIE_NAME, verify_session
 from app.auth.exclusive import read_owner_exclusive_mode
 from app.auth.owner import is_owner, is_primary_owner
 from app.logging_setup import get_logger
+from app.request_ctx import reset_member_uid, set_member_uid
 from app.storage.db import get_connection
 from app.storage.repository import get_kv
 
@@ -149,6 +150,9 @@ _MEMBER_PREFIXES: tuple[str, ...] = (
     "/settings/llm", "/api/llm/models",
     "/settings/memory", "/settings/profile",
     "/settings/system-prompt", "/settings/theme", "/settings/advanced",
+    # Язык интерфейса участника (per-user ``user_settings``, НЕ глобальный kv;
+    # владелец через этот же эндпоинт пишет глобальный ui_language).
+    "/api/settings/ui-language",
     "/settings/skills", "/api/skills",
     "/api/account.json",
     "/api/copilot",
@@ -327,48 +331,25 @@ class AuthGateMiddleware(BaseHTTPMiddleware):
             owner_flag = await is_owner(uid)
             request.state.user_id = uid
             request.state.is_owner = owner_flag
-            if owner_exclusive:
-                if await is_primary_owner(uid):
-                    return await call_next(request)
-                if path == "/pending":
-                    return await call_next(request)
-                if path.startswith("/api/"):
-                    return Response(
-                        content='{"detail":"owner access required"}',
-                        status_code=403,
-                        media_type="application/json",
-                    )
-                return RedirectResponse(url="/pending", status_code=303)
-            if owner_flag:
-                # Владелец — суперсет: видит всё, всегда (и при ВКЛ роле-гейте).
-                return await call_next(request)
-            if path == "/pending" or path.startswith("/auth/"):
-                return await call_next(request)
-            if path == "/billing" or path.startswith("/billing/"):
-                return await call_next(request)
-            # Роле-основанная маршрутизация — ТОЛЬКО при kv role_gate_enabled=='1'.
-            # При ВЫКЛ (дефолт) этот блок пропускается целиком → дальше идёт
-            # СТАРЫЙ код-путь (owner-gate / pro), решения доступа не меняются.
-            # При ВКЛ блок может лишь ДОПОЛНИТЕЛЬНО разрешить (admin→/admin и т.п.);
-            # вердикт «нет» означает падение в тот же owner-gate fallback ниже,
-            # поэтому никто не теряет доступ, который давал старый путь.
-            if await _role_gate_enabled():
-                verdict = await _role_route_allows(uid, path, request.method)
-                if verdict is True:
-                    return await call_next(request)
-            # Любой зарегистрированный не-владелец → БЕСПЛАТНАЯ поверхность
-            # участника (чат/память/голос/навыки/свои настройки). Подписка НЕ
-            # проверяется. Личные данные владельца (захват, таймлайн, админка,
-            # /now, /root) остаются закрытыми: HTML → /chat, JSON → 403.
-            if _is_member_path(path):
-                return await call_next(request)
-            if path.startswith("/api/"):
-                return Response(
-                    content='{"detail":"owner access required"}',
-                    status_code=403,
-                    media_type="application/json",
+            # …а для СИНХРОННЫХ читателей (Jinja-глобал темы, резолвер языка) —
+            # ещё и в ContextVar: у них нет доступа к ``request``. Владелец и
+            # аноним получают ``None`` → читают ГЛОБАЛЬНЫЙ kv ровно как раньше;
+            # участник — свой id → его строки в ``user_settings``. Сброс в
+            # ``finally``, чтобы личность не пережила запрос в пуле воркера.
+            ctx_token = set_member_uid(
+                None if owner_flag or uid is None else int(uid)
+            )
+            try:
+                return await self._dispatch_session(
+                    request,
+                    call_next,
+                    path=path,
+                    uid=uid,
+                    owner_flag=owner_flag,
+                    owner_exclusive=owner_exclusive,
                 )
-            return RedirectResponse(url="/chat", status_code=303)
+            finally:
+                reset_member_uid(ctx_token)
 
         # Browser nav → 303 to /landing. JSON / agent endpoints get 401
         # so they don't end up with HTML in their response body.
@@ -379,3 +360,61 @@ class AuthGateMiddleware(BaseHTTPMiddleware):
                 media_type="application/json",
             )
         return RedirectResponse(url="/landing", status_code=303)
+
+    async def _dispatch_session(
+        self,
+        request: Request,
+        call_next: Callable[[Request], Response],
+        *,
+        path: str,
+        uid: int | None,
+        owner_flag: bool,
+        owner_exclusive: bool,
+    ) -> Response:
+        """Решение гейта для АУТЕНТИФИЦИРОВАННОГО запроса (логика без изменений).
+
+        Вынесено из :meth:`dispatch` только ради ``try/finally`` вокруг
+        ContextVar с личностью участника — порядок проверок ниже 1:1 прежний.
+        """
+        if owner_exclusive:
+            if await is_primary_owner(uid):
+                return await call_next(request)
+            if path == "/pending":
+                return await call_next(request)
+            if path.startswith("/api/"):
+                return Response(
+                    content='{"detail":"owner access required"}',
+                    status_code=403,
+                    media_type="application/json",
+                )
+            return RedirectResponse(url="/pending", status_code=303)
+        if owner_flag:
+            # Владелец — суперсет: видит всё, всегда (и при ВКЛ роле-гейте).
+            return await call_next(request)
+        if path == "/pending" or path.startswith("/auth/"):
+            return await call_next(request)
+        if path == "/billing" or path.startswith("/billing/"):
+            return await call_next(request)
+        # Роле-основанная маршрутизация — ТОЛЬКО при kv role_gate_enabled=='1'.
+        # При ВЫКЛ (дефолт) этот блок пропускается целиком → дальше идёт
+        # СТАРЫЙ код-путь (owner-gate / pro), решения доступа не меняются.
+        # При ВКЛ блок может лишь ДОПОЛНИТЕЛЬНО разрешить (admin→/admin и т.п.);
+        # вердикт «нет» означает падение в тот же owner-gate fallback ниже,
+        # поэтому никто не теряет доступ, который давал старый путь.
+        if await _role_gate_enabled():
+            verdict = await _role_route_allows(uid, path, request.method)
+            if verdict is True:
+                return await call_next(request)
+        # Любой зарегистрированный не-владелец → БЕСПЛАТНАЯ поверхность
+        # участника (чат/память/голос/навыки/свои настройки). Подписка НЕ
+        # проверяется. Личные данные владельца (захват, таймлайн, админка,
+        # /now, /root) остаются закрытыми: HTML → /chat, JSON → 403.
+        if _is_member_path(path):
+            return await call_next(request)
+        if path.startswith("/api/"):
+            return Response(
+                content='{"detail":"owner access required"}',
+                status_code=403,
+                media_type="application/json",
+            )
+        return RedirectResponse(url="/chat", status_code=303)

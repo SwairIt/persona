@@ -14,9 +14,10 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.auth import current_user_required
+from app.auth.owner import is_owner
 from app.auth.sessions import SessionRecord
 from app.storage.db import get_connection
-from app.storage.repository import get_kv, set_kv
+from app.storage.repository import get_kv, get_user_kv, set_kv, set_user_kv
 from app.web.templates_engine import templates
 
 router = APIRouter(tags=["settings"])
@@ -83,12 +84,38 @@ _VALID_RECALL_MODES: frozenset[str] = frozenset(
 )
 
 
-async def _read_raw() -> dict[str, object]:
+# ── Владелец пишет глобальный kv, участник — свой user_settings ──────────────
+#
+# Раньше ЛЮБОЙ зарегистрированный пользователь этой страницей переписывал
+# ГЛОБАЛЬНЫЕ ``advanced_mode`` / ``feat_*`` / ``recall_mode``: чужой аккаунт
+# выключал владельцу инструменты и режимы во всём инстансе. Теперь личность
+# решает адрес записи, а имена ключей и дефолты (всё ВКЛ) — те же.
+
+
+async def _is_member(user: SessionRecord) -> bool:
+    """True — участник (пишем в ``user_settings``). Сбой резолва → участник."""
+    try:
+        return not await is_owner(user["user_id"])
+    except Exception:  # noqa: BLE001 — сбой гейта → не трогаем настройки владельца
+        return True
+
+
+async def _read_raw(user: SessionRecord) -> dict[str, object]:
+    member = await _is_member(user)
+    uid = int(user["user_id"])
     async with get_connection() as conn:
-        out: dict[str, object] = {"master": (await get_kv(conn, "advanced_mode") or "1").strip() == "1"}
+
+        async def _get(key: str, default: str) -> str:
+            if member:
+                return (await get_user_kv(conn, uid, key)) or default
+            return (await get_kv(conn, key)) or default
+
+        out: dict[str, object] = {
+            "master": (await _get("advanced_mode", "1")).strip() == "1"
+        }
         for key, _t, _d in _FEATURES:
-            out[key] = (await get_kv(conn, f"feat_{key}") or "1").strip() == "1"
-        rm = (await get_kv(conn, "recall_mode") or "keyword").strip()
+            out[key] = (await _get(f"feat_{key}", "1")).strip() == "1"
+        rm = (await _get("recall_mode", "keyword")).strip()
         out["recall_mode"] = rm if rm in _VALID_RECALL_MODES else "keyword"
     return out
 
@@ -98,7 +125,7 @@ async def advanced_page(
     request: Request,
     user: Annotated[SessionRecord, Depends(current_user_required)],
 ) -> HTMLResponse:
-    flags = await _read_raw()
+    flags = await _read_raw(user)
     return templates.TemplateResponse(
         request,
         "advanced_settings.html",
@@ -110,6 +137,10 @@ async def advanced_page(
             "recall_modes": _RECALL_MODES,
             "profiles": _PROFILES,
             "active_profile": _detect_profile(flags),
+            # Участнику блок recall не рисуем: его recall всегда keyword
+            # (см. _get_recall_mode в chat_sessions.py) — hybrid/vector/smart
+            # считали бы на Ollama и LLM ВЛАДЕЛЬЦА.
+            "is_owner": not await _is_member(user),
         },
     )
 
@@ -122,10 +153,19 @@ async def advanced_apply_profile(
     prof = next((p for p in _PROFILES if p[0] == profile), None)
     if prof is not None:
         _name, _label, _desc, master, feats = prof
+        member = await _is_member(user)
+        uid = int(user["user_id"])
         async with get_connection() as conn:
-            await set_kv(conn, "advanced_mode", "1" if master else "0")
+
+            async def _put(key: str, value: str) -> None:
+                if member:
+                    await set_user_kv(conn, uid, key, value)
+                else:
+                    await set_kv(conn, key, value)
+
+            await _put("advanced_mode", "1" if master else "0")
             for key, _t, _d in _FEATURES:
-                await set_kv(conn, f"feat_{key}", "1" if feats.get(key, master) else "0")
+                await _put(f"feat_{key}", "1" if feats.get(key, master) else "0")
     return RedirectResponse(url="/settings/advanced", status_code=303)
 
 
@@ -137,11 +177,24 @@ async def advanced_save(
     form = await request.form()
     valid_modes = _VALID_RECALL_MODES
     rm = str(form.get("recall_mode", "keyword"))
+    member = await _is_member(user)
+    uid = int(user["user_id"])
     async with get_connection() as conn:
-        await set_kv(conn, "advanced_mode", "1" if form.get("master") else "0")
+
+        async def _put(key: str, value: str) -> None:
+            if member:
+                await set_user_kv(conn, uid, key, value)
+            else:
+                await set_kv(conn, key, value)
+
+        await _put("advanced_mode", "1" if form.get("master") else "0")
         for key, _t, _d in _FEATURES:
-            await set_kv(conn, f"feat_{key}", "1" if form.get(key) else "0")
-        await set_kv(conn, "recall_mode", rm if rm in valid_modes else "keyword")
+            await _put(f"feat_{key}", "1" if form.get(key) else "0")
+        # recall_mode участнику НЕ пишем вовсе: контрола в его форме нет, а
+        # подделанный POST иначе завёл бы ему vector/smart, которые всё равно
+        # игнорируются (_get_recall_mode форсит keyword не-владельцу).
+        if not member:
+            await _put("recall_mode", rm if rm in valid_modes else "keyword")
     return RedirectResponse(url="/settings/advanced", status_code=303)
 
 
@@ -151,8 +204,14 @@ async def advanced_master_toggle(
     user: Annotated[SessionRecord, Depends(current_user_required)],
     on: Annotated[bool, Form()] = False,
 ) -> RedirectResponse:
+    member = await _is_member(user)
     async with get_connection() as conn:
-        await set_kv(conn, "advanced_mode", "1" if on else "0")
+        if member:
+            await set_user_kv(
+                conn, int(user["user_id"]), "advanced_mode", "1" if on else "0"
+            )
+        else:
+            await set_kv(conn, "advanced_mode", "1" if on else "0")
     return RedirectResponse(url="/settings/advanced", status_code=303)
 
 

@@ -13,18 +13,43 @@ from app.storage.db import init_database
 
 @pytest_asyncio.fixture
 async def client() -> AsyncIterator[AsyncClient]:
+    """Аутентифицированный ВЛАДЕЛЕЦ.
+
+    ``/settings/theme`` раньше был вообще без зависимости аутентификации, и
+    любой (в т.ч. чужой аккаунт) перекрашивал весь инстанс. Теперь роут
+    требует сессию и пишет глобальный kv только владельцу — поэтому фикстура
+    заводит пользователя и кладёт cookie, иначе тесты видели бы 303 на логин.
+    """
     from fastapi import FastAPI
 
+    from app.auth.owner import _cache as _owner_cache
+    from app.auth.owner import _fa_cache as _owner_fa_cache
+    from app.auth.sessions import SESSION_COOKIE_NAME, issue_session
+    from app.auth.users import create_user
+    from app.storage.db import get_connection
+    from app.storage.repository import set_kv
     from app.web.routes import pdf_export as pdf_export_routes
     from app.web.routes import theme as theme_routes
 
     await init_database()
+    owner_user = await create_user("owner@v032.test", "owner-pass-123")
+    async with get_connection() as conn:
+        await set_kv(conn, "owner_user_id", str(owner_user["id"]))
+    _owner_cache["value"] = None
+    _owner_cache["checked_at"] = 0.0
+    _owner_fa_cache["value"] = None
+    _owner_fa_cache["checked_at"] = 0.0
+
     app = FastAPI()
     app.include_router(pdf_export_routes.router)
     app.include_router(theme_routes.router)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://127.0.0.1") as ac:
+        token, _ = await issue_session(owner_user["id"])
+        ac.cookies.set(SESSION_COOKIE_NAME, token)
         yield ac
+    _owner_cache["value"] = None
+    _owner_cache["checked_at"] = 0.0
 
 
 @pytest.mark.asyncio

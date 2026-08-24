@@ -123,10 +123,13 @@ async def _render(request: Request, user_id: int, *, saved: str = "") -> HTMLRes
     for h in history:
         sb = h.get("superseded_by")
         h["superseded_text"] = by_id.get(sb) if sb else None
-    engine = await _load_engine()
-    reflections = await _load_reflections(user_id)
-    train = await _load_train()
     owner = await is_owner(user_id)
+    # Движок памяти и результат ручного прогона — ГЛОБАЛЬНОЕ состояние
+    # владельца (train_last_result — свободный текст с деталями его прогона).
+    # Участнику не грузим вовсе: не только не рисуем, но и в контекст не кладём.
+    engine = await _load_engine() if owner else {k: d for k, d in _ENGINE_KEYS}
+    train = await _load_train() if owner else {k: "" for k in _TRAIN_KEYS}
+    reflections = await _load_reflections(user_id)
     return templates.TemplateResponse(
         request,
         "memory_settings.html",
@@ -219,7 +222,13 @@ async def memory_engine_save(
     recall_w_relevance: str = Form(default="1.0"),
     recall_use_salience: str = Form(default=""),
 ) -> RedirectResponse:
-    """Сохранить настройки движка памяти: режим recall, веса scoring и ночной «сон»."""
+    """Сохранить настройки движка памяти: режим recall, веса scoring и ночной «сон».
+
+    ТОЛЬКО ВЛАДЕЛЕЦ: все ключи здесь — ИНСТАНС-ГЛОБАЛЬНЫЕ (ночной воркер, веса
+    scoring, режим recall общий для фоновых задач). Раньше хватало логина, и
+    любой участник этой формой переключал владельцу «сон» и движок памяти.
+    """
+    await _require_owner(session)
     rm = recall_mode if recall_mode in _RECALL_MODES else ""
     try:
         hour = max(0, min(23, int(dream_hour_local)))

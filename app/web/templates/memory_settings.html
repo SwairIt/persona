@@ -11,7 +11,12 @@
     </p>
   </div>
 
-  {# ── Движок памяти: ночной «сон» + recall (Ф3-F) ── #}
+  {# ── Движок памяти: ночной «сон» + recall (Ф3-F) — ТОЛЬКО ВЛАДЕЛЕЦ ──
+     Все эти ключи инстанс-глобальные (ночной воркер, веса scoring, режим
+     recall для фоновых задач), и POST /settings/memory/engine теперь
+     owner-only. Участнику блок не рисуем: форма всё равно вернула бы 403,
+     а его собственные ФАКТЫ (user_memory) ниже работают в полном объёме. #}
+  {% if is_owner %}
   <details class="rounded-xl border border-ink-700 bg-ink-900 p-3" {% if engine.dream_enabled == '1' %}open{% endif %}>
     <summary class="cursor-pointer text-sm font-semibold text-zinc-200 select-none">⚙️ Движок памяти и ночной «сон»</summary>
     <form method="post" action="/settings/memory/engine" class="mt-3 space-y-3 text-sm">
@@ -92,6 +97,7 @@
       </div>
     {% endif %}
   </details>
+  {% endif %}
 
   {% if reflections %}
     <details class="rounded-xl border border-indigo-500/30 bg-indigo-500/5 p-3" open>

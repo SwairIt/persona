@@ -59,12 +59,75 @@ async def mirror_skill_to_device(user_id: int, name: str, content: str) -> None:
         log.info("skill.mirror_failed", name=name, error=str(exc))
 
 
+# ── SSRF-аллоулист: куда вообще можно ходить за навыком ─────────────────────
+#
+# Установка навыка — единственное место, где СЕРВЕР дёргает URL, пришедший из
+# формы, и с открытием /settings/skills участнику форму видит любой аккаунт.
+# Поэтому и вход (что прислал пользователь), и выход (куда реально ушёл
+# запрос после редиректов) ограничены хостами GitHub:
+#   * ``github.com``                — ссылка, которую вставляет человек;
+#   * ``raw.githubusercontent.com`` — куда ходим за SKILL.md/README.md;
+#   * ``codeload.github.com`` / ``objects.githubusercontent.com`` — типовые
+#     цели редиректов GitHub при отдаче файлов.
+# Схема ТОЛЬКО https: http-ссылка на 169.254.169.254 / 127.0.0.1 / internal
+# теперь отбивается до сети, а не «повезло, что регулярка не совпала».
+# Правило общее и для владельца (defense in depth), поэтому текст ошибки
+# дружелюбный, а не «forbidden».
+_ALLOWED_SKILL_HOSTS: frozenset[str] = frozenset(
+    {
+        "github.com",
+        "www.github.com",
+        "raw.githubusercontent.com",
+        "codeload.github.com",
+        "objects.githubusercontent.com",
+    }
+)
+
+_HOST_NOT_ALLOWED = (
+    "навыки ставятся только по ссылке на GitHub "
+    "(https://github.com/пользователь/репозиторий)"
+)
+
+
+def _host_allowed(url: str) -> bool:
+    """True, если ``url`` — https на хост из :data:`_ALLOWED_SKILL_HOSTS`."""
+    from urllib.parse import urlsplit  # noqa: PLC0415
+
+    try:
+        parts = urlsplit(url.strip())
+    except ValueError:
+        return False
+    if parts.scheme != "https":
+        return False
+    # ``hostname`` уже без порта, userinfo и в нижнем регистре — именно то,
+    # что нужно сравнивать (netloc содержал бы "user@host:443").
+    host = parts.hostname or ""
+    if parts.port not in (None, 443):
+        return False
+    return host in _ALLOWED_SKILL_HOSTS
+
+
 def _parse_github(url: str) -> tuple[str, str] | None:
-    """``https://github.com/user/repo[/...]`` → ``(user, repo)``."""
-    match = re.search(r"github\.com/([^/\s]+)/([^/\s#?]+)", url.strip())
+    """``https://github.com/user/repo[/...]`` → ``(user, repo)``.
+
+    Хост проверяем разбором URL, а не поиском подстроки: раньше регулярка
+    матчила ``github.com/…`` где угодно в строке, поэтому «ссылкой на GitHub»
+    считался и ``http://169.254.169.254/github.com/a/b``.
+    """
+    from urllib.parse import urlsplit  # noqa: PLC0415
+
+    if not _host_allowed(url):
+        return None
+    path = urlsplit(url.strip()).path.strip("/")
+    match = re.match(r"([^/\s]+)/([^/\s#?]+)", path)
     if not match:
         return None
-    return match.group(1), match.group(2).removesuffix(".git")
+    user, repo = match.group(1), match.group(2).removesuffix(".git")
+    # Ни одна часть не должна уводить путь вверх/вбок при подстановке в
+    # raw.githubusercontent.com/<user>/<repo>/<branch>/<file>.
+    if user in ("", ".", "..") or repo in ("", ".", ".."):
+        return None
+    return user, repo
 
 
 def _extract_name(text: str, fallback: str) -> str:
@@ -79,9 +142,16 @@ def _extract_name(text: str, fallback: str) -> str:
 
 
 async def _fetch_text(client: httpx.AsyncClient, url: str) -> str | None:
+    if not _host_allowed(url):
+        return None
     try:
         r = await client.get(url)
     except httpx.HTTPError:
+        return None
+    # Редирект мог увести на чужой хост (``follow_redirects=True``) — проверяем
+    # КОНЕЧНЫЙ адрес, иначе аллоулист входа обходится одним 302.
+    if not _host_allowed(str(r.url)):
+        log.warning("skill.fetch_redirect_blocked", final_url=str(r.url))
         return None
     if r.status_code == 200 and r.text.strip():
         return r.text[:_MAX_SKILL_BYTES]
@@ -91,8 +161,11 @@ async def _fetch_text(client: httpx.AsyncClient, url: str) -> str | None:
 async def fetch_skill_from_github(url: str) -> tuple[str, str, str]:
     """Download a skill's instructions. Returns ``(name, content, raw_url)``.
 
-    Raises :class:`ValueError` with a human message on any failure.
+    Raises :class:`ValueError` with a human message on any failure. Всё, что
+    не https на хост из :data:`_ALLOWED_SKILL_HOSTS`, отбивается ДО сети.
     """
+    if not _host_allowed(url):
+        raise ValueError(_HOST_NOT_ALLOWED)
     parsed = _parse_github(url)
     if not parsed:
         raise ValueError("это не похоже на ссылку вида github.com/пользователь/репозиторий")

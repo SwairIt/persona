@@ -34,4 +34,25 @@
     </button>
   </div>
 </form>
+
+{# Язык интерфейса — своя строка у каждого аккаунта (участник меняет только
+   себе, владелец — всему инстансу). Отдельная форма: тема и язык пишутся
+   разными эндпоинтами, и один POST не должен молча трогать вторую настройку. #}
+<form action="/api/settings/ui-language" method="post"
+      class="mt-4 rounded-lg border border-ink-700 bg-ink-800 p-5 flex flex-wrap items-center gap-3">
+  <label for="ui-language" class="text-sm font-semibold text-zinc-100">
+    {{ t('label_language') }}
+  </label>
+  <select id="ui-language" name="language"
+          class="rounded bg-ink-900 border border-ink-700 px-3 py-2 text-sm text-zinc-100
+                 focus:outline-none focus:border-accent-500">
+    {% for code in language_options %}
+      <option value="{{ code }}" {% if language_current == code %}selected{% endif %}>{{ code }}</option>
+    {% endfor %}
+  </select>
+  <button type="submit"
+          class="px-4 py-2 bg-accent-600 hover:bg-accent-500 rounded text-sm font-medium transition">
+    {{ t('btn_save') }}
+  </button>
+</form>
 {% endblock %}
