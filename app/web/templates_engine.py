@@ -6,7 +6,7 @@ import re
 import sqlite3
 import time
 from contextvars import ContextVar
-from datetime import datetime, tzinfo
+from datetime import datetime, timezone, tzinfo
 from html import escape as _html_escape
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -320,7 +320,7 @@ def resolve_display_tz() -> tzinfo:
             _tz_log.warning("display_timezone.unknown", tz_name=tz_name)
     local = datetime.now().astimezone().tzinfo
     if local is None:  # pragma: no cover — astimezone() always tags a tz
-        return ZoneInfo("UTC")
+        return timezone.utc
     return local
 
 
@@ -364,7 +364,11 @@ def _format_localtime(
     if parsed is None:
         return "—"
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=ZoneInfo("UTC"))
+        # ``timezone.utc``, а НЕ ``ZoneInfo('UTC')``: на хостах без пакета
+        # tzdata (uv-сборка CPython на Windows) ZoneInfo кидает
+        # ZoneInfoNotFoundError и любая страница с наивной меткой времени
+        # падала в 500. Значение то же самое, зависимости — никакой.
+        parsed = parsed.replace(tzinfo=timezone.utc)
     pattern = _LOCALTIME_FORMATS.get(fmt, _LOCALTIME_FORMATS[_LOCALTIME_DEFAULT])
     return parsed.astimezone(resolve_display_tz()).strftime(pattern)
 

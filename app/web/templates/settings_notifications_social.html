@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+
+{# Уведомления социального слоя: матрица «событие × канал», свой Telegram-бот
+   и список переписок, где ИИ отвечает за меня (+ рубильник «выключить везде»).
+
+   Дефолт — только браузер. Почта и Telegram выходят за пределы инстанса,
+   поэтому включаются исключительно руками. #}
+
+{% block content %}
+<div class="max-w-3xl mx-auto px-4 sm:px-6 py-6">
+
+  <header class="mb-6">
+    <h1 class="text-2xl font-bold tracking-tight">🔔 {{ t('social_notif_title') }}</h1>
+    <p class="text-sm text-zinc-500 mt-1">{{ t('social_notif_subtitle') }}</p>
+  </header>
+
+  {% if saved %}
+    <div class="mb-4 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">
+      {{ t('social_notif_saved') }}
+    </div>
+  {% endif %}
+
+  <form method="post" action="/settings/notifications-social">
+
+    {# ── Матрица событие × канал ─────────────────────────────────────────── #}
+    <section class="rounded-xl border border-ink-700 bg-ink-900 p-4 mb-5 overflow-x-auto">
+      <div class="text-xs uppercase tracking-widest text-zinc-500 mb-3">{{ t('social_notif_matrix') }}</div>
+      <table class="w-full text-sm min-w-[420px]">
+        <thead>
+          <tr class="text-zinc-500 text-xs">
+            <th class="text-left font-normal pb-2">{{ t('social_notif_event') }}</th>
+            {% for channel, label_key in channels %}
+              <th class="px-2 pb-2 font-normal whitespace-nowrap">{{ t(label_key) }}</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for event, label_key in events %}
+          <tr class="border-t border-ink-800">
+            <td class="py-2.5 pr-3 text-zinc-300">{{ t(label_key) }}</td>
+            {% for channel, _label in channels %}
+              <td class="px-2 py-2.5 text-center">
+                <input type="checkbox" name="{{ event }}__{{ channel }}"
+                       {% if prefs[event][channel] %}checked{% endif %}
+                       class="w-5 h-5 rounded accent-accent-600 align-middle">
+              </td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <p class="text-[11px] text-zinc-600 mt-3">
+        {{ t('social_notif_email_cooldown_hint') }} ({{ email_cooldown_minutes }} {{ t('social_notif_minutes') }}).
+      </p>
+    </section>
+
+    {# ── Свой Telegram-бот ───────────────────────────────────────────────── #}
+    <section class="rounded-xl border border-ink-700 bg-ink-900 p-4 mb-5">
+      <div class="text-xs uppercase tracking-widest text-zinc-500 mb-2">{{ t('social_notif_telegram') }}</div>
+
+      {% if telegram.configured %}
+        <p class="text-sm text-emerald-300 mb-3">
+          {{ t('social_notif_tg_connected') }} — chat id <code class="text-zinc-300">{{ telegram.chat_id }}</code>,
+          {{ t('social_notif_tg_token_tail') }} <code class="text-zinc-300">…{{ telegram.token_tail }}</code>
+        </p>
+      {% else %}
+        <p class="text-sm text-zinc-500 mb-3">{{ t('social_notif_tg_not_connected') }}</p>
+      {% endif %}
+
+      <ol class="text-xs text-zinc-500 space-y-1 mb-3 list-decimal list-inside">
+        <li>{{ t('social_notif_tg_step1') }}</li>
+        <li>{{ t('social_notif_tg_step2') }}</li>
+        <li>{{ t('social_notif_tg_step3') }}</li>
+      </ol>
+
+      <div class="grid sm:grid-cols-2 gap-3">
+        <label class="block">
+          <span class="block text-xs text-zinc-500 mb-1">{{ t('social_notif_tg_token') }}</span>
+          <input type="password" name="tg_token" autocomplete="off" placeholder="123456:ABC-DEF…"
+                 class="w-full bg-ink-950 border border-ink-700 focus:border-accent-500 rounded-lg
+                        px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none">
+        </label>
+        <label class="block">
+          <span class="block text-xs text-zinc-500 mb-1">{{ t('social_notif_tg_chat') }}</span>
+          <input type="text" name="tg_chat_id" autocomplete="off" value="{{ telegram.chat_id }}"
+                 class="w-full bg-ink-950 border border-ink-700 focus:border-accent-500 rounded-lg
+                        px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none">
+        </label>
+      </div>
+
+      <label class="flex items-center gap-2 mt-3 text-xs text-zinc-500 cursor-pointer">
+        <input type="checkbox" name="tg_clear" class="w-4 h-4 rounded accent-rose-600">
+        {{ t('social_notif_tg_clear') }}
+      </label>
+
+      <p class="text-[11px] text-zinc-600 mt-2">{{ t('social_notif_tg_privacy') }}</p>
+
+      <div class="mt-3" x-data="{ status: '' }">
+        <button type="button"
+                @click="status='…'; fetch('/api/social-notif/telegram/test', { method: 'POST', headers: { 'Accept': 'application/json' } })
+                          .then(r => r.json()).then(j => status = j.status).catch(() => status = 'failed')"
+                class="px-3 py-1.5 rounded-lg border border-ink-700 hover:bg-ink-700 text-zinc-300 text-xs">
+          {{ t('social_notif_tg_test') }}
+        </button>
+        <span class="text-xs text-zinc-500 ml-2" x-text="status"></span>
+      </div>
+    </section>
+
+    <button type="submit"
+            class="px-4 py-2 rounded-lg bg-accent-600 hover:bg-accent-500 text-white text-sm font-semibold">
+      {{ t('social_notif_save') }}
+    </button>
+  </form>
+
+  {# ── Где ИИ отвечает за меня + рубильник ─────────────────────────────── #}
+  <section class="rounded-xl border border-violet-500/40 bg-violet-500/5 p-4 mt-6"
+           x-data="{ busy: false, done: false }">
+    <div class="text-xs uppercase tracking-widest text-violet-300 mb-2">{{ t('dm_ai_where_title') }}</div>
+
+    {% if ai_threads %}
+      <ul class="space-y-1.5 mb-3">
+        {% for pref in ai_threads %}
+          <li class="flex items-center justify-between gap-3 text-sm">
+            <span class="text-zinc-300 truncate">{{ pref.peer_name }}</span>
+            <span class="text-[11px] px-2 py-0.5 rounded-full whitespace-nowrap
+                         {% if pref.mode == 'auto' %}bg-violet-600/25 text-violet-200{% else %}bg-ink-700 text-zinc-400{% endif %}">
+              {{ t('dm_ai_mode_' ~ pref.mode) }}{% if pref.mode == 'auto' %} · {{ pref.used_today }}/{{ pref.quota_daily }}{% endif %}
+            </span>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="text-sm text-zinc-500 mb-3">{{ t('dm_ai_where_empty') }}</p>
+    {% endif %}
+
+    <button type="button" :disabled="busy"
+            @click="busy = true; fetch('/api/messages/ai/off-everywhere', { method: 'POST', headers: { 'Accept': 'application/json' } })
+                      .then(() => { done = true; window.location.reload(); })
+                      .catch(() => busy = false)"
+            class="px-3 py-1.5 rounded-lg border border-rose-500/50 hover:bg-rose-500/10 text-rose-300 text-xs disabled:opacity-40">
+      {{ t('dm_ai_off_everywhere') }}
+    </button>
+    <p class="text-[11px] text-zinc-600 mt-2">{{ t('dm_ai_off_everywhere_hint') }}</p>
+  </section>
+
+</div>
+{% endblock %}

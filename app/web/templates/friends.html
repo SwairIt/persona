@@ -1,0 +1,204 @@
+{% extends "base.html" %}
+
+{# Друзья: поиск людей, входящие/исходящие заявки, список друзей.
+   Alpine + fetch, без htmx — так же, как остальные member-страницы. #}
+
+{% block content %}
+<div class="max-w-3xl mx-auto" x-data="friendsPage()">
+
+  <div class="mb-6">
+    <h1 class="text-2xl font-bold tracking-tight">👥 {{ t('friends_title') }}</h1>
+    <p class="text-zinc-500 text-sm mt-1">{{ t('friends_subtitle') }}</p>
+  </div>
+
+  {# ── Поиск людей ───────────────────────────────────────────────────── #}
+  <div class="mb-6 rounded-xl border border-ink-700 bg-ink-800 p-4">
+    <label class="block text-xs text-zinc-400 mb-1.5" for="friend-search">
+      {{ t('friends_search_label') }}
+    </label>
+    <input id="friend-search" type="search" x-model="q" @input.debounce.350ms="search()"
+           placeholder="{{ t('friends_search_placeholder') }}" autocomplete="off"
+           class="w-full bg-ink-900 border border-ink-700 focus:border-accent-500 rounded-lg
+                  px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none">
+    <p class="text-[11px] text-zinc-600 mt-1.5">{{ t('friends_search_hint') }}</p>
+
+    <template x-if="error">
+      <div class="mt-3 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-300"
+           x-text="error"></div>
+    </template>
+
+    <template x-if="searched && !results.length && !error">
+      <p class="mt-3 text-sm text-zinc-500">{{ t('friends_search_empty') }}</p>
+    </template>
+
+    <ul class="mt-3 space-y-2" x-show="results.length" x-cloak>
+      <template x-for="r in results" :key="r.id">
+        <li class="rounded-lg border border-ink-700 bg-ink-900 px-3 py-2 flex items-center gap-3">
+          <span class="min-w-0 flex-1 text-sm text-zinc-100 truncate" x-text="r.name"></span>
+          <template x-if="r.status === 'friends'">
+            <span class="text-[11px] text-emerald-300">{{ t('friends_status_friends') }}</span>
+          </template>
+          <template x-if="r.status === 'outgoing'">
+            <span class="text-[11px] text-zinc-500">{{ t('friends_status_outgoing') }}</span>
+          </template>
+          <template x-if="r.status === 'incoming'">
+            <span class="text-[11px] text-amber-300">{{ t('friends_status_incoming') }}</span>
+          </template>
+          <template x-if="r.status === 'none'">
+            <button type="button" @click="addFriend(r)"
+                    class="px-3 py-1.5 rounded-lg bg-accent-600 hover:bg-accent-500 text-white text-xs font-semibold whitespace-nowrap">
+              {{ t('friends_add') }}
+            </button>
+          </template>
+        </li>
+      </template>
+    </ul>
+  </div>
+
+  {# ── Входящие заявки ───────────────────────────────────────────────── #}
+  {% if incoming %}
+  <h2 class="text-sm font-semibold text-zinc-300 mb-2">{{ t('friends_incoming') }}</h2>
+  <ul class="space-y-2 mb-6">
+    {% for r in incoming %}
+      <li class="rounded-xl border border-amber-500/30 bg-ink-800 p-3 flex items-center gap-3">
+        <div class="min-w-0 flex-1">
+          <div class="text-sm font-medium text-zinc-100 truncate">{{ r.name }}</div>
+          {% if r.message %}
+            <div class="text-xs text-zinc-500 truncate">«{{ r.message }}»</div>
+          {% endif %}
+        </div>
+        <button type="button" @click="act({{ r.id }}, 'accept')"
+                class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold">
+          {{ t('friends_accept') }}
+        </button>
+        <button type="button" @click="act({{ r.id }}, 'decline')"
+                class="px-3 py-1.5 rounded-lg border border-ink-700 hover:bg-ink-700 text-zinc-300 text-xs">
+          {{ t('friends_decline') }}
+        </button>
+      </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
+  {# ── Исходящие заявки ──────────────────────────────────────────────── #}
+  {% if outgoing %}
+  <h2 class="text-sm font-semibold text-zinc-300 mb-2">{{ t('friends_outgoing') }}</h2>
+  <ul class="space-y-2 mb-6">
+    {% for r in outgoing %}
+      <li class="rounded-xl border border-ink-700 bg-ink-800 p-3 flex items-center gap-3">
+        <div class="min-w-0 flex-1 text-sm text-zinc-300 truncate">{{ r.name }}</div>
+        <button type="button" @click="act({{ r.id }}, 'cancel')"
+                class="px-3 py-1.5 rounded-lg border border-ink-700 hover:bg-ink-700 text-zinc-400 text-xs">
+          {{ t('friends_cancel') }}
+        </button>
+      </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
+  {# ── Друзья ────────────────────────────────────────────────────────── #}
+  <div class="flex items-baseline justify-between mb-2">
+    <h2 class="text-sm font-semibold text-zinc-300">{{ t('friends_list') }}</h2>
+    <span class="text-xs text-zinc-500">{{ friends|length }}</span>
+  </div>
+
+  {% if not friends %}
+    <div class="rounded-xl border border-ink-700 bg-ink-800 p-8 text-center text-zinc-500 text-sm">
+      {{ t('friends_empty') }}
+    </div>
+  {% else %}
+    <ul class="space-y-2">
+      {% for f in friends %}
+        <li class="rounded-xl border border-ink-700 bg-ink-800 p-3 flex items-center gap-3">
+          <div class="min-w-0 flex-1 text-sm font-medium text-zinc-100 truncate">{{ f.name }}</div>
+          <a href="/messages/with/{{ f.id }}"
+             class="px-3 py-1.5 rounded-lg bg-accent-600 hover:bg-accent-500 text-white text-xs font-semibold whitespace-nowrap">
+            {{ t('friends_write') }}
+          </a>
+          <button type="button" @click="removeFriend({{ f.id }})"
+                  class="px-3 py-1.5 rounded-lg border border-ink-700 hover:bg-rose-600/20 hover:border-rose-500/40 text-zinc-400 hover:text-rose-300 text-xs">
+            {{ t('friends_remove') }}
+          </button>
+        </li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+
+  {# ── Приватность: тумблер «меня можно найти» ───────────────────────── #}
+  <div id="discoverable" class="mt-8 rounded-xl border border-ink-700 bg-ink-800 p-4">
+    <label class="flex items-start gap-3 cursor-pointer">
+      <input type="checkbox" x-model="discoverable" @change="saveDiscoverable()"
+             class="mt-0.5 h-4 w-4 rounded border-ink-700 bg-ink-900 text-accent-600">
+      <span class="min-w-0">
+        <span class="block text-sm text-zinc-200">{{ t('friends_discoverable') }}</span>
+        <span class="block text-xs text-zinc-500 mt-0.5">{{ t('friends_discoverable_hint') }}</span>
+      </span>
+    </label>
+  </div>
+</div>
+
+<script>
+  function friendsPage() {
+    return {
+      q: '',
+      results: [],
+      searched: false,
+      error: '',
+      discoverable: {{ 'true' if discoverable else 'false' }},
+
+      async search() {
+        this.error = '';
+        const q = this.q.trim();
+        if (!q) { this.results = []; this.searched = false; return; }
+        try {
+          const r = await fetch('/api/friends/search?q=' + encodeURIComponent(q),
+                                { headers: { 'Accept': 'application/json' } });
+          const j = await r.json();
+          this.results = j.results || [];
+          this.searched = true;
+          if (!r.ok) this.error = j.error || '';
+        } catch (e) { this.error = '{{ t("friends_net_error") }}'; }
+      },
+
+      async addFriend(r) {
+        try {
+          const res = await fetch('/api/friends/request', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ to_user_id: r.id }),
+          });
+          const j = await res.json();
+          if (!res.ok) { this.error = j.error || '{{ t("friends_net_error") }}'; return; }
+          r.status = 'outgoing';
+          window.location.reload();
+        } catch (e) { this.error = '{{ t("friends_net_error") }}'; }
+      },
+
+      async act(id, what) {
+        try {
+          await fetch('/api/friends/' + id + '/' + what, { method: 'POST' });
+          window.location.reload();
+        } catch (e) { this.error = '{{ t("friends_net_error") }}'; }
+      },
+
+      async removeFriend(id) {
+        if (!confirm('{{ t("friends_remove_confirm") }}')) return;
+        try {
+          await fetch('/api/friends/' + id + '/remove', { method: 'POST' });
+          window.location.reload();
+        } catch (e) { this.error = '{{ t("friends_net_error") }}'; }
+      },
+
+      async saveDiscoverable() {
+        try {
+          await fetch('/api/friends/discoverable', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify({ value: this.discoverable }),
+          });
+        } catch (e) { this.error = '{{ t("friends_net_error") }}'; }
+      },
+    };
+  }
+</script>
+{% endblock %}

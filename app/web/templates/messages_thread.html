@@ -1,0 +1,394 @@
+{% extends "base.html" %}
+
+{# Переписка: пузыри (моё справа / его слева), метка «✨ ответил ИИ» для
+   kind='ai', композер, дозагрузка старых, polling новых раз в 5с.
+
+   Порядок рендера намеренно трёхслойный:
+     [подгруженные СТАРЫЕ (Alpine)] → [ПЕРВАЯ страница (сервер)] → [НОВЫЕ (Alpine)]
+   Первая страница рисуется на сервере, поэтому переписка (включая метку
+   «✨ ответил ИИ») видна и без JS, а Alpine занимается только тем, чего на
+   момент рендера ещё не было. Хронология при этом не ломается. #}
+
+{% macro bubble_class(mine, kind) -%}
+  {%- if kind == 'ai' -%}border border-violet-500/40 bg-violet-500/10 text-violet-100
+  {%- elif mine -%}bg-accent-600 text-white
+  {%- else -%}bg-ink-900 border border-ink-700 text-zinc-200{%- endif -%}
+{%- endmacro %}
+
+{# Alpine-версия пузыря; ``arr`` — имя массива в компоненте. #}
+{% macro alpine_bubbles(arr) -%}
+  <template x-for="m in {{ arr }}" :key="m.id">
+    {# ``:data-kind`` (динамический) — атрибут появляется только в БРАУЗЕРЕ,
+       поэтому в сырой разметке остаётся ровно столько ``data-kind="ai"``,
+       сколько ИИ-сообщений отрисовал СЕРВЕР. На это опирается тест. #}
+    <li :data-kind="m.kind" :class="m.mine ? 'flex justify-end' : 'flex justify-start'">
+      <div class="max-w-[80%] rounded-2xl px-3 py-2 text-sm break-words"
+           :class="m.kind === 'ai'
+                    ? 'border border-violet-500/40 bg-violet-500/10 text-violet-100'
+                    : (m.mine ? 'bg-accent-600 text-white' : 'bg-ink-900 border border-ink-700 text-zinc-200')">
+        <template x-if="m.kind === 'ai'">
+          <div class="text-[10px] uppercase tracking-wide text-violet-300 mb-0.5">✨ {{ t('messages_ai_label') }}</div>
+        </template>
+        <div x-text="m.body"></div>
+        <div class="text-[10px] opacity-60 mt-0.5" x-text="m.created_at"></div>
+      </div>
+    </li>
+  </template>
+{%- endmacro %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto flex flex-col" style="min-height: 70vh"
+     x-data="threadView({{ thread.thread_id }}, {{ (messages[0].id if messages else 0) }}, {{ (messages[-1].id if messages else 0) }})"
+     x-init="boot()">
+
+  <div class="mb-4 flex items-center gap-3">
+    <a href="/messages" class="text-zinc-500 hover:text-zinc-300 text-lg leading-none">←</a>
+    <h1 class="text-lg font-bold tracking-tight truncate">{{ thread.name }}</h1>
+  </div>
+
+  <div class="flex-1 rounded-xl border border-ink-700 bg-ink-800 p-3 overflow-y-auto"
+       x-ref="scroller" style="max-height: 62vh">
+
+    <div class="text-center mb-2" x-show="hasMore" x-cloak>
+      <button type="button" @click="loadOlder()" :disabled="loading"
+              class="px-3 py-1.5 rounded-lg border border-ink-700 hover:bg-ink-700 text-zinc-400 text-xs">
+        {{ t('messages_load_older') }}
+      </button>
+    </div>
+
+    {% if not messages %}
+      <p class="text-center text-sm text-zinc-500 py-8">{{ t('messages_thread_empty') }}</p>
+    {% endif %}
+
+    <ul class="space-y-2">
+      {# 1. дозагруженные старые #}
+      {{ alpine_bubbles('older') }}
+
+      {# 2. первая страница — с сервера, работает без JS #}
+      {% for m in messages %}
+        <li data-kind="{{ m.kind }}" class="flex {{ 'justify-end' if m.mine else 'justify-start' }}">
+          <div class="max-w-[80%] rounded-2xl px-3 py-2 text-sm break-words {{ bubble_class(m.mine, m.kind) }}">
+            {% if m.kind == 'ai' %}
+              <div class="text-[10px] uppercase tracking-wide text-violet-300 mb-0.5">✨ {{ t('messages_ai_label') }}</div>
+            {% endif %}
+            <div>{{ m.body }}</div>
+            <div class="text-[10px] opacity-60 mt-0.5">{{ m.created_at|localtime }}</div>
+          </div>
+        </li>
+      {% endfor %}
+
+      {# 3. прилетевшие после загрузки страницы #}
+      {{ alpine_bubbles('fresh') }}
+    </ul>
+  </div>
+
+  {# ── Черновик от ИИ: виден ТОЛЬКО мне ────────────────────────────────────
+     Это НЕ сообщение: в ``dm_message`` его нет вовсе, он приходит отдельным
+     запросом под моей сессией. Собеседник его не увидит физически. #}
+  <div x-show="aiDraft" x-cloak
+       class="mt-3 rounded-xl border border-violet-500/40 bg-violet-500/10 p-3">
+    <div class="text-[10px] uppercase tracking-wide text-violet-300 mb-1">
+      ✨ {{ t('dm_ai_draft_label') }}
+    </div>
+    <div class="text-sm text-violet-100 break-words" x-text="aiDraft"></div>
+    <div class="flex gap-2 mt-2">
+      <button type="button" @click="sendDraft()"
+              class="px-3 py-1 rounded-lg bg-accent-600 hover:bg-accent-500 text-white text-xs font-semibold">
+        {{ t('dm_ai_draft_send') }}
+      </button>
+      <button type="button" @click="editDraft()"
+              class="px-3 py-1 rounded-lg border border-ink-700 hover:bg-ink-700 text-zinc-300 text-xs">
+        {{ t('dm_ai_draft_edit') }}
+      </button>
+      <button type="button" @click="dismissDraft()"
+              class="px-3 py-1 rounded-lg border border-ink-700 hover:bg-ink-700 text-zinc-500 text-xs">
+        {{ t('dm_ai_draft_dismiss') }}
+      </button>
+    </div>
+  </div>
+
+  <form class="mt-3 flex gap-2" @submit.prevent="send()">
+    <input type="text" x-model="composer" maxlength="{{ max_chars }}"
+           placeholder="{{ t('messages_composer_placeholder') }}" autocomplete="off"
+           class="flex-1 bg-ink-900 border border-ink-700 focus:border-accent-500 rounded-lg
+                  px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none">
+    <button type="submit" :disabled="!composer.trim() || sending"
+            class="px-4 py-2 rounded-lg bg-accent-600 hover:bg-accent-500 disabled:opacity-40
+                   text-white text-sm font-semibold whitespace-nowrap">
+      {{ t('messages_send') }}
+    </button>
+  </form>
+
+  <p class="mt-1.5 text-[11px] text-rose-300" x-show="error" x-cloak x-text="error"></p>
+
+  {# ── Панель «ИИ» для ЭТОЙ переписки ─────────────────────────────────────
+     Свёрнута по умолчанию: режим по умолчанию «выключено», и раскрытая
+     панель создавала бы впечатление, что что-то уже работает. #}
+  <details class="mt-4 rounded-xl border border-ink-700 bg-ink-900">
+    <summary class="cursor-pointer select-none px-3 py-2 text-sm text-zinc-400 hover:text-zinc-200">
+      ✨ {{ t('dm_ai_panel_title') }}
+      <span class="text-[11px] text-zinc-600 ml-1" x-text="modeLabel()"></span>
+    </summary>
+
+    <div class="px-3 pb-3 space-y-3">
+      <p x-show="!llmReady" x-cloak
+         class="text-[11px] text-amber-300 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5">
+        {{ t('dm_ai_llm_missing') }}
+      </p>
+      <p x-show="aiError" x-cloak
+         class="text-[11px] text-rose-300 rounded-lg border border-rose-500/30 bg-rose-500/10 px-2.5 py-1.5"
+         x-text="aiError"></p>
+
+      <div class="space-y-1.5">
+        <label class="flex items-start gap-2.5 cursor-pointer">
+          <input type="radio" value="off" x-model="aiMode" class="mt-0.5 w-4 h-4 accent-accent-600">
+          <span>
+            <span class="block text-sm text-zinc-200">{{ t('dm_ai_mode_off') }}</span>
+            <span class="block text-[11px] text-zinc-500">{{ t('dm_ai_mode_off_hint') }}</span>
+          </span>
+        </label>
+        <label class="flex items-start gap-2.5 cursor-pointer">
+          <input type="radio" value="draft" x-model="aiMode" class="mt-0.5 w-4 h-4 accent-accent-600">
+          <span>
+            <span class="block text-sm text-zinc-200">
+              {{ t('dm_ai_mode_draft') }}
+              <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-600/25 text-emerald-300 ml-1">
+                {{ t('dm_ai_recommended') }}
+              </span>
+            </span>
+            <span class="block text-[11px] text-zinc-500">{{ t('dm_ai_mode_draft_hint') }}</span>
+          </span>
+        </label>
+        <label class="flex items-start gap-2.5 cursor-pointer">
+          <input type="radio" value="auto" x-model="aiMode" class="mt-0.5 w-4 h-4 accent-violet-500">
+          <span>
+            <span class="block text-sm text-zinc-200">{{ t('dm_ai_mode_auto') }}</span>
+            <span class="block text-[11px] text-zinc-500">{{ t('dm_ai_mode_auto_hint') }}</span>
+          </span>
+        </label>
+      </div>
+
+      {# Согласие обязательно: сервер сам опустит режим до «черновика», если
+         галочка не стоит (см. save_pref) — тут мы только не даём человеку
+         нажать «сохранить» и удивиться результату. #}
+      <label x-show="aiMode === 'auto'" x-cloak
+             class="flex items-start gap-2.5 cursor-pointer rounded-lg border border-violet-500/40 bg-violet-500/10 p-2.5">
+        <input type="checkbox" x-model="aiAck" class="mt-0.5 w-4 h-4 rounded accent-violet-500">
+        <span class="text-[11px] text-violet-100">{{ t('dm_ai_ack') }}</span>
+      </label>
+
+      <label class="block">
+        <span class="block text-[11px] text-zinc-500 mb-1">{{ t('dm_ai_style_note') }}</span>
+        <input type="text" x-model="aiStyle" maxlength="400"
+               placeholder="{{ t('dm_ai_style_placeholder') }}"
+               class="w-full bg-ink-950 border border-ink-700 focus:border-accent-500 rounded-lg
+                      px-3 py-1.5 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none">
+      </label>
+
+      <label class="block" x-show="aiMode === 'auto'" x-cloak>
+        <span class="block text-[11px] text-zinc-500 mb-1">
+          {{ t('dm_ai_quota') }} <span x-text="'(' + aiUsed + ' ' + '{{ t('dm_ai_used_today') }}' + ')'"></span>
+        </span>
+        <input type="number" x-model.number="aiQuota" min="0" max="200"
+               class="w-28 bg-ink-950 border border-ink-700 focus:border-accent-500 rounded-lg
+                      px-3 py-1.5 text-sm text-zinc-100 focus:outline-none">
+      </label>
+
+      <div class="flex items-center gap-2 pt-1">
+        <button type="button" @click="savePref()" :disabled="aiSaving"
+                class="px-3 py-1.5 rounded-lg bg-accent-600 hover:bg-accent-500 disabled:opacity-40
+                       text-white text-xs font-semibold">
+          {{ t('dm_ai_save') }}
+        </button>
+        <a href="/settings/notifications-social" class="text-[11px] text-zinc-500 hover:text-zinc-300">
+          {{ t('dm_ai_off_everywhere') }} →
+        </a>
+      </div>
+      <p class="text-[11px] text-zinc-600">{{ t('dm_ai_honesty_hint') }}</p>
+    </div>
+  </details>
+</div>
+
+<script>
+  function threadView(threadId, firstId, lastId) {
+    return {
+      threadId: threadId,
+      older: [],
+      fresh: [],
+      firstId: firstId,
+      lastId: lastId,
+      hasMore: {{ 'true' if has_more else 'false' }},
+      composer: '',
+      sending: false,
+      loading: false,
+      error: '',
+
+      // ── Панель «ИИ» ────────────────────────────────────────────────────
+      // ``aiDraft`` намеренно ОТДЕЛЬНОЕ поле от ``composer``: пока человек не
+      // нажал «Изменить»/«Отправить», предложение ИИ не должно затирать то,
+      // что он печатает сам.
+      aiDraft: '',
+      aiMode: 'off',
+      aiStyle: '',
+      aiQuota: 20,
+      aiUsed: 0,
+      aiAck: false,
+      aiSaving: false,
+      aiError: '',
+      llmReady: true,
+
+      boot() {
+        this.$nextTick(() => this.scrollDown());
+        // Polling вместо SSE: переписка двух людей — единицы сообщений в
+        // минуту, отдельный стрим тут дороже пользы.
+        setInterval(() => this.poll(), 5000);
+        this.loadAI();
+        // Черновик рождается в ФОНОВОЙ задаче уже после ответа на send,
+        // поэтому его надо переспрашивать — на том же такте, что и poll.
+        setInterval(() => this.loadAI(), 5000);
+      },
+
+      modeLabel() {
+        return { off: '{{ t("dm_ai_mode_off") }}',
+                 draft: '{{ t("dm_ai_mode_draft") }}',
+                 auto: '{{ t("dm_ai_mode_auto") }}' }[this.aiMode] || '';
+      },
+
+      async loadAI() {
+        try {
+          const r = await fetch('/api/messages/' + this.threadId + '/ai',
+                                { headers: { 'Accept': 'application/json' } });
+          if (!r.ok) return;
+          const j = await r.json();
+          if (!this.aiSaving) {
+            this.aiMode = j.pref.mode;
+            this.aiStyle = j.pref.style_note;
+            this.aiQuota = j.pref.quota_daily;
+            this.aiAck = !!j.pref.auto_ack;
+          }
+          this.aiUsed = j.pref.used_today;
+          this.aiError = j.pref.last_error || '';
+          this.llmReady = !!j.llm_ready;
+          this.aiDraft = j.draft ? j.draft.body : '';
+        } catch (e) { /* офлайн — следующий тик */ }
+      },
+
+      async savePref() {
+        this.aiSaving = true;
+        try {
+          const r = await fetch('/api/messages/' + this.threadId + '/ai', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              mode: this.aiMode,
+              style_note: this.aiStyle,
+              quota_daily: this.aiQuota,
+              ack: this.aiAck,
+            }),
+          });
+          if (r.ok) {
+            const j = await r.json();
+            // Сервер мог опустить 'auto' до 'draft' (нет галочки) — показываем
+            // то, что РЕАЛЬНО сохранилось, а не то, что человек выбрал.
+            this.aiMode = j.pref.mode;
+            this.aiAck = !!j.pref.auto_ack;
+            this.aiError = j.pref.last_error || '';
+          }
+        } catch (e) { /* ignore */ }
+        this.aiSaving = false;
+      },
+
+      editDraft() {
+        // Переносим предложение в композер: дальше это ОБЫЧНОЕ сообщение,
+        // которое человек дописывает и отправляет сам — и уходит оно с
+        // kind='human', потому что его действительно отправил человек.
+        const text = this.aiDraft;
+        this.aiDraft = '';
+        this.composer = text;
+        this.forgetDraft();
+      },
+
+      async sendDraft() {
+        const text = this.aiDraft;
+        if (!text) return;
+        this.aiDraft = '';
+        this.composer = text;
+        await this.send();
+        this.forgetDraft();
+      },
+
+      dismissDraft() {
+        this.aiDraft = '';
+        this.forgetDraft();
+      },
+
+      forgetDraft() {
+        // Черновик живёт на сервере (иначе после перезагрузки страницы он бы
+        // всплыл снова), поэтому «убрать» — это удаление, а не только UI.
+        fetch('/api/messages/' + this.threadId + '/ai/dismiss', { method: 'POST' })
+          .catch(() => { /* ignore — следующий loadAI поправит */ });
+      },
+
+      scrollDown() {
+        const el = this.$refs.scroller;
+        if (el) el.scrollTop = el.scrollHeight;
+      },
+
+      async poll() {
+        try {
+          const r = await fetch('/api/messages/' + this.threadId + '/poll?after_id=' + this.lastId,
+                                { headers: { 'Accept': 'application/json' } });
+          if (!r.ok) return;
+          const j = await r.json();
+          if (j.messages && j.messages.length) {
+            this.fresh = this.fresh.concat(j.messages);
+            this.lastId = j.messages[j.messages.length - 1].id;
+            this.$nextTick(() => this.scrollDown());
+          }
+        } catch (e) { /* офлайн — ждём следующего тика */ }
+      },
+
+      async loadOlder() {
+        if (this.loading || !this.firstId) return;
+        this.loading = true;
+        try {
+          const r = await fetch('/api/messages/' + this.threadId + '/older?before_id=' + this.firstId,
+                                { headers: { 'Accept': 'application/json' } });
+          if (r.ok) {
+            const j = await r.json();
+            const page = j.messages || [];
+            this.older = page.concat(this.older);
+            if (page.length) this.firstId = page[0].id;
+            this.hasMore = !!j.has_more;
+          }
+        } catch (e) { /* ignore */ }
+        this.loading = false;
+      },
+
+      async send() {
+        const body = this.composer.trim();
+        if (!body || this.sending) return;
+        this.sending = true;
+        this.error = '';
+        try {
+          const r = await fetch('/api/messages/' + this.threadId + '/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ body: body }),
+          });
+          const j = await r.json();
+          if (!r.ok) {
+            this.error = j.error || '{{ t("messages_send_error") }}';
+          } else {
+            this.fresh.push(j.message);
+            this.lastId = j.message.id;
+            this.composer = '';
+            this.$nextTick(() => this.scrollDown());
+          }
+        } catch (e) { this.error = '{{ t("messages_send_error") }}'; }
+        this.sending = false;
+      },
+    };
+  }
+</script>
+{% endblock %}
