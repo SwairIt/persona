@@ -120,6 +120,10 @@
   <script src="/static/hotkey_loader.js" defer></script>
   <script src="/static/timeline_scrubber.js" defer></script>
   {% block head_extra %}{% endblock %}
+  {# Яндекс.Метрика (счётчик 111901324) — общая оболочка кабинета. Партиал сам
+     дедуплицируется (проверяет document.scripts перед вставкой tag.js), но
+     подключать его в шаблонах, которые наследуют base.html, всё равно НЕ надо. #}
+  {% include "_metrika.html" %}
   <script>
     tailwind.config = {
       darkMode: 'class',
@@ -168,8 +172,21 @@
         <span class="text-xs text-zinc-500 font-mono hidden sm:inline">v{{ app_version }}</span>
       </a>
 
-      {# owner видит полное приложение; Pro/триал-подписчик — только ассистент + биллинг #}
-      {% set _owner_view = (is_owner if is_owner is defined else True) %}
+      {# Владелец видит полное приложение; участник (зарегистрированный
+         не-владелец) — только свою бесплатную поверхность (_MEMBER_PREFIXES
+         в app/web/middleware/auth_gate.py).
+
+         Источник истины — ``request.state.is_owner``: гейт кладёт его для
+         ЛЮБОГО аутентифицированного запроса, поэтому роут, забывший передать
+         ``is_owner`` в контекст, больше не показывает участнику owner-навбар.
+         Порядок: request.state → контекст роута → True (публичные страницы
+         без сессии рендерятся как раньше). Все обращения через ``is defined``:
+         Jinja ловит AttributeError на starlette State и отдаёт Undefined,
+         так что шаблон без request/state не падает. #}
+      {% set _owner_view = is_owner if is_owner is defined else True %}
+      {% if request is defined and request.state is defined and request.state.is_owner is defined %}
+        {% set _owner_view = request.state.is_owner %}
+      {% endif %}
       {% if _owner_view %}
       {% set core_items = [
         ('now', '/now', 'nav_now'),
@@ -201,11 +218,21 @@
         ('advanced', '/settings/advanced', 'nav_advanced'),
       ] %}
       {% else %}
+      {# Участник: только то, что ему реально открыто гейтом. Ни одной ссылки
+         на личные данные владельца (/now, /timeline, /memory, /root, /m). #}
       {% set core_items = [
         ('chat', '/chat', 'nav_chat'),
-        ('billing', '/billing', 'nav_billing'),
+        ('memory', '/settings/memory', 'nav_memory'),
+        ('graph', '/graph', 'nav_graph'),
+        ('voice-live', '/voice', 'nav_voice_live'),
+        ('settings', '/settings/hub', 'nav_settings'),
       ] %}
-      {% set more_items = [] %}
+      {% set more_items = [
+        ('skills', '/settings/skills', 'nav_skills'),
+        ('system-prompt', '/settings/system-prompt', 'nav_character'),
+        ('profile', '/settings/profile', 'nav_profile'),
+        ('help', '/help', 'nav_help'),
+      ] %}
       {% endif %}
 
       <nav class="hidden md:flex items-center gap-1 text-sm flex-1 justify-center">
@@ -238,6 +265,10 @@
 
       <div x-data="captureStatus()" x-init="bootstrap()" id="status-pill" data-state="paused"
            class="flex items-center gap-2 sm:gap-3 text-xs shrink-0">
+        {# Захват/OCR/бюджет/мик — это данные и управление ВЛАДЕЛЬЦА (глобальный
+           воркер, а не что-то персональное). Участнику пилюли и кнопок не
+           показываем; тема, аккаунт-чип и гамбургер остаются всем. #}
+        {% if _owner_view %}
         <span id="status-pill-heartbeat-dot"
               class="w-1.5 h-1.5 rounded-full bg-zinc-600 transition-colors"
               title="{{ t('tip_worker_heartbeat') }}"></span>
@@ -277,6 +308,7 @@
                 class="p-2 sm:p-2.5 rounded">
           <span x-text="micPaused ? '🎙✕' : '🎙'"></span>
         </button>
+        {% endif %}
         <button @click="toggleTheme()"
                 title="{{ t('btn_toggle_theme') }}"
                 class="p-2 sm:p-2.5 rounded bg-ink-800 hover:bg-ink-700 text-zinc-300 hidden sm:inline-block">
@@ -288,9 +320,11 @@
            expression and the WHOLE ``x-data="headerNav()"`` component refused
            to initialise on iPhone — that's why all header buttons looked
            dead. Use ``&quot;`` so the inner quotes survive HTML parsing. #}
+        {% if _owner_view %}
         <button @click="toggle()"
                 class="px-3 py-2 rounded bg-ink-800 hover:bg-ink-700 text-zinc-300 hidden md:inline-block whitespace-nowrap"
                 x-text="paused ? &quot;{{ t('btn_start') }}&quot; : &quot;{{ t('btn_pause') }}&quot;"></button>
+        {% endif %}
 
         {# Аккаунт-чип (правый верхний угол): аватар-инициал + меню. Данные
            тянутся клиентски из /api/account.json (email/роль/статус ИИ-воркера),
@@ -322,9 +356,18 @@
                 <a href="/settings/memory" class="block px-3 py-2 text-sm text-zinc-300 hover:bg-ink-800">🧠 {{ t('acct_memory') }}</a>
                 <a href="/settings/system-monitor" class="block px-3 py-2 text-sm text-zinc-300 hover:bg-ink-800">🖥️ {{ t('acct_monitor') }}</a>
                 <a href="/settings/llm" class="block px-3 py-2 text-sm text-zinc-300 hover:bg-ink-800">🤖 {{ t('acct_llm') }}</a>
+                <a href="/billing" class="block px-3 py-2 text-sm text-zinc-300 hover:bg-ink-800">💳 {{ t('nav_billing') }}</a>
               </div>
             </template>
-            <a href="/billing" class="block px-3 py-2 text-sm text-zinc-300 hover:bg-ink-800">💳 {{ t('nav_billing') }}</a>
+            {# Участник: свои настройки + свой LLM-ключ. Биллинг спит (регистрация
+               свободная), поэтому ссылки на /billing тут нет — иначе меню звало бы
+               платить за то, что бесплатно. #}
+            <template x-if="!isOwner">
+              <div>
+                <a href="/settings/hub" class="block px-3 py-2 text-sm text-zinc-300 hover:bg-ink-800">⚙️ {{ t('nav_settings') }}</a>
+                <a href="/settings/llm" class="block px-3 py-2 text-sm text-zinc-300 hover:bg-ink-800">🤖 {{ t('acct_llm') }}</a>
+              </div>
+            </template>
             <form method="post" action="/auth/logout" class="border-t border-ink-700 mt-1 pt-1">
               <button type="submit" class="w-full text-left px-3 py-2 text-sm text-rose-300 hover:bg-rose-900/30">⎋ {{ t('acct_logout') }}</button>
             </form>
@@ -362,7 +405,9 @@
               {{ t(label_key) }}
             </a>
           {% endfor %}
+          {% if more_items %}
           <div class="px-4 py-2 text-xs uppercase tracking-widest text-zinc-600">{{ t('nav_more') }}</div>
+          {% endif %}
           {% for slug, href, label_key in more_items %}
             <a href="{{ href }}"
                class="block px-4 py-3 text-sm border-l-2 transition
@@ -372,11 +417,14 @@
           {% endfor %}
           {# v1.24.1 — выделенная ссылка на компактный мобильный лейаут
              /m (text-only сегодня + поиск + дайджест). На десктоп
-             пользователь её не увидит — drawer показывается только <md. #}
+             пользователь её не увидит — drawer показывается только <md.
+             /m — личная лента владельца (захват), участнику её не предлагаем. #}
+          {% if _owner_view %}
           <a href="/m"
              class="block mt-3 mx-4 px-4 py-3 text-center text-sm rounded-md bg-accent-600/20 text-accent-300 border border-accent-500/40 hover:bg-accent-600/30">
             📱 {{ t('nav_mobile_view') }}
           </a>
+          {% endif %}
         </nav>
       </aside>
     </div>

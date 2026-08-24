@@ -65,6 +65,22 @@
 
       <div>
         <div class="text-[10px] uppercase tracking-widest text-zinc-500 mb-1.5">Быстрые ссылки</div>
+        {# Участнику (не-владельцу) эти маршруты закрыты гейтом — ссылки вели бы
+           на редирект в /chat. Показываем ему сетку из его собственной зоны.
+           ``_owner_view`` приходит из base.html; если виджет когда-нибудь
+           подключат отдельно — по умолчанию считаем владельцем (как раньше). #}
+        {% if _owner_view is defined and not _owner_view %}
+        <div class="grid grid-cols-4 gap-1.5 text-center text-xs">
+          <a href="/chat"           data-search-key="chat чат ассистент диалог"               class="rounded bg-zinc-100 dark:bg-ink-800 hover:bg-accent-600 hover:text-white p-2">Чат</a>
+          <a href="/voice"          data-search-key="voice голос разговор микрофон"           class="rounded bg-zinc-100 dark:bg-ink-800 hover:bg-accent-600 hover:text-white p-2">Голос</a>
+          <a href="/settings/memory" data-search-key="memory память что помнит"               class="rounded bg-zinc-100 dark:bg-ink-800 hover:bg-accent-600 hover:text-white p-2">Память</a>
+          <a href="/graph"          data-search-key="graph граф связи память"                 class="rounded bg-zinc-100 dark:bg-ink-800 hover:bg-accent-600 hover:text-white p-2">Граф</a>
+          <a href="/settings/llm"   data-search-key="llm модель ключ провайдер"               class="rounded bg-zinc-100 dark:bg-ink-800 hover:bg-accent-600 hover:text-white p-2">Модель</a>
+          <a href="/settings/system-prompt" data-search-key="характер промпт личность"        class="rounded bg-zinc-100 dark:bg-ink-800 hover:bg-accent-600 hover:text-white p-2">Характер</a>
+          <a href="/settings/skills" data-search-key="skills навыки инструкции"               class="rounded bg-zinc-100 dark:bg-ink-800 hover:bg-accent-600 hover:text-white p-2">Навыки</a>
+          <a href="/settings/hub"   data-search-key="settings настройки конфигурация"         class="rounded bg-zinc-100 dark:bg-ink-800 hover:bg-accent-600 hover:text-white p-2">Настройки</a>
+        </div>
+        {% else %}
         <div class="grid grid-cols-4 gap-1.5 text-center text-xs">
           <a href="/now"            data-search-key="now сейчас активность дашборд"           class="rounded bg-zinc-100 dark:bg-ink-800 hover:bg-accent-600 hover:text-white p-2">Сейчас</a>
           <a href="/ask"            data-search-key="ask спросить llm gemini вопрос"           class="rounded bg-zinc-100 dark:bg-ink-800 hover:bg-accent-600 hover:text-white p-2">Спросить</a>
@@ -75,6 +91,7 @@
           <a href="/health-dashboard" data-search-key="health здоровье workers бюджет"          class="rounded bg-zinc-100 dark:bg-ink-800 hover:bg-accent-600 hover:text-white p-2">Здоровье</a>
           <a href="/settings/hub"   data-search-key="settings настройки конфигурация"          class="rounded bg-zinc-100 dark:bg-ink-800 hover:bg-accent-600 hover:text-white p-2">Настройки</a>
         </div>
+        {% endif %}
       </div>
 
       <div id="persona-help-results" class="hidden">

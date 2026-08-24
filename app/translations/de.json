@@ -1360,5 +1360,22 @@
   "btn_hour_ai_summary": "✨ Stunden-Zusammenfassung",
   "msg_hour_ai_empty": "Keine Zusammenfassung für diese Stunde.",
   "msg_hour_ai_error": "Zusammenfassung konnte nicht geladen werden.",
-  "status_thinking": "denke…"
+  "status_thinking": "denke…",
+  "nav_skills": "Skills",
+  "nav_character": "Charakter",
+  "nav_profile": "Profil",
+  "nav_help": "Hilfe",
+  "settings_cat_essentials_title": "Wichtigstes",
+  "settings_cat_essentials_desc": "Was am häufigsten geändert wird: Modell, Charakter, Gedächtnis, Theme, Aufnahme.",
+  "settings_cat_member_ai_title": "Meine KI",
+  "settings_cat_member_ai_desc": "Dein Modell, der Charakter des Assistenten, Chat-Modi und Skills.",
+  "settings_cat_member_memory_title": "Gedächtnis",
+  "settings_cat_member_memory_desc": "Was sich der Assistent über dich merkt und wie es zusammenhängt.",
+  "settings_cat_member_profile_title": "Profil",
+  "settings_cat_member_profile_desc": "Was die KI über dich weiß — Name, Kontext, Vorlieben.",
+  "settings_cat_member_appearance_title": "Darstellung",
+  "settings_cat_member_appearance_desc": "Theme der Oberfläche.",
+  "settings_cat_member_account_title": "Konto",
+  "settings_cat_member_account_desc": "Passwort und Abmelden.",
+  "settings_hub_advanced_section": "Für Fortgeschrittene"
 }

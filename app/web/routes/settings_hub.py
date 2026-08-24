@@ -57,10 +57,86 @@ _KEYWORDS: Final[dict[str, str]] = {
     "/settings/telegram-people": "telegram телеграм люди участники аккаунты владелец олег память",
     "/settings/telegram-chats": "telegram телеграм чаты группы доступ анализ история ингест",
     "/settings/thinking": "мышление думать мысли цепочки размышления автономность дневник",
+    # Записи, которые нужны участнику (и заодно полезны владельцу).
+    "/settings/advanced": "расширенный режим инструменты функции друг рабочий advanced режимы чата",
+    "/settings/profile": "профиль обо мне имя возраст город факты что знает profile",
+    "/auth/set-password": "пароль сменить пароль password вход логин",
+    "/auth/logout": "выйти выход logout разлогиниться сменить аккаунт",
 }
 
 
+# ── Бесплатная поверхность УЧАСТНИКА ───────────────────────────────────────
+# Отдельный каталог: участник (зарегистрированный не-владелец) видит ТОЛЬКО
+# свои настройки — те же пути, что открыты ему в ``_MEMBER_PREFIXES``
+# (app/web/middleware/auth_gate.py) плюс /auth/*. Ничего из личных данных
+# владельца (захват, OCR, устройства, диагностика, админка) сюда не попадает,
+# поэтому и поиск участника физически не может выдать owner-only страницу.
+_MEMBER_CATEGORIES: Final[list[dict[str, object]]] = [
+    {
+        "title_key": "settings_cat_member_ai_title",
+        "desc_key": "settings_cat_member_ai_desc",
+        "icon": "🤖",
+        "pages": [
+            ("/settings/llm", "Провайдер и ключ твоей модели"),
+            ("/settings/system-prompt", "Характер ассистента"),
+            ("/settings/advanced", "Режимы и инструменты чата"),
+            ("/settings/skills", "Навыки"),
+        ],
+    },
+    {
+        "title_key": "settings_cat_member_memory_title",
+        "desc_key": "settings_cat_member_memory_desc",
+        "icon": "🧠",
+        "pages": [
+            ("/settings/memory", "Что ИИ помнит о тебе"),
+            ("/graph", "Граф твоей памяти"),
+        ],
+    },
+    {
+        "title_key": "settings_cat_member_profile_title",
+        "desc_key": "settings_cat_member_profile_desc",
+        "icon": "👤",
+        "pages": [
+            ("/settings/profile", "Что ИИ знает о тебе"),
+        ],
+    },
+    {
+        "title_key": "settings_cat_member_appearance_title",
+        "desc_key": "settings_cat_member_appearance_desc",
+        "icon": "🎨",
+        "pages": [
+            ("/settings/theme", "Тема"),
+        ],
+    },
+    {
+        "title_key": "settings_cat_member_account_title",
+        "desc_key": "settings_cat_member_account_desc",
+        "icon": "🔑",
+        "pages": [
+            ("/auth/set-password", "Пароль"),
+            ("/auth/logout", "Выйти"),
+        ],
+    },
+]
+
+
+# ``advanced: True`` — категория для продвинутых: шаблон прячет её внутрь
+# схлопнутого ``<details>``, чтобы верх хаба был про то, чем пользуются каждый
+# день. Ничего не удаляется — всё остаётся достижимо (и находится поиском).
 _CATEGORIES: Final[list[dict[str, object]]] = [
+    {
+        "title_key": "settings_cat_essentials_title",
+        "desc_key": "settings_cat_essentials_desc",
+        "icon": "⭐",
+        "pages": [
+            ("/settings/llm", "Провайдер + ключ LLM"),
+            ("/settings/system-prompt", "Характер ассистента (пресеты + редактор)"),
+            ("/settings/advanced", "Расширенные функции (друг ⇄ рабочий)"),
+            ("/settings/memory", "🧠 Память — что ИИ помнит обо мне"),
+            ("/settings/theme", "Тема (auto / light / dark)"),
+            ("/settings/capture", "🎥 Захват — вкл/выкл, частота, расписание"),
+        ],
+    },
     {
         "title_key": "settings_cat_capture_title",
         "desc_key": "settings_cat_capture_desc",
@@ -78,6 +154,7 @@ _CATEGORIES: Final[list[dict[str, object]]] = [
         "title_key": "settings_cat_ocr_title",
         "desc_key": "settings_cat_ocr_desc",
         "icon": "🔍",
+        "advanced": True,
         "pages": [
             ("/settings/ocr-languages", "Языки OCR"),
             ("/settings/ocr-skip", "Skip-list для OCR"),
@@ -144,6 +221,7 @@ _CATEGORIES: Final[list[dict[str, object]]] = [
         "title_key": "settings_cat_apps_title",
         "desc_key": "settings_cat_apps_desc",
         "icon": "🏷",
+        "advanced": True,
         "pages": [
             ("/settings/app-aliases", "Алиасы названий приложений"),
             ("/settings/app-icons", "Иконки приложений"),
@@ -157,6 +235,7 @@ _CATEGORIES: Final[list[dict[str, object]]] = [
         "title_key": "settings_cat_notifications_title",
         "desc_key": "settings_cat_notifications_desc",
         "icon": "🔔",
+        "advanced": True,
         "pages": [
             ("/settings/integrations", "🔗 Интеграции — экспорт напоминаний в .ics + календари"),
             ("/settings/alice", "🗣️ Алиса (Яндекс) → Персона — голосовой навык с памятью"),
@@ -196,6 +275,7 @@ _CATEGORIES: Final[list[dict[str, object]]] = [
         "title_key": "settings_cat_diagnostics_title",
         "desc_key": "settings_cat_diagnostics_desc",
         "icon": "📊",
+        "advanced": True,
         "pages": [
             ("/analytics", "📊 Аналитика — тренды активности и ИИ за 7/30/90 дней"),
             ("/day", "📅 День — обзор одного дня (скрины, звук, ИИ, спросить)"),
@@ -212,20 +292,27 @@ _CATEGORIES: Final[list[dict[str, object]]] = [
 ]
 
 
-def _categories_json(lang: str | None = None) -> list[dict[str, object]]:
-    """JS-friendly зеркало _CATEGORIES (кортежи pages → dict + keywords).
+def _categories_json(
+    lang: str | None = None, *, member: bool = False
+) -> list[dict[str, object]]:
+    """JS-friendly зеркало каталога (кортежи pages → dict + keywords).
 
     Используется и для клиентского инстант-поиска (палитра в шапке), и для
-    серверного ``/api/settings/search``. Один источник правды — _CATEGORIES.
+    серверного ``/api/settings/search``. Один источник правды — _CATEGORIES
+    (владелец) / _MEMBER_CATEGORIES (участник).
 
-    Заголовок/описание категории хранятся в _CATEGORIES как КЛЮЧИ переводов
+    ``member=True`` переключает источник на урезанный каталог участника: там
+    физически нет owner-only путей, поэтому ни хаб, ни поиск не могут их выдать.
+
+    Заголовок/описание категории хранятся в каталоге как КЛЮЧИ переводов
     (``title_key`` / ``desc_key``) и резолвятся здесь через :func:`app.i18n.t`
     под активный язык интерфейса (``lang`` или ``get_ui_language()``), чтобы
     EN/DE-пользователь не видел русский текст.
     """
     effective_lang = lang if lang is not None else get_ui_language()
+    source = _MEMBER_CATEGORIES if member else _CATEGORIES
     out: list[dict[str, object]] = []
-    for cat in _CATEGORIES:
+    for cat in source:
         pages = []
         for href, label in cat["pages"]:  # type: ignore[union-attr]
             pages.append(
@@ -236,27 +323,42 @@ def _categories_json(lang: str | None = None) -> list[dict[str, object]]:
                 "title": t(str(cat["title_key"]), effective_lang),
                 "icon": cat["icon"],
                 "description": t(str(cat["desc_key"]), effective_lang),
+                "advanced": bool(cat.get("advanced", False)),
                 "pages": pages,
             }
         )
     return out
 
 
-def search_settings(query: str, limit: int = 30) -> list[dict[str, str]]:
-    """Плоский поиск по всем страницам настроек (label/href/категория/синонимы)."""
+def search_settings(
+    query: str, limit: int = 30, *, member: bool = False
+) -> list[dict[str, str]]:
+    """Плоский поиск по всем страницам настроек (label/href/категория/синонимы).
+
+    ``member=True`` ищет ТОЛЬКО по каталогу участника (см. _MEMBER_CATEGORIES).
+
+    Один href отдаётся один раз: с появлением категории «Основное» часть
+    страниц намеренно продублирована в двух категориях, и без дедупа поиск
+    возвращал бы две одинаковые строки.
+    """
     q = (query or "").strip().casefold()
     results: list[dict[str, str]] = []
     if not q:
         return results
-    for cat in _categories_json():
+    seen: set[str] = set()
+    for cat in _categories_json(member=member):
         for p in cat["pages"]:  # type: ignore[index]
+            href = str(p["href"])
+            if href in seen:
+                continue
             hay = " ".join(
-                [str(p["label"]), str(p["href"]), str(cat["title"]), str(p["keywords"])]
+                [str(p["label"]), href, str(cat["title"]), str(p["keywords"])]
             ).casefold()
             if all(tok in hay for tok in q.split()):
+                seen.add(href)
                 results.append(
                     {
-                        "href": str(p["href"]),
+                        "href": href,
                         "label": str(p["label"]),
                         "category": str(cat["title"]),
                         "icon": str(cat["icon"]),
@@ -278,12 +380,13 @@ async def settings_hub_page(
     шаблон рисует карточки на Alpine.js из ``categories_json``, поэтому в нём
     уже лежат переведённые ``title`` / ``description`` (см. _categories_json).
 
-    ``is_owner`` управляет видимостью блока экспорт/импорт профиля настроек:
-    эти операции owner-only (см. settings_api.py), поэтому подписчику/триалу
-    кнопки даже не рисуем.
+    ``is_owner`` управляет и каталогом, и видимостью блока экспорт/импорт
+    профиля настроек: эти операции owner-only (см. settings_api.py), поэтому
+    участнику кнопки даже не рисуем. Участник получает _MEMBER_CATEGORIES —
+    только свои настройки, без единой owner-only ссылки.
     """
-    resolved = _categories_json()
     owner = await is_owner(session["user_id"])
+    resolved = _categories_json(member=not owner)
     return templates.TemplateResponse(
         request,
         "settings_hub.html",
@@ -302,8 +405,13 @@ async def api_settings_search(
     session: Annotated[SessionRecord, Depends(current_user_required)],
     q: str = "",
 ) -> JSONResponse:
-    """Поиск по настройкам (для палитры/глобального поиска). Источник — _CATEGORIES."""
-    return JSONResponse({"results": search_settings(q)})
+    """Поиск по настройкам (для палитры/глобального поиска).
+
+    Источник — _CATEGORIES у владельца и _MEMBER_CATEGORIES у участника, так
+    что участник не может нащупать owner-only страницу через поиск.
+    """
+    owner = await is_owner(session["user_id"])
+    return JSONResponse({"results": search_settings(q, member=not owner)})
 
 
 __all__ = ["router", "search_settings"]

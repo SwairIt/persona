@@ -1360,5 +1360,22 @@
   "btn_hour_ai_summary": "✨ hour summary",
   "msg_hour_ai_empty": "No summary for this hour.",
   "msg_hour_ai_error": "Could not get the summary.",
-  "status_thinking": "thinking…"
+  "status_thinking": "thinking…",
+  "nav_skills": "Skills",
+  "nav_character": "Character",
+  "nav_profile": "Profile",
+  "nav_help": "Help",
+  "settings_cat_essentials_title": "Essentials",
+  "settings_cat_essentials_desc": "What people change most: model, character, memory, theme, capture.",
+  "settings_cat_member_ai_title": "My AI",
+  "settings_cat_member_ai_desc": "Your model, the assistant's character, chat modes and skills.",
+  "settings_cat_member_memory_title": "Memory",
+  "settings_cat_member_memory_desc": "What the assistant remembers about you and how it connects.",
+  "settings_cat_member_profile_title": "Profile",
+  "settings_cat_member_profile_desc": "What the AI knows about you — name, context, preferences.",
+  "settings_cat_member_appearance_title": "Appearance",
+  "settings_cat_member_appearance_desc": "Interface theme.",
+  "settings_cat_member_account_title": "Account",
+  "settings_cat_member_account_desc": "Password and signing out.",
+  "settings_hub_advanced_section": "For advanced users"
 }

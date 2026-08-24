@@ -1360,5 +1360,22 @@
   "btn_hour_ai_summary": "✨ саммари часа",
   "msg_hour_ai_empty": "Сводки по этому часу нет.",
   "msg_hour_ai_error": "Не удалось получить сводку.",
-  "status_thinking": "думаю…"
+  "status_thinking": "думаю…",
+  "nav_skills": "Навыки",
+  "nav_character": "Характер",
+  "nav_profile": "Профиль",
+  "nav_help": "Помощь",
+  "settings_cat_essentials_title": "Основное",
+  "settings_cat_essentials_desc": "То, что настраивают чаще всего: модель, характер, память, тема, захват.",
+  "settings_cat_member_ai_title": "Мой ИИ",
+  "settings_cat_member_ai_desc": "Твоя модель, характер ассистента, режимы чата и навыки.",
+  "settings_cat_member_memory_title": "Память",
+  "settings_cat_member_memory_desc": "Что ассистент помнит о тебе и как это связано.",
+  "settings_cat_member_profile_title": "Профиль",
+  "settings_cat_member_profile_desc": "Что ИИ знает о тебе — имя, контекст, предпочтения.",
+  "settings_cat_member_appearance_title": "Оформление",
+  "settings_cat_member_appearance_desc": "Тема интерфейса.",
+  "settings_cat_member_account_title": "Аккаунт",
+  "settings_cat_member_account_desc": "Пароль и выход из аккаунта.",
+  "settings_hub_advanced_section": "Для продвинутых"
 }

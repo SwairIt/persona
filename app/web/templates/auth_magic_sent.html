@@ -32,9 +32,9 @@
           <p style="color:var(--ink-dim)">Запрос на вход для <b style="color:var(--ink)">{{ email }}</b> принят. Если почта (SMTP) ещё не настроена администратором — письмо не уйдёт. Пока можно войти по <a href="/auth/login" style="color:var(--accent-400,#a78bfa)">паролю</a>.</p>
         {% endif %}
       {% elif mode == "waitlist" %}
-        <div style="font-size:2.4rem;margin-bottom:14px">✅</div>
-        <h1 style="font-size:1.6rem;font-weight:800;margin-bottom:12px">Вы в списке раннего доступа</h1>
-        <p style="color:var(--ink-dim)">Аккаунта на <b style="color:var(--ink)">{{ email }}</b> пока нет, и мы добавили вас в список ожидания. Открытая регистрация скоро — мы напишем.</p>
+        <div style="font-size:2.4rem;margin-bottom:14px">📬</div>
+        <h1 style="font-size:1.6rem;font-weight:800;margin-bottom:12px">Проверьте почту</h1>
+        <p style="color:var(--ink-dim)">Мы отправили письмо со ссылкой для входа на <b style="color:var(--ink)">{{ email }}</b>. Откройте его и нажмите кнопку — ссылка действует 30&nbsp;минут.</p>
       {% elif mode == "error" %}
         <div style="font-size:2.4rem;margin-bottom:14px">✉️</div>
         <h1 style="font-size:1.6rem;font-weight:800;margin-bottom:12px">Проверьте email</h1>
