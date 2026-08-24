@@ -167,7 +167,7 @@ async def test_decision_adapter_is_bounded_and_rejects_raw_metadata(
         *,
         max_turns: int,
     ) -> list[dict[str, str]]:
-        assert max_turns == 28
+        assert max_turns == 5
         return [{"role": "user", "content": "GROUP_ONLY"}]
 
     requests: list[Any] = []
@@ -185,7 +185,7 @@ async def test_decision_adapter_is_bounded_and_rejects_raw_metadata(
 
     assert result is expected
     assert len(requests) == 1
-    assert requests[0].max_tokens == 8
+    assert requests[0].max_tokens == 4
     assert requests[0].temperature == 0.0
     assert "GROUP_ONLY" in requests[0].user
     assert "SECRET_DECISION_REASON" not in requests[0].user
@@ -262,7 +262,7 @@ async def test_group_reply_adapter_uses_only_group_history_and_persists_once(
         *,
         max_turns: int,
     ) -> list[dict[str, str]]:
-        assert max_turns == 32
+        assert max_turns == 6
         return [
             {"role": "user", "content": "GROUP_HISTORY_ONLY"},
             {"role": "assistant", "content": "prior group reply"},
@@ -314,7 +314,7 @@ async def test_group_reply_adapter_uses_only_group_history_and_persists_once(
     request = requests[0]
     assert "GROUP_HISTORY_ONLY" in request.user
     assert "PRIVATE_OWNER_SECRET" not in request.system + request.user
-    assert request.max_tokens == 320
+    assert request.max_tokens == 2048
     assert request.temperature == 0.78
 
 

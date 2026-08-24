@@ -78,6 +78,14 @@ _POSITIVE_RULE_MARKERS = (
     "\u0432\u043c\u0435\u0448",
     "reply",
 )
+# Aggressive low-latency context profile (CHANGELOG 2.27.3, "Prevent
+# background jobs starving Telegram" / "Speed up Telegram Persona
+# responses"): a single PC Ollama worker was starved by long Telegram
+# contexts, so the ambient history windows were deliberately shrunk from
+# 28/32 turns down to these values. Named so a future change can't silently
+# diverge from the tests again.
+_DECISION_HISTORY_MAX_TURNS = 5
+_REPLY_HISTORY_MAX_TURNS = 6
 _OWNER_FACT_MARKERS = (
     "\u044f ",
     " \u044f",
@@ -108,7 +116,7 @@ class TelegramAmbientDecisionAdapter:
             return override
         if addressee:
             return False
-        history = await _history(turn, max_turns=5)
+        history = await _history(turn, max_turns=_DECISION_HISTORY_MAX_TURNS)
         payload = _untrusted_payload(turn, history, transcript_chars=2_000)
         client = make_client(kind="telegram_ambient_decision")
         raw = await client.complete(
@@ -159,7 +167,7 @@ class TelegramAmbientTurnAdapter:
 
     async def reply(self, turn: AmbientGroupTurn) -> str:
         await self.persist(turn)
-        history = await _history(turn, max_turns=6)
+        history = await _history(turn, max_turns=_REPLY_HISTORY_MAX_TURNS)
         labelled = _labelled_message(turn)
         if (
             history
