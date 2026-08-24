@@ -7,57 +7,30 @@
     <div class="text-4xl mb-3">🎉</div>
     <h1 class="text-3xl font-bold tracking-tight">Добро пожаловать в Persona</h1>
     <p class="text-zinc-400 mt-2">
-      {% if summary.is_trial %}
-        Триал активен — осталось {{ summary.days_left }} дн. полного доступа к ИИ-ассистенту.
-      {% else %}
-        Pro активна. Твой персональный ИИ-ассистент готов.
-      {% endif %}
+      Три коротких шага — и у тебя свой ИИ-ассистент с приватной памятью.
     </p>
   </div>
 
-  {% if summary.is_trial %}
-  <div class="rounded-xl border border-amber-500/40 bg-amber-500/10 p-5 mb-8">
-    <div class="flex items-start gap-3">
-      <div class="text-2xl shrink-0">⏳</div>
-      <div class="flex-1">
-        <h2 class="font-semibold text-amber-200">Триал истекает через {{ summary.days_left }} дн.</h2>
-        <p class="text-amber-100/80 text-sm mt-1">
-          Оформи Pro, чтобы не потерять доступ к ИИ-ассистенту и приватной памяти. Год — выгоднее.
-        </p>
-        <div class="flex flex-col sm:flex-row gap-3 mt-4">
-          <form method="post" action="/billing/checkout" class="flex-1">
-            <input type="hidden" name="plan" value="pro_monthly">
-            <button type="submit"
-                    class="w-full px-5 py-3 rounded-lg border border-amber-400/50 hover:bg-amber-500/20 text-amber-100 font-semibold transition">
-              Pro на месяц — 690 ₽
-            </button>
-          </form>
-          <form method="post" action="/billing/checkout" class="flex-1">
-            <input type="hidden" name="plan" value="pro_yearly">
-            <button type="submit"
-                    class="w-full px-5 py-3 rounded-lg bg-amber-500 hover:bg-amber-400 text-ink-900 font-semibold transition">
-              Pro на год — 5900 ₽ <span class="text-ink-900/70 text-sm font-medium">(−29%)</span>
-            </button>
-          </form>
-        </div>
-      </div>
-    </div>
+  {# --- Шаг 1: что это вообще такое --------------------------------------- #}
+  <div class="flex items-center gap-3 mb-3">
+    <span class="w-7 h-7 shrink-0 rounded-full bg-accent-600 text-white text-sm font-bold flex items-center justify-center">1</span>
+    <h2 class="text-lg font-semibold text-zinc-100">Это твой личный ИИ</h2>
   </div>
-  {% endif %}
 
   <div class="space-y-3 mb-8">
     <div class="rounded-lg border border-ink-700 bg-ink-800 p-5 flex gap-4">
       <div class="text-2xl shrink-0">🤖</div>
       <div>
-        <h2 class="font-semibold text-zinc-100">Твой ИИ-ассистент готов</h2>
+        <h3 class="font-semibold text-zinc-100">Твой ИИ-ассистент готов</h3>
         <p class="text-zinc-400 text-sm mt-1">Отвечает в чате, помогает с задачами, думает рядом.
-          Работает на нашей модели — ничего ставить не нужно.</p>
+          Работает на ТВОЕЙ модели — подключи любимую: облачный ключ или свой Ollama.
+          <a href="/help/connect-llm" class="text-accent-400 hover:text-accent-300">Как это сделать →</a></p>
       </div>
     </div>
     <div class="rounded-lg border border-ink-700 bg-ink-800 p-5 flex gap-4">
       <div class="text-2xl shrink-0">🧠</div>
       <div>
-        <h2 class="font-semibold text-zinc-100">Он запоминает тебя</h2>
+        <h3 class="font-semibold text-zinc-100">Он запоминает тебя</h3>
         <p class="text-zinc-400 text-sm mt-1">Чем больше общаешься, тем лучше он тебя знает: имена, проекты,
           предпочтения. Твоя память приватна и видна только тебе — никто другой её не получит.</p>
       </div>
@@ -65,11 +38,58 @@
     <div class="rounded-lg border border-ink-700 bg-ink-800 p-5 flex gap-4">
       <div class="text-2xl shrink-0">💬</div>
       <div>
-        <h2 class="font-semibold text-zinc-100">Начни с первого вопроса</h2>
+        <h3 class="font-semibold text-zinc-100">Начни с первого вопроса</h3>
         <p class="text-zinc-400 text-sm mt-1">Спроси что угодно или расскажи о себе парой фраз —
           ассистент сразу начнёт подстраиваться под тебя.</p>
       </div>
     </div>
+  </div>
+
+  {# --- Шаг 2: своя LLM (главный шаг MVP) --------------------------------- #}
+  <div class="flex items-center gap-3 mb-3">
+    <span class="w-7 h-7 shrink-0 rounded-full bg-accent-600 text-white text-sm font-bold flex items-center justify-center">2</span>
+    <h2 class="text-lg font-semibold text-zinc-100">Подключи свою LLM</h2>
+  </div>
+
+  {% if llm_ready %}
+  <div class="rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-5 mb-8 flex gap-4">
+    <div class="text-2xl shrink-0">✓</div>
+    <div>
+      <h3 class="font-semibold text-emerald-200">Модель подключена</h3>
+      <p class="text-emerald-100/80 text-sm mt-1">Всё готово — можно сразу писать в чат.
+        Поменять провайдера или модель — в
+        <a href="/settings/llm" class="underline hover:text-emerald-100">настройках модели</a>.</p>
+    </div>
+  </div>
+  {% else %}
+  <div class="rounded-xl border border-amber-500/40 bg-amber-500/10 p-5 mb-8">
+    <div class="flex items-start gap-3">
+      <div class="text-2xl shrink-0">🔌</div>
+      <div class="flex-1">
+        <h3 class="font-semibold text-amber-200">Модель ещё не подключена</h3>
+        <p class="text-amber-100/80 text-sm mt-1">
+          Persona бесплатна и работает на твоём ключе — так твои переписки не идут через чужой аккаунт.
+          Подойдёт бесплатный ключ облачного провайдера или локальная Ollama.
+        </p>
+        <div class="flex flex-col sm:flex-row sm:items-center gap-3 mt-4">
+          <a href="/settings/llm"
+             class="text-center px-5 py-3 rounded-lg bg-amber-500 hover:bg-amber-400 text-ink-900 font-semibold transition">
+            Подключить модель →
+          </a>
+          <a href="/help/connect-llm"
+             class="text-center sm:text-left text-sm text-amber-100/80 hover:text-amber-100 underline">
+            Как получить ключ бесплатно →
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {# --- Шаг 3: в чат ------------------------------------------------------ #}
+  <div class="flex items-center gap-3 mb-3">
+    <span class="w-7 h-7 shrink-0 rounded-full bg-accent-600 text-white text-sm font-bold flex items-center justify-center">3</span>
+    <h2 class="text-lg font-semibold text-zinc-100">Открыть чат</h2>
   </div>
 
   <form method="post" action="/onboarding/complete" class="text-center">
@@ -77,9 +97,12 @@
             class="px-6 py-3 rounded-lg bg-accent-600 hover:bg-accent-500 text-white font-semibold transition text-lg">
       Открыть чат →
     </button>
+    {% if not llm_ready %}
+    <p class="text-zinc-500 text-xs mt-3">Зайти можно и сейчас — чат сам напомнит про модель.</p>
+    {% endif %}
   </form>
   <p class="text-center text-zinc-500 text-xs mt-4">
-    Управлять подпиской можно в разделе <a href="/billing" class="text-accent-400 hover:text-accent-300">Подписка</a>.
+    Настройки всегда в разделе <a href="/settings/hub" class="text-accent-400 hover:text-accent-300">Настройки</a>.
   </p>
 
 </div>

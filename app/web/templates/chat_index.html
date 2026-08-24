@@ -220,17 +220,30 @@
       {% endif %}
 
       {# Empty-state без LLM: провайдер не подключён — дружелюбная плашка.
-         {% if not llm_configured %} приходит из роутера (make_client → LLMNotConfigured). #}
+         llm_configured приходит из роутера (per-user: user_llm_configured).
+         Владельцу — «модель офлайн» (это его инфраструктура), участнику —
+         «подключи СВОЙ ключ», иначе он ждёт починки, которой не будет. #}
       {% if not llm_configured %}
         <div class="px-4 sm:px-8 pt-4 max-w-3xl mx-auto w-full">
           <div class="rounded-xl border border-amber-700/40 bg-amber-900/15 px-4 py-3 text-sm text-amber-200/90 flex items-start gap-3">
-            <span class="text-lg leading-none mt-0.5">🌙</span>
-            <div>
-              <div class="font-semibold text-amber-200">ИИ-ассистент пока офлайн</div>
-              <div class="text-amber-200/80 mt-0.5">Модель ещё не подключена — загляни чуть позже, я скоро вернусь 🙏
-                {% if is_owner %}<a href="/settings/llm" class="underline hover:text-amber-100">Подключить провайдера →</a>{% endif %}
+            {% if is_owner %}
+              <span class="text-lg leading-none mt-0.5">🌙</span>
+              <div>
+                <div class="font-semibold text-amber-200">ИИ-ассистент пока офлайн</div>
+                <div class="text-amber-200/80 mt-0.5">Модель ещё не подключена — загляни чуть позже, я скоро вернусь 🙏
+                  <a href="/settings/llm" class="underline hover:text-amber-100">Подключить провайдера →</a>
+                </div>
               </div>
-            </div>
+            {% else %}
+              <span class="text-lg leading-none mt-0.5">🔌</span>
+              <div>
+                <div class="font-semibold text-amber-200">Подключи свой AI-провайдер</div>
+                <div class="text-amber-200/80 mt-0.5">Persona работает на твоей модели — свой ключ или локальная Ollama.
+                  <a href="/settings/llm" class="underline hover:text-amber-100">Подключить →</a>
+                  · <a href="/help/connect-llm" class="underline hover:text-amber-100">как получить ключ бесплатно</a>
+                </div>
+              </div>
+            {% endif %}
           </div>
         </div>
       {% endif %}
@@ -708,11 +721,20 @@
           Начни с примера ниже или жми «Новый чат» слева.
         </p>
 
+        {# Первый визит участника попадает именно сюда (чатов ещё нет) —
+           плашка обязана вести к СВОЕМУ ключу, а не обещать починку. #}
         {% if not llm_configured %}
         <div class="mt-5 rounded-xl border border-amber-700/40 bg-amber-900/15 px-4 py-3 text-sm text-amber-200/90 max-w-md">
-          🌙 <span class="font-semibold text-amber-200">ИИ-ассистент пока офлайн.</span>
-          Модель ещё не подключена — загляни чуть позже 🙏
-          {% if is_owner %}<a href="/settings/llm" class="underline hover:text-amber-100">Подключить →</a>{% endif %}
+          {% if is_owner %}
+            🌙 <span class="font-semibold text-amber-200">ИИ-ассистент пока офлайн.</span>
+            Модель ещё не подключена — загляни чуть позже 🙏
+            <a href="/settings/llm" class="underline hover:text-amber-100">Подключить →</a>
+          {% else %}
+            🔌 <span class="font-semibold text-amber-200">Подключи свой AI-провайдер.</span>
+            Persona работает на твоей модели — свой ключ или локальная Ollama.
+            <a href="/settings/llm" class="underline hover:text-amber-100">Подключить →</a>
+            · <a href="/help/connect-llm" class="underline hover:text-amber-100">как получить ключ бесплатно</a>
+          {% endif %}
         </div>
         {% endif %}
 

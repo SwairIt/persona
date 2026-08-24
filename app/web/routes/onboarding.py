@@ -1,8 +1,13 @@
-"""Онбординг Pro/триал-пользователя — понятный пайплайн до рабочего ИИ-ассистента.
+"""Онбординг участника — понятный пайплайн до рабочего ИИ-ассистента.
 
 Не-владелец после первого входа попадает сюда (см. _post_auth_dest): короткие шаги
 «что у тебя есть и что делать», затем кнопка → /chat. Флаг onboarded_<uid> в kv,
 чтобы потом сразу открывался чат.
+
+MVP «бесплатно со своим ключом»: биллинга/триала здесь нет вообще, главный шаг —
+подключить СВОЮ LLM в /settings/llm (гайд — /help/connect-llm). Страница знает
+только один факт про модель: ``llm_ready`` (есть рабочая конфигурация или нет),
+никаких ключей в шаблон не утекает.
 """
 
 from __future__ import annotations
@@ -16,7 +21,7 @@ from app import __version__
 from app.auth import current_user_required
 from app.auth.owner import is_owner
 from app.auth.sessions import SessionRecord
-from app.billing import service as billing_service
+from app.llm.client import user_llm_configured
 from app.storage.db import get_connection
 from app.storage.repository import set_kv
 from app.web.templates_engine import templates
@@ -40,7 +45,7 @@ async def onboarding_page(
             "active_nav": "",
             "is_owner": False,
             "app_version": __version__,
-            "summary": await billing_service.summary(uid),
+            "llm_ready": await user_llm_configured(uid),
             "email": session.get("email"),
         },
     )
