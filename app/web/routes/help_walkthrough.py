@@ -16,10 +16,14 @@ shows the user *their* numbers, not template placeholders.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 
 from app import __version__
+from app.auth import current_user_optional
+from app.auth.sessions import SessionRecord
 from app.logging_setup import get_logger
 from app.storage.db import get_connection
 from app.web.templates_engine import templates
@@ -65,5 +69,35 @@ async def help_walkthrough(request: Request) -> HTMLResponse:
             "active_nav": "",
             "stats": stats,
             "app_version": __version__,
+        },
+    )
+
+
+@router.get("/help/connect-llm", response_class=HTMLResponse, response_model=None)
+async def help_connect_llm(
+    request: Request,
+    session: Annotated[SessionRecord | None, Depends(current_user_optional)],
+) -> HTMLResponse:
+    """Публичный гайд «подключи свою модель».
+
+    Persona раздаётся бесплатно, но модель пользователь приносит свою — ключ
+    провайдера или собственный Ollama. Страница объясняет, где взять ключ у
+    каждого варианта (включая полностью бесплатные) и что выбрать в
+    ``/settings/llm``.
+
+    Живёт под публичным префиксом ``/help`` (см. ``_PUBLIC_PREFIXES`` в
+    ``app/web/middleware/auth_gate.py``), поэтому читается и без сессии — на
+    неё ссылаются лендинг и /pricing. Шаблон — самостоятельный (шелл публичных
+    маркетинговых страниц с ``_public_nav.html``), а не app-шелл base.html,
+    чтобы страница одинаково выглядела для гостя и для залогиненного.
+    """
+    return templates.TemplateResponse(
+        request,
+        "help_connect_llm.html",
+        {
+            "title": "Подключи свою модель",
+            "active_nav": "",
+            "app_version": __version__,
+            "session": session,
         },
     )

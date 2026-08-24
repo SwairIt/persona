@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0a0a12" />
+  <title>{{ title }} — Persona</title>
+  <meta name="description" content="Как подключить свою модель к Persona за 2 минуты: OpenRouter, Groq, DeepSeek, свой Ollama, российские агрегаторы. Есть полностью бесплатные варианты." />
+  <meta name="keywords" content="persona подключить llm, свой api ключ, openrouter ключ, groq бесплатно, deepseek дёшево, ollama локально, proxyapi aitunnel" />
+  <link rel="canonical" href="/help/connect-llm" />
+  <meta property="og:title" content="Подключи свою модель — Persona" />
+  <meta property="og:description" content="Persona работает на твоей модели. Ключ бесплатного провайдера или свой Ollama — и через 2 минуты ты в чате." />
+  <meta property="og:type" content="article" />
+  <link rel="manifest" href="/static/manifest.json" />
+  <style>:root{color-scheme:dark}html,body{margin:0;background:#07070d;color:#eef0ff}</style>
+  <link rel="stylesheet" href="/static/landing/style.css?v={{ app_version }}" />
+  <style>
+    /* Локальные утилиты страницы: базовый reset лендинга гасит маркеры списков,
+       поэтому нумерацию/буллеты возвращаем явно. */
+    .cl-steps{list-style:decimal;padding-left:1.3rem;margin:.7rem 0 0;color:#bcc;line-height:1.65;font-size:.95rem;}
+    .cl-steps li{margin-bottom:.35rem;}
+    .cl-steps a{color:#a9c;text-decoration:underline;text-underline-offset:2px;}
+    .cl-card{padding:1.4rem 1.5rem;border-radius:16px;display:flex;flex-direction:column;}
+    .cl-tag{font-size:.72rem;text-transform:uppercase;letter-spacing:.12em;font-weight:700;}
+    .cl-title{font-size:1.25rem;font-weight:800;letter-spacing:-.02em;margin:.35rem 0 .5rem;}
+    .cl-lead{color:#9aa;font-size:.95rem;line-height:1.55;}
+    .cl-pick{margin-top:.9rem;padding:.6rem .8rem;border-radius:10px;background:rgba(255,255,255,.04);
+             border:1px solid rgba(255,255,255,.08);font-size:.88rem;color:#bcc;line-height:1.5;}
+    .cl-pick b{color:#eef0ff;}
+    .cl-price{margin-top:.6rem;font-size:.85rem;color:#889;}
+    code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.87em;
+         background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);
+         border-radius:6px;padding:.1em .38em;color:#d8dcff;}
+    pre{margin:.5rem 0 0;background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.08);
+        border-radius:10px;padding:.6rem .75rem;overflow-x:auto;}
+    pre code{background:none;border:none;padding:0;font-size:.83rem;}
+    .cl-faq summary{cursor:pointer;font-weight:700;font-size:1rem;padding:.2rem 0;list-style:none;}
+    .cl-faq summary::-webkit-details-marker{display:none}
+    .cl-faq summary::before{content:"→ ";color:#22d3ee;}
+    .cl-faq details[open] summary::before{content:"↓ ";}
+    .cl-faq p{color:#bcc;font-size:.94rem;line-height:1.65;margin-top:.5rem;}
+  </style>
+</head>
+<body>
+{% include "_public_nav.html" %}
+
+<main style="max-width:920px;margin:0 auto;padding:6rem 1.25rem 4rem;">
+
+  {# ── 1. Интро ───────────────────────────────────────────────────────────── #}
+  <header style="text-align:center;max-width:680px;margin:0 auto 2.5rem;">
+    <div class="eyebrow" style="justify-content:center;">Подключение модели</div>
+    <h1 style="font-size:clamp(1.9rem,4.6vw,2.9rem);line-height:1.12;margin:.6rem 0 1rem;">
+      Persona работает на <span class="grad">твоей модели</span>
+    </h1>
+    <p style="font-size:1.12rem;color:#aab;line-height:1.6;">
+      Подключи её за 2 минуты. Регистрация и сама Persona — бесплатно; модель ты приносишь свою:
+      ключ провайдера (есть полностью бесплатные) или свой Ollama на домашнем ПК.
+    </p>
+    <div style="display:flex;gap:.8rem;flex-wrap:wrap;justify-content:center;margin-top:1.5rem;">
+      <a href="/settings/llm" class="btn btn-primary">Открыть /settings/llm</a>
+      {% if not session %}<a href="/auth/signup" class="btn btn-ghost">Создать аккаунт</a>{% endif %}
+    </div>
+    <p style="font-size:.85rem;color:#778;margin-top:1rem;">
+      Порядок простой: заводишь ключ у провайдера → вставляешь его в
+      <a href="/settings/llm" style="color:#a9c;">/settings/llm</a> → пишешь в чат.
+    </p>
+  </header>
+
+  {# ── 2. Карточки провайдеров ────────────────────────────────────────────── #}
+  <h2 style="font-size:1.4rem;margin:2.5rem 0 1rem;">С чего начать</h2>
+  <p style="color:#9aa;font-size:.95rem;margin-bottom:1.25rem;">
+    Не знаешь, что выбрать — бери <b style="color:#eef0ff">OpenRouter</b> (быстрее всего, есть бесплатные модели)
+    или <b style="color:#eef0ff">Groq</b> (щедрый бесплатный лимит). Хочешь полную приватность — свой Ollama.
+  </p>
+
+  <section style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:1.15rem;align-items:stretch;">
+
+    {# OpenRouter #}
+    <article class="glass cl-card">
+      <div class="cl-tag" style="color:#5eead4;">🌐 Самый простой старт</div>
+      <div class="cl-title">OpenRouter</div>
+      <p class="cl-lead">
+        Один ключ — сотни моделей разных вендоров. Есть модели с пометкой <code>:free</code>,
+        которыми можно пользоваться вообще без пополнения. Регистрация по почте.
+      </p>
+      <ol class="cl-steps">
+        <li>Заходишь на <a href="https://openrouter.ai/" target="_blank" rel="noopener">openrouter.ai</a> и регистрируешься по email.</li>
+        <li>Открываешь раздел <b>Keys</b> (профиль → Keys) и жмёшь <b>Create key</b>.</li>
+        <li>Копируешь ключ — он начинается с <code>sk-or-</code>. Показывается один раз, сохрани.</li>
+        <li>При желании пополняешь баланс картой — но для free-моделей это не нужно.</li>
+      </ol>
+      <div class="cl-pick">
+        В <a href="/settings/llm" style="color:#a9c;">/settings/llm</a> выбираешь
+        <b>🌐 OpenRouter</b>, вставляешь ключ, сохраняешь.
+      </div>
+      <div class="cl-price">Цена: от 0 ₽ на free-моделях; платные — по прайсу конкретной модели, платишь только за использованное.</div>
+    </article>
+
+    {# Groq #}
+    <article class="glass cl-card">
+      <div class="cl-tag" style="color:#f472b6;">⚡ Быстро и бесплатно</div>
+      <div class="cl-title">Groq</div>
+      <p class="cl-lead">
+        Открытые модели (Llama и другие) на собственном железе Groq — отвечают заметно быстрее
+        обычных облаков. Бесплатный лимит щедрый: для личного ассистента его обычно хватает.
+      </p>
+      <ol class="cl-steps">
+        <li>Регистрируешься на <a href="https://console.groq.com/" target="_blank" rel="noopener">console.groq.com</a>.</li>
+        <li>Идёшь в <b>API Keys</b> → <b>Create API Key</b>.</li>
+        <li>Копируешь ключ вида <code>gsk_...</code>.</li>
+      </ol>
+      <div class="cl-pick">
+        В <a href="/settings/llm" style="color:#a9c;">/settings/llm</a> выбираешь
+        <b>Groq</b> и вставляешь ключ.
+      </div>
+      <div class="cl-price">Цена: бесплатный tier с лимитом запросов в минуту/день; платный — за токены.</div>
+    </article>
+
+    {# DeepSeek #}
+    <article class="glass cl-card">
+      <div class="cl-tag" style="color:#a78bfa;">💸 Очень дёшево</div>
+      <div class="cl-title">DeepSeek</div>
+      <p class="cl-lead">
+        Сильные модели за копейки: порядок цен — центы за миллион токенов. Если хочешь качество
+        уровня «взрослой» модели без месячной подписки — это лучший вариант по деньгам.
+      </p>
+      <ol class="cl-steps">
+        <li>Регистрируешься на <a href="https://platform.deepseek.com/" target="_blank" rel="noopener">platform.deepseek.com</a>.</li>
+        <li>Раздел <b>API keys</b> → <b>Create new API key</b>.</li>
+        <li>Копируешь ключ <code>sk-...</code>.</li>
+        <li>Пополняешь баланс — минимальные суммы, хватает надолго.</li>
+      </ol>
+      <div class="cl-pick">
+        В <a href="/settings/llm" style="color:#a9c;">/settings/llm</a> выбираешь
+        <b>DeepSeek</b> и вставляешь ключ.
+      </div>
+      <div class="cl-price">Цена: единицы долларов за месяц активного личного использования. Бесплатного tier нет — нужен баланс.</div>
+    </article>
+
+    {# Ollama #}
+    <article class="glass cl-card" style="border-color:rgba(94,234,212,.4);">
+      <div class="cl-tag" style="color:#5eead4;">🏠 Бесплатно и приватно</div>
+      <div class="cl-title">Свой Ollama</div>
+      <p class="cl-lead">
+        Модель крутится на твоём ПК. Ни ключей, ни счетов, ни чужих серверов: тексты запросов
+        не уходят никуда наружу. Самый приватный вариант — и бесплатный навсегда.
+      </p>
+      <ol class="cl-steps">
+        <li>Скачиваешь и ставишь Ollama с <a href="https://ollama.com/download" target="_blank" rel="noopener">ollama.com</a> (Windows / macOS / Linux).</li>
+        <li>В терминале тянешь модель:
+          <pre><code>ollama pull qwen2.5:7b</code></pre>
+          Слабее ПК — бери <code>qwen2.5:3b</code>.
+        </li>
+        <li>Запускаешь Ollama так, чтобы он слушал не только localhost — переменная окружения
+          <code>OLLAMA_HOST=0.0.0.0</code>, порт <code>11434</code>.</li>
+        <li>Узнаёшь адрес своего ПК и проверяешь, что <code>http://IP-твоего-ПК:11434</code> открывается.</li>
+      </ol>
+      <div class="cl-pick">
+        В <a href="/settings/llm" style="color:#a9c;">/settings/llm</a> выбираешь
+        <b>🏠 Локально через Ollama</b> и в поле адреса пишешь
+        <code>http://IP-твоего-ПК:11434</code>.
+      </div>
+      <div class="cl-price">
+        Цена: 0 ₽. Но честно: нужен ПК с <b>8+ ГБ RAM или VRAM</b> (для 7B-модели), а адрес
+        должен быть <b>доступен с сервера</b>, где крутится Persona — то есть белый IP,
+        проброс порта или туннель. Дома за обычным NAT «просто так» это не заработает.
+        И когда ПК выключен — ассистент не отвечает.
+      </div>
+    </article>
+
+    {# РФ-агрегаторы #}
+    <article class="glass cl-card">
+      <div class="cl-tag" style="color:#fbbf24;">🇷🇺 Оплата картой РФ</div>
+      <div class="cl-title">ProxyAPI, AITunnel, VseGPT</div>
+      <p class="cl-lead">
+        Агрегаторы-шлюзы: платишь рублями российской картой, а внутри получаешь доступ
+        к OpenAI / Claude / Gemini и другим моделям. Удобно, если зарубежной карты нет.
+      </p>
+      <ol class="cl-steps">
+        <li>Регистрируешься на <a href="https://proxyapi.ru/" target="_blank" rel="noopener">proxyapi.ru</a>
+          или <a href="https://aitunnel.ru/" target="_blank" rel="noopener">aitunnel.ru</a>
+          (ещё вариант — <a href="https://vsegpt.ru/" target="_blank" rel="noopener">vsegpt.ru</a>).</li>
+        <li>Пополняешь баланс рублями.</li>
+        <li>В личном кабинете создаёшь API-ключ и копируешь его.</li>
+      </ol>
+      <div class="cl-pick">
+        В <a href="/settings/llm" style="color:#a9c;">/settings/llm</a> есть готовые пункты
+        <b>🇷🇺 ProxyAPI.ru</b> и <b>🇷🇺 AITunnel.ru</b> — выбирай тот сервис, где завёл ключ.
+        Отдельного пункта для VseGPT пока нет.
+      </div>
+      <div class="cl-price">Цена: по прайсу модели плюс комиссия шлюза (обычно небольшая надбавка к оригинальной цене).</div>
+    </article>
+
+    {# Прямые зарубежные #}
+    <article class="glass cl-card">
+      <div class="cl-tag" style="color:#93a;">🌍 Напрямую</div>
+      <div class="cl-title">Anthropic, OpenAI, Google Gemini</div>
+      <p class="cl-lead">
+        Если есть зарубежная карта — можно взять ключ прямо у вендора, без посредников.
+        В <a href="/settings/llm" style="color:#a9c;">/settings/llm</a> для каждого есть свой пункт.
+      </p>
+      <ol class="cl-steps">
+        <li><a href="https://console.anthropic.com/" target="_blank" rel="noopener">console.anthropic.com</a> — ключ <code>sk-ant-...</code> (Claude).</li>
+        <li><a href="https://platform.openai.com/" target="_blank" rel="noopener">platform.openai.com</a> — ключ <code>sk-...</code> (GPT).</li>
+        <li><a href="https://aistudio.google.com/" target="_blank" rel="noopener">aistudio.google.com</a> — ключ <code>AIza...</code> (Gemini, есть бесплатный лимит).</li>
+      </ol>
+      <div class="cl-pick">
+        Из РФ доступ к этим API обычно требует VPN — в списке провайдеров они так и подписаны.
+      </div>
+      <div class="cl-price">Цена: по прайсу вендора, оплата зарубежной картой.</div>
+    </article>
+
+  </section>
+
+  {# ── 3. FAQ ─────────────────────────────────────────────────────────────── #}
+  <h2 style="font-size:1.4rem;margin:2.75rem 0 1rem;">Частые вопросы</h2>
+  <section class="glass cl-faq" style="padding:1.3rem 1.5rem;border-radius:16px;display:grid;gap:1rem;">
+
+    <details open>
+      <summary>Это безопасно?</summary>
+      <p>
+        Ключ хранится на этом сервере (в зашифрованном виде, если доступен vault) и используется
+        только для твоих запросов — Persona не шлёт его никуда, кроме выбранного тобой провайдера.
+        Ключ можно в любой момент заменить или удалить в <a href="/settings/llm">/settings/llm</a>,
+        а на стороне провайдера — отозвать. Хочешь, чтобы вообще ничего не покидало твою технику, —
+        бери Ollama: тогда запросы уходят только на твой же ПК.
+      </p>
+    </details>
+
+    <details>
+      <summary>Сколько это стоит?</summary>
+      <p>
+        Сама Persona — 0 ₽. Модель может стоить тоже ноль: бесплатные модели OpenRouter
+        (<code>:free</code>), бесплатный tier Groq или свой Ollama — три полностью бесплатных пути.
+        Если хочешь модель посильнее — DeepSeek обходится в единицы долларов в месяц при
+        обычном личном использовании. Платишь провайдеру напрямую, никакой подписки нам.
+      </p>
+    </details>
+
+    <details>
+      <summary>Какую модель выбрать?</summary>
+      <p>
+        Для повседневного чата с памятью хватает модели среднего размера: на OpenRouter —
+        любая актуальная бесплатная или недорогая; на Groq — модель семейства Llama;
+        на своём ПК — <code>qwen2.5:7b</code> (если 8+ ГБ памяти) или <code>qwen2.5:3b</code>
+        на слабом железе. Нужны длинные рассуждения и сложные задачи — бери DeepSeek или
+        топовую модель через агрегатор. Начни с бесплатной: переключить провайдера
+        можно в любой момент, ничего не потеряется.
+      </p>
+    </details>
+
+    <details>
+      <summary>А без своей модели никак?</summary>
+      <p>
+        Никак — и это осознанно. Persona не перепродаёт чужие токены и не берёт за них подписку:
+        ты платишь провайдеру напрямую (или не платишь вообще), а мы не встаём между вами
+        со своей наценкой. Зато ты в любой момент можешь сменить модель или уйти на локальную.
+      </p>
+    </details>
+
+    <details>
+      <summary>Что-то не работает</summary>
+      <p>
+        Сохрани ключ ещё раз и проверь, что выбран правильный провайдер — Persona показывает
+        статус подключения прямо в <a href="/settings/llm">/settings/llm</a>. Частые причины:
+        не пополнен баланс, исчерпан бесплатный лимит на сегодня, из РФ нужен VPN,
+        либо (для Ollama) выключен ПК или адрес недоступен снаружи.
+      </p>
+    </details>
+
+  </section>
+
+  {# ── 4. CTA ─────────────────────────────────────────────────────────────── #}
+  <section style="text-align:center;margin-top:3rem;">
+    {% if session %}
+      <a href="/settings/llm" class="btn btn-primary btn-lg">Подключить</a>
+      <p style="font-size:.9rem;color:#889;margin-top:1rem;">Две минуты — и ассистент оживёт.</p>
+    {% else %}
+      <a href="/auth/signup" class="btn btn-primary btn-lg">Начать бесплатно</a>
+      <p style="font-size:.9rem;color:#889;margin-top:1rem;">
+        Уже есть аккаунт? <a href="/settings/llm" style="color:#a9c;">Подключить модель</a>
+      </p>
+    {% endif %}
+  </section>
+
+  <nav style="margin-top:2.5rem;display:flex;gap:1rem;flex-wrap:wrap;font-size:.92rem;">
+    <a href="/pricing" style="color:#a9c;">Цена</a>
+    <a href="/features" style="color:#a9c;">Возможности</a>
+    <a href="/security" style="color:#a9c;">Безопасность</a>
+    <a href="/blog" style="color:#a9c;">Блог</a>
+  </nav>
+
+</main>
+</body>
+</html>

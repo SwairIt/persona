@@ -25,26 +25,34 @@
       Честная <span class="grad">цена</span>
     </h1>
     <p style="font-size:1.15rem;color:#aab;line-height:1.6;">
-      Начни с <b style="color:#eef0ff">3 дней Pro бесплатно</b> — попробуй ИИ-ассистента прямо в браузере, без карты.
-      Дальше выбирай: Pro-подписка или открытый self-host для максимальной приватности.
+      Persona — <b style="color:#eef0ff">бесплатно, со своим ключом</b>. Подключаешь свою модель
+      (есть полностью бесплатные варианты) и пользуешься — без подписки и без карты.
     </p>
   </header>
 
-  <section style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1.25rem;align-items:stretch;">
+  {# Карточек стало две (Бесплатно + Self-host) — ограничиваем ширину сетки,
+     чтобы они не растягивались на всю тысячу пикселей. #}
+  <section style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1.25rem;align-items:stretch;max-width:760px;margin:0 auto;">
 
-    <div class="glass" style="padding:1.6rem;border-radius:18px;display:flex;flex-direction:column;">
-      <div style="font-size:.8rem;text-transform:uppercase;letter-spacing:.12em;color:#5eead4;">Триал</div>
-      <div style="font-size:2.4rem;font-weight:800;margin:.4rem 0;">3 дня бесплатно</div>
-      <p style="color:#9aa;font-size:.95rem;line-height:1.55;">Попробуй полноценного ИИ-ассистента прямо в браузере — без карты и без установки. Введи почту и через минуту общаешься.</p>
+    <div class="glass" style="padding:1.6rem;border-radius:18px;border:1px solid rgba(94,234,212,.5);display:flex;flex-direction:column;">
+      <div style="font-size:.8rem;text-transform:uppercase;letter-spacing:.12em;color:#5eead4;">Бесплатно</div>
+      <div style="font-size:2.4rem;font-weight:800;margin:.4rem 0;">0&nbsp;₽<span style="font-size:1rem;font-weight:500;color:#9aa;"> — навсегда</span></div>
+      <p style="color:#9aa;font-size:.95rem;line-height:1.55;">Со своим API-ключом или своей моделью. Регистрируешься по почте, подключаешь модель за пару минут — и общаешься. Подписки нет.</p>
       <ul class="check" style="margin:1rem 0;flex:1;">
-        <li>Полный доступ к Pro на 3 дня</li>
-        <li>Своя приватная память (только твоя)</li>
-        <li>Ничего ставить не нужно</li>
-        <li>Без карты</li>
+        <li>Чат с памятью между сессиями</li>
+        <li>Голос</li>
+        <li>Навыки</li>
+        <li>Свой характер ИИ</li>
+        <li>Граф памяти</li>
       </ul>
-      <a href="/auth/signup" class="btn btn-secondary">Начать бесплатно</a>
+      <a href="/auth/signup" class="btn btn-primary">Начать бесплатно</a>
+      <a href="/help/connect-llm" style="margin-top:.7rem;font-size:.85rem;color:#a9c;text-align:center;">Как подключить свою модель →</a>
     </div>
 
+    {# 2026-08: MVP «бесплатно со своим ключом» — Pro-подписка снята с витрины.
+       Блок закомментирован, а не удалён: вернём, когда появится тариф с нашей
+       моделью (биллинг-код и /billing остаются на месте). #}
+    {#
     <div class="glass" style="padding:1.6rem;border-radius:18px;border:1px solid rgba(167,139,250,.55);display:flex;flex-direction:column;position:relative;">
       <div style="position:absolute;top:-11px;left:50%;transform:translateX(-50%);background:#7c3aed;color:#fff;font-size:.7rem;font-weight:700;padding:3px 12px;border-radius:999px;letter-spacing:.05em;">ПОПУЛЯРНОЕ</div>
       <div style="font-size:.8rem;text-transform:uppercase;letter-spacing:.12em;color:#a78bfa;">Pro</div>
@@ -58,6 +66,7 @@
       </ul>
       <a href="/auth/signup" class="btn btn-primary">Оформить Pro</a>
     </div>
+    #}
 
     <div class="glass" style="padding:1.6rem;border-radius:18px;display:flex;flex-direction:column;">
       <div style="font-size:.8rem;text-transform:uppercase;letter-spacing:.12em;color:#f472b6;">Self-host</div>
