@@ -432,18 +432,16 @@ async def _user_id_for_email(email: str) -> int | None:
 
 
 async def _post_auth_dest(user_id: int) -> str:
-    """Владелец → приложение (/now). Активный подписчик → ИИ-ассистент: онбординг
-    при первом входе, иначе сразу чат. Без подписки → кабинет подписки (/billing).
-    Чат/память изолированы по user_id — чужого подписчик не видит."""
+    """Владелец → приложение (/now). Любой участник (регистрация свободная,
+    подписка НЕ спрашивается) → ИИ-ассистент: онбординг при первом входе,
+    иначе сразу чат. Чат/память изолированы по user_id — чужого он не видит."""
     if await owner_exclusive_enabled() and not await is_primary_owner(user_id):
         return "/pending"
     if await is_owner(user_id):
         return "/now"
-    if await billing_service.has_active_sub(user_id):
-        async with get_connection() as conn:
-            onboarded = await get_kv(conn, f"onboarded_{user_id}")
-        return "/chat" if (onboarded or "").strip() == "1" else "/onboarding"
-    return "/billing"
+    async with get_connection() as conn:
+        onboarded = await get_kv(conn, f"onboarded_{user_id}")
+    return "/chat" if (onboarded or "").strip() == "1" else "/onboarding"
 
 
 @router.post("/auth/magic", response_class=HTMLResponse, response_model=None)
@@ -669,8 +667,8 @@ async def pending_page(
         response = RedirectResponse(url="/landing", status_code=303)
         response.delete_cookie(SESSION_COOKIE_NAME, path="/")
         return response
-    # не-владелец → кабинет подписки/лицензии (вместо тупиковой «ранний доступ»)
-    return RedirectResponse(url="/billing", status_code=303)
+    # не-владелец → бесплатная поверхность участника (ИИ-ассистент)
+    return RedirectResponse(url="/chat", status_code=303)
 
 
 @router.post("/auth/logout")

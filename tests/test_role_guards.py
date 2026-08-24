@@ -195,7 +195,7 @@ async def _hit(ac: AsyncClient, uid: int, method: str, path: str):
 
 @pytest.mark.asyncio
 async def test_gate_role_on_admin_member_viewer(db):
-    """Флаг ON: admin видит /admin; member — нет (→ /billing); viewer — GET-only."""
+    """Флаг ON: admin видит /admin; member — нет (→ /chat); viewer — GET-only."""
     owner_id = await _add_user(db, "o@ex.io", role="owner")   # id=1 → владелец (MIN id)
     admin_id = await _add_user(db, "a@ex.io", role="admin")
     member_id = await _add_user(db, "m@ex.io", role="member")
@@ -208,19 +208,19 @@ async def test_gate_role_on_admin_member_viewer(db):
         # admin → /admin/* пускают, /root (зона владельца) — нет
         assert (await _hit(ac, admin_id, "GET", "/admin/panel")).status_code == 200
         r = await _hit(ac, admin_id, "GET", "/root")
-        assert r.status_code == 303 and r.headers["location"] == "/billing"
+        assert r.status_code == 303 and r.headers["location"] == "/chat"
         # admin → обычное приложение тоже видит
         assert (await _hit(ac, admin_id, "GET", "/now")).status_code == 200
 
         # member → приложение видит, но НЕ /admin/*
         assert (await _hit(ac, member_id, "GET", "/now")).status_code == 200
         r = await _hit(ac, member_id, "GET", "/admin/panel")
-        assert r.status_code == 303 and r.headers["location"] == "/billing"
+        assert r.status_code == 303 and r.headers["location"] == "/chat"
 
-        # viewer → только безопасные (GET) методы; POST → отказ (fallback /billing)
+        # viewer → только безопасные (GET) методы; POST → отказ (fallback → /chat)
         assert (await _hit(ac, viewer_id, "GET", "/now")).status_code == 200
         r = await _hit(ac, viewer_id, "POST", "/admin/panel")
-        assert r.status_code == 303 and r.headers["location"] == "/billing"
+        assert r.status_code == 303 and r.headers["location"] == "/chat"
 
         # владелец → ВСЁ, и при ВКЛ роле-гейте (суперсет: /root, /admin, /now)
         assert (await _hit(ac, owner_id, "GET", "/root")).status_code == 200
@@ -232,12 +232,19 @@ async def test_gate_role_on_admin_member_viewer(db):
 
 
 @pytest.mark.asyncio
-async def test_gate_flag_off_identical_to_owner_gate(db):
-    """Флаг OFF (дефолт): владелец → всё; Pro-подписчик → только /chat, /now → /billing;
-    без подписки → /billing. Т.е. БАЙТ-В-БАЙТ как owner-gate сейчас."""
+async def test_gate_flag_off_member_surface_is_free_of_subscription(db):
+    """Флаг OFF (дефолт): владелец → всё; ЛЮБОЙ не-владелец → member-поверхность.
+
+    Раньше этот тест сторожил ПОДПИСОЧНЫЙ гейт (has_active_sub → /chat, иначе
+    → /billing). Подписка больше не спрашивается (биллинг спит), поэтому тест
+    переписан под новый инвариант member-allowlist:
+      * наличие/отсутствие Pro НЕ влияет ни на одно решение доступа;
+      * member-путь (/chat) открыт бесплатно;
+      * личная поверхность владельца (/now) закрыта → 303 на /chat.
+    """
     owner_id = await _add_user(db, "o@ex.io", role="owner")   # id=1 → владелец
-    sub_id = await _add_user(db, "s@ex.io", role="member")     # подписчик
-    free_id = await _add_user(db, "f@ex.io", role="member")    # без подписки
+    sub_id = await _add_user(db, "s@ex.io", role="member")     # с Pro
+    free_id = await _add_user(db, "f@ex.io", role="member")    # без Pro
     await service.grant_pro(sub_id, 30)
     # role_gate_enabled НЕ установлен → дефолт OFF
 
@@ -247,21 +254,19 @@ async def test_gate_flag_off_identical_to_owner_gate(db):
         # владелец → всё
         assert (await _hit(ac, owner_id, "GET", "/now")).status_code == 200
         assert (await _hit(ac, owner_id, "GET", "/chat")).status_code == 200
-        # подписчик → /chat можно, /now нельзя (→ /billing)
-        assert (await _hit(ac, sub_id, "GET", "/chat")).status_code == 200
-        r = await _hit(ac, sub_id, "GET", "/now")
-        assert r.status_code == 303 and r.headers["location"] == "/billing"
-        # без подписки → всё в /billing
-        r = await _hit(ac, free_id, "GET", "/chat")
-        assert r.status_code == 303 and r.headers["location"] == "/billing"
+        # с Pro и без Pro — решения ОДИНАКОВЫ: /chat открыт, /now уводит в /chat
+        for uid in (sub_id, free_id):
+            assert (await _hit(ac, uid, "GET", "/chat")).status_code == 200
+            r = await _hit(ac, uid, "GET", "/now")
+            assert r.status_code == 303 and r.headers["location"] == "/chat"
 
 
 @pytest.mark.asyncio
 async def test_gate_flag_off_admin_role_has_no_extra_access(db):
     """КРИТ: при OFF роль admin НЕ даёт доступа сверх owner-gate (флаг реально гейтит).
 
-    admin-роль без подписки при OFF не должен видеть ни /admin, ни /now —
-    т.е. дефолт-деплой не меняет ни одного решения доступа."""
+    admin-роль при OFF не должен видеть ни /admin, ни /now — эти зоны не входят
+    в member-allowlist, поэтому обе уводят на /chat."""
     await _add_user(db, "o@ex.io", role="owner")               # id=1 → владелец
     admin_id = await _add_user(db, "a@ex.io", role="admin")     # admin, но флаг OFF
 
@@ -269,9 +274,9 @@ async def test_gate_flag_off_admin_role_has_no_extra_access(db):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         r = await _hit(ac, admin_id, "GET", "/admin/panel")
-        assert r.status_code == 303 and r.headers["location"] == "/billing"
+        assert r.status_code == 303 and r.headers["location"] == "/chat"
         r = await _hit(ac, admin_id, "GET", "/now")
-        assert r.status_code == 303 and r.headers["location"] == "/billing"
+        assert r.status_code == 303 and r.headers["location"] == "/chat"
 
 
 @pytest.mark.asyncio

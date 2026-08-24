@@ -14,7 +14,10 @@ S6: поверх этого — РЕАЛЬНЫЙ семантический гр
 ``kg_entity`` + рёбра ``kg_edge`` с подписью ``relation_type``), который строит
 ночная рефлексия из durable-фактов (``app/knowledge_graph.py``).
 
-Роуты под owner-gate (auth_gate уже пускает сюда только владельца).
+Граф доступен и участнику (member-поверхность), поэтому всё, что НЕ изолировано
+по ``user_id``, отдаётся ТОЛЬКО владельцу: карточки ``hourly_card`` глобальны
+(экран/звук владельца) — не-владелец их не получает вовсе. Ссылки (``href``) на
+owner-only страницы (/timeline, /entity/…) участнику тоже не отдаются.
 """
 
 from __future__ import annotations
@@ -26,6 +29,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from app.auth import current_user_required
+from app.auth.owner import is_owner
 from app.auth.sessions import SessionRecord
 from app.storage.db import get_connection
 from app.web.templates_engine import templates
@@ -72,6 +76,10 @@ async def graph_data(
     session: Annotated[SessionRecord, Depends(current_user_required)],
 ) -> JSONResponse:
     uid = session["user_id"]
+    # Владелец видит глобальные данные захвата (hourly_card) и ссылки на
+    # owner-only страницы. Участник — только своё (чаты/сообщения/конспекты/
+    # граф знаний), без hourly_card и без href на /timeline и /entity/*.
+    owner_view = await is_owner(uid)
     nodes: list[dict[str, Any]] = []
     links: list[dict[str, str]] = []
     seen_days: set[str] = set()
@@ -83,12 +91,15 @@ async def graph_data(
         nid = f"d{d}"
         if d not in seen_days:
             seen_days.add(d)
-            nodes.append({
+            node: dict[str, Any] = {
                 "id": nid, "type": "day", "label": d,
                 "at": d, "where": "День записи",
                 "full": "Все скриншоты, звук и карточки памяти за этот день.",
-                "href": f"/timeline?date={d}",
-            })
+            }
+            if owner_view:
+                # /timeline — owner-only страница; участнику ссылку не даём.
+                node["href"] = f"/timeline?date={d}"
+            nodes.append(node)
         return nid
 
     async with get_connection() as conn:
@@ -198,37 +209,43 @@ async def graph_data(
                 break
 
         # --- карточки памяти / записи ---
-        cur = await conn.execute(
-            "SELECT hour_start, summary, transcript_excerpt, audio_seconds "
-            "FROM hourly_card ORDER BY hour_start DESC LIMIT ?",
-            (_MAX_CARDS,),
-        )
-        cards = await cur.fetchall()
-        for c in cards:
-            hs = c["hour_start"]
-            spoke = (c["audio_seconds"] or 0) > 0 or bool((c["transcript_excerpt"] or "").strip())
-            label = _short(c["transcript_excerpt"] or c["summary"], 44) or "час памяти"
-            nid = f"h{hs}"
-            day = _day(hs)
-            full_parts = []
-            if (c["summary"] or "").strip():
-                full_parts.append(str(c["summary"]).strip())
-            if (c["transcript_excerpt"] or "").strip():
-                full_parts.append("Речь: " + str(c["transcript_excerpt"]).strip())
-            if c["audio_seconds"]:
-                full_parts.append(f"Звука: ~{int(c['audio_seconds'] // 60)} мин")
-            nodes.append({
-                "id": nid,
-                "type": "recording" if spoke else "memory",
-                "label": label,
-                "at": str(hs or ""),
-                "where": "Запись (экран + звук)" if spoke else "Карточка памяти",
-                "full": "\n\n".join(full_parts) or "Час записи без расшифровки.",
-                "href": f"/timeline?date={day}" if day else "/timeline",
-            })
-            dn = day_node(hs)
-            if dn:
-                links.append({"a": nid, "b": dn})
+        # ВАЖНО: hourly_card НЕ имеет user_id — это глобальный захват экрана/звука
+        # ВЛАДЕЛЬЦА. Без этого owner-гейта карточки владельца утекали бы в граф
+        # любого участника. Читаем и рисуем их только для владельца.
+        if owner_view:
+            cur = await conn.execute(
+                "SELECT hour_start, summary, transcript_excerpt, audio_seconds "
+                "FROM hourly_card ORDER BY hour_start DESC LIMIT ?",
+                (_MAX_CARDS,),
+            )
+            cards = await cur.fetchall()
+            for c in cards:
+                hs = c["hour_start"]
+                spoke = (c["audio_seconds"] or 0) > 0 or bool(
+                    (c["transcript_excerpt"] or "").strip()
+                )
+                label = _short(c["transcript_excerpt"] or c["summary"], 44) or "час памяти"
+                nid = f"h{hs}"
+                day = _day(hs)
+                full_parts = []
+                if (c["summary"] or "").strip():
+                    full_parts.append(str(c["summary"]).strip())
+                if (c["transcript_excerpt"] or "").strip():
+                    full_parts.append("Речь: " + str(c["transcript_excerpt"]).strip())
+                if c["audio_seconds"]:
+                    full_parts.append(f"Звука: ~{int(c['audio_seconds'] // 60)} мин")
+                nodes.append({
+                    "id": nid,
+                    "type": "recording" if spoke else "memory",
+                    "label": label,
+                    "at": str(hs or ""),
+                    "where": "Запись (экран + звук)" if spoke else "Карточка памяти",
+                    "full": "\n\n".join(full_parts) or "Час записи без расшифровки.",
+                    "href": f"/timeline?date={day}" if day else "/timeline",
+                })
+                dn = day_node(hs)
+                if dn:
+                    links.append({"a": nid, "b": dn})
 
     # --- семантический граф знаний (S6): сущности kg_entity + рёбра kg_edge ---
     # list_edges читает из kg_entity (узлы) + kg_edge (рёбра). Узлы-сущности рисуем
@@ -249,13 +266,16 @@ async def graph_data(
             if eid in ent_seen:
                 continue
             ent_seen.add(eid)
-            nodes.append({
+            ent_node: dict[str, Any] = {
                 "id": f"e{eid}", "type": "memory", "entity": True,
                 "label": _short(ename, 30),
                 "at": "", "where": "Сущность графа знаний",
                 "full": str(ename),
-                "href": f"/entity/{eid}",
-            })
+            }
+            if owner_view:
+                # /entity/<id> — owner-only страница; участнику ссылку не даём.
+                ent_node["href"] = f"/entity/{eid}"
+            nodes.append(ent_node)
         links.append({
             "a": f"e{e['from_entity_id']}",
             "b": f"e{e['to_entity_id']}",

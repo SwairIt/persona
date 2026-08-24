@@ -35,7 +35,6 @@ from starlette.responses import RedirectResponse, Response
 from app.auth import SESSION_COOKIE_NAME, verify_session
 from app.auth.exclusive import read_owner_exclusive_mode
 from app.auth.owner import is_owner, is_primary_owner
-from app.billing.service import has_active_sub as _has_active_sub
 from app.logging_setup import get_logger
 from app.storage.db import get_connection
 from app.storage.repository import get_kv
@@ -136,20 +135,39 @@ def _is_public_path(path: str) -> bool:
     return any(path.startswith(prefix) for prefix in _PUBLIC_PREFIXES)
 
 
-# Пути, доступные НЕ-владельцу с активной подпиской (Pro/триал): только сам
-# ИИ-ассистент (чат) и онбординг. Чат и память изолированы по user_id — он видит
-# лишь СВОЁ. Захват/таймлайн/общие настройки владельца остаются закрытыми.
-_PRO_PREFIXES: tuple[str, ...] = ("/chat", "/api/chat", "/onboarding")
+# Бесплатная поверхность УЧАСТНИКА (любой зарегистрированный не-владелец).
+# Подписка БОЛЬШЕ НЕ СПРАШИВАЕТСЯ — биллинг спит, регистрация свободная.
+# Сюда входит только то, что изолировано по user_id (чат/память/голос/навыки/
+# личные настройки). Личные данные владельца (захват, таймлайн, /now, /root,
+# админка, дашборд-инсайты) в список НЕ попадают.
+_MEMBER_PREFIXES: tuple[str, ...] = (
+    "/chat", "/api/chat",
+    "/onboarding",
+    "/voice",
+    "/graph", "/api/graph.json",
+    "/settings/hub", "/api/settings/search",
+    "/settings/llm", "/api/llm/models",
+    "/settings/memory", "/settings/profile",
+    "/settings/system-prompt", "/settings/theme", "/settings/advanced",
+    "/settings/skills", "/api/skills",
+    "/api/account.json",
+    "/api/copilot",
+)
 
 
-def _is_pro_path(path: str) -> bool:
-    # Защита от обхода нормализацией: если в пути есть ".." / "/../" — это попытка
-    # вырваться из pro-префикса (напр. /chat/../now). НЕ считаем pro-путём, чтобы
-    # такой путь не получил доступ по подписке. Легитимные /chat, /api/chat,
-    # /onboarding точек-сегментов не содержат и не затрагиваются.
+def _is_member_path(path: str) -> bool:
+    """True, если путь входит в бесплатную поверхность участника.
+
+    Совпадение — ТОЛЬКО точное либо вход в зону (``p`` или ``p + "/"``): так
+    ``/settings/llmXXX`` или ``/chatter`` НЕ проходят как ``/settings/llm`` /
+    ``/chat``. Записи с расширением (``/api/graph.json``) совпадают точно.
+
+    Защита от обхода нормализацией: если в пути есть ".." (напр. ``/chat/../now``)
+    — это попытка вырваться из зоны, такой путь member-путём НЕ считаем.
+    """
     if ".." in path:
         return False
-    return any(path == p or path.startswith(p + "/") for p in _PRO_PREFIXES)
+    return any(path == p or path.startswith(p + "/") for p in _MEMBER_PREFIXES)
 
 
 # ── Роле-основанная маршрутизация (F6-12) — ЗА ФИЧА-ФЛАГОМ, DEFAULT OFF ─────────
@@ -164,7 +182,7 @@ def _is_pro_path(path: str) -> bool:
 #   * member — приложение, но НЕ /admin/* и НЕ /root;
 #   * viewer — только безопасные (GET/HEAD/OPTIONS) запросы.
 # owner-gate (приватные данные) остаётся последним рубежом: даже при ВКЛ флаге
-# не-владелец без подписки не получает приватную поверхность владельца.
+# не-владелец не получает приватную поверхность владельца — только member-зону.
 
 # Кэш флага role_gate (как _FLAG_TTL у активности гейта). 60с.
 _role_gate_cache: dict[str, float | bool] = {"value": False, "checked_at": 0.0}
@@ -303,6 +321,12 @@ class AuthGateMiddleware(BaseHTTPMiddleware):
         session = await verify_session(token) if token else None
         if session is not None:
             uid = session.get("user_id")
+            # Для ЛЮБОГО аутентифицированного запроса (владелец и участник)
+            # выкладываем личность в request.state, чтобы шаблоны/роуты могли
+            # опираться на неё без повторного резолва.
+            owner_flag = await is_owner(uid)
+            request.state.user_id = uid
+            request.state.is_owner = owner_flag
             if owner_exclusive:
                 if await is_primary_owner(uid):
                     return await call_next(request)
@@ -315,7 +339,7 @@ class AuthGateMiddleware(BaseHTTPMiddleware):
                         media_type="application/json",
                     )
                 return RedirectResponse(url="/pending", status_code=303)
-            if await is_owner(uid):
+            if owner_flag:
                 # Владелец — суперсет: видит всё, всегда (и при ВКЛ роле-гейте).
                 return await call_next(request)
             if path == "/pending" or path.startswith("/auth/"):
@@ -332,18 +356,19 @@ class AuthGateMiddleware(BaseHTTPMiddleware):
                 verdict = await _role_route_allows(uid, path, request.method)
                 if verdict is True:
                     return await call_next(request)
-            # Не-владелец с активной подпиской → ТОЛЬКО ассистент (чат) + онбординг.
-            # Чат/память изолированы по user_id (видит лишь своё). Личные данные
-            # владельца (захват/таймлайн/общие настройки) — закрыты.
-            if _is_pro_path(path) and await _has_active_sub(uid):
+            # Любой зарегистрированный не-владелец → БЕСПЛАТНАЯ поверхность
+            # участника (чат/память/голос/навыки/свои настройки). Подписка НЕ
+            # проверяется. Личные данные владельца (захват, таймлайн, админка,
+            # /now, /root) остаются закрытыми: HTML → /chat, JSON → 403.
+            if _is_member_path(path):
                 return await call_next(request)
             if path.startswith("/api/"):
                 return Response(
-                    content='{"detail":"subscription required"}',
+                    content='{"detail":"owner access required"}',
                     status_code=403,
                     media_type="application/json",
                 )
-            return RedirectResponse(url="/billing", status_code=303)
+            return RedirectResponse(url="/chat", status_code=303)
 
         # Browser nav → 303 to /landing. JSON / agent endpoints get 401
         # so they don't end up with HTML in their response body.

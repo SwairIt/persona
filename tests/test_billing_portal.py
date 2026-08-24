@@ -85,9 +85,13 @@ async def test_billing_page_shows_license_for_buyer(client, db):
 
 
 @pytest.mark.asyncio
-async def test_gate_pro_user_chat_only(db):
-    """Гейт: владелец → всё; активный подписчик → ТОЛЬКО /chat (ассистент изолирован
-    по user_id), но НЕ /now (личные данные владельца); без подписки → /billing."""
+async def test_gate_does_not_consult_subscriptions(db):
+    """Гейт: владелец → всё; ЛЮБОЙ не-владелец → member-поверхность (/chat),
+    но НЕ /now (личные данные владельца).
+
+    Тест раньше сторожил подписочный гейт (без подписки → /billing). Биллинг
+    спит, регистрация бесплатная — теперь сторожим обратное: подписка НЕ должна
+    влиять ни на одно решение гейта (Pro и не-Pro получают одно и то же)."""
     from fastapi.responses import PlainTextResponse
 
     from app.auth.sessions import SESSION_COOKIE_NAME, issue_session
@@ -95,8 +99,8 @@ async def test_gate_pro_user_chat_only(db):
     from app.web.middleware.auth_gate import AuthGateMiddleware
 
     owner = await _add_user(db, "o@example.io")    # id=1 → владелец (MIN id)
-    sub = await _add_user(db, "s@example.io")       # id=2 → подписчик
-    free = await _add_user(db, "f@example.io")      # id=3 → без подписки
+    sub = await _add_user(db, "s@example.io")       # id=2 → с Pro
+    free = await _add_user(db, "f@example.io")      # id=3 → без Pro
     await service.grant_pro(sub, 30)
     auth_gate._cache["checked_at"] = 0.0  # сбросить кэш «гейт активен»
 
@@ -122,10 +126,8 @@ async def test_gate_pro_user_chat_only(db):
         # владелец → всё приложение
         assert (await hit(owner, "/now")).status_code == 200
         assert (await hit(owner, "/chat")).status_code == 200
-        # подписчик → /chat можно, /now нельзя (→ /billing)
-        assert (await hit(sub, "/chat")).status_code == 200
-        r = await hit(sub, "/now")
-        assert r.status_code == 303 and r.headers["location"] == "/billing"
-        # без подписки → всё уводит в /billing
-        r = await hit(free, "/chat")
-        assert r.status_code == 303 and r.headers["location"] == "/billing"
+        # с Pro и без Pro — одинаково: /chat открыт, /now уводит на /chat
+        for uid in (sub, free):
+            assert (await hit(uid, "/chat")).status_code == 200
+            r = await hit(uid, "/now")
+            assert r.status_code == 303 and r.headers["location"] == "/chat"

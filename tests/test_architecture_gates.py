@@ -53,7 +53,7 @@ ROUTE_DIRECT_DB_IMPORT_BASELINE = frozenset(
 # per-chat reply/read/ignore mode and history-ingest flag (telegram_chat_pref,
 # Task 1-2 of the same plan), replacing the old "is it pinned in Telegram"
 # accident with an explicit owner choice.
-REGISTERED_ROUTE_BUDGET = 1_104  # +2 (2026-07-31): /settings/web-search GET+POST
+REGISTERED_ROUTE_BUDGET = 1_110  # +6 (2026-08-24): AI-everywhere wave 2 (insights, suggest, hour summary, ai-calendar parse+create)
 
 # After the first bootstrap extraction the reference Windows host imports the
 # web app in ~5.3 s. Keep CI headroom while preventing a return to the measured
