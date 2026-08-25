@@ -24,6 +24,12 @@ dependencies = [
     "python-dotenv>=1.0",
     "aiosqlite>=0.20",
     "anyio>=4.7",
+    # Runtime, not dev: app/llm/client.py, app/billing/yookassa.py,
+    # app/memory_vec.py, app/mcp/builtin_tools.py and 8 more modules import
+    # httpx at request time. It was only declared in the dev dependency-group,
+    # so a production `pip install .` produced an app that ImportErrors the
+    # moment anyone used the LLM or paid for anything.
+    "httpx>=0.28",
     "pytesseract>=0.3.13",
     # T29 — headless web browsing for the chat `web_browse` tool. Needs a
     # one-time `python -m playwright install chromium` after install.

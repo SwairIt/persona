@@ -32,15 +32,21 @@ from app.auth import (
     create_user,
     current_user_optional,
     current_user_required,
-    issue_session,
+    revoke_all_for_user,
     revoke_session,
+    rotate_session,
+    verify_session,
 )
+from app.auth import lockout as _lockout
+from app.auth import proxies as _proxies
 from app.auth.email_check import check_email
 from app.auth.exclusive import owner_exclusive_enabled
 from app.auth.magic import consume_magic_link, create_magic_link
 from app.auth.owner import is_owner, is_primary_owner
+from app.auth.account_state import AccountInactiveError
 from app.auth.sessions import SessionRecord
-from app.auth.users import update_password
+from app.auth.users import is_account_active, update_password
+from app.auth.verification import mark_verified
 from app.logging_setup import get_logger
 from app.mail_branding import branded_email_html
 from app.smtp_delivery import send_email
@@ -150,11 +156,16 @@ async def _send_mail_safe(
 # we've seen are around 200 chars; anything beyond is junk.
 _MAX_UA_LEN = 250
 
-# IP-адреса, которым доверяем заголовок X-Forwarded-For: localhost +
-# reverse-proxy FastPanel на yesbeat. Только эти узлы реально стоят перед
-# приложением, поэтому только их XFF имеет смысл (иначе любой клиент мог бы
-# подделать заголовок и обойти rate-limit).
-_TRUSTED_PROXIES = {"127.0.0.1", "192.168.33.3"}
+# Доверенные reverse-proxy (кому верим X-Forwarded-For) переехали в
+# app/auth/proxies.py: теперь это env ``PERSONA_TRUSTED_PROXIES`` / kv
+# ``trusted_proxies`` с ТЕМИ ЖЕ значениями по умолчанию ({127.0.0.1,
+# 192.168.33.3}), поддержкой CIDR и громким одноразовым warning'ом, когда XFF
+# приходит от недоверенного пира. Инструкция по проверке против живого прокси —
+# в докстринге того модуля.
+#
+# Имя оставлено для обратной совместимости (тесты/скрипты могли на него
+# ссылаться); фактический источник истины — ``proxies.trusted_networks_sync()``.
+_TRUSTED_PROXIES = set(_proxies.DEFAULT_TRUSTED_PROXIES)
 
 
 def _set_session_cookie(
@@ -180,13 +191,25 @@ def _trim_ua(raw: str | None) -> str | None:
 
 def _client_ip(request: Request) -> str:
     """Best-effort client IP. Доверяем X-Forwarded-For ТОЛЬКО когда прямой
-    peer — известный reverse-proxy (``_TRUSTED_PROXIES``). Иначе берём
-    request.client.host: иначе кто угодно подделал бы XFF и обошёл rate-limit."""
+    peer — известный reverse-proxy (см. :mod:`app.auth.proxies`). Иначе берём
+    request.client.host: иначе кто угодно подделал бы XFF и обошёл rate-limit.
+
+    Функция СИНХРОННАЯ намеренно: её импортирует биллинг-вебхук
+    (``app/web/routes/billing.py``) для IP-фильтра ЮKassa. Конфиг читается из
+    прогретого кэша ``proxies.trusted_networks_sync()`` — без похода в БД на
+    горячем пути. Если XFF пришёл от НЕдоверенного пира, один раз на процесс
+    пишем громкий warning (``auth.proxy.untrusted_xff``) и заголовок
+    игнорируем — fail-safe: лучше ограничить по IP прокси, чем поверить
+    подделке.
+    """
     peer = request.client.host if request.client else "unknown"
-    if peer in _TRUSTED_PROXIES:
-        xff = request.headers.get("x-forwarded-for", "")
+    xff = request.headers.get("x-forwarded-for", "")
+    if _proxies.is_trusted_peer_sync(peer, _proxies.trusted_networks_sync()):
         if xff:
             return xff.split(",")[0].strip()
+        return peer
+    if xff:
+        _proxies.note_untrusted_xff(peer, request.url.path)
     return peer
 
 
@@ -230,6 +253,46 @@ def _registration_disabled(request: Request) -> Response:
         "<p><a href='/auth/login' style='color:#a78bfa'>Войти</a></p></body>",
         status_code=403,
     )
+
+
+# Перевод стабильных английских ключей валидации в RU-копию. Ключи задаются в
+# app/auth/users.py и app/auth/password_policy.py; неизвестный ключ показываем
+# как есть — так новая проверка не теряет текст, пока её не перевели.
+_RU_ERRORS: dict[str, str] = {
+    "email already registered": "Этот email уже зарегистрирован.",
+    "invalid email": "Неверный формат email.",
+    "password must be at least 8 characters": "Пароль должен быть минимум 8 символов.",
+    "password must be at most 1024 characters": "Пароль слишком длинный.",
+    "password is too common": (
+        "Такой пароль есть в списке самых частых — его подбирают за секунды. "
+        "Придумай другой."
+    ),
+    "password is too simple": (
+        "Слишком простой пароль (подряд идущие символы или один и тот же). "
+        "Придумай другой."
+    ),
+    "password must not contain your email": (
+        "Пароль не должен содержать твой email — это первое, что перебирают."
+    ),
+}
+
+
+def _ru_error(raw: str) -> str:
+    """Русский текст ошибки валидации по стабильному английскому ключу."""
+    return _RU_ERRORS.get(raw, raw)
+
+
+# Копия для аккаунтов с ``users.status != 'active'``. Показывается ТОЛЬКО после
+# верного пароля, поэтому перечислением заблокированные аккаунты не находятся.
+_INACTIVE_MESSAGES: dict[str, str] = {
+    "suspended": (
+        "Этот аккаунт заблокирован. Если считаешь, что это ошибка — "
+        "напиши владельцу Persona."
+    ),
+    "pending": (
+        "Этот аккаунт ещё не активирован. Дождись подтверждения от владельца."
+    ),
+}
 
 
 async def _exclusive_allows(user_id: int | None) -> bool:
@@ -312,11 +375,7 @@ async def signup_submit(
         raw = str(exc)
         # Translate the few known error keys; anything else is shown
         # verbatim (catches future validator additions without losing info).
-        ru = {
-            "email already registered": "Этот email уже зарегистрирован.",
-            "invalid email": "Неверный формат email.",
-            "password must be at least 8 characters": "Пароль должен быть минимум 8 символов.",
-        }.get(raw, raw)
+        ru = _ru_error(raw)
         return templates.TemplateResponse(
             request,
             "auth_signup.html",
@@ -329,7 +388,11 @@ async def signup_submit(
             status_code=400,
         )
     ua = _trim_ua(request.headers.get("user-agent"))
-    token, _expires_at = await issue_session(user["id"], user_agent=ua)
+    # Ротация, а не просто выдача: если в браузере уже лежала чужая/подсунутая
+    # кука сессии, она умирает здесь, а не живёт параллельно новой.
+    token, _expires_at = await rotate_session(
+        request.cookies.get(SESSION_COOKIE_NAME), user["id"], user_agent=ua
+    )
     response = RedirectResponse(url=await _post_auth_dest(user["id"]), status_code=303)
     secure = _cookie_secure(request)
     _set_session_cookie(response, token, secure, 30 * 24 * 3600)
@@ -342,11 +405,46 @@ async def login_submit(
     email: Annotated[str, Form()],
     password: Annotated[str, Form()],
 ) -> Response:
-    """Verify credentials, start a session. JSON for inline fetch, else page."""
+    """Verify credentials, start a session. JSON for inline fetch, else page.
+
+    Two independent throttles guard this handler:
+
+    * **per-IP** (existing, 20/hour) — stops one box hammering the endpoint;
+    * **per-ACCOUNT** (:mod:`app.auth.lockout`, exponential backoff after 5
+      failures) — an attacker rotating through a proxy pool resets the IP
+      counter for free, but not the counter on the address he is guessing.
+
+    The account check runs *before* ``authenticate`` so a locked account costs
+    the server zero PBKDF2 work (600 000 iterations ≈ 250 ms of CPU each — an
+    unthrottled login endpoint is a CPU-exhaustion DoS as much as a
+    credential-stuffing surface).
+    """
     if _rate_limited(request, "login", 20, 3600):
         return _too_many(request)
-    user = await authenticate(email, password)
+    if _lockout.locked_for(email) > 0:
+        # Same response as the per-IP limit: no account enumeration, because
+        # the counter is keyed on whatever string was submitted, existing or not.
+        return _too_many(request)
+    try:
+        user = await authenticate(email, password)
+    except AccountInactiveError as exc:
+        # Пароль ВЕРНЫЙ, но аккаунт заблокирован/не допущен. Показать это можно
+        # честно: чтобы сюда попасть, надо уже знать пароль — перечислением
+        # заблокированные аккаунты не вычисляются (неверный пароль всегда даёт
+        # обычное «неверный email или пароль»).
+        _lockout.clear(email)
+        log.warning("auth.login.inactive_account", status=exc.status)
+        message = _INACTIVE_MESSAGES.get(exc.status, _INACTIVE_MESSAGES["suspended"])
+        if _wants_json(request):
+            return JSONResponse({"ok": False, "error": message}, status_code=403)
+        return templates.TemplateResponse(
+            request,
+            "auth_login.html",
+            {"title": "Войти", "active_nav": "", "error": message, "email": email},
+            status_code=403,
+        )
     if user is None or not await _exclusive_allows(user["id"]):
+        _lockout.record_failure(email)
         if _wants_json(request):
             return JSONResponse({"ok": False, "error": "Неверный email или пароль."}, status_code=401)
         return templates.TemplateResponse(
@@ -355,8 +453,13 @@ async def login_submit(
             {"title": "Войти", "active_nav": "", "error": "Неверный email или пароль.", "email": email},
             status_code=401,
         )
+    _lockout.clear(email)
     ua = _trim_ua(request.headers.get("user-agent"))
-    token, _expires_at = await issue_session(user["id"], user_agent=ua)
+    # Session fixation: if a session cookie is already present, replace it
+    # rather than adding a second live token beside it.
+    token, _expires_at = await rotate_session(
+        request.cookies.get(SESSION_COOKIE_NAME), user["id"], user_agent=ua
+    )
     dest = await _post_auth_dest(user["id"])
     secure = _cookie_secure(request)
     if _wants_json(request):
@@ -406,10 +509,20 @@ async def register_submit(
     base = str(request.base_url).rstrip("/")
     uid = await _user_id_for_email(addr)
     if uid is not None:
-        # Аккаунт уже есть — не пересоздаём и не палим пароль: шлём ссылку для входа.
-        token = await create_magic_link(addr)
-        text, html = _magic_email_html(f"{base}/auth/magic/{token}")
-        status = await _send_mail_safe(addr, "Вход в Persona", text, html, flow="register_existing")
+        # Аккаунт уже есть — не пересоздаём и не палим пароль: шлём ссылку для
+        # входа. Заблокированному аккаунту ссылку НЕ выпускаем (иначе повторная
+        # «регистрация» тем же адресом обходит suspension), но копию ответа не
+        # меняем — снаружи заблокированный и обычный аккаунт неотличимы.
+        active = await is_account_active(uid)
+        if not active:
+            log.warning("auth.register.existing_inactive")
+        token = await create_magic_link(addr) if active else ""
+        status = "disabled"
+        if active:
+            text, html = _magic_email_html(f"{base}/auth/magic/{token}")
+            status = await _send_mail_safe(
+                addr, "Вход в Persona", text, html, flow="register_existing"
+            )
         delivered = status == "sent"
         if delivered:
             msg = f"У тебя уже есть аккаунт — отправили ссылку для входа на {addr}."
@@ -456,7 +569,9 @@ async def register_submit(
             email_domain=addr.rpartition("@")[2],
         )
     ua = _trim_ua(request.headers.get("user-agent"))
-    token, _expires_at = await issue_session(user["id"], user_agent=ua)
+    token, _expires_at = await rotate_session(
+        request.cookies.get(SESSION_COOKIE_NAME), user["id"], user_agent=ua
+    )
     dest = await _post_auth_dest(user["id"])
     secure = _cookie_secure(request)
     if delivered:
@@ -567,6 +682,12 @@ async def magic_request(
     uid = await _user_id_for_email(addr)
     if uid is not None and not await _exclusive_allows(uid):
         uid = None
+    # Заблокированный/недопущенный аккаунт трактуем как несуществующий: ссылка
+    # НЕ выдаётся (иначе magic-link — обход suspension), а ответ остаётся тем
+    # же самым, что и для неизвестного адреса, — не палим статус.
+    if uid is not None and not await is_account_active(uid):
+        log.warning("auth.magic.refused_inactive")
+        uid = None
     registered_now = False
     if uid is None:
         # Публичный домен: НЕ создаём аккаунт вслепую по magic-ссылке
@@ -629,8 +750,25 @@ async def magic_consume(request: Request, token: str) -> Response:
             {"title": "Доступ запрещён", "mode": "invalid", "email": ""},
             status_code=403,
         )
+    # Даже валидная одноразовая ссылка не должна открывать заблокированный
+    # аккаунт: ссылку могли выпустить ДО блокировки.
+    if not await is_account_active(uid):
+        log.warning("auth.magic.consume_refused_inactive", user_id=uid)
+        return templates.TemplateResponse(
+            request,
+            "auth_magic_sent.html",
+            {"title": "Доступ запрещён", "mode": "invalid", "email": ""},
+            status_code=403,
+        )
+    # Переход по ссылке, доставленной на адрес, — доказательство владения
+    # почтой. Отдельного «подтвердите email» флоу не заводим: этого достаточно.
+    # Неподтверждённые аккаунты не блокируются, но получают урезанные лимиты
+    # (app/auth/verification.py + app/web/middleware/throttle.py).
+    await mark_verified(uid)
     ua = _trim_ua(request.headers.get("user-agent"))
-    token2, _expires_at = await issue_session(uid, user_agent=ua)
+    token2, _expires_at = await rotate_session(
+        request.cookies.get(SESSION_COOKIE_NAME), uid, user_agent=ua
+    )
     # ?next=/safe/path (например, сброс пароля). Только внутренние пути:
     # начинается с одного «/», без «//» и «/\» (protocol-relative / backslash-
     # обходы), и без scheme/netloc — иначе это open-redirect наружу.
@@ -664,7 +802,13 @@ async def forgot_password(
     generic = "Если такой аккаунт есть — на почту отправлена ссылка для смены пароля."
     if chk["valid"] and not chk["suggestion"]:
         uid = await _user_id_for_email(chk["email"])
-        if uid is not None and await _exclusive_allows(uid):
+        # Сброс пароля — тоже путь к сессии, поэтому заблокированному аккаунту
+        # письмо не уходит. Ответ снаружи одинаковый в любом случае.
+        if (
+            uid is not None
+            and await _exclusive_allows(uid)
+            and await is_account_active(uid)
+        ):
             token = await create_magic_link(chk["email"])
             link = str(request.base_url).rstrip("/") + f"/auth/magic/{token}?next=/auth/set-password"
             text, html = _magic_email_html(link)
@@ -710,7 +854,7 @@ async def set_password_submit(
     try:
         await update_password(int(session["user_id"]), password)
     except ValueError as exc:
-        msg = "Пароль должен быть минимум 8 символов." if "8" in str(exc) else str(exc)
+        msg = _ru_error(str(exc))
         if _wants_json(request):
             return JSONResponse({"ok": False, "error": msg}, status_code=400)
         return templates.TemplateResponse(
@@ -728,10 +872,29 @@ async def set_password_submit(
                 (addr,),
             )
             await conn.commit()
-    dest = await _post_auth_dest(int(session["user_id"]))
+    # Смена пароля — привилегированное событие. Все ОСТАЛЬНЫЕ сессии этого
+    # аккаунта гасим (если пароль меняют после угона — чужая сессия обязана
+    # умереть), а свою РОТИРУЕМ: новый токен вместо старого, чтобы утёкший
+    # идентификатор не пережил смену пароля. Порядок важен: сначала гасим
+    # чужие по старому токену (его ещё нельзя терять), потом ротируем свой.
+    uid = int(session["user_id"])
+    old_token = session.get("token") or request.cookies.get(SESSION_COOKIE_NAME)
+    revoked = 0
+    try:
+        revoked = await revoke_all_for_user(uid, keep_token=old_token)
+    except Exception as exc:  # noqa: BLE001 — смена пароля не должна падать
+        log.warning("auth.password_change.revoke_failed", error=str(exc))
+    ua = _trim_ua(request.headers.get("user-agent"))
+    new_token, _exp = await rotate_session(old_token, uid, user_agent=ua)
+    log.info("auth.password_change.sessions_revoked", user_id=uid, revoked=revoked)
+
+    dest = await _post_auth_dest(uid)
     if _wants_json(request):
-        return JSONResponse({"ok": True, "redirect": dest})
-    return RedirectResponse(url=dest, status_code=303)
+        response: Response = JSONResponse({"ok": True, "redirect": dest})
+    else:
+        response = RedirectResponse(url=dest, status_code=303)
+    _set_session_cookie(response, new_token, _cookie_secure(request), 30 * 24 * 3600)
+    return response
 
 
 @router.get("/pending", response_class=HTMLResponse, response_model=None)
@@ -753,21 +916,74 @@ async def pending_page(
     return RedirectResponse(url="/chat", status_code=303)
 
 
-@router.post("/auth/logout")
-async def logout_submit(request: Request) -> RedirectResponse:
-    """Revoke the current session and clear the cookie."""
+@router.post("/auth/logout", response_model=None)
+async def logout_submit(
+    request: Request,
+    scope: Annotated[str, Form()] = "",
+) -> Response:
+    """Revoke the session server-side and clear the cookie.
+
+    Server-side revocation (``revoked_at`` stamped in ``auth_session``) is the
+    part that matters: deleting the cookie alone leaves a token that is still
+    accepted if it was ever copied out of the browser.
+
+    ``scope=all`` — "выйти на всех устройствах": revokes every active session
+    of this account, not just this browser. Implemented as a form field rather
+    than a new route so the surface (and the route budget) does not grow;
+    :func:`app.auth.sessions.revoke_all_for_user` does the work.
+    """
     token = request.cookies.get(SESSION_COOKIE_NAME)
     if token:
+        if scope.strip().lower() == "all":
+            session = await verify_session(token)
+            if session is not None:
+                await revoke_all_for_user(int(session["user_id"]))
         await revoke_session(token)
     response = RedirectResponse(url="/landing", status_code=303)
     response.delete_cookie(SESSION_COOKIE_NAME, path="/")
+    # Производный CSRF-токен привязан к сессии — старая кука после выхода
+    # бессмысленна и только мешает следующему входу.
+    response.delete_cookie("persona_csrf", path="/")
     return response
 
 
-# GET version of logout for convenience hamburger-menu links — turns into
-# a fast POST behind the scenes by going to /auth/logout via fetch in the
-# client, but for users who land here via a direct nav we still clear and
-# redirect.
-@router.get("/auth/logout", response_class=HTMLResponse)
-async def logout_get(request: Request) -> RedirectResponse:
-    return await logout_submit(request)
+# GET /auth/logout НЕ выходит — он показывает подтверждение с POST-формой.
+#
+# Почему: cookie ``persona_session`` — SameSite=Lax, а Lax НАМЕРЕННО шлёт куку
+# при top-level GET-навигации. То есть любой ``<img src="/auth/logout">`` или
+# ссылка с чужого сайта разлогинивала пользователя без единого клика — CSRF на
+# выход (сам по себе это «всего лишь» отказ в обслуживании, но он же —
+# первая половина login-CSRF: выбить человека из его аккаунта и подсунуть свой).
+#
+# Удалить GET-роут нельзя: на него ссылается хаб настроек
+# (``settings_hub._MEMBER_CATEGORIES`` → ``("/auth/logout", "Выйти")``) обычной
+# ссылкой, и 404 там сломал бы UI. Поэтому GET стал БЕЗОПАСНЫМ: он ничего не
+# меняет, только рисует кнопку, которая делает POST.
+@router.get("/auth/logout", response_class=HTMLResponse, response_model=None)
+async def logout_get(request: Request) -> Response:
+    """Safe GET: render a confirmation form instead of mutating state."""
+    if request.cookies.get(SESSION_COOKIE_NAME) is None:
+        return RedirectResponse(url="/landing", status_code=303)
+    # Локальный импорт: держим middleware вне графа импорта роутера на старте.
+    from app.web.middleware.csrf import csrf_input  # noqa: PLC0415
+
+    csrf = str(csrf_input(request))
+    return HTMLResponse(
+        "<!doctype html><meta charset=utf-8><title>Выход</title>"
+        "<body style='font-family:system-ui,sans-serif;background:#0b0b0f;color:#eee;"
+        "padding:3rem;text-align:center'>"
+        "<h2>Выйти из Persona?</h2>"
+        "<form method='post' action='/auth/logout' style='margin-top:22px'>"
+        f"{csrf}"
+        "<button type='submit' style='background:#a78bfa;color:#0b0b0f;border:0;"
+        "border-radius:10px;padding:12px 26px;font-size:15px;font-weight:600;"
+        "cursor:pointer'>Выйти</button></form>"
+        "<form method='post' action='/auth/logout' style='margin-top:12px'>"
+        f"{csrf}"
+        "<input type='hidden' name='scope' value='all'>"
+        "<button type='submit' style='background:transparent;color:#9a90c0;border:0;"
+        "font-size:13px;text-decoration:underline;cursor:pointer'>"
+        "Выйти на всех устройствах</button></form>"
+        "<p style='margin-top:22px'><a href='/chat' style='color:#a78bfa'>Отмена</a></p>"
+        "</body>"
+    )

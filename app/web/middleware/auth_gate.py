@@ -26,7 +26,8 @@ Everything else needs ``persona_session`` cookie.
 from __future__ import annotations
 
 import time
-from typing import Callable
+from collections.abc import AsyncIterator
+from typing import Any, Callable
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -332,6 +333,55 @@ async def _role_route_allows(uid: int | None, path: str, method: str) -> bool | 
     return None
 
 
+async def _scoped_body(iterator: Any, member_uid: int) -> AsyncIterator[Any]:
+    """Hold the member ContextVar for the lifetime of a streaming body.
+
+    The worry this answers: ``dispatch`` finishes when the *response object* is
+    returned, which for a ``StreamingResponse`` is **before** its body runs. A
+    plain ``finally``-style reset would then tear the member identity down
+    before the generator that needs it executes, and every synchronous kv
+    reader inside it (``get_theme``, the UI-language resolver, anything on
+    ``_cached_kv_value``) would silently fall back to the OWNER's global
+    settings.
+
+    Measured, not assumed: under :class:`~starlette.middleware.base.BaseHTTPMiddleware`
+    that failure **does not currently occur**, because ``call_next`` runs the
+    downstream app in a task spawned from a *copy* of the context taken while
+    the var was still set — anyio's ``start_soon`` copies, and a ``reset`` in
+    the parent provably cannot reach the child (verified: parent reads ``None``
+    after reset while the child still reads the value). The route handler and
+    its generator both live in that child.
+
+    So this wrapper is not a bug fix; it is the guarantee made **explicit**
+    instead of emergent. Today's correctness rests on an implementation detail
+    of the base class: convert this middleware to pure ASGI (as
+    ``app/web/middleware/csrf.py`` already is) and the accident disappears
+    along with the protection. Cheap insurance against a refactor that would
+    otherwise re-open a data-scoping hole silently.
+
+    Applied only when there *is* a member scope — for the owner and for
+    anonymous visitors the value is ``None``, which is the ContextVar default,
+    so wrapping them would cost a generator per response and buy nothing.
+
+    Set/reset is paired **inside each** ``__anext__`` so the token is always
+    released in the same :class:`~contextvars.Context` that created it (a
+    cross-context ``reset`` raises ``ValueError``), and so nothing survives the
+    response.
+    """
+    while True:
+        token = set_member_uid(member_uid)
+        try:
+            chunk = await iterator.__anext__()
+        except StopAsyncIteration:
+            reset_member_uid(token)
+            return
+        except BaseException:
+            reset_member_uid(token)
+            raise
+        reset_member_uid(token)
+        yield chunk
+
+
 class AuthGateMiddleware(BaseHTTPMiddleware):
     """Redirect un-authenticated visitors to /landing once any user exists."""
 
@@ -344,7 +394,23 @@ class AuthGateMiddleware(BaseHTTPMiddleware):
         # logged-in) — can't be a prefix in the allow-list since "/" prefixes
         # every path.
         if path == "/" or _is_public_path(path):
-            return await call_next(request)
+            # ВАЖНО (регресс 2026-08-25): публичный путь пропускаем БЕЗ проверки
+            # доступа, но личность всё равно резолвим. Раньше здесь был голый
+            # ``return await call_next(request)`` — и на публичных страницах
+            # ``request.state.user_id``/``is_owner`` НЕ выставлялись вовсе.
+            #
+            # Последствие было настоящей утечкой: ``/help`` входит в
+            # ``_PUBLIC_PREFIXES``, а ``base.html`` определял зрителя как раз по
+            # ``request.state.is_owner``. Отсутствие атрибута читалось как
+            # «владелец», и анониму из интернета отдавался owner-runbook (список
+            # деструктивных ``/admin/*``, путь к ``~/.persona/persona.db``,
+            # топология devtunnel, счётчики скриншотов). Заодно ВЛАДЕЛЕЦ на
+            # ``/help`` видел member-страницу, когда шаблон починили на
+            # безопасный дефолт.
+            #
+            # Решение доступа тут НЕ меняется: публичное остаётся публичным,
+            # аноним остаётся анонимом — мы только сообщаем шаблону, кто пришёл.
+            return await self._with_identity(request, call_next, public=True)
 
         # Exclusive deployments must never inherit the legacy bootstrap
         # fail-open path. Read the privacy flag first; lookup failure itself is
@@ -352,28 +418,65 @@ class AuthGateMiddleware(BaseHTTPMiddleware):
         # routes.
         owner_exclusive = await _owner_exclusive_enabled()
         if not owner_exclusive and not await _gate_active():
-            return await call_next(request)
+            # Гейт спит (свежая установка без пользователей) — но если кука всё
+            # же есть, личность всё равно должна доехать до шаблона.
+            return await self._with_identity(request, call_next, public=True)
 
+        return await self._with_identity(request, call_next, public=False)
+
+    async def _with_identity(
+        self,
+        request: Request,
+        call_next: Callable[[Request], Response],
+        *,
+        public: bool,
+    ) -> Response:
+        """Резолвим личность, выставляем её и отдаём запрос дальше.
+
+        ``public=True`` — путь уже признан открытым: решение доступа не
+        принимается вовсе, мы только заполняем ``request.state`` и ContextVar.
+        ``public=False`` — обычный путь гейта со всеми проверками.
+        """
+        path = request.url.path
         token = request.cookies.get(SESSION_COOKIE_NAME)
         session = await verify_session(token) if token else None
-        if session is not None:
-            uid = session.get("user_id")
-            # Для ЛЮБОГО аутентифицированного запроса (владелец и участник)
-            # выкладываем личность в request.state, чтобы шаблоны/роуты могли
-            # опираться на неё без повторного резолва.
-            owner_flag = await is_owner(uid)
-            request.state.user_id = uid
-            request.state.is_owner = owner_flag
-            # …а для СИНХРОННЫХ читателей (Jinja-глобал темы, резолвер языка) —
-            # ещё и в ContextVar: у них нет доступа к ``request``. Владелец и
-            # аноним получают ``None`` → читают ГЛОБАЛЬНЫЙ kv ровно как раньше;
-            # участник — свой id → его строки в ``user_settings``. Сброс в
-            # ``finally``, чтобы личность не пережила запрос в пуле воркера.
-            ctx_token = set_member_uid(
-                None if owner_flag or uid is None else int(uid)
-            )
-            try:
-                return await self._dispatch_session(
+
+        if session is None:
+            # Аноним: на публичном пути просто пропускаем (личность известна —
+            # её нет), на приватном — обычный отказ.
+            request.state.user_id = None
+            request.state.is_owner = False
+            if public:
+                return await call_next(request)
+            # Browser nav → 303 to /landing. JSON / agent endpoints get 401
+            # so they don't end up with HTML in their response body.
+            if path.startswith("/api/"):
+                return Response(
+                    content='{"detail":"authentication required"}',
+                    status_code=401,
+                    media_type="application/json",
+                )
+            return RedirectResponse(url="/landing", status_code=303)
+
+        uid = session.get("user_id")
+        # Для ЛЮБОГО аутентифицированного запроса (владелец и участник)
+        # выкладываем личность в request.state, чтобы шаблоны/роуты могли
+        # опираться на неё без повторного резолва.
+        owner_flag = await is_owner(uid)
+        request.state.user_id = uid
+        request.state.is_owner = owner_flag
+        # …а для СИНХРОННЫХ читателей (Jinja-глобал темы, резолвер языка) —
+        # ещё и в ContextVar: у них нет доступа к ``request``. Владелец и
+        # аноним получают ``None`` → читают ГЛОБАЛЬНЫЙ kv ровно как раньше;
+        # участник — свой id → его строки в ``user_settings``.
+        member_uid = None if owner_flag or uid is None else int(uid)
+        ctx_token = set_member_uid(member_uid)
+        try:
+            if public:
+                response = await call_next(request)
+            else:
+                owner_exclusive = await _owner_exclusive_enabled()
+                response = await self._dispatch_session(
                     request,
                     call_next,
                     path=path,
@@ -381,18 +484,19 @@ class AuthGateMiddleware(BaseHTTPMiddleware):
                     owner_flag=owner_flag,
                     owner_exclusive=owner_exclusive,
                 )
-            finally:
-                reset_member_uid(ctx_token)
+        except BaseException:
+            reset_member_uid(ctx_token)
+            raise
 
-        # Browser nav → 303 to /landing. JSON / agent endpoints get 401
-        # so they don't end up with HTML in their response body.
-        if path.startswith("/api/"):
-            return Response(
-                content='{"detail":"authentication required"}',
-                status_code=401,
-                media_type="application/json",
-            )
-        return RedirectResponse(url="/landing", status_code=303)
+        # Отпускаем токен в своём контексте (иначе личность пережила бы запрос
+        # в пуле воркера), а вокруг тела ответа ставим её заново — см.
+        # :func:`_scoped_body`: там же измерено, почему сегодня это страховка
+        # на будущее, а не заплатка на живую дыру.
+        iterator = getattr(response, "body_iterator", None)
+        reset_member_uid(ctx_token)
+        if iterator is not None and member_uid is not None:
+            response.body_iterator = _scoped_body(iterator, member_uid)
+        return response
 
     async def _dispatch_session(
         self,

@@ -30,6 +30,9 @@ from app.logging_setup import configure_logging, get_logger
 from app.settings import get_settings
 from app.web.middleware.api_auth import ApiAuthMiddleware
 from app.web.middleware.auth_gate import AuthGateMiddleware
+from app.web.middleware.csrf import CsrfMiddleware, csrf_input, csrf_token_for_request
+from app.web.middleware.security_headers import SecurityHeadersMiddleware
+from app.web.middleware.throttle import ThrottleMiddleware
 from app.web.routes import (
     about as about_routes,
     account as account_routes,
@@ -492,13 +495,28 @@ def create_app() -> FastAPI:
     settings = get_settings()
     settings.ensure_directories()
 
+    # Порядок = снаружи внутрь. Обоснование каждой позиции:
+    #
+    # 1. SecurityHeaders — САМЫЙ внешний: заголовки должны попасть на ЛЮБОЙ
+    #    ответ, включая 303 от гейта, 401/403 и 429 от троттла. Иначе страницу
+    #    логина можно было бы завернуть в iframe (clickjacking на форму входа).
+    # 2. Csrf — до аутентификации: он не смотрит в БД, только выводит токен из
+    #    cookie сессии, и обязан отбить запрос ДО того, как роут что-то изменит.
+    # 3. SetupGate / AuthGate — как раньше.
+    # 4. Throttle — ВНУТРИ AuthGate: он полагается на request.state.user_id /
+    #    is_owner, которые кладёт гейт. Свой lookup сессии он не делает
+    #    намеренно: лишний round-trip в БД на каждый запрос — ровно та цена,
+    #    которую троттл и должен предотвращать.
     middleware = [
+        Middleware(SecurityHeadersMiddleware),
+        Middleware(CsrfMiddleware),
         Middleware(SetupGateMiddleware),
         # T5 (2026-06-07) — auth gate sits BEFORE the API auth middleware
         # so /landing + /auth/* are reachable without any cookie, and
         # browser requests for protected pages bounce to /landing as a
         # 303 instead of a JSON 401.
         Middleware(AuthGateMiddleware),
+        Middleware(ThrottleMiddleware),
         Middleware(ApiAuthMiddleware),
         Middleware(GZipMiddleware, minimum_size=512),
         Middleware(
@@ -518,6 +536,16 @@ def create_app() -> FastAPI:
         lifespan=bootstrap_lifespan,
         middleware=middleware,
     )
+
+    # CSRF-хелперы как Jinja-глобалы, чтобы шаблоны могли добавить скрытое поле
+    # без импортов: ``{{ csrf_input(request) }}`` внутри <form method="post">,
+    # либо ``{{ csrf_token(request) }}`` если нужен голый токен (hx-headers,
+    # ручной fetch). Регистрируем здесь, рядом с подключением самой middleware,
+    # а не в templates_engine — источник истины на CSRF один, в app/web/middleware/csrf.py.
+    from app.web.templates_engine import templates as _templates  # noqa: PLC0415
+
+    _templates.env.globals.setdefault("csrf_input", csrf_input)
+    _templates.env.globals.setdefault("csrf_token", csrf_token_for_request)
 
     if STATIC_DIR.exists():
         # Serve /static/sw.js with no-cache headers so a CACHE_VERSION
@@ -979,7 +1007,108 @@ def create_app() -> FastAPI:
     app.include_router(dm_ai_routes.router)
     app.include_router(social_notifications_routes.router)
 
+    _install_error_handlers(app)
+
     return app
+
+
+def _install_error_handlers(app: FastAPI) -> None:
+    """404 и 500 как человеческие страницы, а не как голый JSON/трейсбек.
+
+    До этого неизвестный URL отдавал владельцу ``{"detail":"Not Found"}``, а
+    участнику — молчаливый 303 (auth-гейт срабатывает раньше роутера), и то и
+    другое читается как «сайт сломался».
+
+    Безопасностные инварианты этих обработчиков:
+
+    * **500 НИКОГДА не показывает детали исключения** — ни типа, ни сообщения,
+      ни трейсбека, ни в каком окружении. Этот экран видит участник, то есть
+      посторонний человек на чужом сервере; трейсбек Python — это карта
+      файловой системы, версий и внутренних имён. Диагностика уходит в лог
+      владельца (``log.exception``) и остаётся там.
+    * **Обработчики не меняют статус-коды и не глотают ошибку** — 404 остаётся
+      404, 500 остаётся 500. Поисковики и мониторинг видят прежний контракт.
+    * **``/api/*`` и любой запрос, который просит JSON, получает JSON.** Отдать
+      HTML-страницу в ответ на fetch — значит сломать клиент, который ждёт
+      ``application/json``; это и была причина, по которой обработчиков долго
+      не заводили.
+    * **Рендер страницы сам может упасть** (шаблон, БД, i18n). Поэтому вокруг
+      него стоит свой ``try`` с текстовым фолбэком: обработчик ошибок,
+      падающий с ошибкой, — худший из возможных вариантов.
+    """
+    from starlette.exceptions import HTTPException as StarletteHTTPException  # noqa: PLC0415
+    from starlette.responses import (  # noqa: PLC0415
+        JSONResponse,
+        PlainTextResponse,
+        Response,
+    )
+
+    from app.web.templates_engine import templates as _tpl  # noqa: PLC0415
+
+    def _wants_json(request) -> bool:  # type: ignore[no-untyped-def]
+        if request.url.path.startswith("/api/"):
+            return True
+        accept = request.headers.get("accept", "")
+        if "application/json" in accept:
+            return True
+        return request.headers.get("x-requested-with", "").lower() in {
+            "fetch",
+            "xmlhttprequest",
+        }
+
+    @app.exception_handler(StarletteHTTPException)
+    async def _http_exception_handler(request, exc):  # type: ignore[no-untyped-def]
+        # Только 404 получает страницу. Остальные HTTP-исключения (401/403/429
+        # и прочее) роуты формируют сами, с собственной копией, — перехват
+        # здесь затёр бы их сообщения.
+        if exc.status_code != 404 or _wants_json(request):
+            # 204/304 и прочие «без тела» — отдаём пустой ответ, как это делает
+            # дефолтный обработчик FastAPI: JSON-тело на 304 ломает клиентов.
+            if exc.status_code in {204, 304} or exc.status_code < 200:
+                return Response(
+                    status_code=exc.status_code,
+                    headers=getattr(exc, "headers", None),
+                )
+            return JSONResponse(
+                {"detail": exc.detail}, status_code=exc.status_code,
+                headers=getattr(exc, "headers", None),
+            )
+        try:
+            return _tpl.TemplateResponse(
+                request,
+                "error_404.html",
+                {"title": "Страница не найдена", "active_nav": ""},
+                status_code=404,
+            )
+        except Exception as render_error:  # noqa: BLE001 — фолбэк вместо каскада
+            log.warning("error_page.render_failed", code=404, error=str(render_error))
+            return PlainTextResponse("Страница не найдена", status_code=404)
+
+    @app.exception_handler(Exception)
+    async def _unhandled_exception_handler(request, exc):  # type: ignore[no-untyped-def]
+        # Трейсбек — В ЛОГ, и только в лог.
+        log.exception(
+            "unhandled_exception",
+            path=request.url.path,
+            method=request.method,
+            error_type=type(exc).__name__,
+        )
+        if _wants_json(request):
+            return JSONResponse(
+                {"detail": "internal server error"}, status_code=500
+            )
+        try:
+            return _tpl.TemplateResponse(
+                request,
+                "error_500.html",
+                {"title": "Ошибка сервера", "active_nav": ""},
+                status_code=500,
+            )
+        except Exception as render_error:  # noqa: BLE001
+            log.warning("error_page.render_failed", code=500, error=str(render_error))
+            return PlainTextResponse(
+                "Внутренняя ошибка сервера", status_code=500
+            )
 
 
 app = create_app()

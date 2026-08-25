@@ -38,6 +38,52 @@ def _isolated_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Itera
     get_settings.cache_clear()  # type: ignore[attr-defined]
 
 
+@pytest.fixture(autouse=True)
+def _reset_in_process_security_state() -> Iterator[None]:
+    """Wipe the process-global counters the security layer keeps between tests.
+
+    ``app.web.rate_limit``, the per-account lockout, the throttle/CSRF/CSP kv
+    caches and the email-verification cache all live in module-level dicts by
+    design (no Redis, no table). Each test gets a fresh *database* but the same
+    interpreter, so without this a member who made N chat calls in one test
+    starts the next one already near the ceiling — a false failure that looks
+    like a product bug.
+
+    The synchronous-reader caches in ``app.web.templates_engine`` / ``app.i18n``
+    are cleared here for the same reason, and because the theme one is a
+    **ContextVar that survives the test boundary**: a value left by an earlier
+    module makes ``get_theme()`` answer without ever reading the database, so
+    the wrong user's theme leaks forward. Nine test modules had each grown
+    their own copy of that reset and a tenth (the streaming-scope test added
+    tonight) forgot it — green alone, red in the full run. Doing it centrally
+    removes the footgun instead of documenting it ten more times.
+    """
+    from app import i18n
+    from app.auth import account_state, lockout, proxies, verification
+    from app.web import rate_limit, templates_engine
+    from app.web.middleware import csrf, security_headers, throttle
+
+    def _wipe() -> None:
+        templates_engine._kv_value_cache.clear()
+        templates_engine._user_kv_value_cache.clear()
+        templates_engine.invalidate_theme_cache()
+        i18n.invalidate_language_cache()
+        # Both the auth routes' per-IP windows and the throttle's per-user
+        # windows live in this one dict; clearing it covers both.
+        rate_limit._EVENTS.clear()
+        throttle.reset_state()  # budgets cache + its own counters, explicitly
+        lockout.reset_all()
+        account_state.reset_probe()
+        proxies.reset_cache()
+        verification.reset_cache()
+        csrf.reset_cache()
+        security_headers.reset_cache()
+
+    _wipe()
+    yield
+    _wipe()
+
+
 @pytest_asyncio.fixture
 async def db() -> AsyncIterator[aiosqlite.Connection]:
     """Fresh database with schema applied."""
