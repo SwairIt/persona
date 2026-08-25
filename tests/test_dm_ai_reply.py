@@ -129,10 +129,10 @@ class FakeLLM:
 @pytest_asyncio.fixture
 async def env(db: aiosqlite.Connection, monkeypatch: pytest.MonkeyPatch):
     """Владелец + Аня и Боря (друзья, есть ветка) + подставной LLM."""
-    owner_user = await create_user("owner@dmai.test", "owner-pass-123", "Владелец")
-    anya = await create_user("anya@dmai.test", "member-pass-123", "Аня")
-    borya = await create_user("borya@dmai.test", "member-pass-123", "Боря")
-    vika = await create_user("vika@dmai.test", "member-pass-123", "Вика")
+    owner_user = await create_user("owner@dmai.test", "Zq7-frost-lantern-91", "Владелец")
+    anya = await create_user("anya@dmai.test", "Kp4-velvet-harbour-38", "Аня")
+    borya = await create_user("borya@dmai.test", "Kp4-velvet-harbour-38", "Боря")
+    vika = await create_user("vika@dmai.test", "Kp4-velvet-harbour-38", "Вика")
     await set_kv(db, "owner_user_id", str(owner_user["id"]))
     await set_kv(db, "owner_exclusive_mode", "0")
     _reset_caches()

@@ -47,14 +47,14 @@ async def client(db) -> AsyncIterator[AsyncClient]:
 
 
 async def _owner_session(db) -> tuple[int, str]:
-    owner = await create_user("owner@example.test", "owner-pass-123")
+    owner = await create_user("owner@example.test", "Zq7-frost-lantern-91")
     await set_kv(db, "owner_user_id", str(owner["id"]))
     token, _ = await issue_session(owner["id"])
     return owner["id"], token
 
 
 async def _member_session(db, owner_id: int) -> str:
-    member = await create_user("member@example.test", "member-pass-123")
+    member = await create_user("member@example.test", "Kp4-velvet-harbour-38")
     assert member["id"] != owner_id
     token, _ = await issue_session(member["id"])
     return token

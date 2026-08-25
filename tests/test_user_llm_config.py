@@ -41,8 +41,8 @@ def _reset_owner_cache() -> None:
 @pytest_asyncio.fixture
 async def users(db: aiosqlite.Connection) -> dict[str, int]:
     """Владелец (минимальный id) + обычный зарегистрированный пользователь."""
-    owner = await create_user("owner@example.test", "owner-pass-123")
-    member = await create_user("member@example.test", "member-pass-123")
+    owner = await create_user("owner@example.test", "Zq7-frost-lantern-91")
+    member = await create_user("member@example.test", "Kp4-velvet-harbour-38")
     await set_kv(db, "owner_user_id", str(owner["id"]))
     _reset_owner_cache()
     return {"owner": int(owner["id"]), "member": int(member["id"])}

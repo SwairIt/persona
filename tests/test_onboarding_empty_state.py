@@ -64,11 +64,18 @@ def test_empty_state_shows_privacy_badge_context() -> None:
 
 
 def test_member_without_llm_sees_connect_your_provider_banner() -> None:
-    """Первый визит участника: плашка ведёт к своему ключу, а не «жди»."""
+    """Первый визит участника: плашка ведёт к своему ключу, а не «жди».
+
+    Проверяем СМЫСЛ, а не одну формулировку: призыв подключить модель, обе
+    ссылки (настройки + гайд) и названные бесплатные варианты — те же три,
+    что и на /onboarding, чтобы пропустивший онбординг понял всё отсюда.
+    """
     html = _render_empty(llm_configured=False, is_owner=False)
-    assert "Подключи свой AI-провайдер" in html
+    assert "подключи модель" in html.lower()
     assert "/settings/llm" in html
     assert "/help/connect-llm" in html
+    for free_option in ("OpenRouter", "Groq", "Ollama"):
+        assert free_option in html, free_option
     # Owner-формулировка «модель офлайн, я скоро вернусь» участнику не нужна.
     assert "пока офлайн" not in html
 
@@ -85,8 +92,8 @@ def test_owner_without_llm_keeps_offline_copy() -> None:
 @pytest_asyncio.fixture
 async def member(db: aiosqlite.Connection) -> int:
     """Владелец (первый id) + обычный участник, который и проходит онбординг."""
-    owner = await create_user("owner@example.test", "owner-pass-123")
-    user = await create_user("member@example.test", "member-pass-123")
+    owner = await create_user("owner@example.test", "Zq7-frost-lantern-91")
+    user = await create_user("member@example.test", "Kp4-velvet-harbour-38")
     await set_kv(db, "owner_user_id", str(owner["id"]))
     owner_mod._cache["value"] = None
     owner_mod._cache["checked_at"] = 0.0

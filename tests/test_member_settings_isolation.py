@@ -97,8 +97,8 @@ def _app():
 
 @pytest_asyncio.fixture
 async def env(db: aiosqlite.Connection):
-    owner_user = await create_user("owner@iso.test", "owner-pass-123")
-    member_user = await create_user("member@iso.test", "member-pass-123")
+    owner_user = await create_user("owner@iso.test", "Zq7-frost-lantern-91")
+    member_user = await create_user("member@iso.test", "Kp4-velvet-harbour-38")
     await set_kv(db, "owner_user_id", str(owner_user["id"]))
     await set_kv(db, "owner_exclusive_mode", "0")
     # Настройки ВЛАДЕЛЬЦА, которые не должны ни утечь, ни перезаписаться.
@@ -521,8 +521,8 @@ async def chat_env(db: aiosqlite.Connection):
     from app.auth import current_user_required
     from app.web.routes import chat_sessions
 
-    owner_user = await create_user("owner@idor.test", "owner-pass-123")
-    member_user = await create_user("member@idor.test", "member-pass-123")
+    owner_user = await create_user("owner@idor.test", "Zq7-frost-lantern-91")
+    member_user = await create_user("member@idor.test", "Kp4-velvet-harbour-38")
     await set_kv(db, "owner_user_id", str(owner_user["id"]))
     _reset_caches()
 

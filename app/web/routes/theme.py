@@ -29,7 +29,6 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.auth import current_user_required
-from app.auth.owner import is_owner
 from app.auth.sessions import SessionRecord
 from app.i18n import (
     DEFAULT_LANGUAGE,
@@ -40,6 +39,9 @@ from app.i18n import (
 from app.logging_setup import get_logger
 from app.storage.db import get_connection
 from app.storage.repository import get_kv, get_user_kv, set_kv, set_user_kv
+
+# Fail-closed резолв роли: сбой резолва = «участник» (app/web/routes/owner_view.py).
+from app.web.routes.owner_view import viewer_is_owner as is_owner
 from app.web.templates_engine import (
     invalidate_theme_cache,
     invalidate_user_kv_sync,

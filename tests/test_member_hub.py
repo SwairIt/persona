@@ -79,8 +79,8 @@ def _app() -> FastAPI:
 
 @pytest_asyncio.fixture
 async def hub_setup(db: aiosqlite.Connection):
-    owner_user = await create_user("owner@hub.test", "owner-pass-123")
-    member_user = await create_user("member@hub.test", "member-pass-123")
+    owner_user = await create_user("owner@hub.test", "Zq7-frost-lantern-91")
+    member_user = await create_user("member@hub.test", "Kp4-velvet-harbour-38")
     await set_kv(db, "owner_user_id", str(owner_user["id"]))
     await set_kv(db, "owner_exclusive_mode", "0")
     # Копия, которую проверяем ниже, — русская (язык интерфейса по умолчанию

@@ -99,8 +99,8 @@ def _app() -> FastAPI:
 
 @pytest_asyncio.fixture
 async def member_setup(db: aiosqlite.Connection):
-    owner_user = await create_user("owner@member.test", "owner-pass-123")
-    member_user = await create_user("member@member.test", "member-pass-123")
+    owner_user = await create_user("owner@member.test", "Zq7-frost-lantern-91")
+    member_user = await create_user("member@member.test", "Kp4-velvet-harbour-38")
     await set_kv(db, "owner_user_id", str(owner_user["id"]))
     await set_kv(db, "owner_exclusive_mode", "0")
     _reset_auth_caches()

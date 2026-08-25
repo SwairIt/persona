@@ -15,7 +15,7 @@ def _reset_owner_cache() -> None:
 
 async def test_copilot_can_enable_allowlisted_setting_without_llm(db) -> None:
     """Владелец переключает свои глобальные флаги фразой в копилоте."""
-    owner = await create_user("owner@example.test", "owner-pass-123")
+    owner = await create_user("owner@example.test", "Zq7-frost-lantern-91")
     await set_kv(db, "owner_user_id", str(owner["id"]))
     _reset_owner_cache()
 
@@ -45,8 +45,8 @@ async def test_copilot_setting_action_never_touches_global_flags(db) -> None:
     действия: та же фраза пишет ЕГО ``user_settings`` (см. подробные проверки
     в tests/test_copilot_member.py).
     """
-    owner = await create_user("owner@example.test", "owner-pass-123")
-    member = await create_user("member@example.test", "member-pass-123")
+    owner = await create_user("owner@example.test", "Zq7-frost-lantern-91")
+    member = await create_user("member@example.test", "Kp4-velvet-harbour-38")
     await set_kv(db, "owner_user_id", str(owner["id"]))
     _reset_owner_cache()
 

@@ -32,7 +32,7 @@ async def client() -> AsyncIterator[AsyncClient]:
     from app.web.routes import theme as theme_routes
 
     await init_database()
-    owner_user = await create_user("owner@v032.test", "owner-pass-123")
+    owner_user = await create_user("owner@v032.test", "Zq7-frost-lantern-91")
     async with get_connection() as conn:
         await set_kv(conn, "owner_user_id", str(owner_user["id"]))
     _owner_cache["value"] = None

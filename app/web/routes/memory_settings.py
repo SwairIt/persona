@@ -14,7 +14,6 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from app.auth import current_user_required
-from app.auth.owner import is_owner
 from app.auth.sessions import SessionRecord
 from app.chat.user_memory import (
     add_memory,
@@ -29,6 +28,9 @@ from app.dreams import invalidate_reflection, list_active_reflections
 from app.logging_setup import get_logger
 from app.storage.db import get_connection
 from app.storage.repository import get_kv, set_kv
+
+# Fail-closed резолв роли: сбой резолва = «участник» (app/web/routes/owner_view.py).
+from app.web.routes.owner_view import viewer_is_owner as is_owner
 from app.web.templates_engine import templates
 
 router = APIRouter(tags=["settings"])

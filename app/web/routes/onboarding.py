@@ -19,11 +19,13 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from app import __version__
 from app.auth import current_user_required
-from app.auth.owner import is_owner
 from app.auth.sessions import SessionRecord
 from app.llm.client import user_llm_configured
 from app.storage.db import get_connection
 from app.storage.repository import set_kv
+
+# Fail-closed резолв роли: сбой резолва = «участник» (app/web/routes/owner_view.py).
+from app.web.routes.owner_view import viewer_is_owner as is_owner
 from app.web.templates_engine import templates
 
 router = APIRouter(tags=["onboarding"])

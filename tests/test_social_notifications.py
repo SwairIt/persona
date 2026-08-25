@@ -109,9 +109,9 @@ class TelegramSpy:
 @pytest_asyncio.fixture
 async def env(db: aiosqlite.Connection, monkeypatch: pytest.MonkeyPatch):
     """Владелец + Аня и Боря (друзья) + подставные SMTP и Telegram."""
-    owner_user = await create_user("owner@notif.test", "owner-pass-123", "Владелец")
-    anya = await create_user("anya@notif.test", "member-pass-123", "Аня")
-    borya = await create_user("borya@notif.test", "member-pass-123", "Боря")
+    owner_user = await create_user("owner@notif.test", "Zq7-frost-lantern-91", "Владелец")
+    anya = await create_user("anya@notif.test", "Kp4-velvet-harbour-38", "Аня")
+    borya = await create_user("borya@notif.test", "Kp4-velvet-harbour-38", "Боря")
     await set_kv(db, "owner_user_id", str(owner_user["id"]))
     await set_kv(db, "owner_exclusive_mode", "0")
     _reset_caches()
@@ -451,7 +451,7 @@ async def test_saving_the_matrix_does_not_erase_the_telegram_token(env) -> None:
 @pytest.mark.asyncio
 async def test_friend_request_and_accept_reach_the_right_person(env) -> None:
     client, _db, anya, borya, _owner, _mail, _tg = env
-    vika = await create_user("vika@notif.test", "member-pass-123", "Вика")
+    vika = await create_user("vika@notif.test", "Kp4-velvet-harbour-38", "Вика")
 
     await _as(client, anya["id"])
     sent = await client.post("/api/friends/request", json={"to_user_id": vika["id"]})

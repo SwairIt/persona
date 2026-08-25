@@ -71,10 +71,10 @@ def _app():
 @pytest_asyncio.fixture
 async def env(db: aiosqlite.Connection):
     """Владелец + три участника: Аня, Боря, Вика."""
-    owner_user = await create_user("owner@social.test", "owner-pass-123", "Владелец")
-    anya = await create_user("anya@social.test", "member-pass-123", "Аня")
-    borya = await create_user("borya@social.test", "member-pass-123", "Боря")
-    vika = await create_user("vika@social.test", "member-pass-123")  # без имени
+    owner_user = await create_user("owner@social.test", "Zq7-frost-lantern-91", "Владелец")
+    anya = await create_user("anya@social.test", "Kp4-velvet-harbour-38", "Аня")
+    borya = await create_user("borya@social.test", "Kp4-velvet-harbour-38", "Боря")
+    vika = await create_user("vika@social.test", "Kp4-velvet-harbour-38")  # без имени
     await set_kv(db, "owner_user_id", str(owner_user["id"]))
     await set_kv(db, "owner_exclusive_mode", "0")
     _reset_caches()
@@ -192,7 +192,7 @@ async def test_search_hides_someone_who_declined_me(env) -> None:
     assert mine.json()["results"] == []
 
     # …но для ТРЕТЬЕГО человека Боря по-прежнему находится: отказ приватен.
-    await _as(client, (await create_user("kto@social.test", "member-pass-123"))["id"])
+    await _as(client, (await create_user("kto@social.test", "Kp4-velvet-harbour-38"))["id"])
     other = await client.get("/api/friends/search", params={"q": "borya@social.test"})
     assert [x["id"] for x in other.json()["results"]] == [borya["id"]]
 

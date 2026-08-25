@@ -39,12 +39,14 @@ from fastapi import APIRouter, Depends
 from starlette.responses import StreamingResponse
 
 from app.auth import current_user_required
-from app.auth.owner import is_owner
 from app.auth.sessions import SessionRecord  # noqa: TC001 - FastAPI inspects it
 from app.llm.client import LLMNotConfigured, user_llm_configured
 from app.llm.copilot_stream import LLM_NOT_CONFIGURED_EVENT, stream_copilot
 from app.logging_setup import get_logger
 from app.web.routes.ai_everywhere_settings import is_ai_everywhere
+
+# Fail-closed резолв роли: сбой резолва = «участник» (app/web/routes/owner_view.py).
+from app.web.routes.owner_view import viewer_is_owner as is_owner
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator

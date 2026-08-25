@@ -35,7 +35,7 @@ NOSCRIPT = "mc.yandex.ru/watch/111901324"
 @pytest_asyncio.fixture
 async def client() -> AsyncClient:
     await init_database()
-    owner_user = await create_user("owner@metrika.test", "owner-pass-123")
+    owner_user = await create_user("owner@metrika.test", "Zq7-frost-lantern-91")
     async with get_connection() as conn:
         await set_kv(conn, "setup_complete", "true")
         await set_kv(conn, "owner_user_id", str(owner_user["id"]))
@@ -70,7 +70,7 @@ async def test_owner_app_shell_carries_the_counter_once(client: AsyncClient) -> 
 
 async def test_member_app_shell_carries_no_counter_at_all(client: AsyncClient) -> None:
     """Участник не получает НИ tag.js, НИ noscript-пиксель — вебвизор молчит."""
-    member = await create_user("member@metrika.test", "member-pass-123")
+    member = await create_user("member@metrika.test", "Kp4-velvet-harbour-38")
     token, _ = await issue_session(member["id"])
     client.cookies.clear()
     client.cookies.set(SESSION_COOKIE_NAME, token)
@@ -93,7 +93,7 @@ async def test_public_pages_keep_the_counter_for_a_member(
     ``/`` сюда не входит намеренно: залогиненного оно уводит в кабинет, а там
     счётчика для участника быть и не должно.
     """
-    member = await create_user("public@metrika.test", "member-pass-123")
+    member = await create_user("public@metrika.test", "Kp4-velvet-harbour-38")
     token, _ = await issue_session(member["id"])
     client.cookies.clear()
     client.cookies.set(SESSION_COOKIE_NAME, token)

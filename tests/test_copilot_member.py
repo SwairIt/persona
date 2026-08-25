@@ -188,8 +188,8 @@ async def _seed_owner_private_data(owner_id: int) -> None:
 @pytest_asyncio.fixture
 async def env(db, monkeypatch: pytest.MonkeyPatch):
     """Владелец (с личными данными) + участник + подставная модель."""
-    owner_user = await create_user("owner@copilot.test", "owner-pass-123")
-    member_user = await create_user("member@copilot.test", "member-pass-123")
+    owner_user = await create_user("owner@copilot.test", "Zq7-frost-lantern-91")
+    member_user = await create_user("member@copilot.test", "Kp4-velvet-harbour-38")
     await set_kv(db, "owner_user_id", str(owner_user["id"]))
     await set_kv(db, "owner_exclusive_mode", "0")
     # Глобальный провайдер владельца — его домашний ПК. Участнику он не положен.

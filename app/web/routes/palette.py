@@ -33,10 +33,12 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
 from app.auth import current_user_optional
-from app.auth.owner import is_owner
 from app.auth.sessions import SessionRecord  # noqa: TC001 - FastAPI inspects it
 from app.logging_setup import get_logger
 from app.storage.db import get_connection
+
+# Fail-closed резолв роли: сбой резолва = «участник» (app/web/routes/owner_view.py).
+from app.web.routes.owner_view import viewer_is_owner as is_owner
 
 log = get_logger("persona.palette")
 

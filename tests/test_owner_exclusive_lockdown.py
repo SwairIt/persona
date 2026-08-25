@@ -68,8 +68,8 @@ async def exclusive_setup(
     monkeypatch.setattr(auth_routes, "send_email", _fake_send)
     monkeypatch.setattr(auth_routes, "_rate_allow", lambda *_a, **_kw: True)
 
-    owner = await create_user("owner@example.test", "owner-pass-123")
-    member = await create_user("member@example.test", "member-pass-123")
+    owner = await create_user("owner@example.test", "Zq7-frost-lantern-91")
+    member = await create_user("member@example.test", "Kp4-velvet-harbour-38")
     await set_kv(db, "owner_user_id", str(owner["id"]))
     await set_kv(db, "owner_exclusive_mode", "1")
     _reset_auth_caches()
@@ -159,7 +159,7 @@ async def test_only_primary_owner_can_receive_a_new_login_session(exclusive_setu
 
     owner_login = await client.post(
         "/auth/login",
-        data={"email": owner["email"], "password": "owner-pass-123"},
+        data={"email": owner["email"], "password": "Zq7-frost-lantern-91"},
         headers={"X-Requested-With": "fetch"},
     )
     assert owner_login.status_code == 200
@@ -169,7 +169,7 @@ async def test_only_primary_owner_can_receive_a_new_login_session(exclusive_setu
     client.cookies.clear()
     member_login = await client.post(
         "/auth/login",
-        data={"email": member["email"], "password": "member-pass-123"},
+        data={"email": member["email"], "password": "Kp4-velvet-harbour-38"},
         headers={"X-Requested-With": "fetch"},
     )
     assert member_login.status_code == 401

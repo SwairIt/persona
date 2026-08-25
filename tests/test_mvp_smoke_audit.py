@@ -186,8 +186,8 @@ async def _seed_owner_private_data(owner_id: int) -> None:
 async def env():
     """Реальное приложение + владелец + участник, kill-switch ВЫКЛ."""
     await init_database()
-    owner_user = await create_user("owner@smoke.test", "owner-pass-123")
-    member_user = await create_user("member@smoke.test", "member-pass-123")
+    owner_user = await create_user("owner@smoke.test", "Zq7-frost-lantern-91")
+    member_user = await create_user("member@smoke.test", "Kp4-velvet-harbour-38")
     async with get_connection() as conn:
         await set_kv(conn, "setup_complete", "true")
         await set_kv(conn, "owner_user_id", str(owner_user["id"]))
