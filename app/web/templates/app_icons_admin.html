@@ -62,7 +62,10 @@
               {% endif %}
             </td>
             <td class="py-2 px-4">
-              <form action="/app-icon/{{ item.app_name|urlencode }}/upload"
+              {# multipart: middleware НЕ парсит тело загрузки (это был бы DoS),
+                 поэтому скрытое поле ему не видно — токен уходит в ?csrf_token=,
+                 штатной лазейкой для аплоадов. #}
+              <form action="/app-icon/{{ item.app_name|urlencode }}/upload?csrf_token={{ csrf_token(request) }}"
                     method="post"
                     enctype="multipart/form-data"
                     class="flex items-center gap-2">
@@ -117,7 +120,7 @@
             <td class="py-2 px-4 text-zinc-200 font-mono text-xs break-all">{{ s.app_name }}</td>
             <td class="py-2 px-4 text-right text-zinc-400 font-mono text-xs">{{ s.count }}</td>
             <td class="py-2 px-4">
-              <form action="/app-icon/{{ s.app_name|urlencode }}/upload"
+              <form action="/app-icon/{{ s.app_name|urlencode }}/upload?csrf_token={{ csrf_token(request) }}"
                     method="post"
                     enctype="multipart/form-data"
                     class="flex items-center gap-2">

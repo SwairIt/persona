@@ -1,5 +1,9 @@
 {% extends "base.html" %}
 
+{# /changelog — публичный префикс: гейт не резолвит личность, поэтому без этого
+   флага base.html показал бы owner-навбар кому угодно. См. ``shell_public``. #}
+{% set shell_public = true %}
+
 {% block content %}
 <div class="mb-6 flex items-start justify-between gap-4">
   <div>

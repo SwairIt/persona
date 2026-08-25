@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+
+{# Страница «что-то сломалось на нашей стороне».
+
+   Намеренно НЕ показывает traceback, имя исключения или путь к файлу: этот
+   экран видит и участник, то есть посторонний человек на чужом сервере.
+   Диагностика остаётся в логах владельца.
+
+   ВНИМАНИЕ: чтобы шаблон начал рисоваться, нужен обработчик исключений в
+   ``app/web/main.py`` (см. отчёт: файл принадлежит другому агенту). #}
+
+{% block content %}
+{% set _e_owner = false %}
+{% if request is defined and request.state is defined and request.state.is_owner is defined %}
+  {% set _e_owner = request.state.is_owner %}
+{% endif %}
+
+<div class="max-w-lg mx-auto text-center py-16">
+  <div class="text-6xl mb-4">💥</div>
+  <h1 class="text-3xl font-bold tracking-tight">Тут сломалось у нас</h1>
+  <p class="text-zinc-500 text-sm mt-3">
+    Страница не отрисовалась из-за ошибки на сервере — это не ты что-то нажал не так.
+    Попробуй обновить: разовые сбои чинятся сами.
+  </p>
+
+  <div class="flex flex-col sm:flex-row items-center justify-center gap-3 mt-8">
+    <button type="button" onclick="window.location.reload()"
+            class="px-5 py-2.5 rounded-lg bg-accent-600 hover:bg-accent-500 text-white text-sm font-semibold transition">
+      Обновить страницу
+    </button>
+    <a href="{{ '/now' if _e_owner else '/chat' }}"
+       class="px-5 py-2.5 rounded-lg border border-ink-700 hover:bg-ink-800 text-zinc-300 text-sm transition">
+      {{ 'На главную' if _e_owner else 'Вернуться в чат' }}
+    </a>
+  </div>
+
+  {% if _e_owner %}
+  <p class="text-xs text-zinc-600 mt-8">
+    Подробности — в логах сервера и на <a href="/doctor" class="underline hover:text-zinc-400">/doctor</a>.
+  </p>
+  {% endif %}
+</div>
+{% endblock %}

@@ -6,8 +6,11 @@
   <div class="mb-5">
     <h1 class="text-2xl font-bold tracking-tight">Настройки</h1>
     <p class="text-zinc-500 text-sm mt-1">
-      Все настройки сгруппированы по категориям. Для одной длинной таблицы со
+      Все настройки сгруппированы по категориям.
+      {%- if is_owner %} Для одной длинной таблицы со
       всеми kv-настройками → <a href="/settings" class="text-accent-400 underline">advanced</a>.
+      {%- else %} Тут только твои — то, что влияет на твоего ассистента и твой аккаунт.
+      {%- endif %}
     </p>
   </div>
 
@@ -23,6 +26,12 @@
           class="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 cursor-pointer">×</span>
   </div>
 
+  {# Плашка про данные — РОЛЕ-ЗАВИСИМАЯ, потому что правда у владельца и у
+     участника разная. Владелец держит инстанс у себя: у него всё и правда
+     локально. Участник зарегистрирован на ЧУЖОМ сервере — обещать ему
+     «данные не покидают эту машину» было бы прямой ложью. Ему говорим
+     ровно то, что выполняется: изоляция по аккаунту и своя модель. #}
+  {% if is_owner %}
   <div x-show="!q" class="mb-6 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 flex items-start gap-3">
     <span class="text-xl leading-none">🔒</span>
     <div>
@@ -34,6 +43,20 @@
       </p>
     </div>
   </div>
+  {% else %}
+  <div x-show="!q" class="mb-6 rounded-xl border border-accent-500/30 bg-accent-600/5 p-4 flex items-start gap-3">
+    <span class="text-xl leading-none">🔑</span>
+    <div>
+      <p class="text-sm text-accent-200 font-medium">Ассистент работает на твоей модели.</p>
+      <p class="text-xs text-zinc-400 mt-0.5">
+        Чаты, память и профиль привязаны к твоему аккаунту — другие пользователи их не видят.
+        Запросы уходят тому LLM-провайдеру, которого выбрал <a href="/settings/llm" class="text-accent-400 underline">ты</a>,
+        и оплачиваются твоим ключом. Персона крутится на сервере владельца этого инстанса —
+        технически он, как любой администратор сервера, имеет доступ к базе.
+      </p>
+    </div>
+  </div>
+  {% endif %}
 
   {# Экспорт/импорт профиля настроек — только владелец (owner-only бэкенд). #}
   {% if is_owner %}
@@ -68,8 +91,8 @@
   {% endif %}
 
   <p x-show="q && visibleCount === 0" x-cloak class="text-zinc-500 text-sm text-center py-10">
-    Ничего не найдено по «<span x-text="q"></span>». Попробуй другое слово или
-    <a href="/feature-index" class="underline">полный feature-index</a>.
+    Ничего не найдено по «<span x-text="q"></span>». Попробуй другое слово{% if is_owner %} или
+    <a href="/feature-index" class="underline">полный feature-index</a>{% endif %}.
   </p>
 
   {# Обычные категории — сразу на виду. #}
@@ -134,10 +157,19 @@
     </details>
   </template>
 
+  {# Оба хвостовых адреса owner-only (гейт). Участнику вместо них — вход в
+     его собственные поверхности, а не две ссылки в редирект. #}
+  {% if is_owner %}
   <p class="text-zinc-600 text-xs mt-8 text-center">
     Не нашёл нужного? <a href="/feature-index" class="underline">Полный feature-index</a>
     или <a href="/settings" class="underline">список всех kv-настроек</a>.
   </p>
+  {% else %}
+  <p class="text-zinc-600 text-xs mt-8 text-center">
+    Не нашёл нужного? Загляни в <a href="/help" class="underline">справку</a>
+    или просто спроси в <a href="/chat" class="underline">чате</a>.
+  </p>
+  {% endif %}
 </div>
 
 <script>

@@ -38,7 +38,10 @@
 
 <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
   <h2 class="text-lg font-semibold mb-3">Upload CSV</h2>
-  <form action="/admin/notes-csv-import"
+  {# hx-post уносит токен заголовком (csrf.js слушает htmx:configRequest);
+     ?csrf_token= в action — страховка для нативного submit без htmx, где
+     multipart-тело middleware не читает. #}
+  <form action="/admin/notes-csv-import?csrf_token={{ csrf_token(request) }}"
         method="post"
         enctype="multipart/form-data"
         hx-post="/admin/notes-csv-import"

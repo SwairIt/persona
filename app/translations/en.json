@@ -257,6 +257,7 @@
   "subtitle_welcome": "Your personal memory layer. Captures your screen so you can search your past — what you read, wrote, watched, decided. Everything stays on your machine.",
   "subtitle_screenshot_use_arrows": "use ← → keys",
   "footer_local": "100% local",
+  "footer_member_byok": "your account, your model",
   "footer_license": "AGPL-3.0",
   "ph_search_placeholder": "meeting with anna · or · \"auth token\" · or · ask in plain words",
   "ph_query_help": "Query syntax help",
@@ -1397,6 +1398,7 @@
   "friends_outgoing": "Your requests",
   "friends_list": "Friends",
   "friends_empty": "Empty so far. Find someone with the search above.",
+  "friends_empty_cta": "Find people",
   "friends_status_friends": "already friends",
   "friends_status_outgoing": "request sent",
   "friends_status_incoming": "waiting for you",
@@ -1468,5 +1470,6 @@
   "social_notif_tg_privacy": "The token is yours only, never returned by any endpoint and never logged. Leaving the field empty erases nothing.",
   "social_notif_tg_test": "Send a test message",
   "social_notif_save": "Save",
-  "nav_notifications_social": "Notifications"
+  "nav_notifications_social": "Notifications",
+  "btn_rerun_ocr": "Re-run OCR"
 }

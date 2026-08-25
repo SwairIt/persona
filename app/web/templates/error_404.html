@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+
+{# Страница «не найдено».
+
+   До сих пор её не было вовсе: неизвестный URL отдавал голый JSON
+   ``{"detail":"Not Found"}`` от FastAPI (владельцу) или молча редиректил на
+   /chat (участнику — auth-гейт срабатывает раньше роутера). И то и другое
+   выглядит как поломка сайта.
+
+   Шаблон роле-осведомлён: набор ссылок «куда пойти дальше» собирается из той
+   зоны, которая человеку реально открыта, — участнику не предлагаем /now и
+   /timeline, владельцу не сужаем выбор до member-поверхности.
+
+   Роль читаем из ``request.state.is_owner`` (её кладёт AuthGateMiddleware для
+   любого аутентифицированного запроса). По умолчанию — НЕ владелец: ошибиться
+   в сторону member-зоны безопасно, обратно — нет.
+
+   ВНИМАНИЕ: чтобы шаблон начал рисоваться, нужен обработчик исключений в
+   ``app/web/main.py`` (см. отчёт: файл принадлежит другому агенту). #}
+
+{% block content %}
+{% set _e_owner = false %}
+{% if request is defined and request.state is defined and request.state.is_owner is defined %}
+  {% set _e_owner = request.state.is_owner %}
+{% endif %}
+
+<div class="max-w-lg mx-auto text-center py-16">
+  <div class="text-6xl mb-4">🧭</div>
+  <h1 class="text-3xl font-bold tracking-tight">Такой страницы нет</h1>
+  <p class="text-zinc-500 text-sm mt-3">
+    Адрес не существует, был переименован или доступен только владельцу этого инстанса.
+    Ничего не сломалось — просто здесь пусто.
+  </p>
+
+  <div class="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-3 text-left">
+    {% if _e_owner %}
+      <a href="/now" class="rounded-xl border border-ink-700 bg-ink-800 p-4 hover:border-accent-500 transition">
+        <div class="font-semibold mb-1">● Сейчас</div>
+        <p class="text-xs text-zinc-500">Что происходит прямо сейчас.</p>
+      </a>
+      <a href="/chat" class="rounded-xl border border-ink-700 bg-ink-800 p-4 hover:border-accent-500 transition">
+        <div class="font-semibold mb-1">💬 Чат</div>
+        <p class="text-xs text-zinc-500">Ассистент с памятью.</p>
+      </a>
+      <a href="/search" class="rounded-xl border border-ink-700 bg-ink-800 p-4 hover:border-accent-500 transition">
+        <div class="font-semibold mb-1">🔎 Поиск</div>
+        <p class="text-xs text-zinc-500">Найти по всему архиву.</p>
+      </a>
+      <a href="/settings/hub" class="rounded-xl border border-ink-700 bg-ink-800 p-4 hover:border-accent-500 transition">
+        <div class="font-semibold mb-1">⚙️ Настройки</div>
+        <p class="text-xs text-zinc-500">Все настройки с поиском.</p>
+      </a>
+    {% else %}
+      <a href="/chat" class="rounded-xl border border-ink-700 bg-ink-800 p-4 hover:border-accent-500 transition">
+        <div class="font-semibold mb-1">💬 Чат</div>
+        <p class="text-xs text-zinc-500">Твой ассистент с памятью — главный экран.</p>
+      </a>
+      <a href="/messages" class="rounded-xl border border-ink-700 bg-ink-800 p-4 hover:border-accent-500 transition">
+        <div class="font-semibold mb-1">✉️ Сообщения</div>
+        <p class="text-xs text-zinc-500">Личная переписка с друзьями.</p>
+      </a>
+      <a href="/settings/hub" class="rounded-xl border border-ink-700 bg-ink-800 p-4 hover:border-accent-500 transition">
+        <div class="font-semibold mb-1">⚙️ Настройки</div>
+        <p class="text-xs text-zinc-500">Модель, память, характер, тема.</p>
+      </a>
+      <a href="/help" class="rounded-xl border border-ink-700 bg-ink-800 p-4 hover:border-accent-500 transition">
+        <div class="font-semibold mb-1">❓ Справка</div>
+        <p class="text-xs text-zinc-500">Как тут всё устроено, за три шага.</p>
+      </a>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

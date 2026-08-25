@@ -1,5 +1,10 @@
 {% extends "base.html" %}
 
+{# /help/legacy-shortcuts лежит под ПУБЛИЧНЫМ префиксом /help, то есть гейт не
+   резолвит личность и base.html без подсказки нарисовал бы owner-навбар любому.
+   См. ``shell_public`` в base.html. #}
+{% set shell_public = true %}
+
 {% block content %}
 <div class="max-w-3xl mx-auto">
   <h1 class="text-2xl font-bold tracking-tight mb-6">Help</h1>
@@ -59,19 +64,26 @@
 
 > quote</pre>
     <p class="text-zinc-500 text-xs mt-3">
-      Click <strong>Preview</strong> to see how it renders. Find all your notes in <a href="/journal" class="text-accent-400">Journal</a>.
+      Click <strong>Preview</strong> to see how it renders. Find all your notes in the Journal.
     </p>
   </section>
 
+  {# Этот блок раньше утверждал «Server binds to 127.0.0.1 only — not reachable
+     from the network» и «No telemetry» на СТРАНИЦЕ, доступной из интернета без
+     сессии. Для публичного инстанса первое — прямая неправда (иначе бы вы это
+     не читали), а второе верно не всегда. Оставляем только то, что выполняется
+     всегда и не зависит от того, чей это сервер. #}
   <section class="rounded-lg border border-ink-700 bg-ink-800 p-5 mb-6">
     <h2 class="text-lg font-semibold mb-4">Privacy reminders</h2>
     <ul class="space-y-2 text-sm text-zinc-300 list-disc list-inside">
-      <li>Everything is saved to <code>data/</code> on this machine. No telemetry.</li>
-      <li>Server binds to <code>127.0.0.1</code> only — not reachable from the network.</li>
+      <li>Screen capture is the instance owner's own machine — member accounts never record anything.</li>
       <li>Capture pauses when idle for 5+ minutes (configurable).</li>
-      <li>Password managers and games are excluded by default. See <a href="/whitelist" class="text-accent-400">Whitelist</a>.</li>
+      <li>Password managers and games are excluded from capture by default.</li>
       <li>OCR redacts obvious secrets (emails, API keys, IBANs, card numbers) before storing.</li>
       <li>BYO API keys for AI features go directly to providers — Persona never logs them.</li>
+      <li>On a hosted instance your data sits in that server's database, like on any hosted service.
+        Want it strictly on your own hardware? Run
+        <a href="https://github.com/SwairIt/persona" class="text-accent-400">your own copy</a>.</li>
     </ul>
   </section>
 

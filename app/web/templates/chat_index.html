@@ -63,8 +63,32 @@
     {{ 'true' if auto_prompt else 'false' }}
 )" class="grid grid-cols-1 md:grid-cols-[280px,1fr] gap-0 -mx-3 sm:-mx-6 -my-6 min-h-[calc(100vh-7rem)]">
 
+  {# --- МОБИЛЬНАЯ ШАПКА СПИСКА ЧАТОВ (<md) ---------------------------------
+     Сетка ниже — ``grid-cols-1`` на телефоне, то есть aside со списком бесед
+     ложится НАД самим чатом. У человека с десятком чатов экран открывался на
+     стене заголовков, а переписка уезжала за первый экран — главный экран
+     продукта с телефона начинался со списка, а не с разговора.
+
+     Теперь на узком экране список свёрнут за одну полоску (раскрывается по
+     тапу), а кнопка «Новый чат» остаётся под рукой. На md+ всё как было:
+     полоска скрыта, aside всегда виден. #}
+  <div class="md:hidden flex items-center gap-2 px-3 py-2 border-b border-ink-700 bg-ink-900/50">
+    <button type="button" @click="sidebarOpen = !sidebarOpen"
+            :aria-expanded="sidebarOpen ? 'true' : 'false'"
+            class="flex-1 flex items-center gap-2 px-3 py-2 rounded-lg border border-ink-700
+                   text-sm text-zinc-300 hover:bg-ink-800 min-w-0">
+      <span class="shrink-0" x-text="sidebarOpen ? '✕' : '☰'"></span>
+      <span class="truncate">{{ (active_session.title if active_session else 'Беседы') }}</span>
+    </button>
+    <button type="button" @click="newChat()"
+            class="shrink-0 px-3 py-2 rounded-lg bg-accent-600 hover:bg-accent-500 text-white text-sm font-semibold">
+      +
+    </button>
+  </div>
+
   {# --- LEFT: sessions sidebar --- #}
-  <aside class="border-r border-ink-700 bg-ink-900/50 overflow-y-auto">
+  <aside :class="sidebarOpen ? 'block' : 'hidden'"
+         class="md:!block border-r border-ink-700 bg-ink-900/50 overflow-y-auto max-h-[60vh] md:max-h-none">
     <div class="p-3 border-b border-ink-700 flex gap-2">
       <button type="button"
               @click="newChat()"
@@ -714,7 +738,11 @@
         </form>
       </footer>
     {% else %}
-      <div class="flex-1 flex flex-col items-center justify-center text-center px-6">
+      {# data-empty-state — якорь для tests/test_site_coherence.py: каждая
+         member-страница обязана иметь внятное пустое состояние с одним следующим
+         шагом, а не пустую панель. #}
+      <div data-empty-state="chat"
+           class="flex-1 flex flex-col items-center justify-center text-center px-6">
         <span class="text-5xl mb-3">💬</span>
         <h1 class="text-2xl font-bold mb-2">Чат с памятью</h1>
         <p class="text-zinc-500 text-sm max-w-md">
@@ -723,20 +751,43 @@
         </p>
 
         {# Первый визит участника попадает именно сюда (чатов ещё нет) —
-           плашка обязана вести к СВОЕМУ ключу, а не обещать починку. #}
+           плашка обязана вести к СВОЕМУ ключу, а не обещать починку.
+
+           Тот, кто пропустил /onboarding, видит это единственный раз и должен
+           понять всё отсюда: почему пусто, что нажать и что это бесплатно.
+           Поэтому у участника не строчка со ссылкой, а карточка с кнопкой и
+           тремя названными бесплатными путями — теми же, что в онбординге и в
+           /help/connect-llm, чтобы три экрана не расходились. #}
         {% if not llm_configured %}
-        <div class="mt-5 rounded-xl border border-amber-700/40 bg-amber-900/15 px-4 py-3 text-sm text-amber-200/90 max-w-md">
           {% if is_owner %}
+          <div class="mt-5 rounded-xl border border-amber-700/40 bg-amber-900/15 px-4 py-3 text-sm text-amber-200/90 max-w-md">
             🌙 <span class="font-semibold text-amber-200">ИИ-ассистент пока офлайн.</span>
             Модель ещё не подключена — загляни чуть позже 🙏
             <a href="/settings/llm" class="underline hover:text-amber-100">Подключить →</a>
+          </div>
           {% else %}
-            🔌 <span class="font-semibold text-amber-200">Подключи свой AI-провайдер.</span>
-            Persona работает на твоей модели — свой ключ или локальная Ollama.
-            <a href="/settings/llm" class="underline hover:text-amber-100">Подключить →</a>
-            · <a href="/help/connect-llm" class="underline hover:text-amber-100">как получить ключ бесплатно</a>
+          <div class="mt-5 w-full max-w-md rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-left">
+            <div class="text-sm font-semibold text-amber-200">🔌 Сначала подключи модель</div>
+            <p class="text-amber-100/80 text-sm mt-1">
+              Ассистент работает на твоей модели, и платить проекту не нужно. Бесплатные варианты:
+            </p>
+            <ul class="text-amber-100/80 text-xs mt-2 space-y-1 list-disc list-inside">
+              <li><strong>OpenRouter</strong> — бесплатные модели, ключ сразу после регистрации.</li>
+              <li><strong>Groq</strong> — бесплатный тариф, отвечает очень быстро.</li>
+              <li><strong>Своя Ollama</strong> — на твоём компьютере, ключ не нужен.</li>
+            </ul>
+            <div class="flex flex-col sm:flex-row sm:items-center gap-2.5 mt-3.5">
+              <a href="/settings/llm"
+                 class="text-center px-4 py-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-ink-900 text-sm font-semibold transition">
+                Подключить модель →
+              </a>
+              <a href="/help/connect-llm"
+                 class="text-center sm:text-left text-xs text-amber-100/80 hover:text-amber-100 underline">
+                Пошаговая инструкция →
+              </a>
+            </div>
+          </div>
           {% endif %}
-        </div>
         {% endif %}
 
         {# Онбординг: примеры-кейсы. Клик → создаём чат и кладём текст в композер. #}
@@ -837,7 +888,11 @@
         <div class="text-[10px] text-zinc-500 flex items-center gap-1.5">
           <span class="w-1.5 h-1.5 rounded-full" :class="activityConnected ? 'bg-emerald-400' : 'bg-zinc-600'"></span>
           <span x-text="activityConnected ? 'в эфире' : 'нет связи'"></span>
+          {# /ai-activity — owner-only (гейт). Участнику ссылку не рисуем:
+             клик по ней молча выкидывал его обратно в /chat. #}
+          {%- if _owner_view %}
           · <a href="/ai-activity" class="hover:text-accent-300">вся история →</a>
+          {%- endif %}
         </div>
       </div>
       <button type="button" @click="closeActivity()" class="text-zinc-500 hover:text-zinc-200 text-lg shrink-0">✕</button>
@@ -881,6 +936,10 @@
 <script>
   function chatPage(initialSessionId, initialMessages, summary, initialEffort, initialMode, initialAutoPrompt) {
     return {
+      // <md: список бесед свёрнут за полоску-переключатель (см. разметку выше).
+      // На md+ значение не используется вовсе — там aside показан через
+      // `md:!block`, поэтому десктоп ведёт себя ровно как раньше.
+      sidebarOpen: false,
       // F6-01 — JS-side i18n для динамических строк агент-цикла (план/инструменты).
       // Значения локализуются сервером через Jinja t(); t(key) — безопасный доступ.
       _i18n: {

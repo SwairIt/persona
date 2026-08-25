@@ -1,6 +1,151 @@
 {% extends "base.html" %}
 
+{# Страница двухликая, и это осознанно.
+
+   Владельцу /help — это его ops-раннбук: где лежит база, как чинить захват,
+   какие /admin/* не трогать. Участнику ровно эта же страница показывала
+   ~40 ссылок в owner-зону (каждая = редирект на /chat), счётчик ЧУЖИХ
+   скриншотов и абзацы про «твой Mac» и devtunnel — то есть врала про его
+   установку и вела в никуда.
+
+   ``/help`` лежит в _PUBLIC_PREFIXES, то есть открыт и БЕЗ сессии. Поэтому
+   флаг тут считается ОТДЕЛЬНО от base.html и по умолчанию ЛОЖЕН: раннбук
+   (путь к базе, devtunnel, список /admin/*, живой счётчик скриншотов
+   владельца) показываем, только если мы положительно знаем, что смотрит
+   владелец. Аноним из интернета получает обычную справку.
+
+   По той же причине объявляем ``shell_public``: на публичном префиксе гейт не
+   резолвит личность, и без этого флага base.html рисовал бы участнику полный
+   owner-навбар. #}
+{% set shell_public = true %}
+
 {% block content %}
+{% set _help_owner = false %}
+{% if request is defined and request.state is defined and request.state.is_owner is defined %}
+  {% set _help_owner = request.state.is_owner %}
+{% endif %}
+{% if not _help_owner %}
+{# ── Справка УЧАСТНИКА ─────────────────────────────────────────────────── #}
+<div class="max-w-3xl mx-auto px-4 sm:px-6 py-6 leading-relaxed">
+
+  <header class="mb-8">
+    <h1 class="text-3xl font-bold tracking-tight">Как тут всё устроено</h1>
+    <p class="text-zinc-500 text-sm mt-2">
+      Коротко: свой ИИ-ассистент с памятью, свои настройки, свои люди. Всё — в трёх разделах ниже.
+    </p>
+  </header>
+
+  <section class="mb-8 rounded-xl border border-amber-500/40 bg-amber-500/10 p-5">
+    <h2 class="font-semibold text-amber-200 mb-2">🔌 Шаг 1 — подключи модель</h2>
+    <p class="text-sm text-amber-100/85">
+      Без модели ассистент молчит. Persona работает на <strong>твоей</strong> — свой ключ или свой
+      компьютер, ничего платить проекту не нужно.
+    </p>
+    <ul class="text-sm text-zinc-300 space-y-1.5 mt-3 list-disc list-inside">
+      <li><strong>OpenRouter</strong> — есть бесплатные модели, ключ выдают сразу после регистрации.</li>
+      <li><strong>Groq</strong> — бесплатный тариф, отвечает очень быстро.</li>
+      <li><strong>Своя Ollama</strong> — модель крутится на твоём компьютере, бесплатно и без ключа.</li>
+    </ul>
+    <div class="flex flex-col sm:flex-row sm:items-center gap-3 mt-4">
+      <a href="/settings/llm"
+         class="text-center px-5 py-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-ink-900 font-semibold transition">
+        Подключить модель →
+      </a>
+      <a href="/help/connect-llm" class="text-center sm:text-left text-sm text-amber-100/80 underline hover:text-amber-100">
+        Пошагово, со скриншотами →
+      </a>
+    </div>
+  </section>
+
+  <section class="mb-8">
+    <h2 class="text-xl font-bold mb-3">Шаг 2 — куда ходить каждый день</h2>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <a href="/chat" class="rounded-xl border border-ink-700 bg-ink-800 p-4 hover:border-accent-500 transition">
+        <div class="font-semibold mb-1">💬 Чат</div>
+        <p class="text-xs text-zinc-500">Главный экран. Несколько бесед параллельно, история и поиск по всем чатам.</p>
+      </a>
+      <a href="/voice" class="rounded-xl border border-ink-700 bg-ink-800 p-4 hover:border-accent-500 transition">
+        <div class="font-semibold mb-1">🎙️ Голос</div>
+        <p class="text-xs text-zinc-500">Тот же ассистент, но голосом — hands-free, без клавиатуры.</p>
+      </a>
+      <a href="/settings/memory" class="rounded-xl border border-ink-700 bg-ink-800 p-4 hover:border-accent-500 transition">
+        <div class="font-semibold mb-1">🧠 Память</div>
+        <p class="text-xs text-zinc-500">Факты, которые ассистент держит в голове между чатами. Можно править и закреплять.</p>
+      </a>
+      <a href="/graph" class="rounded-xl border border-ink-700 bg-ink-800 p-4 hover:border-accent-500 transition">
+        <div class="font-semibold mb-1">🕸 Граф</div>
+        <p class="text-xs text-zinc-500">Та же память, но картинкой: узлы и связи. Наполняется по мере общения.</p>
+      </a>
+      <a href="/friends" class="rounded-xl border border-ink-700 bg-ink-800 p-4 hover:border-accent-500 transition">
+        <div class="font-semibold mb-1">👥 Друзья</div>
+        <p class="text-xs text-zinc-500">Найти людей по имени и добавить в друзья. Тебя найдут, только если ты разрешил.</p>
+      </a>
+      <a href="/messages" class="rounded-xl border border-ink-700 bg-ink-800 p-4 hover:border-accent-500 transition">
+        <div class="font-semibold mb-1">✉️ Сообщения</div>
+        <p class="text-xs text-zinc-500">Личная переписка с друзьями. ИИ может подготовить черновик — если ты его попросишь.</p>
+      </a>
+    </div>
+  </section>
+
+  <section class="mb-8">
+    <h2 class="text-xl font-bold mb-3">Шаг 3 — настрой под себя</h2>
+    <div class="space-y-2 text-sm">
+      <div class="rounded-lg border border-ink-700 bg-ink-800 p-3">
+        <a href="/settings/system-prompt" class="font-semibold text-accent-400">Характер</a>
+        <span class="text-zinc-400">— каким тоном ассистент с тобой говорит. Есть пресеты и свой редактор.</span>
+      </div>
+      <div class="rounded-lg border border-ink-700 bg-ink-800 p-3">
+        <a href="/settings/advanced" class="font-semibold text-accent-400">Режимы чата</a>
+        <span class="text-zinc-400">— расширенный режим (код, планы, инструменты) или простой друг-собеседник.</span>
+      </div>
+      <div class="rounded-lg border border-ink-700 bg-ink-800 p-3">
+        <a href="/settings/skills" class="font-semibold text-accent-400">Навыки</a>
+        <span class="text-zinc-400">— наборы инструкций, которые ассистент применяет в чате. Часть идёт из коробки.</span>
+      </div>
+      <div class="rounded-lg border border-ink-700 bg-ink-800 p-3">
+        <a href="/settings/notifications-social" class="font-semibold text-accent-400">Уведомления</a>
+        <span class="text-zinc-400">— браузер, почта, свой Telegram-бот. Там же рубильник «ИИ отвечает за меня».</span>
+      </div>
+      <div class="rounded-lg border border-ink-700 bg-ink-800 p-3">
+        <a href="/settings/theme" class="font-semibold text-accent-400">Тема</a>
+        <span class="text-zinc-400">— светлая, тёмная, «как в системе» и пара космических.</span>
+      </div>
+      <div class="rounded-lg border border-ink-700 bg-ink-800 p-3">
+        <a href="/settings/hub" class="font-semibold text-accent-400">Все настройки</a>
+        <span class="text-zinc-400">— один экран с поиском, если не помнишь, где что лежит.</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="mb-8 rounded-xl border border-ink-700 bg-ink-800 p-5">
+    <h2 class="text-lg font-bold mb-2">Что важно знать про твои данные</h2>
+    <ul class="text-sm text-zinc-300 space-y-1.5 list-disc list-inside">
+      <li>Чаты, память и профиль привязаны к твоему аккаунту — другие пользователи их не видят.</li>
+      <li>Запросы уходят тому LLM-провайдеру, которого выбрал ты, и оплачиваются твоим ключом.</li>
+      <li>Persona крутится на сервере владельца этого инстанса. Как и на любом чужом сервере,
+        у администратора технически есть доступ к базе — если это критично, поднимай
+        <a href="https://github.com/SwairIt/persona" class="text-accent-400 underline">свою копию</a>.</li>
+      <li>Личные сообщения видят двое: ты и собеседник. Сквозного шифрования нет.</li>
+      <li>Тебя не найдут в поиске людей, пока ты сам не включишь это на
+        <a href="/friends" class="text-accent-400 underline">/friends</a>.</li>
+    </ul>
+  </section>
+
+  <section class="mb-8">
+    <h2 class="text-xl font-bold mb-3">Как иконку на телефон</h2>
+    <ol class="space-y-2 text-sm text-zinc-300">
+      <li><span class="font-mono text-accent-500 mr-2">1.</span>Открой сайт в Safari (iPhone) или Chrome (Android).</li>
+      <li><span class="font-mono text-accent-500 mr-2">2.</span>«Поделиться» → «На экран Домой» (в Chrome — «Установить приложение»).</li>
+      <li><span class="font-mono text-accent-500 mr-2">3.</span>Иконка появится на главном экране, откроется без адресной строки.</li>
+    </ol>
+  </section>
+
+  <p class="text-sm text-zinc-500">
+    Не нашёл ответа? Просто спроси в <a href="/chat" class="text-accent-400 underline">чате</a> — он про себя знает.
+  </p>
+</div>
+{% else %}
+{# ── Раннбук ВЛАДЕЛЬЦА (без изменений) ─────────────────────────────────── #}
 <div class="max-w-3xl mx-auto px-4 sm:px-6 py-6 leading-relaxed">
 
   <header class="mb-8">
@@ -290,4 +435,5 @@
   </section>
 
 </div>
+{% endif %}
 {% endblock %}

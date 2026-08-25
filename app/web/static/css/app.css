@@ -109,3 +109,29 @@ html:not(.dark) .hover\:bg-ink-700:hover { background-color: #f4f4f5; }
 html:not(.dark) .hover\:bg-ink-800:hover { background-color: #f9f9fa; }
 html:not(.dark) .bg-ink-900\/80 { background-color: rgba(244, 244, 245, 0.85); }
 html:not(.dark) .bg-ink-900\/50 { background-color: rgba(244, 244, 245, 0.6); }
+
+/* ── Мобильные формы: не давать iOS зумить страницу ──────────────────────
+   Safari на iPhone автоматически масштабирует вьюпорт при фокусе на поле
+   ввода, у которого font-size < 16px, и обратно уже не отъезжает (у нас
+   viewport стоит без user-scalable=no). Композер чата (15px), поиск людей
+   и композер личных сообщений (14px) попадали под это правило — с телефона
+   каждое нажатие на поле дёргало вёрстку.
+
+   Поднимаем шрифт полей ровно до 16px и ровно на узких экранах: на десктопе
+   (>=640px) размеры остаются прежними, ни один утилити-класс не переопределён
+   глобально. Чекбоксы/радио/файлы не трогаем — у них font-size ни на что не
+   влияет, а размер задан утилитами. */
+@media (max-width: 639.98px) {
+  input[type="text"],
+  input[type="search"],
+  input[type="email"],
+  input[type="password"],
+  input[type="url"],
+  input[type="tel"],
+  input[type="number"],
+  input:not([type]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}

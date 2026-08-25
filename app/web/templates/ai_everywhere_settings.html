@@ -12,6 +12,10 @@
   <form method="post" action="/settings/ai-everywhere"
         class="rounded-2xl border p-5 mb-5 transition-colors
                {% if enabled %}border-accent-500/50 bg-accent-600/10{% else %}border-ink-700 bg-ink-900/60{% endif %}">
+    {# Форма отправляется ПРОГРАММНО (`this.form.submit()` на onchange), а такой
+       вызов НЕ порождает событие submit — авто-инъекция из csrf.js мимо. Поле
+       обязано быть в разметке. #}
+    {{ csrf_input(request) }}
     <label class="flex items-start gap-4 cursor-pointer">
       <input type="checkbox" name="ai_everywhere" value="1" {% if enabled %}checked{% endif %}
              onchange="this.form.submit()"

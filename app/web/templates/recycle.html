@@ -47,6 +47,17 @@
         var form = document.createElement('form');
         form.method = 'POST';
         form.action = url;
+        // form.submit() НЕ порождает событие submit → авто-инъекция из
+        // csrf.js эту форму не увидит. Кладём токен сами: он отрендерен
+        // сервером в разметку страницы.
+        var token = {{ csrf_token(request) | tojson }};
+        if (token) {
+          var hidden = document.createElement('input');
+          hidden.type = 'hidden';
+          hidden.name = 'csrf_token';
+          hidden.value = token;
+          form.appendChild(hidden);
+        }
         document.body.appendChild(form);
         form.submit();
       }

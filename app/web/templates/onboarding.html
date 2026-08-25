@@ -31,8 +31,13 @@
       <div class="text-2xl shrink-0">🧠</div>
       <div>
         <h3 class="font-semibold text-zinc-100">Он запоминает тебя</h3>
+        {# Раньше тут стояло «видна только тебе — никто другой её не получит».
+           Это неправда для аккаунта на ЧУЖОМ сервере: у администратора инстанса
+           технически есть доступ к базе. Обещаем ровно то, что выполняется. #}
         <p class="text-zinc-400 text-sm mt-1">Чем больше общаешься, тем лучше он тебя знает: имена, проекты,
-          предпочтения. Твоя память приватна и видна только тебе — никто другой её не получит.</p>
+          предпочтения. Память привязана к твоему аккаунту — другие пользователи её не видят,
+          а ты сам правишь и чистишь её в
+          <a href="/settings/memory" class="text-accent-400 hover:text-accent-300">Памяти</a>.</p>
       </div>
     </div>
     <div class="rounded-lg border border-ink-700 bg-ink-800 p-5 flex gap-4">
@@ -69,8 +74,17 @@
         <h3 class="font-semibold text-amber-200">Модель ещё не подключена</h3>
         <p class="text-amber-100/80 text-sm mt-1">
           Persona бесплатна и работает на твоём ключе — так твои переписки не идут через чужой аккаунт.
-          Подойдёт бесплатный ключ облачного провайдера или локальная Ollama.
+          Платить проекту не нужно, есть варианты за ноль рублей:
         </p>
+        {# Бесплатные пути называем ПРЯМО, а не «подойдёт бесплатный ключ»:
+           главная задача онбординга — довести до работающего ИИ за две минуты,
+           а для этого человек должен видеть конкретное имя, которое можно
+           загуглить. Подробности — в /help/connect-llm. #}
+        <ul class="text-amber-100/80 text-sm mt-2 space-y-1 list-disc list-inside">
+          <li><strong>OpenRouter</strong> — есть бесплатные модели, ключ сразу после регистрации.</li>
+          <li><strong>Groq</strong> — бесплатный тариф, отвечает очень быстро.</li>
+          <li><strong>Своя Ollama</strong> — крутится на твоём компьютере, ключ не нужен вообще.</li>
+        </ul>
         <div class="flex flex-col sm:flex-row sm:items-center gap-3 mt-4">
           <a href="/settings/llm"
              class="text-center px-5 py-3 rounded-lg bg-amber-500 hover:bg-amber-400 text-ink-900 font-semibold transition">
@@ -78,7 +92,7 @@
           </a>
           <a href="/help/connect-llm"
              class="text-center sm:text-left text-sm text-amber-100/80 hover:text-amber-100 underline">
-            Как получить ключ бесплатно →
+            Пошаговая инструкция →
           </a>
         </div>
       </div>

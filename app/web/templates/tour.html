@@ -4,6 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{{ title }} — Persona</title>
+  {# Тур — standalone-страница (не наследует base.html), но открывается уже
+     С сессией и оба терминальных действия делают POST /api/tour/*. Без csrf.js
+     эти fetch уйдут без X-CSRF-Token и в режиме enforce вернут JSON-403. #}
+  <script src="/static/csrf.js?v={{ app_version }}"></script>
   <script src="/static/vendor/tailwind-play.js"></script>
   <script defer src="/static/vendor/alpine-3.14.7.min.js"></script>
   <style>[x-cloak] { display: none !important; }</style>

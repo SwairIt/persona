@@ -182,9 +182,10 @@
       {% endfor %}
     </div>
   {% else %}
-    <p class="text-sm text-zinc-500 border-t border-ink-800 pt-3">
-      Память пока пустая. Добавь факты выше, или просто общайся — ИИ сам подмечает
-      важное (авто-извлечение фактов).
+    <p data-empty-state="memory" class="text-sm text-zinc-500 border-t border-ink-800 pt-3">
+      Память пока пустая. Добавь факты выше, или просто
+      <a href="/chat" class="text-accent-400 hover:text-accent-300">общайся в чате</a> —
+      ИИ сам подмечает важное (авто-извлечение фактов).
     </p>
   {% endif %}
 

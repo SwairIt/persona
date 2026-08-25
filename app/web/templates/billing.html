@@ -56,7 +56,10 @@
             <p style="color:var(--ink-faint);font-size:.88rem;text-align:center;margin:14px 0 6px">
               После триала оформи Pro, чтобы не потерять доступ:</p>
           {% else %}
+            {# standalone-шаблон (не наследует base.html) → csrf.js не подключён,
+               токен во всех трёх формах ниже проставляем явно. #}
             <form method="post" action="/billing/cancel" style="text-align:center;margin-top:10px">
+              {{ csrf_input(request) }}
               <button type="submit" class="btn btn-ghost" style="font-size:.78rem;opacity:.7;padding:6px 12px">Отменить подписку</button>
             </form>
           {% endif %}
@@ -76,6 +79,7 @@
           <div style="margin-top:12px;display:grid;gap:10px">
             {% for p in plans %}
               <form method="post" action="/billing/checkout">
+                {{ csrf_input(request) }}
                 <input type="hidden" name="plan" value="{{ p.id }}">
                 <button type="submit" class="btn {% if loop.first and not summary.active %}btn-primary{% else %}btn-secondary{% endif %}" style="width:100%">
                   {% if p.cycle == 'monthly' %}Pro · месяц — {{ p.amount_rub }} ₽/мес{% else %}Pro · год — {{ p.amount_rub }} ₽/год · {{ p.badge }}{% endif %}
@@ -106,6 +110,7 @@
       {% endif %}
 
       <form method="post" action="/auth/logout" style="margin-top:26px;text-align:center">
+        {{ csrf_input(request) }}
         <button type="submit" class="btn btn-ghost">Выйти</button>
       </form>
     </div>

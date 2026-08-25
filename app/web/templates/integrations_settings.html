@@ -61,7 +61,9 @@
         (пункты списков, чекбоксы, абзацы; заголовки станут контекстом). Дубли пропускаются.
       </p>
     </div>
-    <form method="post" action="/settings/integrations/import-markdown"
+    {# multipart → токен только через ?csrf_token= (тело аплоада middleware не
+       разбирает); скрытое поле здесь бесполезно. #}
+    <form method="post" action="/settings/integrations/import-markdown?csrf_token={{ csrf_token(request) }}"
           enctype="multipart/form-data" class="space-y-2">
       <textarea name="text" rows="6" placeholder="# Обо мне&#10;- люблю кофе без сахара&#10;- работаю над Persona"
                 class="w-full rounded-lg bg-ink-950 border border-ink-700 px-3 py-2 text-sm text-zinc-100

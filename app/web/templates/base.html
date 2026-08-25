@@ -61,6 +61,17 @@
     })();
   </script>
   {% endif %}
+  {# CSRF — ПЕРВЫМ и БЕЗ defer, до htmx/Alpine/копилота и до любого нашего кода.
+     csrf.js патчит window.fetch и XMLHttpRequest.prototype.send: патч обязан
+     встать ДО того, как хоть один сценарий сделает первый POST, иначе запрос
+     уйдёт без заголовка X-CSRF-Token и в режиме enforce получит 403. Плюс он
+     вешает слушатели htmx:configRequest и submit (capture) на document —
+     это покрывает все hx-post/hx-delete и обычные <form method="post"> на
+     страницах, наследующих base.html.
+
+     ВАЖНО: слушатель submit НЕ срабатывает на программном form.submit(), —
+     такие формы обязаны нести {{ '{{ csrf_input(request) }}' }} явно. #}
+  <script src="/static/csrf.js?v={{ app_version }}"></script>
   {# Self-hosted вместо иностранных CDN: на РФ-сетях cdn.tailwindcss.com/unpkg
      часто троттлятся/недоступны → «сайт плохо грузит». Файлы идентичны, отдаём
      со своего origin + долгий Cache-Control. Порядок сохранён (tailwind до config). #}
@@ -68,18 +79,21 @@
   <script src="/static/vendor/htmx-2.0.4.min.js?v={{ app_version }}" defer></script>
   <script defer src="/static/copilot.js?v={{ app_version }}"></script>
   <script defer src="/static/vendor/alpine-3.14.7.min.js?v={{ app_version }}"></script>
-  <link rel="stylesheet" href="/static/css/app.css">
+  {# Все стили — с ?v={{ app_version }}: без cache-busting Service Worker и
+     браузер отдавали прежний app.css после релиза (правка мобильных полей,
+     например, просто не доезжала до телефона, который уже открывал сайт). #}
+  <link rel="stylesheet" href="/static/css/app.css?v={{ app_version }}">
   <link rel="stylesheet" href="/static/persona_theme.css?v={{ app_version }}">
   {% if _persona_theme in ['cosmos', 'cosmos-dark'] %}<link rel="stylesheet" href="/static/cosmos_theme.css?v={{ app_version }}">{% endif %}
-  <link rel="stylesheet" href="/static/compact_mode.css">
-  <link rel="stylesheet" href="/static/grayscale.css">
-  <link rel="stylesheet" href="/static/reduce_motion.css">
-  <link rel="stylesheet" href="/static/command_palette.css">
-  <link rel="stylesheet" href="/static/keyboard_shortcuts.css">
-  <link rel="stylesheet" href="/static/query_help.css">
-  <link rel="stylesheet" href="/static/context_menu.css">
-  <link rel="stylesheet" href="/static/cal_nav.css">
-  <link rel="stylesheet" href="/static/bulk_select.css">
+  <link rel="stylesheet" href="/static/compact_mode.css?v={{ app_version }}">
+  <link rel="stylesheet" href="/static/grayscale.css?v={{ app_version }}">
+  <link rel="stylesheet" href="/static/reduce_motion.css?v={{ app_version }}">
+  <link rel="stylesheet" href="/static/command_palette.css?v={{ app_version }}">
+  <link rel="stylesheet" href="/static/keyboard_shortcuts.css?v={{ app_version }}">
+  <link rel="stylesheet" href="/static/query_help.css?v={{ app_version }}">
+  <link rel="stylesheet" href="/static/context_menu.css?v={{ app_version }}">
+  <link rel="stylesheet" href="/static/cal_nav.css?v={{ app_version }}">
+  <link rel="stylesheet" href="/static/bulk_select.css?v={{ app_version }}">
   <link rel="stylesheet" href="/static/copilot.css?v={{ app_version }}">
   <style>[x-cloak] { display: none !important; }</style>
   <script src="/static/command_palette.js" defer></script>
@@ -195,7 +209,27 @@
        - status pill compresses to icons-only below md
     #}
     <div class="max-w-7xl mx-auto px-3 sm:px-6 py-3 flex items-center justify-between gap-2">
-      <a href="/" class="flex items-center gap-2 hover:opacity-90 shrink-0">
+      {# Роль резолвим ДО логотипа: «домой» у владельца — /now (его лента),
+         у участника — /chat. Раньше логотип на КАЖДОЙ странице участника вёл
+         на "/", а "/" редиректит на /now → гейт выкидывал обратно на /chat.
+         Ссылка выглядела живой, а была петлёй.
+
+         ``shell_public`` — страховка для страниц под ПУБЛИЧНЫМ префиксом
+         (/help, /changelog): гейт на них возвращает управление роутеру ДО
+         резолва личности, поэтому ``request.state.is_owner`` там не выставлен
+         вовсе, и дефолт «считаем владельцем» рисовал участнику полный
+         owner-навбар (/now, /timeline, /root, /m, пилюля захвата) — два
+         десятка ссылок, каждая из которых молча выкидывает его на /chat.
+         Такая страница объявляет ``{% set shell_public = true %}`` у себя
+         наверху, и при НЕИЗВЕСТНОЙ роли шелл падает в безопасную member-ветку.
+         Как только личность известна (её положил гейт или роут) — работает
+         ровно как раньше, для обеих ролей. #}
+      {% set _owner_view = is_owner if is_owner is defined
+                           else (False if (shell_public is defined and shell_public) else True) %}
+      {% if request is defined and request.state is defined and request.state.is_owner is defined %}
+        {% set _owner_view = request.state.is_owner %}
+      {% endif %}
+      <a href="{{ '/' if _owner_view else '/chat' }}" class="flex items-center gap-2 hover:opacity-90 shrink-0">
         <span class="text-2xl leading-none">●</span>
         <span class="font-bold tracking-tight text-lg hidden sm:inline">Persona</span>
         <span class="text-xs text-zinc-500 font-mono hidden sm:inline">v{{ app_version }}</span>
@@ -221,10 +255,6 @@
               class="ml-1.5 inline-block text-[10px] px-1.5 py-0.5 rounded-full bg-accent-600 text-white font-semibold align-middle"></span>
       {%- endmacro %}
 
-      {% set _owner_view = is_owner if is_owner is defined else True %}
-      {% if request is defined and request.state is defined and request.state.is_owner is defined %}
-        {% set _owner_view = request.state.is_owner %}
-      {% endif %}
       {% if _owner_view %}
       {% set core_items = [
         ('now', '/now', 'nav_now'),
@@ -234,28 +264,36 @@
         ('ask', '/ask', 'nav_ask'),
         ('settings', '/settings/hub', 'nav_settings'),
       ] %}
+      {# Порядок «ещё» — по частоте, а не по дате появления пункта.
+         Сверху ежедневное (голос, соц-пара, лента, поиск), ниже — периодика и
+         разборы. Убраны ДВА пункта-дубля, которые были чистыми настройками и
+         целиком живут в хабе (/settings/hub → «AI, чат и инструменты» и
+         «Основное»): ``/settings/voice`` и ``/settings/advanced``. Ничего не
+         потеряно — оба находятся и в хабе, и поиском по настройкам, и в
+         палитре; из навбара ушла только третья копия.
+         Соц-пара (друзья + сообщения) поднята к верху: раньше она лежала
+         последней в списке из 21 пункта, ниже разборов и дайджестов, хотя
+         бейдж непрочитанных висит именно на ней. #}
       {% set more_items = [
-        ('day', '/day', 'nav_day'),
-        ('analytics', '/analytics', 'nav_analytics'),
-        ('briefing', '/briefing', 'nav_briefing'),
         ('voice-live', '/voice', 'nav_voice_live'),
-        ('ai-activity', '/ai-activity', 'nav_activity'),
-        ('root', '/root', 'nav_root'),
-        ('timeline', '/timeline', 'nav_timeline'),
-        ('workspace', '/workspace', 'nav_workspace'),
-        ('search', '/search', 'nav_search'),
-        ('storage', '/storage', 'nav_storage'),
-        ('stats', '/stats', 'nav_stats'),
-        ('focus', '/focus', 'nav_focus'),
-        ('reminders', '/reminders', 'nav_reminders'),
-        ('reading', '/reading', 'nav_reading'),
-        ('digest', '/digest/weekly', 'nav_digest'),
-        ('journal', '/journal', 'nav_journal'),
-        ('apps', '/apps', 'nav_apps'),
-        ('voice', '/settings/voice', 'nav_voice'),
-        ('advanced', '/settings/advanced', 'nav_advanced'),
         ('friends', '/friends', 'nav_friends'),
         ('messages', '/messages', 'nav_messages'),
+        ('timeline', '/timeline', 'nav_timeline'),
+        ('search', '/search', 'nav_search'),
+        ('day', '/day', 'nav_day'),
+        ('briefing', '/briefing', 'nav_briefing'),
+        ('journal', '/journal', 'nav_journal'),
+        ('reminders', '/reminders', 'nav_reminders'),
+        ('reading', '/reading', 'nav_reading'),
+        ('focus', '/focus', 'nav_focus'),
+        ('digest', '/digest/weekly', 'nav_digest'),
+        ('apps', '/apps', 'nav_apps'),
+        ('analytics', '/analytics', 'nav_analytics'),
+        ('stats', '/stats', 'nav_stats'),
+        ('storage', '/storage', 'nav_storage'),
+        ('workspace', '/workspace', 'nav_workspace'),
+        ('ai-activity', '/ai-activity', 'nav_activity'),
+        ('root', '/root', 'nav_root'),
       ] %}
       {% else %}
       {# Участник: только то, что ему реально открыто гейтом. Ни одной ссылки
@@ -392,6 +430,14 @@
                 <span x-text="workerOnline ? ('{{ t('acct_worker_online') }}' + (workerModel ? (' · ' + workerModel) : '')) : '{{ t('acct_worker_offline') }}'"></span>
               </div>
             </div>
+            {# Ветки чипа рисуем ПО РОЛИ НА СЕРВЕРЕ, а не только через Alpine
+               ``x-if``: owner-пункты (/billing, /settings/system-monitor)
+               физически не должны попадать в разметку участника — иначе они
+               лежат в DOM как валидные ссылки (их видит поиск по странице,
+               «открыть в новой вкладке», краулер), а гейт по клику отдаёт
+               редирект на /chat. ``x-if`` внутри остаётся: он гасит меню, если
+               роль на клиенте расходится с серверной (публичная страница). #}
+            {% if _owner_view %}
             <template x-if="isOwner">
               <div>
                 <a href="/settings/hub" class="block px-3 py-2 text-sm text-zinc-300 hover:bg-ink-800">⚙️ {{ t('nav_settings') }}</a>
@@ -401,6 +447,7 @@
                 <a href="/billing" class="block px-3 py-2 text-sm text-zinc-300 hover:bg-ink-800">💳 {{ t('nav_billing') }}</a>
               </div>
             </template>
+            {% endif %}
             {# Участник: свои настройки + свой LLM-ключ. Биллинг спит (регистрация
                свободная), поэтому ссылки на /billing тут нет — иначе меню звало бы
                платить за то, что бесплатно. #}
@@ -408,9 +455,16 @@
               <div>
                 <a href="/settings/hub" class="block px-3 py-2 text-sm text-zinc-300 hover:bg-ink-800">⚙️ {{ t('nav_settings') }}</a>
                 <a href="/settings/llm" class="block px-3 py-2 text-sm text-zinc-300 hover:bg-ink-800">🤖 {{ t('acct_llm') }}</a>
+                {% if not _owner_view %}
+                <a href="/settings/memory" class="block px-3 py-2 text-sm text-zinc-300 hover:bg-ink-800">🧠 {{ t('acct_memory') }}</a>
+                <a href="/friends" class="block px-3 py-2 text-sm text-zinc-300 hover:bg-ink-800">👥 {{ t('nav_friends') }}</a>
+                {% endif %}
               </div>
             </template>
+            {# Явное поле, а не только авто-инъекция из csrf.js: выход должен
+               работать и при выключенном/не загрузившемся JS. #}
             <form method="post" action="/auth/logout" class="border-t border-ink-700 mt-1 pt-1">
+              {% if request is defined %}{{ csrf_input(request) }}{% endif %}
               <button type="submit" class="w-full text-left px-3 py-2 text-sm text-rose-300 hover:bg-rose-900/30">⎋ {{ t('acct_logout') }}</button>
             </form>
           </div>
@@ -495,9 +549,13 @@
     })();
   </script>
 
+  {# «100% локально» правда только для того, кто держит этот инстанс у себя.
+     Участнику, зарегистрированному на ЧУЖОМ сервере, эта строка врала: его
+     данные лежат не на его машине. Ему говорим то, что правда: аккаунт свой,
+     ассистент работает на его модели. #}
   <footer class="border-t border-ink-700 mt-16 py-6 text-center text-xs text-zinc-500">
     <a href="https://github.com/SwairIt/persona" class="hover:text-zinc-300">github.com/SwairIt/persona</a>
-    · {{ t('footer_local') }} · {{ t('footer_license') }}
+    · {% if _owner_view %}{{ t('footer_local') }}{% else %}{{ t('footer_member_byok') }}{% endif %} · {{ t('footer_license') }}
   </footer>
 
   {# Голос по умолчанию — плавающая кнопка-микрофон на всех страницах,
@@ -523,6 +581,10 @@
   {# Когда включён вездесущий копилот, его FAB стоит в правом нижнем углу
      (bottom-4 right-4), поэтому version-banner сдвигаем выше (bottom-20),
      чтобы они не перекрывались. Иначе баннер остаётся на своём месте. #}
+  {# /whats-new — журнал изменений ИНСТАНСА, гейт держит его за владельцем.
+     Участнику чип показывал живую ссылку, которая молча выкидывала на /chat,
+     поэтому ему баннер не рисуем вовсе. #}
+  {% if _owner_view %}
   <div id="persona-version-banner"
        data-version="{{ app_version }}"
        hidden
@@ -567,6 +629,7 @@
       }
     })();
   </script>
+  {% endif %}
 
   <script>
     /*

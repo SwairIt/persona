@@ -89,7 +89,9 @@
   </form>
 
   {# hidden reset form — submitted by resetDefault() after confirm #}
-  <form id="promptResetForm" method="post" action="/settings/system-prompt/reset" class="hidden"></form>
+  {# submit() из resetDefault() — программный, событие submit не стреляет и
+     csrf.js токен не подставит: держим поле прямо в форме. #}
+  <form id="promptResetForm" method="post" action="/settings/system-prompt/reset" class="hidden">{{ csrf_input(request) }}</form>
 </div>
 
 <script>

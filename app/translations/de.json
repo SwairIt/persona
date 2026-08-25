@@ -257,6 +257,7 @@
   "subtitle_welcome": "Ihre persönliche Gedächtnisebene. Nimmt Ihren Bildschirm auf, damit Sie in Ihrer Vergangenheit suchen können — was Sie gelesen, geschrieben, gesehen, entschieden haben. Alles bleibt auf Ihrem Gerät.",
   "subtitle_screenshot_use_arrows": "Pfeiltasten ← → verwenden",
   "footer_local": "100% lokal",
+  "footer_member_byok": "dein Konto, dein Modell",
   "footer_license": "AGPL-3.0",
   "ph_search_placeholder": "Treffen mit Anna · oder · \"Auth-Token\" · oder · Frage in eigenen Worten",
   "ph_query_help": "Hilfe zur Suchsyntax",
@@ -1397,6 +1398,7 @@
   "friends_outgoing": "Deine Anfragen",
   "friends_list": "Freunde",
   "friends_empty": "Noch leer. Finde jemanden über die Suche oben.",
+  "friends_empty_cta": "Leute finden",
   "friends_status_friends": "schon befreundet",
   "friends_status_outgoing": "Anfrage gesendet",
   "friends_status_incoming": "wartet auf dich",
@@ -1468,5 +1470,6 @@
   "social_notif_tg_privacy": "Der Token gehört nur dir, wird von keinem Endpunkt zurückgegeben und nie protokolliert. Ein leeres Feld löscht nichts.",
   "social_notif_tg_test": "Testnachricht senden",
   "social_notif_save": "Speichern",
-  "nav_notifications_social": "Benachrichtigungen"
+  "nav_notifications_social": "Benachrichtigungen",
+  "btn_rerun_ocr": "OCR erneut ausführen"
 }

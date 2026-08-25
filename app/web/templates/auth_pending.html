@@ -31,7 +31,10 @@
       <p style="color:var(--ink-faint);font-size:.9rem;margin-top:18px">
         Пока можно почитать <a href="/blog" style="color:var(--accent-400,#a78bfa)">блог</a>.
       </p>
+      {# Страница НЕ наследует base.html → csrf.js сюда не подключён, поле обязано
+         быть в разметке явно, иначе выход упрётся в 403 при csrf_mode=enforce. #}
       <form method="post" action="/auth/logout" style="margin-top:24px">
+        {{ csrf_input(request) }}
         <button type="submit" class="btn btn-ghost">Выйти</button>
       </form>
     </div>

@@ -42,8 +42,21 @@
     <span class="text-xs text-zinc-500">{{ count }} шт.</span>
   </div>
 
+  {# Новый аккаунт получает набор встроенных навыков, поэтому ветка «список
+     пуст» у него не срабатывает и подсказки «что дальше» не было вовсе —
+     экран выглядел законченным, хотя своего тут ещё ничего нет. Считаем
+     «пусто» по СВОИМ навыкам, а не по списку целиком. #}
+  {% set _own_skills = items | rejectattr('source_url', 'equalto', 'builtin') | list %}
+  {% if items and not _own_skills %}
+    <p data-empty-state="skills" class="text-xs text-zinc-500 mb-3">
+      Пока только встроенные навыки — они уже работают в чате. Свой добавляется
+      формой выше: ссылка на репозиторий, и всё.
+    </p>
+  {% endif %}
+
   {% if not items %}
-    <div class="rounded-xl border border-ink-700 bg-ink-800 p-8 text-center text-zinc-500 text-sm">
+    <div data-empty-state="skills"
+         class="rounded-xl border border-ink-700 bg-ink-800 p-8 text-center text-zinc-500 text-sm">
       Навыков пока нет. Установи первый по ссылке выше.
     </div>
   {% else %}

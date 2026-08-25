@@ -526,8 +526,16 @@
           [JSON.stringify({ svg_payload: payload })],
           { type: 'application/json' }
         );
+        // sendBeacon не умеет ставить заголовки, поэтому CSRF-токен уходит
+        // query-параметром — middleware читает ?csrf_token= именно для таких
+        // случаев (см. app/web/middleware/csrf.py). Токен берём из читаемой
+        // cookie persona_csrf, чтобы он был свежим после ротации сессии.
+        var csrfMatch = document.cookie.match(/(?:^|;\s*)persona_csrf=([^;]*)/);
+        var csrfQs = csrfMatch
+          ? '?csrf_token=' + encodeURIComponent(decodeURIComponent(csrfMatch[1]))
+          : '';
         navigator.sendBeacon(
-          '/api/screenshot/' + shotId + '/annotation/autosave',
+          '/api/screenshot/' + shotId + '/annotation/autosave' + csrfQs,
           blob
         );
       } catch (e) {

@@ -101,7 +101,12 @@
         <h3>Хочешь ИИ, который помнит тебя?</h3>
         <p>Persona видит твой день, помнит контекст и работает на твоём железе.</p>
         {% if session %}
-          <a href="/now" class="btn btn-primary">Открыть кабинет</a>
+          {# /now — лента владельца; участника она отбрасывала на /chat. #}
+          {% set _bp_owner = false %}
+          {% if request is defined and request.state is defined and request.state.is_owner is defined %}
+            {% set _bp_owner = request.state.is_owner %}
+          {% endif %}
+          <a href="{{ '/now' if _bp_owner else '/chat' }}" class="btn btn-primary">Открыть кабинет</a>
         {% else %}
           <a href="/auth/signup" class="btn btn-primary">Создать аккаунт</a>
         {% endif %}

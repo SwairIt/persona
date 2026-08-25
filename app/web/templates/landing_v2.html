@@ -1,3 +1,12 @@
+{# «В кабинет» на этой странице вело на /now — ленту ВЛАДЕЛЬЦА: залогиненный
+   участник жал единственную заметную кнопку и получал редирект гейта обратно
+   на /chat, будто вход сломан. Роль на публичной странице известна не всегда
+   (гейт отдаёт публичные пути ДО резолва личности), поэтому по умолчанию
+   ведём в /chat: он открыт обеим ролям и никогда не отскакивает. #}
+{% set _lp_owner = false %}
+{% if request is defined and request.state is defined and request.state.is_owner is defined %}
+  {% set _lp_owner = request.state.is_owner %}
+{% endif %}
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -63,7 +72,7 @@
       <a href="#compare">Сравнение</a>
       <a href="/blog">Блог</a>
       {% if session %}
-        <a href="/now" class="nav-cta">В кабинет</a>
+        <a href="{{ '/now' if _lp_owner else '/chat' }}" class="nav-cta">В кабинет</a>
       {% else %}
         <a href="#top" id="nav-login">Войти</a>
         <a href="#cta" class="nav-cta">Начать</a>
@@ -89,9 +98,14 @@
 
         {% if session %}
           <div class="welcome-back reveal">
-            <span>Вы вошли как <b>{{ session.display_name or session.email }}</b></span>
-            <a href="/now" class="btn btn-primary">В кабинет →</a>
+            <span>Ты вошёл как <b>{{ session.display_name or session.email }}</b></span>
+            <a href="{{ '/now' if _lp_owner else '/chat' }}" class="btn btn-primary">В кабинет →</a>
+            {# Единственная форма лендинга, которая уходит С сессией (остальные —
+               /auth/register, /auth/login, /auth/magic — до сессии и потому
+               освобождены от проверки). Лендинг не наследует base.html → csrf.js
+               здесь нет, поле ставим руками. #}
             <form method="post" action="/auth/logout" class="logout-inline">
+              {{ csrf_input(request) }}
               <button type="submit" class="linklike">выйти</button>
             </form>
           </div>
@@ -423,8 +437,8 @@
       <div class="cta-inner reveal">
         <h2>Готов к ИИ, который <span class="grad">помнит тебя</span>?</h2>
         {% if session %}
-          <p>Вы уже с нами, {{ session.display_name or session.email }}.</p>
-          <a href="/now" class="btn btn-primary btn-lg">Открыть кабинет</a>
+          <p>Ты уже с нами, {{ session.display_name or session.email }}.</p>
+          <a href="{{ '/now' if _lp_owner else '/chat' }}" class="btn btn-primary btn-lg">Открыть кабинет</a>
         {% else %}
           <p>Введи email — войдём или создадим аккаунт за секунду.</p>
           <form class="hero-cta cta-form" method="post" action="/auth/register">

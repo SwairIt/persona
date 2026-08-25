@@ -34,7 +34,9 @@
 
 <section class="rounded-lg border border-ink-700 bg-ink-800 p-5">
   <h2 class="text-lg font-semibold mb-3">{{ t('settings_backup_upload_heading') }}</h2>
-  <form action="/settings/backup/import" method="post" enctype="multipart/form-data"
+  {# multipart → токен только через ?csrf_token= (см. csrf.py: тело аплоада
+     намеренно не буферизуется). #}
+  <form action="/settings/backup/import?csrf_token={{ csrf_token(request) }}" method="post" enctype="multipart/form-data"
         class="space-y-4">
     <label class="block">
       <span class="block text-xs uppercase tracking-wider text-zinc-500 mb-1">

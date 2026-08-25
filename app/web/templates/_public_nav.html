@@ -3,10 +3,21 @@
   <nav class="nav-links">
     <a href="/features">Возможности</a>
     <a href="/pricing">Цена</a>
-    <a href="/#how">Как работает</a>
+    <a href="/landing#how">Как работает</a>
     <a href="/blog">Блог</a>
     {% if session %}
-      <a href="/now" class="nav-cta">В кабинет</a>
+      {# «В кабинет» вело на /now — личную ленту ВЛАДЕЛЬЦА. Залогиненный
+         участник, зашедший на любую публичную страницу (/pricing, /blog,
+         /help/connect-llm), нажимал единственную заметную кнопку и получал
+         редирект гейта обратно на /chat, будто вход сломан. /chat — вход в
+         кабинет, который работает у обеих ролей и не отскакивает.
+         Публичные страницы гейт отдаёт до резолва личности, поэтому роль тут
+         известна не всегда; когда известна — ведём владельца к нему домой. #}
+      {% set _pn_owner = false %}
+      {% if request is defined and request.state is defined and request.state.is_owner is defined %}
+        {% set _pn_owner = request.state.is_owner %}
+      {% endif %}
+      <a href="{{ '/now' if _pn_owner else '/chat' }}" class="nav-cta">В кабинет</a>
     {% else %}
       <a href="/auth/login">Войти</a>
       <a href="/auth/signup" class="nav-cta">Создать аккаунт</a>
