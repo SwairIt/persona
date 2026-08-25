@@ -27,12 +27,24 @@ delivered to the address *is* proof of control of that mailbox, so no separate
 "verify your email" flow, template or route is needed. A password-reset link
 counts too, for the same reason.
 
+Only where the mailbox is reachable
+-----------------------------------
+The penalty is conditional on the *instance* being able to send mail at all
+(:func:`mail_deliverable`). Verification here is only ever recorded by
+following a link that arrived in an inbox, so on a box with no SMTP relay
+nobody can become verified, ever — halving everyone's budget there punishes
+users for something physically impossible and looks exactly like the product
+being broken. When mail cannot be delivered, every account is treated as
+verified for throttling purposes; when it can, an unverified account pays the
+usual half. See :func:`unverified_penalty_applies`.
+
 Caching
 -------
 The flag is read on the request hot path (throttling), so results are cached
 per user for :data:`_TTL` seconds, capped at :data:`_MAX_CACHED` entries.
 A DB failure resolves to **unverified** (the stricter budget), never to
-verified — an error must not hand out the higher ceiling.
+verified — an error must not hand out the higher ceiling. Deliverability is
+one instance-wide answer and is cached separately (:data:`_MAIL_TTL`).
 """
 
 from __future__ import annotations
@@ -47,8 +59,11 @@ __all__ = [
     "UNVERIFIED_BUDGET_DIVISOR",
     "is_verified",
     "kv_key",
+    "mail_deliverable",
     "mark_verified",
     "reset_cache",
+    "reset_mail_cache",
+    "unverified_penalty_applies",
 ]
 
 #: Unverified accounts get ``limit // divisor`` (minimum 1) of every budget.
@@ -62,14 +77,29 @@ _TTL = 300.0
 _MAX_CACHED = 1024
 _cache: dict[int, tuple[bool, float]] = {}
 
+#: Instance-wide "can we send mail?" answer. Longer TTL than the per-user flag
+#: would buy little (SMTP settings change roughly never) and a stale *false*
+#: only ever means someone keeps the full budget for another five minutes.
+_MAIL_TTL = 300.0
+#: A one-slot dict rather than a module-level scalar, so nothing here needs
+#: ``global`` (same idiom as ``app.web.middleware.throttle._cache``).
+_mail_cache: dict[str, float | bool | None] = {"value": None, "checked_at": 0.0}
+
 
 def kv_key(user_id: int) -> str:
     return f"email_verified_{int(user_id)}"
 
 
 def reset_cache() -> None:
-    """Drop the per-user cache (tests / after marking someone verified)."""
+    """Drop the cached state (tests / after marking someone verified)."""
     _cache.clear()
+    reset_mail_cache()
+
+
+def reset_mail_cache() -> None:
+    """Forget whether mail is deliverable (called after /settings/smtp saves)."""
+    _mail_cache["value"] = None
+    _mail_cache["checked_at"] = 0.0
 
 
 async def mark_verified(user_id: int | None) -> None:
@@ -113,3 +143,54 @@ async def is_verified(user_id: int | None) -> bool:
         _cache.clear()
     _cache[uid] = (verified, now)
     return verified
+
+
+async def mail_deliverable() -> bool:
+    """True when this instance can actually deliver a verification email.
+
+    Source of truth is :func:`app.smtp_delivery.delivery_status` — the exact
+    configuration resolution ``send_email`` performs (kv wins, ``.env`` is the
+    fallback), so there is no second opinion about what "configured" means.
+    Only ``"ok"`` counts: ``smtp_enabled='true'`` with an empty ``smtp_host``
+    resolves to ``"misconfigured"`` and is NOT deliverable, which is precisely
+    the state prod was found in.
+
+    **Errors resolve to False (= no penalty), on purpose.** That is the
+    opposite of :func:`is_verified`'s fail-closed rule, and it is deliberate:
+    the unverified penalty is an anti-abuse *nicety* (it makes farming
+    throwaway accounts cost a real mailbox), not an access-control boundary.
+    Nothing is authorised by this answer — the configured throttle ceilings,
+    the auth gate, the owner-exclusive mode and the per-IP auth limiter all
+    still apply in full. Halving a paying member's budget because a kv read
+    hiccuped is a real, visible defect; letting an abuser have the ordinary
+    (already limited) budget during that hiccup is not.
+
+    Cached for :data:`_MAIL_TTL` seconds — this sits on the request hot path.
+    """
+    now = time.monotonic()
+    cached = _mail_cache["value"]
+    if cached is not None and now - float(_mail_cache["checked_at"] or 0.0) < _MAIL_TTL:
+        return bool(cached)
+    try:
+        from app.smtp_delivery import delivery_status  # noqa: PLC0415
+
+        deliverable = await delivery_status() == "ok"
+    except Exception as exc:  # noqa: BLE001 — see docstring: user-friendly side
+        log.debug("auth.verification.mail_probe_failed", error=str(exc))
+        return False
+    _mail_cache["value"] = deliverable
+    _mail_cache["checked_at"] = now
+    return deliverable
+
+
+async def unverified_penalty_applies(user_id: int | None) -> bool:
+    """Should this caller get the reduced budget?
+
+    Only when the instance can actually deliver mail *and* the account never
+    proved control of its address. On a mail-less instance every account —
+    including the anonymous ``None`` — gets the full budget, because becoming
+    verified there is impossible rather than merely neglected.
+    """
+    if not await mail_deliverable():
+        return False
+    return not await is_verified(user_id)

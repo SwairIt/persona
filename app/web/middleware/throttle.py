@@ -47,7 +47,11 @@ kv key                        default  meaning
 Accounts that never proved control of their email address (see
 :mod:`app.auth.verification`) get ``limit // UNVERIFIED_BUDGET_DIVISOR``
 (currently half), minimum 1, of every budget above. Anonymous callers are
-treated the same way.
+treated the same way. That penalty applies **only on an instance that can
+actually send mail** — verification is recorded by following a link from an
+inbox, so where no SMTP relay is configured nobody can ever become verified
+and halving everyone's budget would punish users for something impossible.
+:func:`app.auth.verification.unverified_penalty_applies` makes that call.
 
 A malformed or missing value falls back to the default — the limiter keeps
 limiting. A kv/DB failure does the same. There is no code path where an error
@@ -63,7 +67,7 @@ from typing import TYPE_CHECKING
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import HTMLResponse, JSONResponse
 
-from app.auth.verification import UNVERIFIED_BUDGET_DIVISOR, is_verified
+from app.auth.verification import UNVERIFIED_BUDGET_DIVISOR, unverified_penalty_applies
 from app.logging_setup import get_logger
 from app.web.rate_limit import allow as _rate_allow
 
@@ -331,9 +335,11 @@ class ThrottleMiddleware(BaseHTTPMiddleware):
 
         # Accounts that never proved control of their email address get a
         # fraction of the budget (see app/auth/verification.py). Anonymous
-        # callers are treated as unverified for the same reason.
+        # callers are treated as unverified for the same reason. On an
+        # instance that cannot send mail at all, verification is unreachable
+        # and the penalty is skipped entirely — full budget for everyone.
         uid = getattr(request.state, "user_id", None)
-        if not await is_verified(uid):
+        if await unverified_penalty_applies(uid):
             limit = max(1, limit // UNVERIFIED_BUDGET_DIVISOR)
 
         if not _rate_allow(f"thr:{bucket.name}:{key}", limit, bucket.window):

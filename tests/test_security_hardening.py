@@ -10,7 +10,8 @@
 3. **CSRF** — вывод токена из сессии, режимы off/report/enforce, приём токена
    из заголовка/формы/query, исключения для машинных префиксов.
 4. **Троттлинг** — per-user лимиты, освобождение владельца, урезанный бюджет
-   для неподтверждённого email, дружелюбный 429.
+   для неподтверждённого email (только там, где почта реально уходит),
+   дружелюбный 429.
 5. **Пароли и локаут** — стойкость пароля, экспоненциальный backoff по АККАУНТУ.
 6. **Доверенные прокси** — конфигурируемость через env/kv и одноразовый
    warning на XFF от чужого пира.
@@ -528,9 +529,45 @@ async def _sign_in(client: AsyncClient, user_id: int) -> None:
     client.cookies.set(SESSION_COOKIE_NAME, token)
 
 
+def _patch_delivery(monkeypatch: pytest.MonkeyPatch, outcome: str) -> None:
+    """Force what ``app.smtp_delivery.delivery_status`` answers.
+
+    ``"boom"`` makes the probe raise — the case where we cannot even decide
+    whether mail works. Тесты не ходят в сеть и не читают .env разработчика
+    (там реальный relay), поэтому подменяем именно источник правды.
+    """
+
+    async def _fake() -> str:
+        if outcome == "boom":
+            raise RuntimeError("kv read exploded")
+        return outcome
+
+    monkeypatch.setattr("app.smtp_delivery.delivery_status", _fake)
+    verification.reset_cache()
+
+
+@pytest.fixture
+def mail_works(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Инстанс УМЕЕТ слать письма — только тогда штраф неподтверждённым честен."""
+    _patch_delivery(monkeypatch, "ok")
+
+
+@pytest.fixture
+def no_smtp_env(monkeypatch: pytest.MonkeyPatch):
+    """Убрать PERSONA_SMTP_* из окружения/.env, чтобы правило решал только kv."""
+    from app.settings import get_settings
+
+    for name in ("ENABLED", "HOST", "PORT", "USER", "PASS", "TO", "FROM", "TLS"):
+        monkeypatch.setenv(f"PERSONA_SMTP_{name}", "")
+    get_settings.cache_clear()  # type: ignore[attr-defined]
+    verification.reset_cache()
+    yield
+    get_settings.cache_clear()  # type: ignore[attr-defined]
+
+
 @pytest.mark.asyncio
 async def test_member_hits_a_429_with_a_friendly_russian_message(
-    throttle_setup, db: aiosqlite.Connection
+    throttle_setup, db: aiosqlite.Connection, mail_works: None
 ) -> None:
     client, _owner, member = throttle_setup
     await set_kv(db, "throttle_llm_per_5min", "4")  # /2 неподтверждённому = 2
@@ -559,7 +596,7 @@ async def test_owner_is_never_throttled_out_of_his_own_instance(
 
 @pytest.mark.asyncio
 async def test_verified_member_gets_the_full_budget(
-    throttle_setup, db: aiosqlite.Connection
+    throttle_setup, db: aiosqlite.Connection, mail_works: None
 ) -> None:
     client, _owner, member = throttle_setup
     await set_kv(db, "throttle_llm_per_5min", "8")
@@ -573,7 +610,7 @@ async def test_verified_member_gets_the_full_budget(
 
 @pytest.mark.asyncio
 async def test_llm_budget_covers_generation_but_not_cheap_chat_crud(
-    throttle_setup, db: aiosqlite.Connection
+    throttle_setup, db: aiosqlite.Connection, mail_works: None
 ) -> None:
     """Лимит модели не должен мешать ЧИТАТЬ и переименовывать свои чаты."""
     client, _owner, member = throttle_setup
@@ -618,7 +655,7 @@ async def test_throttle_master_switch(throttle_setup, db: aiosqlite.Connection) 
 
 @pytest.mark.asyncio
 async def test_throttle_keys_on_the_user_not_the_ip(
-    throttle_setup, db: aiosqlite.Connection
+    throttle_setup, db: aiosqlite.Connection, mail_works: None
 ) -> None:
     """Два аккаунта с одного IP не должны съедать бюджет друг друга."""
     client, owner_user, member = throttle_setup
@@ -632,6 +669,127 @@ async def test_throttle_keys_on_the_user_not_the_ip(
 
     await _sign_in(client, second["id"])
     assert (await client.post("/api/copilot")).status_code == 200
+
+
+# ── 4b. Штраф за неподтверждённый email — только там, где почта уходит ───────
+#
+# Подтверждение ставится ТОЛЬКО переходом по ссылке из письма. Если инстанс не
+# умеет слать письма (у прод-kv было ровно так: smtp_enabled='true', но пустые
+# smtp_host/smtp_from), подтвердиться нельзя физически — значит и штрафовать
+# не за что.
+
+
+@pytest.mark.asyncio
+async def test_smtp_enabled_with_an_empty_host_is_not_deliverable(
+    db: aiosqlite.Connection, no_smtp_env: None
+) -> None:
+    """Ровно состояние прода: переключатель включён, релея нет."""
+    from app.smtp_delivery import delivery_status
+
+    await set_kv(db, "smtp_enabled", "true")
+    await set_kv(db, "smtp_host", "")
+    await set_kv(db, "smtp_from", "")
+    verification.reset_cache()
+
+    assert await delivery_status() == "misconfigured"
+    assert await verification.mail_deliverable() is False
+    assert await verification.unverified_penalty_applies(1) is False
+
+
+@pytest.mark.asyncio
+async def test_smtp_disabled_is_not_deliverable(
+    db: aiosqlite.Connection, no_smtp_env: None
+) -> None:
+    from app.smtp_delivery import delivery_status
+
+    await set_kv(db, "smtp_enabled", "false")
+    await set_kv(db, "smtp_host", "smtp.example.test")
+    await set_kv(db, "smtp_from", "persona@example.test")
+    verification.reset_cache()
+
+    assert await delivery_status() == "disabled"
+    assert await verification.mail_deliverable() is False
+
+
+@pytest.mark.asyncio
+async def test_a_complete_smtp_config_is_deliverable(
+    db: aiosqlite.Connection, no_smtp_env: None
+) -> None:
+    pytest.importorskip("aiosmtplib")
+    from app.smtp_delivery import delivery_status
+
+    await set_kv(db, "smtp_enabled", "true")
+    await set_kv(db, "smtp_host", "smtp.example.test")
+    await set_kv(db, "smtp_port", "587")
+    await set_kv(db, "smtp_from", "persona@example.test")
+    verification.reset_cache()
+
+    assert await delivery_status() == "ok"
+    assert await verification.mail_deliverable() is True
+    # …и только здесь неподтверждённый аккаунт действительно платит.
+    assert await verification.unverified_penalty_applies(1) is True
+
+
+@pytest.mark.asyncio
+async def test_a_failing_deliverability_probe_means_no_penalty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ошибка проверки — в пользу юзера: это анти-абуз, а не контроль доступа."""
+    _patch_delivery(monkeypatch, "boom")
+    assert await verification.mail_deliverable() is False
+    assert await verification.unverified_penalty_applies(1) is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["disabled", "misconfigured", "missing_dep", "boom"])
+async def test_unverified_member_keeps_the_full_budget_without_working_mail(
+    throttle_setup,
+    db: aiosqlite.Connection,
+    monkeypatch: pytest.MonkeyPatch,
+    outcome: str,
+) -> None:
+    client, _owner, member = throttle_setup
+    await set_kv(db, "throttle_llm_per_5min", "4")
+    throttle.reset_cache()
+    _patch_delivery(monkeypatch, outcome)
+    await _sign_in(client, member["id"])
+
+    for _ in range(4):  # весь бюджет, а не половина
+        assert (await client.post("/api/copilot")).status_code == 200
+    assert (await client.post("/api/copilot")).status_code == 429
+
+
+@pytest.mark.asyncio
+async def test_unverified_member_is_halved_when_mail_works(
+    throttle_setup, db: aiosqlite.Connection, mail_works: None
+) -> None:
+    """Сегодняшнее поведение сохраняется там, где подтвердиться реально можно."""
+    client, _owner, member = throttle_setup
+    await set_kv(db, "throttle_llm_per_5min", "4")
+    throttle.reset_cache()
+    await _sign_in(client, member["id"])
+
+    for _ in range(2):
+        assert (await client.post("/api/copilot")).status_code == 200
+    assert (await client.post("/api/copilot")).status_code == 429
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["ok", "misconfigured", "boom"])
+async def test_owner_is_exempt_whatever_the_mail_state(
+    throttle_setup,
+    db: aiosqlite.Connection,
+    monkeypatch: pytest.MonkeyPatch,
+    outcome: str,
+) -> None:
+    client, owner_user, _member = throttle_setup
+    await set_kv(db, "throttle_llm_per_5min", "1")
+    throttle.reset_cache()
+    _patch_delivery(monkeypatch, outcome)
+    await _sign_in(client, owner_user["id"])
+
+    for _ in range(6):
+        assert (await client.post("/api/copilot")).status_code == 200
 
 
 # ── 5. Пароли и локаут по аккаунту ───────────────────────────────────────────

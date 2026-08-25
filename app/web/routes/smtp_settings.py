@@ -113,6 +113,14 @@ async def smtp_settings_save(
         if smtp_pass and smtp_pass != _PASSWORD_MASK:
             await set_kv(conn, "smtp_pass", smtp_pass)
 
+    # Троттлинг спрашивает, уходит ли почта вообще: штраф неподтверждённым
+    # аккаунтам включается только там, где письмо реально можно доставить.
+    # Ответ кэшируется на 5 минут — после явного сохранения настроек честнее
+    # пересчитать сразу.
+    from app.auth.verification import reset_mail_cache  # noqa: PLC0415
+
+    reset_mail_cache()
+
     log.info(
         "smtp.settings.saved",
         enabled=incoming["smtp_enabled"],

@@ -55,6 +55,11 @@ _MISSING_DEP_HINT = (
     "Install it with `uv pip install aiosmtplib` and restart Persona."
 )
 
+#: What a *transactional* message (magic link, password reset — see
+#: :func:`send_email`) needs. ``smtp_to`` is not here: the recipient is an
+#: argument, not a setting.
+_TRANSACTIONAL_KEYS: tuple[str, ...] = ("smtp_host", "smtp_port", "smtp_from")
+
 
 async def _load_settings() -> dict[str, str]:
     """``smtp_*`` из ``kv_settings``; пустые ключи добираются из env/.env
@@ -215,6 +220,49 @@ async def send_digest_email(
     return {"status": "sent", "to": recipient}
 
 
+async def _transactional_state() -> tuple[str, dict[str, str], list[str]]:
+    """Resolve config once and answer *can we send a transactional mail?*
+
+    Returns ``(status, settings, missing)`` where ``status`` is one of
+    ``"disabled"`` / ``"misconfigured"`` / ``"missing_dep"`` / ``"ok"``.
+    Single source of truth for both :func:`send_email` and
+    :func:`delivery_status`, so a caller that only wants to *know* whether
+    mail works cannot drift from what an actual send would do.
+    """
+    settings = await _load_settings()
+    if settings["smtp_enabled"].strip().lower() != "true":
+        return "disabled", settings, []
+    missing = [k for k in _TRANSACTIONAL_KEYS if not settings.get(k, "").strip()]
+    if missing:
+        return "misconfigured", settings, missing
+    try:
+        import aiosmtplib  # noqa: F401, PLC0415 — presence probe for the optional dep
+    except ImportError:
+        return "missing_dep", settings, []
+    return "ok", settings, []
+
+
+async def delivery_status() -> str:
+    """Can this instance deliver email *at all* right now?
+
+    ``"ok"`` means the configuration is complete and the optional dependency
+    is installed — a send would at least be attempted. Every other value
+    (``"disabled"`` / ``"misconfigured"`` / ``"missing_dep"``) means no mail
+    can leave this box, so nothing that depends on a delivered message (a
+    magic link, hence email verification) is reachable here.
+
+    Note that ``smtp_enabled='true'`` with an empty ``smtp_host`` is
+    ``"misconfigured"``, not ``"ok"``: the switch being on says nothing about
+    whether a relay was ever filled in. Config is resolved by
+    :func:`_load_settings` (kv wins, ``.env`` is the fallback), so this
+    answers for the same settings a real send would use.
+
+    Raises whatever the config read raises — callers decide how to fail.
+    """
+    status, _settings, _missing = await _transactional_state()
+    return status
+
+
 async def send_email(
     to_addr: str,
     subject: str,
@@ -229,22 +277,16 @@ async def send_email(
     never raises for config/network problems. ``smtp_to`` is NOT required
     here (the recipient is the argument).
     """
-    settings = await _load_settings()
+    status, settings, missing = await _transactional_state()
 
-    if settings["smtp_enabled"].strip().lower() != "true":
+    if status == "disabled":
         return {"status": "disabled"}
-
-    missing = [
-        k for k in ("smtp_host", "smtp_port", "smtp_from")
-        if not settings.get(k, "").strip()
-    ]
-    if missing:
+    if status == "misconfigured":
         return {"status": "misconfigured", "missing": missing}
-
-    try:
-        import aiosmtplib  # noqa: PLC0415 — optional dep, imported lazily
-    except ImportError:
+    if status == "missing_dep":
         return {"status": "missing_dep", "hint": _MISSING_DEP_HINT}
+
+    import aiosmtplib  # noqa: PLC0415 — optional dep; presence checked above
 
     host = settings["smtp_host"].strip()
     port = _parse_port(settings["smtp_port"])
