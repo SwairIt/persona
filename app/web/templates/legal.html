@@ -13,39 +13,69 @@
   <link rel="manifest" href="/static/manifest.json" />
   <style>:root{color-scheme:dark}html,body{margin:0;background:#07070d;color:#eef0ff}</style>
   <link rel="stylesheet" href="/static/landing/style.css?v={{ app_version }}" />
-  {# Яндекс.Метрика (счётчик 111901324) — публичная маркетинговая страница. #}
+  {# Яндекс.Метрика (счётчик 111901324) — публичная страница. Партиал сам
+     держит согласие: без куки persona_consent=all он отдаёт только
+     consent.js (баннер), а код счётчика в разметку не попадает. #}
   {% include "_metrika.html" %}
+  <style>
+    .legal-body h2{font-size:1.18rem;margin:0 0 .6rem;color:#eef0ff}
+    .legal-body p{color:#bcc;line-height:1.7;margin:0 0 .7rem}
+    .legal-body p:last-child{margin-bottom:0}
+    .legal-body b{color:#e8eaff}
+    .legal-body code{background:rgba(255,255,255,.07);padding:.1em .4em;border-radius:5px;
+      font-size:.88em;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;color:#d9d3ff}
+    .legal-body a{color:#a78bfa}
+    .legal-body table td{border-bottom:1px solid rgba(255,255,255,.07)}
+    .legal-sec{margin-bottom:1.7rem;padding-bottom:.2rem}
+    .legal-toc{display:flex;flex-wrap:wrap;gap:.45rem .8rem;font-size:.88rem;margin:0 0 2.2rem;
+      padding:1rem 1.2rem;border:1px solid rgba(255,255,255,.09);border-radius:12px}
+    .legal-toc a{color:#a9c;text-decoration:none}
+    .legal-toc a:hover{color:#a78bfa;text-decoration:underline}
+  </style>
 </head>
 <body>
 {% include "_public_nav.html" %}
 
-<main style="max-width:780px;margin:0 auto;padding:6rem 1.25rem 4rem;">
+<main class="legal-body" style="max-width:820px;margin:0 auto;padding:6rem 1.25rem 3rem;">
 
   <header style="margin-bottom:2rem;">
-    <h1 style="font-size:clamp(1.8rem,4.5vw,2.6rem);line-height:1.12;margin:0 0 .75rem;">{{ title }}</h1>
-    <p style="font-size:1.1rem;color:#aab;line-height:1.6;margin:0;">{{ doc.lead }}</p>
-    <p style="font-size:.85rem;color:#778;margin:.75rem 0 0;">Обновлено: {{ updated }}</p>
+    <h1 style="font-size:clamp(1.7rem,4.2vw,2.4rem);line-height:1.15;margin:0 0 .75rem;">{{ title }}</h1>
+    <p style="font-size:1.05rem;color:#aab;line-height:1.65;margin:0;">{{ doc.lead }}</p>
+    <p style="font-size:.85rem;color:#778;margin:.75rem 0 0;">Редакция от {{ updated }}</p>
   </header>
 
+  {# Оглавление — юридические документы длинные, без него их не читают. #}
+  {% if doc.sections | length > 3 %}
+    <nav class="legal-toc" aria-label="Содержание">
+      {% for heading, _paras in doc.sections %}
+        <a href="#s{{ loop.index }}">{{ heading }}</a>
+      {% endfor %}
+    </nav>
+  {% endif %}
+
   {% for heading, paras in doc.sections %}
-    <section class="reveal" style="margin-bottom:1.6rem;">
-      <h2 style="font-size:1.2rem;margin:0 0 .5rem;">{{ heading }}</h2>
+    <section class="legal-sec reveal" id="s{{ loop.index }}">
+      <h2>{{ heading }}</h2>
+      {# Абзацы приходят из app/web/routes/landing.py — это код проекта, не
+         пользовательский ввод, поэтому размечать их ссылками и <b> безопасно.
+         Ничего снаружи (запрос, БД, форма) сюда не попадает. #}
       {% for p in paras %}
-        <p style="color:#bcc;line-height:1.65;margin:0 0 .6rem;">{{ p }}</p>
+        {% if p %}
+          {% if p.lstrip().startswith('<') %}{{ p | safe }}{% else %}<p>{{ p | safe }}</p>{% endif %}
+        {% endif %}
       {% endfor %}
     </section>
   {% endfor %}
 
-  <hr style="border:none;border-top:1px solid rgba(255,255,255,.08);margin:2rem 0;">
-  <nav style="display:flex;gap:1rem;flex-wrap:wrap;font-size:.92rem;">
-    <a href="/security" style="color:#a9c;">Безопасность</a>
-    <a href="/privacy-policy" style="color:#a9c;">Приватность</a>
-    <a href="/terms" style="color:#a9c;">Условия</a>
-    <a href="/features" style="color:#a9c;">Возможности</a>
-    <a href="/landing" style="color:#a9c;">На главную</a>
-  </nav>
-  <p style="font-size:.8rem;color:#667;margin-top:1.5rem;">Это не юридическая консультация — честное описание того, как Persona работает с данными.</p>
+  <hr style="border:none;border-top:1px solid rgba(255,255,255,.08);margin:2.2rem 0 1.4rem;">
+  <p style="font-size:.82rem;color:#667;margin:0;">
+    Документ описывает то, что реально делает код этого сервиса. Он не заменяет
+    юридическую консультацию: если вы оператор персональных данных, проверьте
+    формулировки с юристом до приёма платежей.
+  </p>
 
 </main>
+
+{% include "_public_footer.html" %}
 </body>
 </html>

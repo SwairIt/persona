@@ -33,6 +33,10 @@ router = APIRouter(tags=["settings-hub"])
 # Маппинг href → доп. ключевые слова (рус+eng), по которым тоже матчим.
 _KEYWORDS: Final[dict[str, str]] = {
     "/settings/api-tokens": "пароль ключ доступ token api безопасность",
+    "/settings/my-data": (
+        "мои данные выгрузка экспорт скачать удалить аккаунт удаление профиля "
+        "gdpr 152-фз персональные данные согласие приватность export delete account"
+    ),
     "/settings/theme": "тема оформление цвет dark light внешний вид appearance",
     "/settings/voice": "голос микрофон озвучка tts stt voice речь",
     "/settings/memory": "память факты помнит memory знает обо мне",
@@ -42,6 +46,8 @@ _KEYWORDS: Final[dict[str, str]] = {
     "/settings/llm": "модель провайдер ключ api llm gpt ollama claude",
     "/settings/llm/sharing": "поделиться одолжить дать доступ друг лимит квота share grant модель другу",
     "/settings/smtp": "почта email письмо уведомления smtp",
+    "/support": "поддержка написать владельцу связаться обратная связь помощь жалоба баг проблема support contact feedback админ",
+    "/settings/support": "поддержка ящик обращения тикеты входящие ответить пользователям support inbox tickets жалобы",
     "/vault": "секреты пароли заметки шифрование vault",
     "/settings/backup/manage": "бэкап резерв копия восстановление backup",
     "/audit": "аудит лог история действий audit log",
@@ -138,6 +144,14 @@ _MEMBER_CATEGORIES: Final[list[dict[str, object]]] = [
         "icon": "🔑",
         "pages": [
             ("/auth/set-password", "Пароль"),
+            # Права на свои данные (152-ФЗ): выгрузка всего и удаление аккаунта.
+            # Это НЕ владельческая /settings/privacy — та инстанс-глобальная и
+            # участнику закрыта (см. app/web/routes/my_data.py).
+            ("/settings/my-data", "Мои данные: скачать всё или удалить аккаунт"),
+            # Публичная форма (/support открыт гейтом всем) — участнику она
+            # нужна ровно так же, как анониму, а искать её в подвале
+            # публичных страниц из кабинета неочевидно.
+            ("/support", "Написать в поддержку владельцу"),
             ("/auth/logout", "Выйти"),
         ],
     },
@@ -265,6 +279,9 @@ _CATEGORIES: Final[list[dict[str, object]]] = [
         "pages": [
             ("/settings/integrations", "🔗 Интеграции — экспорт напоминаний в .ics + календари"),
             ("/settings/alice", "🗣️ Алиса (Яндекс) → Персона — голосовой навык с памятью"),
+            # Ящик обращений с публичной формы /support. Owner-only (гейт +
+            # свой _require_owner в app/web/routes/support_inbox.py).
+            ("/settings/support", "📮 Поддержка — что пишут люди с /support"),
             ("/settings/smtp", "Email (SMTP)"),
             ("/settings/feed-tokens", "RSS токены доступа"),
             ("/feeds/all-opml", "OPML экспорт всех лент"),

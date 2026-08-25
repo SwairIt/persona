@@ -72,6 +72,14 @@
      ВАЖНО: слушатель submit НЕ срабатывает на программном form.submit(), —
      такие формы обязаны нести {{ '{{ csrf_input(request) }}' }} явно. #}
   <script src="/static/csrf.js?v={{ app_version }}"></script>
+  {# Свой счётчик действий (клики по [data-track], сабмиты, уходы по внешним
+     ссылкам). Грузится СТРОГО после csrf.js: он шлёт POST /api/track, а
+     заголовок X-CSRF-Token на него вешает патч fetch из csrf.js.
+     ``defer`` — счётчик не имеет права задерживать первый рендер.
+     Это НЕ вебвизор: ни mousemove, ни scroll, ни значений полей; полный
+     разбор — в app/analytics/capture.py и в разделе «Собственная аналитика
+     сайта» Политики конфиденциальности. #}
+  <script src="/static/track.js?v={{ app_version }}" defer></script>
   {# Self-hosted вместо иностранных CDN: на РФ-сетях cdn.tailwindcss.com/unpkg
      часто троттлятся/недоступны → «сайт плохо грузит». Файлы идентичны, отдаём
      со своего origin + долгий Cache-Control. Порядок сохранён (tailwind до config). #}
@@ -166,7 +174,15 @@
   {% elif is_owner is defined %}
     {% set _metrika_owner = is_owner %}
   {% endif %}
-  {% if _metrika_owner %}{% include "_metrika.html" %}{% endif %}
+  {% if _metrika_owner %}
+    {% include "_metrika.html" %}
+  {% else %}
+    {# Участник счётчика не получает вовсе, но consent.js всё равно нужен: он
+       обслуживает ссылку «изменить решение о cookie» в подвале. Без
+       ``data-ym-id`` скрипт работает пассивно — баннер не показывает и
+       ничего не грузит (см. boot() в consent.js). #}
+    <script defer src="/static/consent.js?v={{ app_version | default('') }}"></script>
+  {% endif %}
   <script>
     tailwind.config = {
       darkMode: 'class',
@@ -440,6 +456,15 @@
             {% if _owner_view %}
             <template x-if="isOwner">
               <div>
+                {# Вход в рут и в аналитику — ПЕРВЫМИ пунктами чипа. Ссылка на
+                   /root в навбаре была и раньше, но лежала последней из
+                   девятнадцати в выпадашке «Ещё», то есть её фактически не
+                   было. Условие — серверный {% if %} на роли из
+                   request.state.is_owner, а не CSS-класс и не x-if по ответу
+                   API: у участника этих двух строк не должно быть в разметке
+                   вообще (это проверяет tests/test_owner_analytics.py). #}
+                <a href="/root" class="block px-3 py-2 text-sm text-zinc-300 hover:bg-ink-800 border-b border-ink-800">{{ t('nav_root') }} — {{ t('acct_root_hint') }}</a>
+                <a href="/root/analytics" class="block px-3 py-2 text-sm text-zinc-300 hover:bg-ink-800 border-b border-ink-800">{{ t('acct_site_analytics') }}</a>
                 <a href="/settings/hub" class="block px-3 py-2 text-sm text-zinc-300 hover:bg-ink-800">⚙️ {{ t('nav_settings') }}</a>
                 <a href="/settings/memory" class="block px-3 py-2 text-sm text-zinc-300 hover:bg-ink-800">🧠 {{ t('acct_memory') }}</a>
                 <a href="/settings/system-monitor" class="block px-3 py-2 text-sm text-zinc-300 hover:bg-ink-800">🖥️ {{ t('acct_monitor') }}</a>
@@ -554,8 +579,23 @@
      данные лежат не на его машине. Ему говорим то, что правда: аккаунт свой,
      ассистент работает на его модели. #}
   <footer class="border-t border-ink-700 mt-16 py-6 text-center text-xs text-zinc-500">
-    <a href="https://github.com/SwairIt/persona" class="hover:text-zinc-300">github.com/SwairIt/persona</a>
-    · {% if _owner_view %}{{ t('footer_local') }}{% else %}{{ t('footer_member_byok') }}{% endif %} · {{ t('footer_license') }}
+    <div>
+      <a href="https://github.com/SwairIt/persona" class="hover:text-zinc-300">github.com/SwairIt/persona</a>
+      · {% if _owner_view %}{{ t('footer_local') }}{% else %}{{ t('footer_member_byok') }}{% endif %} · {{ t('footer_license') }}
+    </div>
+    {# Юридический блок обязан быть доступен и из кабинета, а не только с
+       публичного лендинга: участник заводит аккаунт и платит именно отсюда. #}
+    <div class="mt-2 flex flex-wrap justify-center gap-x-2 gap-y-1">
+      <a href="/privacy-policy" class="hover:text-zinc-300">{{ t('footer_privacy') }}</a> ·
+      <a href="/privacy-policy/consent" class="hover:text-zinc-300">{{ t('footer_consent') }}</a> ·
+      <a href="/terms" class="hover:text-zinc-300">{{ t('footer_terms') }}</a> ·
+      <a href="/terms/offer" class="hover:text-zinc-300">{{ t('footer_offer') }}</a> ·
+      <a href="/terms/refund" class="hover:text-zinc-300">{{ t('footer_refund') }}</a> ·
+      <a href="/terms/requisites" class="hover:text-zinc-300">{{ t('footer_requisites') }}</a> ·
+      <a href="/security" class="hover:text-zinc-300">{{ t('footer_security') }}</a> ·
+      <a href="/privacy-policy/cookies" class="hover:text-zinc-300">{{ t('footer_cookies') }}</a> ·
+      <a href="#" data-consent-open class="hover:text-zinc-300">{{ t('footer_cookie_settings') }}</a>
+    </div>
   </footer>
 
   {# Голос по умолчанию — плавающая кнопка-микрофон на всех страницах,

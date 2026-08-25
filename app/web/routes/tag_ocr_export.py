@@ -204,8 +204,18 @@ def _safe_filename_slug(name: str) -> str:
     ``_`` so the suggested download name is portable across browsers
     and shells. Empty result falls back to ``tag`` so we never emit
     ``persona-tag-ocr-.txt``.
+
+    ``str.isalnum()`` is True for Cyrillic, CJK and every other unicode
+    letter, so the original filter let non-ASCII straight through into the
+    plain ``filename="…"`` parameter. HTTP header values are latin-1, so any
+    Russian tag — the common case on this instance — turned this endpoint
+    into a hard 500 (``UnicodeEncodeError``) at response-send time, after the
+    export body had already been built. ASCII is checked explicitly; the
+    readable name still travels in the RFC 5987 ``filename*`` parameter.
     """
-    cleaned_chars = [c if (c.isalnum() or c in "-_") else "_" for c in name]
+    cleaned_chars = [
+        c if ((c.isascii() and c.isalnum()) or c in "-_") else "_" for c in name
+    ]
     slug = "".join(cleaned_chars).strip("_")
     return slug or "tag"
 

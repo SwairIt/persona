@@ -157,15 +157,27 @@ async def test_member_hub_lists_exactly_the_shipped_pages(hub_setup):
         "/settings/notifications-social",
         "/settings/theme",
         "/auth/set-password",
+        # Права на свои данные (152-ФЗ): выгрузка + удаление аккаунта.
+        "/settings/my-data",
+        # Обращение в поддержку — публичная страница (её видит и гость),
+        # поэтому она в _PUBLIC_PREFIXES, а не в member-списке гейта.
+        "/support",
         "/auth/logout",
     ]
 
 
 def test_member_catalogue_never_leaves_the_free_surface():
-    """Каждая member-ссылка либо открыта гейтом, либо это /auth/* (public)."""
+    """Каждая member-ссылка достижима участником: member-путь ИЛИ публичный.
+
+    Гейт пропускает публичные префиксы раньше, чем доходит до member-проверки,
+    поэтому публичная страница (``/support``, ``/auth/*``) участнику доступна.
+    Проверяем оба пути — иначе тест запрещал бы класть в каталог совершенно
+    легальные публичные страницы.
+    """
     for cat in hub._MEMBER_CATEGORIES:
         for href, _label in cat["pages"]:  # type: ignore[union-attr]
-            assert href.startswith("/auth/") or auth_gate._is_member_path(href), href
+            reachable = auth_gate._is_member_path(href) or auth_gate._is_public_path(href)
+            assert reachable, href
 
 
 @pytest.mark.asyncio

@@ -285,7 +285,23 @@ def _generate_sync(app_name: str) -> tuple[bytes, str]:
     a slow / unavailable extractor never propagates a user-visible error.
     """
     if sys.platform == "win32":
-        windows_png = _extract_windows_exe_png(app_name)
+        # The cascade promises "any miss or failure falls through", and the
+        # route above promises it never fails ("every string yields a valid
+        # PNG"). Step 1 walks live processes and touches paths owned by other
+        # Windows accounts, so it can raise things no caller can enumerate in
+        # advance — the concrete case that hit production was a
+        # PermissionError out of ``Path.exists()``. Make the promise true
+        # here rather than trusting every future Win32 edge to behave.
+        try:
+            windows_png = _extract_windows_exe_png(app_name)
+        except Exception as exc:  # noqa: BLE001 — the initials tile is the floor
+            log.warning(
+                "app_icons.windows_exe_failed",
+                app_name=app_name,
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
+            windows_png = None
         if windows_png is not None:
             return windows_png, _SOURCE_WINDOWS_EXE
 
@@ -356,8 +372,16 @@ def _resolve_running_exe(app_name: str) -> Path | None:
 
     Returns the first matching path that still exists on disk, or
     ``None`` if no candidate is found / psutil is unavailable. Suppresses
-    ``NoSuchProcess`` / ``AccessDenied`` per-row because a vanishing
-    process must not abort the scan.
+    ``NoSuchProcess`` / ``AccessDenied`` *and* ``OSError`` per-row because
+    neither a vanishing process nor an unreadable path must abort the scan.
+
+    The ``OSError`` arm is load-bearing on Windows, not defensive padding.
+    ``Path.exists()`` re-raises anything other than "not found" — a
+    ``PermissionError`` (WinError 5) is *not* swallowed — and a Persona
+    server running as one Windows account routinely sees processes whose
+    exe lives under a different user's protected profile
+    (``C:\\Users\\<other>\\AppData\\Roaming\\...``). Every
+    ``GET /app-icon/{app}.png`` for such an app was a hard 500.
     """
     try:
         import psutil  # noqa: PLC0415 — keep psutil out of import path on non-Windows
@@ -379,7 +403,7 @@ def _resolve_running_exe(app_name: str) -> Path | None:
                     candidate = Path(exe)
                     if candidate.exists():
                         return candidate
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
+        except (psutil.NoSuchProcess, psutil.AccessDenied, OSError):
             continue
     return None
 

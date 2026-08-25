@@ -13,9 +13,26 @@ if TYPE_CHECKING:
 
 
 def test_worker_token_backup_is_gitignored() -> None:
+    """Бэкап токена воркера не должен попадать в git.
+
+    Раньше тест искал в .gitignore буквальную строку ``.env.persona-worker.bak``.
+    Правило заменили на общее ``.env.*`` (перечисление по именам пропускало
+    новые файлы вроде ``.env.prod``), и тест упал, хотя защита стала шире.
+    Спрашиваем git напрямую: важно, ИГНОРИРУЕТСЯ ли файл, а не какой строкой.
+    """
+    import subprocess  # noqa: PLC0415 — нужен только здесь
+
     repo_root = Path(__file__).resolve().parent.parent
-    rules = (repo_root / ".gitignore").read_text(encoding="utf-8").splitlines()
-    assert ".env.persona-worker.bak" in rules
+    result = subprocess.run(  # noqa: S603
+        ["git", "check-ignore", "-q", ".env.persona-worker.bak"],  # noqa: S607
+        cwd=repo_root,
+        check=False,
+        capture_output=True,
+    )
+    assert result.returncode == 0, (
+        ".env.persona-worker.bak НЕ игнорируется git — бэкап токена воркера "
+        "может уехать в репозиторий."
+    )
 
 
 def test_windows_launcher_recovers_local_ollama() -> None:

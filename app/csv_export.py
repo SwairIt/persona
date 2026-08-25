@@ -266,7 +266,7 @@ def _format_screenshot_row(row: object) -> tuple[object, ...]:
         row["app_name"],  # type: ignore[index]
         row["window_title"],  # type: ignore[index]
         row["ocr_text"],  # type: ignore[index]
-        row["pinned_at"],  # type: ignore[index]
+        row["pinned_at"],  # type: ignore[index]  # aliased from tier/created_at
         1 if row["alt_text"] is not None else 0,  # type: ignore[index]
     )
 
@@ -279,6 +279,8 @@ async def stream_screenshots_csv(
 
     Columns (in order): ``id``, ``captured_at``, ``app_name``,
     ``window_title``, ``ocr_text``, ``pinned_at``, ``has_alt``.
+  ``pinned_at`` is derived from ``tier = 'pinned'`` (there is no
+  ``pinned_at`` column in the schema).
     ``has_alt`` is the boolean ``alt_text IS NOT NULL``, surfaced as the
     integer ``1`` / ``0`` so downstream pandas / DuckDB readers parse it
     as a numeric column without extra ``read_csv`` hints.
@@ -289,9 +291,15 @@ async def stream_screenshots_csv(
     df = _normalise_date(date_from)
     dt = _normalise_date(date_to)
     extra_where, extra_params = _build_date_filter("captured_at", df, dt)
+    # ``screenshots.pinned_at`` does not exist: pinning is the ``tier =
+    # 'pinned'`` enum flipped in place (see app/pinboard.py). The column was
+    # invented by an earlier agent and made this endpoint a hard 500. We keep
+    # the public header name and derive the value — ``created_at`` for a
+    # pinned shot, empty otherwise — exactly like the pinboard does.
     base_sql = (
         "SELECT id, captured_at, app_name, window_title, ocr_text, "
-        "pinned_at, alt_text FROM screenshots WHERE"
+        "CASE WHEN tier = 'pinned' THEN created_at ELSE '' END AS pinned_at, "
+        "alt_text FROM screenshots WHERE"
     )
     log.info("screenshots.csv.stream.start", date_from=df, date_to=dt)
     async for chunk in _stream_paginated(
@@ -427,7 +435,7 @@ def _format_audio_segment_row(row: object) -> tuple[object, ...]:
         int(row["id"]),  # type: ignore[index]
         str(row["started_at"]),  # type: ignore[index]
         str(row["ended_at"]),  # type: ignore[index]
-        float(row["duration_s"]),  # type: ignore[index]
+        float(row["duration_s"] or 0.0),  # type: ignore[index]
         str(row["codec"]),  # type: ignore[index]
         row["bitrate"],  # type: ignore[index]
         row["transcript"],  # type: ignore[index]
@@ -447,13 +455,20 @@ async def stream_audio_segments_csv(
     they leak the data-dir layout (a privacy footgun) and the size is
     derivable post-export from the transcript length / codec.
 
-    The date window filters on ``started_at``.
+    The date window filters on the segment start.
+
+    Schema note — the table's real columns are ``captured_at`` and
+    ``duration_seconds``; the ``started_at`` / ``duration_s`` names in the
+    CSV header are the *public* export contract and are produced with SQL
+    aliases. Selecting the header names directly is what made this endpoint
+    a hard 500 ("no such column: started_at") for its entire life.
     """
     df = _normalise_date(date_from)
     dt = _normalise_date(date_to)
-    extra_where, extra_params = _build_date_filter("started_at", df, dt)
+    extra_where, extra_params = _build_date_filter("captured_at", df, dt)
     base_sql = (
-        "SELECT id, started_at, ended_at, duration_s, codec, bitrate, "
+        "SELECT id, captured_at AS started_at, ended_at, "
+        "duration_seconds AS duration_s, codec, bitrate, "
         "transcript, locale FROM audio_segment WHERE"
     )
     log.info("audio_segments.csv.stream.start", date_from=df, date_to=dt)

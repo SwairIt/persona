@@ -1,0 +1,63 @@
+#!/bin/sh
+# Persona secret-hygiene pre-commit hook.
+#
+# Blocks a commit whose staged diff contains a credential-shaped string, or
+# whose staged filenames are ones that must never be tracked (.env, *.pem,
+# billing_secrets.json, *.db, Telegram *.session ...).
+#
+# Runs on the STAGED DIFF ONLY, so it stays fast (typically well under a
+# second) regardless of how large the working tree is.
+#
+# Portability: Git for Windows ships its own POSIX `sh` and runs hooks through
+# it, so this same file works from Git Bash, PowerShell, cmd, and any GUI
+# client on this box, as well as on macOS/Linux.
+#
+# Install:  sh ops/install_hooks.sh      (or:  pwsh ops/install_hooks.ps1)
+# Bypass :  PERSONA_SKIP_SECRET_SCAN=1 git commit ...
+# Docs   :  docs/SECRET_HYGIENE.md
+
+set -e
+
+if [ -n "$PERSONA_SKIP_SECRET_SCAN" ]; then
+    echo "secret-scan: skipped (PERSONA_SKIP_SECRET_SCAN is set)" >&2
+    exit 0
+fi
+
+repo_root=$(git rev-parse --show-toplevel) || exit 0
+scanner="$repo_root/ops/secret_scan.py"
+
+# The scanner living in the repo is the point of truth. If someone deletes it,
+# fail loudly rather than silently waving commits through.
+if [ ! -f "$scanner" ]; then
+    echo "secret-scan: ERROR ops/secret_scan.py is missing - refusing to commit blind." >&2
+    echo "  Restore it, or bypass once with PERSONA_SKIP_SECRET_SCAN=1." >&2
+    exit 1
+fi
+
+# Find a usable Python. `py -3` is the Windows launcher; `python3`/`python`
+# cover everything else. A repo venv wins if it is present.
+py=""
+for candidate in \
+    "$repo_root/.venv/Scripts/python.exe" \
+    "$repo_root/.venv/bin/python" \
+    python3 \
+    python
+do
+    if command -v "$candidate" >/dev/null 2>&1; then py="$candidate"; break; fi
+done
+if [ -z "$py" ] && command -v py >/dev/null 2>&1; then py="py -3"; fi
+
+if [ -z "$py" ]; then
+    echo "secret-scan: ERROR no Python interpreter found - cannot scan." >&2
+    echo "  Install Python, or bypass once with PERSONA_SKIP_SECRET_SCAN=1." >&2
+    exit 1
+fi
+
+# shellcheck disable=SC2086  # $py may legitimately be "py -3"
+$py "$scanner" --staged --root "$repo_root" || {
+    echo "" >&2
+    echo "COMMIT BLOCKED by secret-scan." >&2
+    exit 1
+}
+
+exit 0

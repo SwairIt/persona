@@ -117,5 +117,15 @@
 
     <p style="margin-top:20px;text-align:center"><a href="/landing" style="color:var(--ink-faint)">← На главную</a></p>
   </main>
+
+  {# Юридический подвал. Нужен не из-за оплаты (её тут сейчас нет), а потому что
+     страница показывает данные аккаунта: политика, согласие на обработку ПДн и
+     реквизиты должны быть достижимы отсюда. Шаблон standalone — base.html он не
+     наследует, стили .footer приезжают с landing/style.css выше. #}
+  {% include "_public_footer.html" %}
+
+  {# Счётчика тут нет (страница noindex и приватная), но consent.js нужен ради
+     ссылки «Настройки cookie» в подвале — ровно как в base.html для участника. #}
+  <script defer src="/static/consent.js?v={{ app_version }}"></script>
 </body>
 </html>

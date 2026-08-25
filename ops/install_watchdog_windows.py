@@ -1,22 +1,34 @@
-"""Установщик Windows Scheduled Task для persona_watchdog (S9).
+"""Установщик Windows Scheduled Tasks для Persona (S9).
 
-Регистрирует задачу ``PersonaWatchdog`` через ``schtasks``, которая раз в
-минуту запускает ``ops/persona_watchdog.py`` тем же pythonw, что и сервер.
-Пути НЕ захардкожены — определяются так же, как в самом watchdog (от
-расположения файла + env-override), поэтому установщик портативен: на
-любой машине ставит задачу с правильными путями.
+ЭТОТ ФАЙЛ — ТОНКАЯ ОБЁРТКА. Вся правда о задачах живёт в
+``ops/install_persona_autostart_windows.ps1``; здесь только привычный
+python-CLI поверх него.
+
+ПОЧЕМУ так. Раньше этот скрипт звал ``schtasks /Create ... /RL LIMITED``,
+что даёт принципала ``LogonType=InteractiveToken`` — «выполнять только для
+вошедшего пользователя». При выходе владельца из Windows-сессии задача
+останавливается, watchdog умирает, а вместе с ним и порождённый им uvicorn:
+сайт ложится до следующего логина. Ровно этот баг и переустанавливался
+заново при каждом прогоне установщика.
+
+Правильная конфигурация (S4U-принципал без пароля + AtStartup-триггер +
+StartWhenAvailable) собирается только PowerShell-скриптом — ``schtasks``
+не умеет S4U без хранения пароля. Поэтому здесь мы делегируем.
+
+ВАЖНО: установка ТРЕБУЕТ ЗАПУСКА ОТ АДМИНИСТРАТОРА. Неадминский шелл
+получает ``Access is denied`` (0x80070005) ровно на трёх вещах:
+``LogonType=S4U``, ``RunLevel=Highest`` и ``BootTrigger``. Подробности,
+проверка и откат — ``docs/ALWAYS_ON_WINDOWS.md``.
 
 Использование::
 
-    # из корня репо (или откуда угодно — пути автоопределяются):
     .venv\\Scripts\\python.exe ops\\install_watchdog_windows.py            # установить
-    .venv\\Scripts\\python.exe ops\\install_watchdog_windows.py --dry-run  # показать команду
+    .venv\\Scripts\\python.exe ops\\install_watchdog_windows.py --dry-run  # показать план
     .venv\\Scripts\\python.exe ops\\install_watchdog_windows.py --uninstall
 
-Env-override (как у watchdog): ``PERSONA_REPO``, ``PERSONA_PYEXE``,
-``PERSONA_DATA_DIR``; плюс ``PERSONA_WATCHDOG_TASK`` — имя задачи
-(деф. ``PersonaWatchdog``), ``PERSONA_WATCHDOG_INTERVAL`` — период в
-минутах (деф. ``1``).
+Env-override: ``PERSONA_REPO``, ``PERSONA_PYEXE`` (их читает и .ps1),
+``PERSONA_WATCHDOG_INTERVAL`` — период watchdog в минутах (деф. ``1``),
+``PERSONA_MEMPROC_INTERVAL`` — период memproc в минутах (деф. ``10``).
 """
 
 from __future__ import annotations
@@ -27,8 +39,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-TASK_NAME = os.environ.get("PERSONA_WATCHDOG_TASK", "PersonaWatchdog")
-INTERVAL_MIN = os.environ.get("PERSONA_WATCHDOG_INTERVAL", "1")
+WATCHDOG_INTERVAL_MIN = os.environ.get("PERSONA_WATCHDOG_INTERVAL", "1")
+MEMPROC_INTERVAL_MIN = os.environ.get("PERSONA_MEMPROC_INTERVAL", "10")
 
 
 def _detect_repo() -> str:
@@ -36,59 +48,30 @@ def _detect_repo() -> str:
     env = os.environ.get("PERSONA_REPO")
     if env:
         return env
-    # ops/install_watchdog_windows.py → parent=ops, parent.parent=корень
     return str(Path(__file__).resolve().parent.parent)
 
 
-def _detect_pyexe(repo: str) -> str:
-    """pythonw из venv репо → pythonw рядом с интерпретатором → sys.executable.
-
-    Та же логика, что в persona_watchdog: pythonw не плодит консольных окон.
-    """
-    env = os.environ.get("PERSONA_PYEXE")
-    if env:
-        return env
-    venv_pyw = Path(repo) / ".venv" / "Scripts" / "pythonw.exe"
-    if venv_pyw.exists():
-        return str(venv_pyw)
-    sibling = Path(sys.executable).with_name("pythonw.exe")
-    if sibling.exists():
-        return str(sibling)
-    return sys.executable
+def _installer_ps1(repo: str) -> Path:
+    return Path(repo) / "ops" / "install_persona_autostart_windows.ps1"
 
 
-def _build_command(repo: str, pyexe: str) -> str:
-    """Команда задачи: ``"<pyexe>" "<repo>/ops/persona_watchdog.py"``.
-
-    Кавычки обязательны — пути могут содержать пробелы. Путь к скрипту —
-    абсолютный, т.к. schtasks не задаёт рабочий каталог (watchdog сам
-    выставляет cwd=REPO для uvicorn).
-    """
-    script = str(Path(repo) / "ops" / "persona_watchdog.py")
-    return f'"{pyexe}" "{script}"'
-
-
-def _schtasks_create(command: str) -> list[str]:
-    # /SC MINUTE /MO N — каждые N минут; /F — перезаписать без вопроса;
-    # /RL LIMITED — без повышения прав (задача под текущим юзером).
-    return [
-        "schtasks", "/Create",
-        "/TN", TASK_NAME,
-        "/TR", command,
-        "/SC", "MINUTE",
-        "/MO", str(INTERVAL_MIN),
-        "/RL", "LIMITED",
-        "/F",
+def _build_cmd(repo: str, *, uninstall: bool, dry_run: bool) -> list[str]:
+    cmd = [
+        "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+        "-File", str(_installer_ps1(repo)),
+        "-WatchdogIntervalMinutes", str(WATCHDOG_INTERVAL_MIN),
+        "-MemprocIntervalMinutes", str(MEMPROC_INTERVAL_MIN),
     ]
-
-
-def _schtasks_delete() -> list[str]:
-    return ["schtasks", "/Delete", "/TN", TASK_NAME, "/F"]
+    if uninstall:
+        cmd.append("-Uninstall")
+    if dry_run:
+        cmd.append("-DryRun")
+    return cmd
 
 
 def _run(cmd: list[str]) -> int:
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
     except (OSError, subprocess.SubprocessError) as exc:  # pragma: no cover
         print(f"FAILED to run {cmd[0]}: {exc}", file=sys.stderr)
         return 1
@@ -100,44 +83,34 @@ def _run(cmd: list[str]) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Install Persona watchdog Scheduled Task.")
-    parser.add_argument("--uninstall", action="store_true", help="удалить задачу")
+    parser = argparse.ArgumentParser(
+        description="Install the Persona always-on Scheduled Tasks (needs an elevated shell).",
+    )
+    parser.add_argument("--uninstall", action="store_true", help="удалить обе задачи")
     parser.add_argument(
         "--dry-run", action="store_true",
-        help="показать команду schtasks, ничего не выполняя",
+        help="показать, что будет сделано, ничего не выполняя",
     )
     args = parser.parse_args(argv)
 
-    if os.name != "nt" and not args.dry_run:
-        print("Эта команда работает только на Windows (schtasks).", file=sys.stderr)
+    repo = _detect_repo()
+    ps1 = _installer_ps1(repo)
+    if not ps1.exists():
+        print(f"Не найден установщик: {ps1}", file=sys.stderr)
+        return 1
+
+    cmd = _build_cmd(repo, uninstall=args.uninstall, dry_run=args.dry_run)
+
+    if os.name != "nt":
+        print("Эта команда работает только на Windows (Scheduled Tasks).", file=sys.stderr)
+        print(subprocess.list2cmdline(cmd))
         return 2
 
-    if args.uninstall:
-        cmd = _schtasks_delete()
-        if args.dry_run:
-            print(subprocess.list2cmdline(cmd))
-            return 0
-        return _run(cmd)
-
-    repo = _detect_repo()
-    pyexe = _detect_pyexe(repo)
-    command = _build_command(repo, pyexe)
-    cmd = _schtasks_create(command)
-
-    print(f"Task   : {TASK_NAME} (каждые {INTERVAL_MIN} мин)")
-    print(f"Repo   : {repo}")
-    print(f"PyExe  : {pyexe}")
-    print(f"Run    : {command}")
-
-    if args.dry_run:
-        print("--- schtasks ---")
-        print(subprocess.list2cmdline(cmd))
-        return 0
-
-    rc = _run(cmd)
-    if rc == 0:
-        print(f"\nУстановлено. Управление: schtasks /Query|/Run|/Change|/Delete /TN {TASK_NAME}")
-    return rc
+    print(f"Repo : {repo}")
+    print(f"Via  : {ps1}")
+    print(f"Cmd  : {subprocess.list2cmdline(cmd)}")
+    print("-" * 60)
+    return _run(cmd)
 
 
 if __name__ == "__main__":

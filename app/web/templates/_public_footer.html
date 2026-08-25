@@ -1,0 +1,31 @@
+{# Единый подвал публичных страниц.
+
+   Каждая юридическая страница обязана быть достижима с ЛЮБОЙ публичной
+   страницы — этого требуют и 152-ФЗ (политика должна быть в свободном
+   доступе), и модерация платёжных провайдеров (оферта/возврат/реквизиты
+   ищутся именно по ссылкам в подвале). Раньше подвал лендинга вёл только на
+   блог, справку и репозиторий — юридического блока не было вообще.
+
+   Подключается в standalone-шаблонах (они НЕ наследуют base.html): landing_v2,
+   legal, infopage, features, compare, blog_*. У base.html свой подвал —
+   ссылки там продублированы вручную. #}
+<footer class="footer">
+  <span>Persona{% if app_version is defined %} <span style="opacity:.6">v{{ app_version }}</span>{% endif %}</span>
+  <span class="footer-links" style="display:flex;flex-wrap:wrap;gap:.35rem .5rem;justify-content:center;">
+    <a href="/privacy-policy">Конфиденциальность</a> ·
+    <a href="/privacy-policy/consent">Согласие на обработку ПДн</a> ·
+    <a href="/terms">Пользовательское соглашение</a> ·
+    <a href="/terms/offer">Оферта</a> ·
+    <a href="/terms/refund">Возврат</a> ·
+    <a href="/terms/requisites">Реквизиты</a> ·
+    <a href="/security">Безопасность</a> ·
+    <a href="/privacy-policy/cookies">Cookie</a> ·
+    <a href="#" data-consent-open>Настройки cookie</a> ·
+    <a href="/blog">Блог</a> ·
+    <a href="/help">Справка</a> ·
+    {# Единственная точка входа «написать живому человеку». Стоит в подвале
+       потому, что нужнее всего она тем, кто НЕ смог войти: у них нет ни
+       навбара кабинета, ни настроек — только публичная страница и её подвал. #}
+    <a href="/support">Написать в поддержку</a>
+  </span>
+</footer>

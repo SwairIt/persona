@@ -11,6 +11,7 @@ many screenshots a collection contains.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import secrets
 import time
@@ -33,6 +34,27 @@ logger = get_logger(__name__)
 # (admin pick, missing cover, fallback). Kept separate from the generic
 # ``logger`` so an operator can grep just the cover-flow noise.
 cover_log = get_logger("persona.collection.cover")
+
+
+def token_fingerprint(token: str) -> str:
+    """Return a short, non-reversible label for a share token, for logs.
+
+    A share token IS the capability: anyone holding it can open the
+    collection. Writing it into a log line hands a working share link to
+    everyone with log access — the same class of leak that was closed for
+    magic-link and password-reset tokens in commit ``6a806dc``.
+
+    The event still has to be traceable, though: an operator debugging a
+    corrupt row needs to tell *which* row. A truncated SHA-256 gives that —
+    it is stable (the same token always yields the same label, so log lines
+    correlate across requests) and one-way (the label cannot be turned back
+    into a usable link). Twelve hex characters is plenty to disambiguate the
+    handful of collections one instance ever has.
+    """
+    if not token:
+        return "-"
+    digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    return digest[:12]
 
 
 def _parse_ids(raw: str) -> list[int]:
@@ -141,9 +163,10 @@ async def create_collection_share(
         title=title,
     )
     if cover_id is not None:
+        # NEVER log ``token`` itself — see :func:`token_fingerprint`.
         cover_log.info(
             "share_collection_cover_set",
-            token=token,
+            token_fp=token_fingerprint(token),
             cover_shot_id=cover_id,
             count=len(ids),
         )
@@ -177,7 +200,12 @@ async def view_collection(request: Request, token: str) -> HTMLResponse:
         try:
             ids = json.loads(row["screenshot_ids"])
         except (TypeError, ValueError) as exc:
-            logger.error("share_collection_corrupt_ids", token=token, error=str(exc))
+            # NEVER log ``token`` itself — see :func:`token_fingerprint`.
+            logger.error(
+                "share_collection_corrupt_ids",
+                token_fp=token_fingerprint(token),
+                error=str(exc),
+            )
             raise HTTPException(status_code=500, detail="Collection data corrupt") from exc
 
         shots: list[Any] = []
@@ -199,9 +227,10 @@ async def view_collection(request: Request, token: str) -> HTMLResponse:
                 None,
             )
             if cover_shot is None:
+                # NEVER log ``token`` itself — see :func:`token_fingerprint`.
                 cover_log.warning(
                     "share_collection_cover_missing",
-                    token=token,
+                    token_fp=token_fingerprint(token),
                     cover_shot_id=cover_id,
                 )
 

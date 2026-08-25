@@ -676,3 +676,28 @@ templates.env.globals["t"] = _jinja_translate
 # once at import time; the value is immutable for the lifetime of the
 # process.
 templates.env.globals["app_version"] = _app_version
+
+
+def _csrf_input_global(request: object = None) -> object:
+    """CSRF-поле для формы. Зарегистрирован ЗДЕСЬ, а не только в ``create_app``.
+
+    ``base.html`` зовёт ``csrf_input(request)``, поэтому любой рендер мимо
+    приложения (тесты, офлайн-генерация письма) падал с ``UndefinedError``.
+    Глобалы шаблонов живут в этом модуле — значит и этот тоже. Импорт ленивый:
+    ``app.web.middleware.csrf`` тянет настройки, а этот модуль импортируется
+    очень рано.
+    """
+    from app.web.middleware.csrf import csrf_input  # noqa: PLC0415
+
+    return csrf_input(request)
+
+
+def _csrf_token_global(request: object = None) -> str:
+    """Голый CSRF-токен (для ``hx-headers`` и fetch). См. ``_csrf_input_global``."""
+    from app.web.middleware.csrf import csrf_token_for_request  # noqa: PLC0415
+
+    return csrf_token_for_request(request)
+
+
+templates.env.globals["csrf_input"] = _csrf_input_global
+templates.env.globals["csrf_token"] = _csrf_token_global

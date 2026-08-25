@@ -1,0 +1,353 @@
+{% extends "base.html" %}
+
+{# Дашборд первосторонней аналитики. Все графики — ИНЛАЙНОВЫЙ SVG: CSP этого
+   инстанса разрешает только script-src 'self', а тянуть чарт-библиотеку в
+   /static ради шести полосок — сотни килобайт на странице, которую открывают
+   раз в неделю. Геометрия считается на сервере (app/analytics/report.py:
+   bar_geometry / sparkline_points), шаблон только рисует. #}
+
+{% macro pct(value) -%}
+  {% if value is none %}<span class="text-zinc-600">—</span>{% else %}{{ value }}%{% endif %}
+{%- endmacro %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto">
+
+  <div class="mb-5 flex flex-wrap items-end justify-between gap-3">
+    <div>
+      <h1 class="text-2xl font-bold tracking-tight">📊 Аналитика сайта</h1>
+      <p class="text-zinc-500 text-sm mt-1">
+        Свой счётчик, на своём сервере. Данные никуда не уходят: ни одного
+        внешнего скрипта, ни одной чужой куки.
+      </p>
+    </div>
+    <div class="flex items-center gap-1.5 text-sm">
+      {% for d, label in [(1, 'сегодня'), (7, '7 дней'), (30, '30 дней')] %}
+        <a href="/root/analytics?days={{ d }}"
+           class="px-3 py-1.5 rounded-md transition
+                  {% if days == d %}bg-accent-600/20 text-accent-400{% else %}text-zinc-400 hover:text-zinc-100 hover:bg-ink-800{% endif %}">{{ label }}</a>
+      {% endfor %}
+      <a href="/root" class="px-3 py-1.5 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-ink-800">🛡️ Пульт</a>
+    </div>
+  </div>
+
+  {% if error %}
+  <div class="rounded-xl border border-rose-800 bg-rose-950/40 p-4 mb-6 text-sm text-rose-200">
+    Отчёт собрать не удалось: <code>{{ error }}</code>. Страница осталась живой
+    намеренно — аналитика не имеет права уронить пульт.
+  </div>
+  {% endif %}
+
+  {% if a %}
+  {# ── ЧЕСТНОСТЬ ОТЧЁТА ──────────────────────────────────────────────────
+     Пустой график за 30 дней на инстансе, где сбор включился вчера, читается
+     как «трафика нет». Это враньё, поэтому рамка данных стоит ПЕРВОЙ, а не
+     мелким шрифтом внизу. #}
+  <div class="rounded-xl border {% if a.coverage.first_day %}border-ink-700 bg-ink-800{% else %}border-amber-800 bg-amber-950/30{% endif %} p-4 mb-6 text-sm">
+    {% if not a.enabled %}
+      <div class="text-amber-300 font-semibold mb-1">⏸ Сбор выключен (kv <code>analytics_enabled=0</code>).</div>
+      <div class="text-zinc-400">Ниже — то, что успели собрать раньше, плюс воронка по существующим таблицам.</div>
+    {% elif not a.coverage.first_day %}
+      <div class="text-amber-300 font-semibold mb-1">Событий пока нет вообще.</div>
+      <div class="text-zinc-400">
+        Сбор только что включился. Просмотры страниц начнут появляться с первого
+        же захода на сайт, клики — как только кто-то нажмёт на элемент с
+        <code>data-track</code>. Разделы «регистрации» и «воронка» ниже уже
+        работают: они считаются по <code>users</code>, <code>chat_message</code>
+        и kv, то есть за всю историю инстанса, а не с сегодняшнего дня.
+      </div>
+    {% else %}
+      <div class="text-zinc-300">
+        Данные событий — с <b>{{ a.coverage.first_day }}</b>
+        (сырых записей {{ a.coverage.raw_events }}, свёрнуто по
+        {{ a.coverage.rolled_through or '—' }}).
+        Всё, что <b>раньше этой даты</b>, в разделах «страницы / клики /
+        источники / активность» просто не существует — это не ноль трафика.
+      </div>
+      <div class="text-zinc-500 mt-1">
+        Сутки считаются по <b>UTC</b> — так же, как <code>users.created_at</code>
+        и остальные отметки времени в этой базе. Сырые события живут
+        {{ a.retention_days }} суток, дальше их сносит вычистка; свёрнутые
+        счётчики (без идентификаторов) остаются.
+      </div>
+      {% if a.buffer.dropped %}
+      <div class="text-amber-300 mt-1">
+        Потеряно событий из-за переполнения буфера: <b>{{ a.buffer.dropped }}</b>.
+        Числа ниже занижены на эту величину.
+      </div>
+      {% endif %}
+    {% endif %}
+  </div>
+
+  {# ── СЕЙЧАС НА САЙТЕ ─────────────────────────────────────────────────── #}
+  <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+    <div class="rounded-xl border border-ink-700 bg-ink-800 p-4">
+      <div class="text-xs text-zinc-500">Сессий за 15 минут</div>
+      <div class="mt-1 text-2xl font-semibold text-emerald-400">{{ a.live.sessions }}</div>
+      <div class="text-[11px] text-zinc-600 mt-0.5">{{ a.live.hits }} обращений</div>
+    </div>
+    <div class="rounded-xl border border-ink-700 bg-ink-800 p-4">
+      <div class="text-xs text-zinc-500">Регистраций сегодня</div>
+      <div class="mt-1 text-2xl font-semibold text-zinc-100">{{ a.registrations.today }}</div>
+      <div class="text-[11px] text-zinc-600 mt-0.5">за 7 дней {{ a.registrations.last_7 }} · за 30 {{ a.registrations.last_30 }}</div>
+    </div>
+    <div class="rounded-xl border border-ink-700 bg-ink-800 p-4">
+      <div class="text-xs text-zinc-500">Активных аккаунтов сегодня</div>
+      <div class="mt-1 text-2xl font-semibold text-zinc-100">{{ a.activity.dau_today }}</div>
+      <div class="text-[11px] text-zinc-600 mt-0.5">за неделю {{ a.activity.wau }}</div>
+    </div>
+    <div class="rounded-xl border border-ink-700 bg-ink-800 p-4">
+      <div class="text-xs text-zinc-500">В буфере (ещё не в БД)</div>
+      <div class="mt-1 text-2xl font-semibold text-zinc-100">{{ a.buffer.pending }}</div>
+      <div class="text-[11px] text-zinc-600 mt-0.5">сливается пачкой раз в 5 с</div>
+    </div>
+  </div>
+
+  {# ── РЕГИСТРАЦИИ ─────────────────────────────────────────────────────── #}
+  <div class="rounded-xl border border-ink-700 bg-ink-800 p-4 mb-6">
+    <div class="flex items-baseline justify-between mb-2">
+      <h2 class="text-sm font-semibold text-zinc-300">Регистрации за {{ a.days }} дн.</h2>
+      <span class="text-xs text-zinc-500">всего в окне: {{ a.registrations.total }}</span>
+    </div>
+    {% if a.registrations.bars %}
+    <svg viewBox="0 0 220 46" preserveAspectRatio="none" class="w-full h-24" role="img"
+         aria-label="Регистрации по дням">
+      {% for bar in a.registrations.bars %}
+      <rect x="{{ bar.x }}" y="{{ bar.y }}" width="{{ bar.w }}" height="{{ bar.h }}"
+            fill="currentColor" class="text-accent-500"><title>{{ bar.value }}</title></rect>
+      {% endfor %}
+      <line x1="0" y1="40" x2="220" y2="40" stroke="currentColor" stroke-width="0.4" class="text-zinc-700"/>
+    </svg>
+    <div class="flex justify-between text-[11px] text-zinc-600 mt-1">
+      <span>{{ a.day_from }}</span><span>{{ a.day_to }}</span>
+    </div>
+    {% else %}
+    <p class="text-sm text-zinc-500">Ни одной регистрации в этом окне.</p>
+    {% endif %}
+    <p class="text-[11px] text-zinc-600 mt-2">
+      Источник — <code>users.created_at</code>, а не события. Поэтому график
+      верен за всю историю инстанса, даже если аналитику включили вчера.
+    </p>
+  </div>
+
+  {# ── АКТИВНОСТЬ + УДЕРЖАНИЕ ──────────────────────────────────────────── #}
+  <div class="grid md:grid-cols-2 gap-4 mb-6">
+    <div class="rounded-xl border border-ink-700 bg-ink-800 p-4">
+      <h2 class="text-sm font-semibold text-zinc-300 mb-2">Активность</h2>
+      {% if a.activity.dau_points %}
+      <svg viewBox="0 0 220 44" preserveAspectRatio="none" class="w-full h-20" role="img"
+           aria-label="Активные аккаунты по дням">
+        <polyline points="{{ a.activity.dau_points }}" fill="none" stroke="currentColor"
+                  stroke-width="1.2" class="text-accent-400"/>
+        {% if a.activity.sessions_points %}
+        <polyline points="{{ a.activity.sessions_points }}" fill="none" stroke="currentColor"
+                  stroke-width="1" stroke-dasharray="2 2" class="text-zinc-500"/>
+        {% endif %}
+      </svg>
+      <div class="text-[11px] text-zinc-600 mt-1">
+        <span class="text-accent-400">──</span> аккаунты (DAU) ·
+        <span class="text-zinc-500">- -</span> сессии, включая анонимов
+      </div>
+      {% else %}
+      <p class="text-sm text-zinc-500">Событий за окно нет — рисовать нечего.</p>
+      {% endif %}
+    </div>
+
+    <div class="rounded-xl border border-ink-700 bg-ink-800 p-4">
+      <h2 class="text-sm font-semibold text-zinc-300 mb-2">Удержание когорт (по неделям регистрации)</h2>
+      <table class="w-full text-sm">
+        <thead class="text-[11px] uppercase tracking-wide text-zinc-500 border-b border-ink-700">
+          <tr><th class="text-left py-1">неделя</th><th class="text-right py-1">зарегались</th><th class="text-right py-1">вернулись</th></tr>
+        </thead>
+        <tbody>
+          {% for c in a.retention %}
+          <tr class="border-b border-ink-900/60 last:border-0">
+            <td class="py-1 text-zinc-400 font-mono text-xs">{{ c.week_start }}</td>
+            <td class="py-1 text-right text-zinc-200">{{ c.signups }}</td>
+            <td class="py-1 text-right {% if c.measurable %}text-zinc-200{% else %}text-zinc-600{% endif %}">
+              {% if c.measurable %}{{ c.returned }}{% else %}не измеримо{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <p class="text-[11px] text-zinc-600 mt-2">
+        «Вернулись» = был хотя бы один день активности позже дня регистрации.
+        У когорт старше даты запуска аналитики возврат измерять нечем — там
+        стоит «не измеримо», а не ноль.
+      </p>
+    </div>
+  </div>
+
+  {# ── ВОРОНКА ─────────────────────────────────────────────────────────── #}
+  <div class="rounded-xl border border-ink-700 bg-ink-800 p-4 mb-6">
+    <h2 class="text-sm font-semibold text-zinc-300 mb-2">
+      Воронка регистрации <span class="text-zinc-600 font-normal">— когорта {{ a.funnel.cohort }} чел. ({{ a.day_from }} … {{ a.day_to }})</span>
+    </h2>
+    <table class="w-full text-sm">
+      <thead class="text-[11px] uppercase tracking-wide text-zinc-500 border-b border-ink-700">
+        <tr>
+          <th class="text-left py-1.5">ступень</th>
+          <th class="text-right py-1.5">чел./хитов</th>
+          <th class="text-right py-1.5">к предыдущей</th>
+          <th class="text-right py-1.5">к первой</th>
+          <th class="text-left py-1.5 pl-3">источник</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in a.funnel.stages %}
+        <tr class="border-b border-ink-900/60 last:border-0">
+          <td class="py-1.5 text-zinc-200">{{ s.title }}</td>
+          <td class="py-1.5 text-right font-semibold text-zinc-100">{{ s.count }}</td>
+          <td class="py-1.5 text-right text-zinc-300">{{ pct(s.step_pct) }}</td>
+          <td class="py-1.5 text-right text-zinc-400">{{ pct(s.total_pct) }}</td>
+          <td class="py-1.5 pl-3 text-[11px] {% if s.retroactive %}text-zinc-500{% else %}text-amber-400/80{% endif %}">
+            <code>{{ s.source }}</code>{% if not s.retroactive %} · только с даты запуска{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="text-[11px] text-zinc-600 mt-2">
+      Четыре нижние ступени считаются по уже существующим таблицам и потому
+      верны ретроспективно. Две верхние — по событиям, то есть только с момента
+      запуска аналитики; сравнивать «открыли лендинг» с «создали аккаунт» за
+      период раньше этой даты бессмысленно.
+    </p>
+  </div>
+
+  {# ── СТРАНИЦЫ ПО РОЛЯМ ───────────────────────────────────────────────── #}
+  <div class="grid md:grid-cols-2 gap-4 mb-6">
+    <div class="rounded-xl border border-ink-700 bg-ink-800 p-4">
+      <h2 class="text-sm font-semibold text-zinc-300 mb-2">Куда заходят (топ страниц)</h2>
+      {% if a.top_pages %}
+      <table class="w-full text-sm">
+        <thead class="text-[11px] uppercase tracking-wide text-zinc-500 border-b border-ink-700">
+          <tr><th class="text-left py-1">путь</th><th class="text-right py-1">всего</th>
+              <th class="text-right py-1">я</th><th class="text-right py-1">участники</th><th class="text-right py-1">гости</th></tr>
+        </thead>
+        <tbody>
+          {% for p in a.top_pages %}
+          <tr class="border-b border-ink-900/60 last:border-0">
+            <td class="py-1 font-mono text-xs text-zinc-300 truncate max-w-[220px]">{{ p.path }}</td>
+            <td class="py-1 text-right text-zinc-100 font-semibold">{{ p.total }}</td>
+            <td class="py-1 text-right text-zinc-600">{{ p.owner }}</td>
+            <td class="py-1 text-right text-accent-400">{{ p.member }}</td>
+            <td class="py-1 text-right text-zinc-400">{{ p.anonymous }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <p class="text-[11px] text-zinc-600 mt-2">
+        Колонка «я» — твои собственные открытия. Она отдельно именно чтобы её
+        было видно и можно было мысленно вычесть: на инстансе с одним активным
+        аккаунтом весь верх списка иначе твой.
+      </p>
+      {% else %}
+      <p class="text-sm text-zinc-500">Просмотров в этом окне ещё нет.</p>
+      {% endif %}
+    </div>
+
+    <div class="rounded-xl border border-ink-700 bg-ink-800 p-4">
+      <h2 class="text-sm font-semibold text-zinc-300 mb-2">Что нажимают</h2>
+      {% if a.clicks %}
+      <table class="w-full text-sm">
+        <thead class="text-[11px] uppercase tracking-wide text-zinc-500 border-b border-ink-700">
+          <tr><th class="text-left py-1">действие</th><th class="text-left py-1">тип</th><th class="text-right py-1">раз</th></tr>
+        </thead>
+        <tbody>
+          {% for c in a.clicks %}
+          <tr class="border-b border-ink-900/60 last:border-0">
+            <td class="py-1 text-zinc-200 truncate max-w-[220px]">{{ c.label }}</td>
+            <td class="py-1 text-[11px] text-zinc-500">{{ c.kind }}</td>
+            <td class="py-1 text-right text-zinc-100">{{ c.hits }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="text-sm text-zinc-500">
+        Кликов пока нет. Считаются только элементы с атрибутом
+        <code>data-track="подпись"</code>, отправки форм и уходы по внешним
+        ссылкам — обвешивать разметку счётчиком автоматически мы не стали:
+        в подписях кнопок лежат имена людей и заголовки чатов.
+      </p>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ── ИСТОЧНИКИ И УСТРОЙСТВА ──────────────────────────────────────────── #}
+  <div class="grid md:grid-cols-3 gap-4 mb-6">
+    <div class="rounded-xl border border-ink-700 bg-ink-800 p-4">
+      <h2 class="text-sm font-semibold text-zinc-300 mb-2">Откуда приходят</h2>
+      {% if a.referrers %}
+      <ul class="text-sm space-y-1">
+        {% for r in a.referrers %}
+        <li class="flex justify-between gap-2">
+          <span class="text-zinc-300 truncate">{{ r.referrer_host }}</span>
+          <span class="text-zinc-500">{{ r.hits }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="text-sm text-zinc-500">Внешних переходов не зафиксировано.</p>
+      {% endif %}
+      <p class="text-[11px] text-zinc-600 mt-2">Только хост. Полный адрес чужой страницы не сохраняется: там лежит поисковый запрос человека.</p>
+    </div>
+
+    <div class="rounded-xl border border-ink-700 bg-ink-800 p-4">
+      <h2 class="text-sm font-semibold text-zinc-300 mb-2">Устройства</h2>
+      {% if a.devices %}
+      <ul class="text-sm space-y-1">
+        {% for d in a.devices %}
+        <li class="flex justify-between gap-2"><span class="text-zinc-300">{{ d.device }}</span><span class="text-zinc-500">{{ d.hits }}</span></li>
+        {% endfor %}
+      </ul>
+      {% else %}<p class="text-sm text-zinc-500">Нет данных.</p>{% endif %}
+      <p class="text-[11px] text-zinc-600 mt-2">Сама строка user-agent не хранится — только этот класс.</p>
+    </div>
+
+    <div class="rounded-xl border border-ink-700 bg-ink-800 p-4">
+      <h2 class="text-sm font-semibold text-zinc-300 mb-2">Кто смотрит</h2>
+      {% if a.roles %}
+      <ul class="text-sm space-y-1">
+        {% for r in a.roles %}
+        <li class="flex justify-between gap-2"><span class="text-zinc-300">{{ r.role }}</span><span class="text-zinc-500">{{ r.hits }}</span></li>
+        {% endfor %}
+      </ul>
+      {% else %}<p class="text-sm text-zinc-500">Нет данных.</p>{% endif %}
+    </div>
+  </div>
+
+  {# ── НАСТРОЙКИ СБОРА ─────────────────────────────────────────────────── #}
+  <div class="rounded-xl border border-ink-700 bg-ink-800 p-4 mb-10">
+    <h2 class="text-sm font-semibold text-zinc-300 mb-2">Сбор данных</h2>
+    <form method="post" action="/root/analytics/settings" class="flex flex-wrap items-end gap-4">
+      {{ csrf_input(request) }}
+      <label class="flex items-center gap-2 text-sm text-zinc-300">
+        <input type="checkbox" name="enabled" value="1" {% if a.enabled %}checked{% endif %}
+               class="w-4 h-4 accent-violet-500">
+        Собирать события
+      </label>
+      <label class="text-sm text-zinc-300">
+        Хранить сырьё, суток
+        <input type="number" name="retention_days" min="1" max="3650" value="{{ a.retention_days }}"
+               class="ml-2 w-24 bg-ink-900 border border-ink-700 rounded px-2 py-1 text-zinc-200">
+      </label>
+      <button data-track="analytics:save-settings"
+              class="px-3 py-1.5 rounded-md bg-accent-600/20 text-accent-300 border border-accent-500/40 hover:bg-accent-600/30 text-sm">
+        Сохранить
+      </button>
+    </form>
+    <p class="text-[11px] text-zinc-600 mt-2">
+      Выключение останавливает запись новых событий немедленно и на всех
+      воркерах в пределах 30 секунд (кэш рубильника). Уже собранное не
+      удаляется — для этого уменьши окно хранения: вычистка сносит сырьё
+      старше него при следующем открытии этой страницы. Что именно
+      собирается и почему — раздел «Собственная аналитика сайта» в
+      <a href="/privacy-policy" class="text-accent-400 hover:underline">Политике конфиденциальности</a>.
+    </p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

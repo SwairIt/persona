@@ -17,7 +17,7 @@ Algorithm
    (Feb 29 falls back to Feb 28, matching :mod:`app.this_day_replay`).
 3. On the shifted date, in order of preference:
 
-   * ``kind="pinned_shot"`` — a screenshot with ``pinned_at`` populated on
+   * ``kind="pinned_shot"`` — a screenshot with ``tier = 'pinned'`` on
      that calendar day (newest pin wins).
    * ``kind="daily_pin"`` — the :mod:`app.daily_pin` one-liner for that
      date.
@@ -138,11 +138,14 @@ async def _try_pinned_shot(
     """Look for a screenshot pinned on ``target``. Newest pin on that day wins."""
     start_iso, end_iso = _day_bounds(target)
     cursor = await conn.execute(
+        # Pinning is the ``tier = 'pinned'`` enum flipped in place — there
+        # is no ``pinned_at`` column (see app/pinboard.py). Ordering falls
+        # back to ``created_at``, the only timestamp the row carries.
         "SELECT id, app_name, ocr_text "
         "FROM screenshots "
-        "WHERE pinned_at IS NOT NULL "
+        "WHERE tier = 'pinned' "
         "  AND captured_at >= ? AND captured_at <= ? "
-        "ORDER BY pinned_at DESC "
+        "ORDER BY created_at DESC "
         "LIMIT 1",
         (start_iso, end_iso),
     )

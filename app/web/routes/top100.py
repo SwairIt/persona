@@ -192,40 +192,46 @@ async def top100_page(request: Request) -> HTMLResponse:
     hours = await _top_hours(_TOP_N)
     weekdays = await _top_weekdays(_TOP_N)
 
+    # NB: the per-column list is keyed ``entries``, NOT ``items``. Jinja
+    # resolves ``column.items`` with ``getattr`` FIRST, so on a plain dict it
+    # returns the bound ``dict.items`` method instead of our list — the page
+    # died with "'builtin_function_or_method' object is not iterable" on the
+    # very first ``| map(attribute='count')``. Renaming the key removes the
+    # collision instead of forcing every template line to use ``column['items']``.
     columns = [
         {
             "key": "apps",
             "title": "Apps",
             "subtitle": "Most-captured application windows",
-            "items": apps,
+            "entries": apps,
             "value_link": "/apps/{name}",
         },
         {
             "key": "tags",
             "title": "Tags",
             "subtitle": "Most-applied tag labels",
-            "items": tags,
+            "entries": tags,
             "value_link": None,
         },
         {
             "key": "words",
             "title": "Words",
             "subtitle": "Most-frequent OCR + note tokens",
-            "items": words,
+            "entries": words,
             "value_link": "/search?q={name}",
         },
         {
             "key": "hours",
             "title": "Hours of day",
             "subtitle": "Busiest hour-of-day buckets",
-            "items": hours,
+            "entries": hours,
             "value_link": None,
         },
         {
             "key": "weekdays",
             "title": "Weekdays",
             "subtitle": "Busiest day-of-week buckets",
-            "items": weekdays,
+            "entries": weekdays,
             "value_link": None,
         },
     ]

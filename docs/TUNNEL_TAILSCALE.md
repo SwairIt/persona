@@ -90,4 +90,5 @@ token = "..."
 "C:/Users/Yaroslav/.local/devtunnel/devtunnel.exe" host
 ```
 
-— старый кейс. URL `https://jswvbzgl-8000.euw.devtunnels.ms` пересоздаётся.
+— старый кейс. URL вида `https://<id>-8000.euw.devtunnels.ms` пересоздаётся
+(конкретный id намеренно не записан — файл публичный, см. `devtunnel list`).

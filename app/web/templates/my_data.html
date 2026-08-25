@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+
+{# Экран «Мои данные» участника: право на доступ (выгрузка) и право на
+   удаление (аккаунт целиком). Владельческая /settings/privacy — другая
+   страница и другой набор рычагов; сюда её инстанс-глобальные кнопки
+   (снимок БД, ретеншен, «стереть всё») намеренно не попадают. #}
+
+{% block content %}
+<div class="max-w-2xl mx-auto px-4 py-6 space-y-5">
+
+  <div>
+    <h1 class="text-2xl font-bold mb-1">🗂 Мои данные</h1>
+    <p class="text-sm text-zinc-400">
+      Здесь видно, что сервис хранит про твой аккаунт, отсюда можно скачать всё
+      одним файлом и отсюда же — удалить аккаунт вместе с данными. Это твои права
+      по 152-ФЗ, и они работают без письма администратору.
+    </p>
+  </div>
+
+  {% if error %}
+  <div class="rounded-xl border border-rose-500/40 bg-rose-500/10 p-3">
+    <p class="text-sm text-rose-200">{{ error }}</p>
+  </div>
+  {% endif %}
+
+  {# Кто ты в системе #}
+  <div class="rounded-xl border border-ink-700 bg-ink-800 p-4 space-y-1">
+    <p class="text-sm text-zinc-200">Аккаунт: <b>{{ email }}</b></p>
+    <p class="text-xs text-zinc-500">
+      {% if consent_state == 'pre_versioning' %}
+        Согласие на обработку данных зафиксировано до введения версий политики.
+        Действующая редакция — <b>{{ policy_version }}</b>.
+      {% else %}
+        Согласие дано под редакцией политики <b>{{ consent_state }}</b>
+        (действующая — {{ policy_version }}).
+      {% endif %}
+    </p>
+  </div>
+
+  {# Что хранится #}
+  <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+    {% for label, key in [
+        ('Чатов', 'chats'), ('Сообщений', 'messages'), ('Фактов памяти', 'memories'),
+        ('Навыков', 'skills'), ('Друзей', 'friends'), ('Личных сообщений', 'dm_messages')] %}
+    <div class="rounded-xl border border-ink-700 bg-ink-800 p-3">
+      <div class="text-xs text-zinc-500">{{ label }}</div>
+      <div class="text-xl font-bold text-zinc-100 mt-1">{{ counts.get(key, 0) }}</div>
+    </div>
+    {% endfor %}
+  </div>
+
+  {# Право на доступ — выгрузка #}
+  <div class="rounded-xl border border-ink-700 bg-ink-900 p-4 space-y-3">
+    <p class="text-sm font-medium text-zinc-200">Скачать всё, что о тебе хранится</p>
+    <p class="text-xs text-zinc-400">
+      Аккаунт, настройки, чаты и сообщения, память, рефлексии, навыки, граф знаний,
+      друзья и заявки, переписка (и отправленная, и полученная), уведомления,
+      выдачи модели, счётчики использования, сессии, подписка и платежи.
+    </p>
+    <div class="flex flex-wrap gap-2">
+      <a href="/settings/my-data/export.json"
+         class="px-3 py-2 rounded-lg bg-ink-800 border border-ink-700 text-sm text-zinc-200 hover:bg-ink-950">
+        📄 Выгрузка (JSON)
+      </a>
+      <a href="/settings/my-data/export.zip"
+         class="px-3 py-2 rounded-lg bg-ink-800 border border-ink-700 text-sm text-zinc-200 hover:bg-ink-950">
+        🗜 Выгрузка (ZIP)
+      </a>
+    </div>
+    <p class="text-[11px] text-zinc-500 leading-relaxed">
+      В файле <b>не</b> будет ключей API, токенов ботов и токенов сессий — вместо
+      значений маркер. Так сделано нарочно: выгрузка попадает в «Загрузки» и легко
+      уезжает дальше, а действующий ключ в ней превратил бы «покажи мои данные» в
+      способ этот ключ украсть. Свой ключ всегда видно и можно сменить в
+      <a href="/settings/llm" class="underline text-accent-400">/settings/llm</a>.
+      Адреса других людей показаны маской <code>y***@домен</code> — это их данные, не твои.
+    </p>
+  </div>
+
+  {# Право на удаление #}
+  <div class="rounded-xl border border-rose-500/30 bg-rose-500/5 p-4 space-y-2" x-data="{ open:false }">
+    <p class="text-sm font-medium text-rose-200">Удалить аккаунт и все данные</p>
+    {% if can_delete %}
+      <ul class="text-xs text-zinc-400 list-disc pl-5 space-y-1">
+        <li>Удаляются: профиль, настройки, чаты и сообщения, память, рефлексии,
+            навыки, граф знаний, друзья и заявки, уведомления, выдачи модели,
+            история платежей, все сессии.</li>
+        <li><b>Личная переписка удаляется у обеих сторон.</b> Ветка с каждым
+            собеседником исчезает целиком — и твои сообщения, и его. Мы выбрали
+            это вместо «обезличить отправителя»: огрызок с временем и текстом
+            всё равно указывал бы на тебя. Предупредить собеседника мы не можем —
+            он просто увидит, что переписки больше нет.</li>
+        <li>Действие необратимо. Если хочешь сохранить копию — сначала скачай
+            выгрузку выше.</li>
+        <li>E-mail освобождается: этим же адресом можно зарегистрироваться заново,
+            но это будет пустой новый аккаунт.</li>
+      </ul>
+      <button type="button" @click="open = !open"
+              class="mt-1 text-xs text-rose-400 hover:underline">показать удаление</button>
+      <form x-show="open" x-cloak method="post" action="/settings/my-data/delete"
+            class="mt-2 space-y-2"
+            onsubmit="return confirm('Точно удалить аккаунт? Это необратимо.');">
+        {% if request is defined %}{{ csrf_input(request) }}{% endif %}
+        <label class="block text-xs text-zinc-400">
+          Впиши свой e-mail <b>{{ email or confirm_phrase }}</b>, чтобы подтвердить:
+        </label>
+        <div class="flex gap-2">
+          <input name="confirm" autocomplete="off" spellcheck="false"
+                 placeholder="{{ email or confirm_phrase }}"
+                 class="flex-1 rounded bg-ink-950 border border-rose-500/40 px-2 py-1 text-sm text-zinc-100 focus:outline-none" />
+          <button type="submit"
+                  class="px-3 py-1 rounded bg-rose-600 hover:bg-rose-500 text-white text-sm">
+            Удалить навсегда
+          </button>
+        </div>
+      </form>
+    {% else %}
+      <p class="text-xs text-zinc-400">{{ delete_blocked_reason }}</p>
+    {% endif %}
+  </div>
+
+  <p class="text-[11px] text-zinc-600">
+    Подробности о том, какие данные и зачем обрабатываются, —
+    в <a href="/privacy-policy" class="underline">политике конфиденциальности</a>.
+  </p>
+</div>
+{% endblock %}

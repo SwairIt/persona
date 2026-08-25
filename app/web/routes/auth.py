@@ -357,14 +357,53 @@ async def login_page(
 # --- POST handlers ---------------------------------------------------------
 
 
+def _consent_given(raw: str) -> bool:
+    """Пришла ли галочка согласия. HTML-чекбокс шлёт ``on``/``1``/``true``."""
+    return (raw or "").strip().lower() in {"1", "on", "true", "yes", "да"}
+
+
+async def _record_signup_consent(
+    request: Request, user_id: int, raw_consent: str, user_agent: str | None
+) -> None:
+    """Записать акт согласия при регистрации (миграция 233, app/auth/consent.py).
+
+    Регистрация НЕ блокируется отсутствием поля, и это осознанный компромисс,
+    а не забывчивость: два живых пути лендинга кладут аккаунт без ``consent``
+    в теле — JSON-сабмит ``post('/auth/register', {email})`` и вторая CTA-форма
+    внизу ``landing_v2.html``. Жёсткая проверка здесь сломала бы им регистрацию
+    прямо в проде. Вместо этого источник фиксируется ЧЕСТНО: ``checkbox``, если
+    поле реально пришло, и ``form_submit``, если нет. Проверяющий фильтрует
+    ``source = 'checkbox'``; строки ``form_submit`` доказательством согласия
+    не считаются.
+
+    Аккаунты, созданные ДО этой миграции, строк не получают вовсе — задним
+    числом согласие не выдумывается. Отсутствие строки читается как
+    «доверсионный режим» (``app.auth.consent.PRE_VERSIONING``), а не как отказ.
+    """
+    from app.auth.consent import client_ip, record_consent  # noqa: PLC0415
+
+    await record_consent(
+        user_id,
+        ip=client_ip(request),
+        user_agent=user_agent,
+        source="checkbox" if _consent_given(raw_consent) else "form_submit",
+    )
+
+
 @router.post("/auth/signup", response_class=HTMLResponse, response_model=None)
 async def signup_submit(
     request: Request,
     email: Annotated[str, Form()],
     password: Annotated[str, Form()],
     display_name: Annotated[str, Form()] = "",
+    consent: Annotated[str, Form()] = "",
 ) -> Response:
-    """Create the user, start a session, redirect to /now."""
+    """Create the user, start a session, redirect to /now.
+
+    Согласие на обработку ПДн (152-ФЗ ст. 9) теперь ФИКСИРУЕТСЯ: до этого
+    галочка ``consent`` в ``auth_signup.html`` была только браузерной
+    (``required``), сервер её не читал, и доказать акт согласия было нечем.
+    """
     if await owner_exclusive_enabled():
         return _registration_disabled(request)
     if _rate_limited(request, "signup", 10, 3600):
@@ -388,6 +427,7 @@ async def signup_submit(
             status_code=400,
         )
     ua = _trim_ua(request.headers.get("user-agent"))
+    await _record_signup_consent(request, user["id"], consent, ua)
     # Ротация, а не просто выдача: если в браузере уже лежала чужая/подсунутая
     # кука сессии, она умирает здесь, а не живёт параллельно новой.
     token, _expires_at = await rotate_session(
@@ -474,6 +514,7 @@ async def login_submit(
 async def register_submit(
     request: Request,
     email: Annotated[str, Form()],
+    consent: Annotated[str, Form()] = "",
 ) -> Response:
     """Авто-регистрация по одному email: создаём аккаунт со случайным паролем,
     ПОКАЗЫВАЕМ пароль на экране и сразу логиним. Существующий email → ссылка для
@@ -553,6 +594,12 @@ async def register_submit(
                 {"ok": False, "error": "Не удалось создать аккаунт, попробуй войти."}, status_code=400
             )
         return RedirectResponse(url="/auth/login", status_code=303)
+    # Акт согласия фиксируем СРАЗУ после создания аккаунта, до писем и сессии:
+    # если ниже что-то упадёт, аккаунт уже существует, и запись о согласии
+    # должна существовать вместе с ним. См. _record_signup_consent.
+    await _record_signup_consent(
+        request, user["id"], consent, _trim_ua(request.headers.get("user-agent"))
+    )
     # Биллинг на этом MVP СПИТ: триал больше не заводим (иначе через 3 дня
     # участник видел «триал закончился, оформи Pro» над живыми кнопками оплаты,
     # хотя доступ бесплатный). ``billing_service.ensure_trial`` жив и доступен

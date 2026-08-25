@@ -4,14 +4,55 @@ __pycache__/
 *$py.class
 *.so
 .Python
+# --- secrets: deny every .env variant, allow only the template ------------
+# The previous rules listed .env / .env.local / .env.persona-worker.bak by
+# name, so a new .env.prod or .env.bak would have been committable.
 .env
-.env.local
-.env.persona-worker.bak
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+
+# Credential material of any shape
+*.pem
+*.key
+!**/static/**/*.key
+*.pfx
+*.p12
+*.jks
+*.keystore
+*.ppk
+id_rsa
+id_dsa
+id_ecdsa
+id_ed25519
+*.asc
+.netrc
+.npmrc
+.pypirc
+credentials.json
+service-account*.json
+service_account*.json
+
+# Billing credentials — normally under PERSONA_DATA_DIR, but guard the repo
+# root too in case someone drops a copy next to the code.
+billing_secrets.json
+**/billing_secrets.json
+
+# Telegram user sessions (Telethon) — a session file is a full account login
+*.session
+*.session-journal
+
 data/
 *.db
+*.sqlite
+*.sqlite3
 *.db-journal
 *.db-wal
 *.db-shm
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
@@ -39,3 +80,43 @@ loadmon/loadmon.db
 loadmon/loadmon.db-*
 
 .agent_designs/
+
+# --- agent/tooling scratch (present on this box, does not belong in git) ---
+# NOTE: `.agents/` is deliberately NOT ignored — a handful of skills under
+# `.agents/skills/` are already tracked, and a blanket rule would shadow them.
+.claude/
+.superpowers/
+.aider*
+.cursorignore
+
+# --- local runtime artefacts ---------------------------------------------
+# Windows service wrapper / packaged binaries
+persona_srv.*
+*.exe
+*.dll
+*.pyd
+!app/**/*.exe
+
+# Crash dumps can embed request bodies and in-memory credentials
+*.dmp
+*.mdmp
+core.[0-9]*
+
+# Stray shell redirects and scratch files this repo has collected before.
+# (An empty `C:templock_help.txt` — debris of a Windows redirect issued from a
+# POSIX shell — sits in the repo root. Git reads a leading `C:` as an absolute
+# path, so it can be neither ignored nor added; it is inert. Just delete it.)
+stdout.txt
+stderr.txt
+nul
+NUL
+*.orig
+*.rej
+*.bak
+*.swp
+*~
+
+# Local archives / exports — full.zip contains the whole DB
+persona-full-*.zip
+diag-bundle-*.zip
+*.har

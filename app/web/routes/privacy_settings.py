@@ -1,9 +1,24 @@
-"""Дашборд приватности — /settings/privacy.
+"""Дашборд приватности — /settings/privacy. Страница ВЛАДЕЛЬЦА инстанса.
 
 Приватность как ВИДИМАЯ, проверяемая фича (главный вакуум после ухода Rewind в
 Meta): что хранится локально, какой провайдер активен (локальный Ollama vs
 внешнее облако), экспорт ВСЕЙ памяти (Markdown + снимок БД), удаление всего.
-Owner-gate уже песочит чужих; здесь — контроль владельца над своими данными.
+
+ОБЛАСТЬ ДЕЙСТВИЯ (важно)
+────────────────────────
+Здесь инстанс-глобальные рычаги, а не «мои данные». В частности
+:func:`db_snapshot` делает ``VACUUM INTO`` по **всей базе**: чаты всех
+аккаунтов, скриншоты и OCR владельца, kv-секреты (SMTP-пароль, токен
+Telegram-бота, ключи API). Такой артефакт нельзя отдать участнику ни при
+каком фильтре — он глобален по своей природе.
+
+Поэтому ``/settings/privacy`` НЕ входит в ``_MEMBER_PREFIXES``, а участнику
+сделан отдельный экран ``/settings/my-data``
+(:mod:`app.web.routes.my_data`) — там всё строго per-user.
+
+Опасные подроуты вдобавок закрыты ЯВНОЙ owner-зависимостью
+(:func:`_require_owner`): гейт — не единственный рубеж, и если префикс когда-то
+откроют по недосмотру, снимок базы всё равно не уедет.
 """
 
 from __future__ import annotations
@@ -14,7 +29,7 @@ import sqlite3
 import tempfile
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 
 from app.auth import current_user_required
@@ -26,6 +41,25 @@ from app.web.templates_engine import templates
 
 router = APIRouter(tags=["settings"])
 log = get_logger("persona.privacy")
+
+
+async def _require_owner(user_id: int, action: str) -> None:
+    """403, если вызывающий не владелец инстанса. Защита в глубину.
+
+    Резолв владельца — fail-closed (``app/web/routes/owner_view.viewer_is_owner``
+    трактует сбой как «не владелец»), поэтому упавшая БД не открывает снимок.
+    """
+    from app.web.routes.owner_view import viewer_is_owner  # noqa: PLC0415
+
+    if not await viewer_is_owner(int(user_id)):
+        log.warning("privacy.owner_only_denied", user_id=int(user_id), action=action)
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Это инструмент владельца инстанса. Свои данные — "
+                "на /settings/my-data."
+            ),
+        )
 
 # Локальные провайдеры (данные не покидают машину). Остальные — внешнее облако.
 _LOCAL_PROVIDERS = {"ollama", "llamacpp", "localai", "lmstudio"}
@@ -91,6 +125,8 @@ async def privacy_page(
     request: Request,
     session: Annotated[SessionRecord, Depends(current_user_required)],
 ) -> HTMLResponse:
+    """Страница владельца. Участнику — 403 и подсказка на его собственный экран."""
+    await _require_owner(int(session["user_id"]), "page")
     provider = await _provider()
     return templates.TemplateResponse(
         request,
@@ -121,7 +157,14 @@ async def export_memory(
 async def db_snapshot(
     session: Annotated[SessionRecord, Depends(current_user_required)],
 ) -> FileResponse:
-    """Снимок БД через VACUUM INTO (без блокировки рабочей БД) → скачать."""
+    """Снимок БД через VACUUM INTO (без блокировки рабочей БД) → скачать.
+
+    OWNER-ONLY, и это не косметика: файл содержит ВСЮ базу инстанса —
+    чаты всех аккаунтов, личные данные владельца и kv-секреты. Участник свою
+    выгрузку берёт на ``/settings/my-data/export.json`` (там каждый запрос
+    отфильтрован по его ``user_id``).
+    """
+    await _require_owner(int(session["user_id"]), "snapshot")
     from app.settings import get_settings  # noqa: PLC0415
 
     src = str(get_settings().db_path)

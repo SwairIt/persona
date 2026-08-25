@@ -28,6 +28,7 @@ from app import __version__
 from app.bootstrap.lifespan import lifespan as bootstrap_lifespan
 from app.logging_setup import configure_logging, get_logger
 from app.settings import get_settings
+from app.web.middleware.analytics import AnalyticsMiddleware
 from app.web.middleware.api_auth import ApiAuthMiddleware
 from app.web.middleware.auth_gate import AuthGateMiddleware
 from app.web.middleware.csrf import CsrfMiddleware, csrf_input, csrf_token_for_request
@@ -38,6 +39,7 @@ from app.web.routes import (
     account as account_routes,
     ai_everywhere_settings as ai_everywhere_settings_routes,
     analysis as analysis_routes,
+    analytics_owner as analytics_owner_routes,
     annotations as annotations_routes,
     annotations_csv as annotations_csv_routes,
     annotations_ndjson as annotations_ndjson_routes,
@@ -115,6 +117,7 @@ from app.web.routes import (
     profile_settings as profile_routes,
     memory_settings as memory_settings_routes,
     privacy_settings as privacy_settings_routes,
+    my_data as my_data_routes,
     briefing as briefing_routes,
     integrations_settings as integrations_settings_routes,
     skills_settings as skills_settings_routes,
@@ -455,6 +458,8 @@ from app.web.routes import (
     dashboard_ai as dashboard_ai_routes,
     search_ai as search_ai_routes,
     timeline_ai as timeline_ai_routes,
+    support as support_routes,
+    support_inbox as support_inbox_routes,
 )
 from app.web.routes.setup_gate import SetupGateMiddleware
 log = get_logger("persona.web")
@@ -517,6 +522,12 @@ def create_app() -> FastAPI:
         # 303 instead of a JSON 401.
         Middleware(AuthGateMiddleware),
         Middleware(ThrottleMiddleware),
+        # 5. Analytics — ВНУТРИ AuthGate по той же причине, что и троттл: роль
+        #    зрителя берётся из request.state, своего запроса в БД счётчик не
+        #    делает. Внутри троттла — чтобы отбитые лимитом запросы не считались
+        #    посещениями. Пишет один dict в память и всё; см.
+        #    app/analytics/capture.py.
+        Middleware(AnalyticsMiddleware),
         Middleware(ApiAuthMiddleware),
         Middleware(GZipMiddleware, minimum_size=512),
         Middleware(
@@ -582,6 +593,13 @@ def create_app() -> FastAPI:
     # csv_export is registered later under the csv_export_routes alias —
     # registering both here AND there duplicated every /export/*.csv route.
     app.include_router(calendar_routes.router)
+    # ORDER MATTERS: ``tag_tree`` owns the LITERAL ``/tags/tree``, while
+    # ``tags_routes`` owns the pattern ``/tags/{tag_id}`` (an int). Starlette
+    # matches in registration order, so with tag_tree registered ~400 routes
+    # later (as it was) every request to /tags/tree hit /tags/{tag_id} and
+    # died with a 422 "unable to parse string 'tree' as integer". The literal
+    # has to go first.
+    app.include_router(tag_tree_routes.router)
     app.include_router(tags_routes.router)
     app.include_router(analysis_routes.router)
     app.include_router(notes_routes.router)
@@ -602,6 +620,12 @@ def create_app() -> FastAPI:
     app.include_router(topics_routes.router)
     app.include_router(daily_digests_routes.router)
     app.include_router(rss_routes.router)
+    # ORDER MATTERS (same trap as tag_tree above): insight_cards owns the
+    # LITERAL /share/insights while share_routes owns /share/{token}. Starlette
+    # matches in registration order, so with insight_cards ~280 routes later
+    # /share/insights was swallowed by the token route and answered 403
+    # "Invalid or expired share link" — the gallery page was unreachable.
+    app.include_router(insight_cards_routes.router)
     app.include_router(share_routes.router)
     app.include_router(timesheet_routes.router)
     app.include_router(mobile_routes.router)
@@ -635,6 +659,11 @@ def create_app() -> FastAPI:
     app.include_router(note_templates_routes.router)
     app.include_router(notes_search_routes.router)
     app.include_router(annotations_routes.router)
+    # ORDER MATTERS: facet_sets owns the LITERAL /searches/facets, saved_searches
+    # owns /searches/{slug}. Registered the other way round, /searches/facets
+    # resolved as a saved search named "facets" and 404'd (or, worse, redirected
+    # to whatever a saved search with that slug happened to be).
+    app.include_router(facet_sets_routes.router)
     app.include_router(saved_searches_routes.router)
     app.include_router(streak_routes.router)
     app.include_router(heatmap_routes.router)
@@ -720,12 +749,18 @@ def create_app() -> FastAPI:
     app.include_router(profile_routes.router)
     app.include_router(memory_settings_routes.router)
     app.include_router(privacy_settings_routes.router)
+    # «Мои данные» участника: выгрузка/удаление по 152-ФЗ (member-поверхность).
+    app.include_router(my_data_routes.router)
     app.include_router(briefing_routes.router)
     app.include_router(integrations_settings_routes.router)
     app.include_router(skills_settings_routes.router)
     app.include_router(voice_chat_routes.router)
     app.include_router(alice_routes.router)
     app.include_router(root_control_routes.router)
+    # Первосторонняя аналитика владельца: страница /root/analytics, её
+    # настройки и приёмник кликов /api/track (см. app/web/routes/analytics_owner.py
+    # — там же обоснование, почему это отдельная страница, а не вкладка /root).
+    app.include_router(analytics_owner_routes.router)
     app.include_router(activity_page_routes.router)
     app.include_router(shot_embed_routes.router)
     app.include_router(diag_bundle_routes.router)
@@ -886,7 +921,8 @@ def create_app() -> FastAPI:
     app.include_router(dup_finder_routes.router)
     app.include_router(demo_seeder_routes.router)
     app.include_router(app_budgets_routes.router)
-    app.include_router(insight_cards_routes.router)
+    # insight_cards_routes is registered ABOVE, before share_routes — see the
+    # note there. Registering it again here would duplicate its two routes.
     # day_pdf_export is nested inside day_markdown_export_routes — registering
     # it again here duped /export/day/{day}.pdf + /day/{day}/pdf-preview.
     app.include_router(hashtag_suggest_routes.router)
@@ -962,7 +998,7 @@ def create_app() -> FastAPI:
     app.include_router(words_csv_routes.router)
     app.include_router(import_screenshot_routes.router)
     app.include_router(ocr_edit_routes.router)
-    app.include_router(facet_sets_routes.router)
+    # facet_sets_routes is registered ABOVE, before saved_searches_routes.
     app.include_router(top100_routes.router)
     app.include_router(tag_merge_wizard_routes.router)
     app.include_router(corpus_search_routes.router)
@@ -982,7 +1018,8 @@ def create_app() -> FastAPI:
     app.include_router(word_search_routes.router)
     app.include_router(bulk_favourite_routes.router)
     app.include_router(personal_metrics_routes.router)
-    app.include_router(tag_tree_routes.router)
+    # tag_tree_routes is registered ABOVE, before tags_routes — see the note
+    # there. Registering it here as well would duplicate both its routes.
     app.include_router(sentiment_stats_routes.router)
     app.include_router(app_shots_csv_routes.router)
     app.include_router(collection_visit_stats_routes.router)
@@ -1006,6 +1043,11 @@ def create_app() -> FastAPI:
     # уведомлений добавлена в _MEMBER_PREFIXES отдельно.
     app.include_router(dm_ai_routes.router)
     app.include_router(social_notifications_routes.router)
+    # Поддержка: публичная форма (/support — в _PUBLIC_PREFIXES гейта) и
+    # owner-ящик (/settings/support + /api/support/unread.json — закрыты
+    # гейтом и собственным _require_owner).
+    app.include_router(support_routes.router)
+    app.include_router(support_inbox_routes.router)
 
     _install_error_handlers(app)
 

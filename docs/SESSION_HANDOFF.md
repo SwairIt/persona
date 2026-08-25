@@ -16,35 +16,36 @@
 - Английский для кода/комментариев/docstrings/коммитов; русский ТОЛЬКО для чата с юзером
 - Tough-mentor mode: без сюсюканья, без "great question!". Лидируй с несогласием когда юзер не прав
 - Git commits в past tense на русском, author всегда `112168281+SwairIt@users.noreply.github.com`
-- Push: токен из `C:/www-Yaroslav/SchoolProject/.env` (TOKEN=), URL `https://SwairIt:${TOKEN}@github.com/SwairIt/persona.git`, через `sed "s|${TOKEN}|<TOKEN>|g"` чтобы не светить в логе
-- НЕ трогай `C:\www-Yaroslav\SchoolProject` — это отдельный проект Doday, токен только оттуда
+- Push: креды берутся из локального git credential helper / `.env` вне этого репо.
+  Конкретный путь и аккаунт СПЕЦИАЛЬНО не записаны здесь — этот файл публичный.
+  Никогда не вставляй токен в URL пуша и не пиши его в лог.
 
 ## Архитектура текущего состояния
 
 ```
 Persona-server (Windows server, C:\www-Yaroslav\Persona)
   ├── FastAPI + uvicorn на 127.0.0.1:8000
-  ├── devtunnel host -t kind-ocean-5s32cxv → https://jqktqlvt-8000.euw.devtunnels.ms
-  │   (старый jswvbzgl-8000... умер, пересоздан новый T18-fix; токен принадлежит SwairIt GitHub auth)
-  ├── РЕЗЕРВНЫЙ публичный URL (T29): Tailscale Funnel →
-  │   https://bsql.tail318a09.ts.net  (проксирует на 127.0.0.1:8000, другой
-  │   провайдер чем devtunnel, переживает ребут). CLI: C:\www-Yaroslav\Instruments\tailscale.exe
+  ├── devtunnel host -t <TUNNEL_ID> → https://<TUNNEL_HOST>-8000.euw.devtunnels.ms
+  │   (id/хост НЕ записаны здесь — файл публичный; смотри `devtunnel list`)
+  ├── РЕЗЕРВНЫЙ публичный URL (T29): Tailscale Funnel → https://<NODE>.ts.net
+  │   (проксирует на 127.0.0.1:8000, другой провайдер чем devtunnel, переживает
+  │   ребут). CLI: C:\www-Yaroslav\Instruments\tailscale.exe
   │   Управление: `tailscale funnel status` / `tailscale funnel --bg 8000` / `tailscale funnel --https=443 off`
   │   Funnel включён в админке Tailscale (nodeAttr funnel). Auth-gate защищает так же как devtunnel.
   ├── SQLite в ~/.persona/persona.db
   └── Workspace files в ~/.persona/data/workspaces/{user_id}/
 
-Tailscale-сеть юзера
-  ├── Сервер Persona: 100.106.21.121 (Windows, 127 GB RAM, без GPU)
-  └── Игровой PC юзера: 100.88.154.4 (Windows, 1050 Ti 4GB VRAM, i7-3770, 16 GB RAM)
+Tailscale-сеть юзера (конкретные 100.x адреса — в `tailscale status`, не здесь)
+  ├── Сервер Persona (Windows, 127 GB RAM, без GPU)
+  └── Игровой PC юзера (Windows, 1050 Ti 4GB VRAM, i7-3770, 16 GB RAM)
        └── Ollama на :11434 (через OLLAMA_HOST=0.0.0.0:11434)
             Установлены: qwen2.5:3b, qwen2.5:7b, qwen2.5vl:3b, qwen2.5vl:7b,
             moondream:latest, gemma3:4b
 
-Mac юзера (a1@MacBook-Air--Yaroslav)
+Mac юзера
   ├── persona-agent установлен через T18 one-click installer (curl ... | bash)
   ├── launchd plist com.swairit.persona-agent.plist
-  ├── config.json: server=https://jqktqlvt-8000.euw.devtunnels.ms, agent_token
+  ├── config.json: server=<публичный URL сервера>, agent_token
   └── screenshots/audio пишутся на сервер (не локально)
 
 iPhone — только web viewer через Safari (Apple запрещает background capture для PWA)
@@ -174,7 +175,7 @@ iPhone — только web viewer через Safari (Apple запрещает b
 - **Cold-start Ollama** 90+ sec для VL моделей. Решено через keepalive SSE + read_timeout=600s.
 - **WebP → Ollama 400**. Решено через `_normalise_image_for_ollama()` который конвертит в PNG через Pillow + downscale до 1280px.
 - **Database is locked** при concurrent writers. Решено через `PRAGMA busy_timeout = 5000` в `get_connection()`.
-- **Devtunnel session expiry**. Если 504 на публичный URL: kill devtunnel.exe processes + `devtunnel user login -d -g` (device code через GitHub) + `devtunnel host -t kind-ocean-5s32cxv`. Подробности в этом же handoff.
+- **Devtunnel session expiry**. Если 504 на публичный URL: kill devtunnel.exe processes + `devtunnel user login -d -g` (device code через GitHub) + `devtunnel host -t <TUNNEL_ID>` (id — из `devtunnel list`).
 - **Alpine x-data quoting trap** (`feedback_alpine_xdata_quotes` в моей memory): `|tojson` внутри `x-data="..."` ломает HTML attribute. Всегда `| tojson | forceescape` или `&quot;`.
 
 ## Цель долгосрочная
@@ -235,17 +236,25 @@ PID 130112 — древний orphan python (С 04.06), оставляй жит�
    воркеров = thundering herd = снова медленно = снова kill. Симптом «сайт зависает очень
    часто каждые 5 мин» был от ЭТОГО, а не от реального зависания. Реальное зависание было
    одно — self-capture (фикс #1). Поэтому порог теперь 3 прогона, а не 1.
-   Ограничение: задача от юзера = «только когда залогинен» (RDP-disconnect сессию держит,
-   logoff — останавливает). Для переживания ребута нужна SYSTEM-задача (нужны админ-права,
-   которых у текущей сессии нет).
+   ~~Ограничение: задача от юзера = «только когда залогинен»~~ — **ИСПРАВЛЕНО**, см.
+   `docs/ALWAYS_ON_WINDOWS.md`. Правильная конфигурация: `LogonType=S4U` (без пароля) +
+   `BootTrigger` + `StartWhenAvailable`; ставится
+   `ops/install_persona_autostart_windows.ps1` **из повышенного шелла** (неповышенный
+   получает `Access is denied` ровно на S4U / RunLevel=Highest / AtStartup). SYSTEM-задача
+   НЕ нужна — S4U сохраняет личность юзера и профиль, но живёт в сессии 0.
+   Та же правка применена и к `PersonaMemproc`.
 
 Smoke endpoints:
 ```powershell
 $sess = New-Object Microsoft.PowerShell.Commands.WebRequestSession
-Invoke-WebRequest -Uri "http://127.0.0.1:8000/auth/login" -Method POST -Body "email=test%40persona.local&password=password123" -ContentType "application/x-www-form-urlencoded" -WebSession $sess -UseBasicParsing | Out-Null
+$body = "email=$([uri]::EscapeDataString($env:PERSONA_SMOKE_EMAIL))&password=$([uri]::EscapeDataString($env:PERSONA_SMOKE_PASSWORD))"
+Invoke-WebRequest -Uri "http://127.0.0.1:8000/auth/login" -Method POST -Body $body -ContentType "application/x-www-form-urlencoded" -WebSession $sess -UseBasicParsing | Out-Null
 ```
 
-Test creds: `test@persona.local` / `password123` (это тестовый аккаунт, реальный юзер логинится своим email).
+Smoke-аккаунт: логин/пароль держи в `$env:PERSONA_SMOKE_EMAIL` /
+`$env:PERSONA_SMOKE_PASSWORD` (или в `.env`, который вне git). Раньше здесь
+были записаны реальные креды тестового аккаунта — их **надо сменить**, файл
+публичный. Реальный юзер логинится своим email.
 
 ## Последние коммиты (top of master)
 

@@ -9,7 +9,9 @@ accumulated over the v0.44 → v0.59 stretch:
 * ``/public/day/{slug}``       — admin-published days  (v0.44, table ``public_day``)
 * ``/collections/queries/{slug}`` — saved-search bundles (v0.58, table ``query_collection``)
 * ``/share/collection/{token}`` — multi-shot share links (v0.14, table ``share_collections``)
-* ``/`` and ``/features``       — always-on main pages
+* ``/``, ``/features``, ``/pricing``, ``/security`` and the legal block
+  (``/privacy-policy*``, ``/terms*``) — always-on main pages, listed in
+  :data:`_STATIC_PUBLIC_PATHS`
 
 Each surface gets one ``<url>`` element with the canonical ``<loc>``,
 the freshest ``<lastmod>`` we can derive, and a ``<changefreq>`` hint.
@@ -81,6 +83,34 @@ _CHANGEFREQ_PUBLIC_DAY: Final[str] = "monthly"
 _CHANGEFREQ_QUERY_COLLECTION: Final[str] = "weekly"
 _CHANGEFREQ_SHARE_COLLECTION: Final[str] = "daily"
 
+# Every always-on public page, in one list so "is it crawlable?" has a single
+# answer. Membership here must match ``_PUBLIC_PREFIXES`` in
+# :mod:`app.web.middleware.auth_gate` — a path the gate keeps behind a session
+# would be advertised to crawlers as a 303 to /landing.
+#
+# The legal + commercial block (``/pricing`` and everything under
+# ``/privacy-policy`` and ``/terms``, plus ``/security``) was missing entirely.
+# Those are exactly the pages a marketplace or payment provider checks for, and
+# an unlisted page is a page they may not find.
+_STATIC_PUBLIC_PATHS: Final[tuple[str, ...]] = (
+    "/",
+    "/features",
+    "/landing",
+    "/blog",
+    "/compare",
+    "/pricing",
+    "/roadmap",
+    "/changelog",
+    "/security",
+    "/privacy-policy",
+    "/privacy-policy/consent",
+    "/privacy-policy/cookies",
+    "/terms",
+    "/terms/offer",
+    "/terms/refund",
+    "/terms/requisites",
+)
+
 
 @router.get("/sitemap.xml")
 async def sitemap_xml(request: Request) -> Response:
@@ -101,10 +131,8 @@ async def sitemap_xml(request: Request) -> Response:
     urlset = ET.Element("urlset", {"xmlns": _SITEMAP_NS})
 
     # --- Always-on main pages ---------------------------------------
-    _append_url(urlset, f"{base}/", now_iso, _CHANGEFREQ_MAIN)
-    _append_url(urlset, f"{base}/features", now_iso, _CHANGEFREQ_MAIN)
-    _append_url(urlset, f"{base}/landing", now_iso, _CHANGEFREQ_MAIN)
-    _append_url(urlset, f"{base}/blog", now_iso, _CHANGEFREQ_MAIN)
+    for path in _STATIC_PUBLIC_PATHS:
+        _append_url(urlset, f"{base}{path}", now_iso, _CHANGEFREQ_MAIN)
 
     # --- Blog (file-based SEO content) ------------------------------
     blog_posts = blog.list_posts()
@@ -152,10 +180,13 @@ async def sitemap_xml(request: Request) -> Response:
         public_days=len(public_days),
         query_collections=len(query_collections),
         share_collections=len(share_collections),
+        static_pages=len(_STATIC_PUBLIC_PATHS),
+        blog_posts=len(blog_posts),
         urls_total=len(public_days)
         + len(query_collections)
         + len(share_collections)
-        + 2,
+        + len(blog_posts)
+        + len(_STATIC_PUBLIC_PATHS),
     )
     return Response(content=body, media_type="text/xml; charset=utf-8")
 

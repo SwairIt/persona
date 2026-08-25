@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0a0a12" />
+  <title>{{ title }} — Persona</title>
+  <meta name="description" content="Напиши владельцу Persona: вопрос, баг, идея или просьба удалить данные." />
+  <link rel="canonical" href="/support" />
+  {# Форма обратной связи не должна попадать в поиск отдельной страницей-дублем,
+     но и закрывать её от индексации целиком незачем — ссылка на неё нужна
+     людям, которые ищут «как связаться». Индексируем, но не просим следовать. #}
+  <style>:root{color-scheme:dark}html,body{margin:0;background:#07070d;color:#eef0ff}</style>
+  <link rel="stylesheet" href="/static/landing/style.css?v={{ app_version }}" />
+  {% include "_metrika.html" %}
+  <style>
+    .sup-wrap{max-width:660px;margin:0 auto;padding:6rem 1.25rem 3rem}
+    .sup-card{border:1px solid rgba(255,255,255,.09);border-radius:14px;padding:1.4rem;
+      background:rgba(255,255,255,.02)}
+    .sup-label{display:block;font-size:.82rem;color:#9aa;margin:0 0 .35rem}
+    .sup-field{width:100%;box-sizing:border-box;padding:.7rem .85rem;border-radius:10px;
+      border:1px solid rgba(255,255,255,.14);background:#0d0d18;color:#eef0ff;
+      font:inherit;font-size:1rem}
+    .sup-field:focus{outline:none;border-color:#8b5cf6}
+    .sup-field[readonly]{color:#99a;background:#0a0a12}
+    .sup-row{margin-bottom:1rem}
+    .sup-hint{font-size:.78rem;color:#778;margin:.35rem 0 0;line-height:1.5}
+    .sup-btn{display:inline-block;padding:.8rem 1.4rem;border:none;border-radius:10px;
+      background:#7c3aed;color:#fff;font:inherit;font-weight:600;font-size:1rem;cursor:pointer}
+    .sup-btn:hover{background:#8b5cf6}
+    .sup-msg{border-radius:10px;padding:.8rem 1rem;margin:0 0 1.2rem;font-size:.92rem;line-height:1.55}
+    .sup-err{border:1px solid rgba(244,63,94,.45);background:rgba(244,63,94,.12);color:#fecdd3}
+    .sup-ok{border:1px solid rgba(16,185,129,.45);background:rgba(16,185,129,.12);color:#a7f3d0}
+    .sup-privacy{font-size:.78rem;color:#778;line-height:1.65;margin:1.4rem 0 0;
+      border-top:1px solid rgba(255,255,255,.08);padding-top:1rem}
+    .sup-privacy a{color:#a78bfa}
+    /* Ловушка. Спрятана и от глаз, и от скринридеров (aria-hidden + tabindex),
+       поэтому живой человек её не заполнит ни мышью, ни клавиатурой.
+       display:none осознанно НЕ используется: часть ботов его распознаёт. */
+    .sup-hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
+  </style>
+</head>
+<body>
+{% include "_public_nav.html" %}
+
+<main class="sup-wrap">
+
+  <header style="margin-bottom:1.6rem;">
+    <h1 style="font-size:clamp(1.6rem,4vw,2.2rem);line-height:1.15;margin:0 0 .7rem;">Написать в поддержку</h1>
+    <p style="font-size:1rem;color:#aab;line-height:1.65;margin:0;">
+      Сообщение попадёт прямо владельцу этого экземпляра Persona — в его ящик
+      на сайте, и по возможности ещё и письмом. Отвечает живой человек, не бот.
+    </p>
+  </header>
+
+  {% if sent_id %}
+    <div class="sup-msg sup-ok">
+      Обращение <b>#{{ sent_id }}</b> принято. Владелец увидит его в своём ящике.
+      Если ты оставил email — ответ придёт на него. Номер можно назвать при
+      повторном обращении.
+    </div>
+  {% endif %}
+
+  {% if error %}
+    <div class="sup-msg sup-err">{{ error }}</div>
+  {% endif %}
+
+  <form method="post" action="/support" class="sup-card">
+    {{ csrf_input(request) }}
+    {# Подписанное время выдачи формы — проверка «сколько человек тут пробыл».
+       Подпись на инстансной соли, поэтому значение нельзя подставить руками. #}
+    <input type="hidden" name="ts" value="{{ form_ts }}">
+    {# Откуда пришли: только ПУТЬ, без query — помогает понять, о какой
+       странице речь, когда человек пишет «тут ничего не грузится».
+       Значение вычисляет сервер (app/support/service.source_path), в форму
+       кладётся уже очищенным: query-string с токенами и поисковыми запросами
+       сюда попасть не может. #}
+    <input type="hidden" name="from" value="{{ from_page }}">
+
+    <div class="sup-hp" aria-hidden="true">
+      <label>Не заполняй это поле
+        <input type="text" name="website" tabindex="-1" autocomplete="off">
+      </label>
+    </div>
+
+    <div class="sup-row">
+      <label class="sup-label" for="sup-subject">Тема</label>
+      <input class="sup-field" id="sup-subject" type="text" name="subject" required
+             maxlength="{{ subject_max }}" value="{{ fields.subject }}"
+             placeholder="Коротко: что случилось или что нужно">
+    </div>
+
+    <div class="sup-row">
+      <label class="sup-label" for="sup-email">Email для ответа{% if not logged_in %} <span style="color:#f9a8d4">— обязательно</span>{% endif %}</label>
+      {% if logged_in %}
+        <input class="sup-field" id="sup-email" type="email" value="{{ account_email }}" readonly>
+        <p class="sup-hint">
+          Адрес берётся из твоего аккаунта — менять его здесь нельзя, иначе
+          обратным адресом можно было бы указать чужой.
+          Сменить его целиком — в настройках профиля.
+        </p>
+      {% else %}
+        <input class="sup-field" id="sup-email" type="email" name="email" required
+               maxlength="254" value="{{ fields.email }}" autocomplete="email"
+               placeholder="you@example.com">
+        <p class="sup-hint">Без адреса ответить будет некуда.</p>
+      {% endif %}
+    </div>
+
+    <div class="sup-row">
+      <label class="sup-label" for="sup-body">Сообщение</label>
+      <textarea class="sup-field" id="sup-body" name="body" required rows="9"
+                maxlength="{{ body_max }}"
+                placeholder="Что произошло, что ты ожидал и что получилось. Ссылки и номера ошибок — очень помогают.">{{ fields.body }}</textarea>
+      <p class="sup-hint">До {{ body_max }} символов. Пароли и коды из писем сюда вставлять не надо.</p>
+    </div>
+
+    <button class="sup-btn" type="submit">Отправить</button>
+    <p class="sup-hint" style="margin-top:.8rem;">
+      Форма работает без JavaScript. Если отправка не проходит — напиши на
+      адрес из <a href="/terms/requisites" style="color:#a78bfa">реквизитов</a>.
+    </p>
+
+    <p class="sup-privacy">
+      <b>Что сохраняется.</b> Тема, текст сообщения и указанный email — чтобы
+      владелец мог прочитать обращение и ответить. Вместе с ними пишется
+      технический контекст: версия приложения, страница, с которой ты пришёл,
+      крупный класс браузера («Chrome, мобильный») и <i>необратимый хэш</i>
+      IP-адреса — он нужен ровно для того, чтобы отличить двадцать обращений
+      от одного источника от двадцати разных людей. Сам IP-адрес и полная
+      строка User-Agent <b>не сохраняются</b>.
+      <br><br>
+      <b>Кому это уходит.</b> Владельцу (оператору) этого экземпляра Persona,
+      и никому больше: рекламы, аналитики обращений и передачи третьим лицам
+      здесь нет. Если почта на сервере настроена, копия обращения уходит ему
+      письмом — тогда она оказывается ещё и у его почтового провайдера.
+      <br><br>
+      <b>Сколько хранится.</b> Пока владелец не удалит обращение — кнопка
+      удаления есть у него в ящике, и удаление стирает и переписку по нему.
+      Автоматического срока здесь пока нет, и обещать его было бы неправдой.
+      Попросить удалить своё обращение можно этой же формой; удаление
+      аккаунта отвязывает от него уже отправленные обращения.
+      Подробности — в <a href="/privacy-policy">Политике конфиденциальности</a>.
+    </p>
+  </form>
+
+</main>
+
+{% include "_public_footer.html" %}
+</body>
+</html>

@@ -2,7 +2,7 @@
 
 Why this exists
 ---------------
-``screenshots.pinned_at`` lets a power user mark a moment as
+Pinning lets a power user mark a moment as
 important — sometimes manually from the gallery, sometimes via the
 :mod:`app.auto_pin_engine` rules. The HTML surface for browsing pins
 already exists (``/pinmap``), but a *passive* surface — "tell me when
@@ -13,7 +13,12 @@ reader can poll and surface each new pin as it happens.
 
 Design contract
 ---------------
-* **Most-recent first.** Spec says ``ORDER BY pinned_at DESC LIMIT 50``
+* **Pinning is ``tier = 'pinned'``, not a ``pinned_at`` column.** The
+  original spec named a ``screenshots.pinned_at`` timestamp that has
+  never existed in the schema, so every request to this feed was a hard
+  500. The enum flip is stored in place with no timestamp of its own
+  (see :mod:`app.pinboard`), so ``created_at`` doubles as the pin time.
+* **Most-recent first.** ``ORDER BY created_at DESC LIMIT 50``
   with one ``<item>`` per pin. ``LIMIT`` is parametrised even though
   the value is an ``int`` — keeping every value out of the SQL string
   is the project rule, not a CVE-driven one.
@@ -71,11 +76,11 @@ async def build_pinned_rss(host: str, limit: int = 50) -> str:
     async with get_connection() as conn:
         cursor = await conn.execute(
             """
-            SELECT id, captured_at, pinned_at, app_name, window_title,
-                   ocr_text, alt_text
+            SELECT id, captured_at, created_at AS pinned_at, app_name,
+                   window_title, ocr_text, alt_text
             FROM screenshots
-            WHERE pinned_at IS NOT NULL
-            ORDER BY pinned_at DESC
+            WHERE tier = 'pinned'
+            ORDER BY created_at DESC
             LIMIT ?
             """,
             (int(limit),),

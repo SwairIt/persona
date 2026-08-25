@@ -72,9 +72,17 @@ def _safe_filename(app_name: str) -> str:
     constant slug if everything is filtered out. The full app name is
     still authoritative in the URL and in the log line — this is only
     the suggested save-as name.
+
+    Non-ASCII is replaced too, and that is not cosmetic: HTTP header values
+    are latin-1, so a Cyrillic app name (``Телеграм``) interpolated into the
+    plain ``filename="…"`` parameter raises ``UnicodeEncodeError`` while the
+    response is being sent — a hard 500 after the whole CSV was built. The
+    same bug was live in the per-tag OCR export.
     """
     forbidden = set('"\\/:*?<>|\r\n\t')
-    cleaned = "".join("_" if ch in forbidden else ch for ch in app_name).strip()
+    cleaned = "".join(
+        "_" if (ch in forbidden or not ch.isascii()) else ch for ch in app_name
+    ).strip()
     return cleaned or "app"
 
 

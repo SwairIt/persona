@@ -2,18 +2,17 @@
 
 Sibling of :mod:`app.tag_rule_engine`. Where the tag-rule worker
 attaches a tag to matching shots, this module flips
-``screenshots.pinned_at`` to the current ISO timestamp so the
-retention worker treats them as user-curated and never demotes them.
+``screenshots.tier`` to ``'pinned'`` so the retention worker treats
+them as user-curated and never demotes them.
 
 Defensive design — a runaway regex (``.``, ``\\w+``, empty alternation)
 would otherwise pin every shot ever captured. We cap successful pins
 at ``daily_cap`` per UTC day across all rules; once the cap is hit the
 remaining matches are *skipped silently* but the watermark still
-advances so the loop drains. The cap counter is queried from
-``screenshots.pinned_at`` itself (rather than a side-table) so an
-operator-initiated pin from the UI also counts towards the budget —
-that's the conservative choice: a manual pinning spree should not
-also unlock a regex-driven spree.
+advances so the loop drains. The cap counter lives in a day-stamped
+``kv_settings`` row (:data:`DAILY_COUNTER_KV_KEY`) because the pinned
+enum carries no timestamp to count from — see
+:func:`_count_pinned_today` for what that costs.
 
 Functions:
 
@@ -36,6 +35,7 @@ from typing import TypedDict
 import aiosqlite
 
 from app.logging_setup import get_logger
+from app.storage.repository import get_kv, set_kv
 
 log = get_logger("persona.auto_pin_engine")
 
@@ -69,8 +69,8 @@ class AutoPinRunSummary(TypedDict):
     * ``rules_processed`` — every enabled rule whose loop body actually
       executed (a compile failure still counts: the watermark advances
       so a broken rule cannot starve the rest of the queue).
-    * ``shots_pinned`` — number of rows whose ``pinned_at`` we wrote in
-      this tick. Excludes shots already pinned before the tick started.
+    * ``shots_pinned`` — number of rows we flipped to ``tier = 'pinned'``
+      in this tick. Excludes shots already pinned before the tick started.
     * ``daily_cap_hit`` — ``True`` when at least one would-be pin was
       skipped because the daily cap was reached. Surfaced to the worker
       so the admin log line is informative.
@@ -171,25 +171,45 @@ async def _fetch_candidate_shots(
     return [(int(row["id"]), str(row["ocr_text"])) for row in rows]
 
 
-async def _count_pinned_today(conn: aiosqlite.Connection) -> int:
-    """Return how many ``screenshots.pinned_at`` rows landed today (UTC).
+#: kv key holding the auto-pin day budget as ``"YYYY-MM-DD:N"``.
+DAILY_COUNTER_KV_KEY: str = "auto_pin_daily_count"
 
-    Counts every pin from today regardless of source — manual or
-    automatic — so the daily cap acts as a global budget on
-    pinned-row growth rather than an auto-pin-only quota. That's the
-    conservative choice: a UI-driven pinning spree should not unlock
-    additional auto-pin headroom.
+
+async def _count_pinned_today(conn: aiosqlite.Connection) -> int:
+    """Return how many auto-pins this engine has recorded today (UTC).
+
+    Schema note — the original implementation counted
+    ``screenshots.pinned_at``, a column that has never existed: pinning is
+    the ``tier = 'pinned'`` enum flipped in place, with no timestamp of its
+    own (see :mod:`app.pinboard`). Every tick of this worker therefore died
+    with ``no such column: pinned_at``.
+
+    Because the flip carries no timestamp, "pins made today" cannot be
+    recovered from ``screenshots`` at all — ``created_at`` is the *capture*
+    time, so a backfill of old shots would never charge the cap and the
+    runaway-regex guard this module exists for would be defeated. We keep a
+    small day-stamped counter in ``kv_settings`` instead. Consequence, stated
+    plainly: a manual pin from the UI no longer consumes auto-pin headroom.
+    The cap still bounds what *this engine* can do in a day, which is the
+    property that actually protects the database.
     """
     today_iso = datetime.now(tz=UTC).date().isoformat()
-    cursor = await conn.execute(
-        "SELECT COUNT(*) AS n FROM screenshots "
-        "WHERE pinned_at IS NOT NULL AND substr(pinned_at, 1, 10) = ?",
-        (today_iso,),
-    )
-    row = await cursor.fetchone()
-    if row is None:
+    raw = await get_kv(conn, DAILY_COUNTER_KV_KEY)
+    if not raw or ":" not in raw:
         return 0
-    return int(row["n"])
+    day, _, count = raw.partition(":")
+    if day != today_iso:
+        return 0
+    try:
+        return max(0, int(count))
+    except ValueError:
+        return 0
+
+
+async def _store_pinned_today(conn: aiosqlite.Connection, count: int) -> None:
+    """Persist the day-stamped auto-pin counter read by :func:`_count_pinned_today`."""
+    today_iso = datetime.now(tz=UTC).date().isoformat()
+    await set_kv(conn, DAILY_COUNTER_KV_KEY, f"{today_iso}:{max(0, int(count))}")
 
 
 def _compile_rule(rule: AutoPinRuleRow) -> re.Pattern[str] | None:
@@ -218,17 +238,21 @@ async def _pin_screenshot(
     screenshot_id: int,
     now_iso: str,
 ) -> bool:
-    """Set ``pinned_at`` for a shot iff it isn't already pinned.
+    """Flip a shot to ``tier = 'pinned'`` iff it isn't already pinned.
 
-    Returns ``True`` iff exactly one row's ``pinned_at`` was written
-    by this call. The ``WHERE pinned_at IS NULL`` guard means
-    re-running the engine against an already-pinned shot is a no-op
-    and the daily-cap counter doesn't double-charge an existing pin.
+    Returns ``True`` iff exactly one row was flipped by this call. The
+    ``WHERE tier != 'pinned'`` guard means re-running the engine against an
+    already-pinned shot is a no-op and the daily-cap counter doesn't
+    double-charge an existing pin.
+
+    ``now_iso`` is accepted for call-site symmetry and logging only: the
+    schema stores no pin timestamp.
     """
+    del now_iso
     cursor = await conn.execute(
-        "UPDATE screenshots SET pinned_at = ? "
-        "WHERE id = ? AND pinned_at IS NULL",
-        (now_iso, int(screenshot_id)),
+        "UPDATE screenshots SET tier = 'pinned' "
+        "WHERE id = ? AND (tier IS NULL OR tier != 'pinned')",
+        (int(screenshot_id),),
     )
     return int(cursor.rowcount) == 1
 
@@ -331,6 +355,9 @@ async def run_auto_pins(
         await conn.commit()
 
         summary["shots_pinned"] += matched_in_rule
+        if matched_in_rule:
+            await _store_pinned_today(conn, pinned_today)
+            await conn.commit()
         if matched_in_rule:
             log.info(
                 "auto_pin_engine.rule_matched",

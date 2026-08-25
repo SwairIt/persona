@@ -7,6 +7,14 @@
       <h1 class="text-2xl font-bold tracking-tight">🛡️ Root — пульт владельца</h1>
       <p class="text-zinc-500 text-sm mt-1">Живые логи, здоровье системы и быстрые ссылки. Только для владельца.</p>
     </div>
+    {# Аналитика — ОТДЕЛЬНАЯ страница, а не вкладка здесь: этот пульт держат
+       открытым и он опрашивает логи каждые несколько секунд, а отчёт делает
+       тяжёлое агрегатное чтение плюс свёртку суток. Обоснование целиком — в
+       докстринге app/web/routes/analytics_owner.py. #}
+    <a href="/root/analytics" data-track="root:open-analytics"
+       class="px-3 py-2 rounded-lg bg-accent-600/20 text-accent-300 border border-accent-500/40 hover:bg-accent-600/30 text-sm whitespace-nowrap">
+      📊 Аналитика сайта
+    </a>
   </div>
 
   {# Сводка здоровья #}

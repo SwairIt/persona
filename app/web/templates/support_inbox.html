@@ -1,0 +1,210 @@
+{% extends "base.html" %}
+
+{# Ящик поддержки владельца.
+
+   Мастер-деталь на ОДНОЙ странице: слева лента, справа раскрытое обращение
+   (?ticket=N). Почему не отдельный /settings/support/{id} — см. докстринг
+   app/web/routes/support_inbox.py.
+
+   Главный сигнал этой страницы — состояние почты. На текущем инстансе SMTP
+   не настроен, и владелец обязан видеть это ДО того, как нажмёт «Ответить»,
+   а не после. Поэтому баннер стоит наверху, а не прячется в подсказке. #}
+
+{% macro status_badge(value) -%}
+  {%- set map = {'new': (t('support_status_new'), 'bg-violet-500/15 text-violet-300 border-violet-500/40'),
+                 'read': (t('support_status_read'), 'bg-sky-500/15 text-sky-300 border-sky-500/40'),
+                 'answered': (t('support_status_answered'), 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40'),
+                 'closed': (t('support_status_closed'), 'bg-zinc-500/15 text-zinc-400 border-zinc-600/40')} -%}
+  {%- set pair = map.get(value, (value, 'bg-zinc-500/15 text-zinc-400 border-zinc-600/40')) -%}
+  <span class="inline-block px-2 py-0.5 rounded border text-[11px] {{ pair[1] }}">{{ pair[0] }}</span>
+{%- endmacro %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto px-4 sm:px-6 py-6">
+
+  <header class="mb-5">
+    <h1 class="text-2xl font-bold tracking-tight">📮 {{ t('support_inbox_title') }}</h1>
+    <p class="text-sm text-zinc-500 mt-1">
+      {{ t('support_inbox_subtitle') }}
+      <a href="/support" class="text-accent-400 hover:underline">→ /support</a> ·
+      всего {{ counts.total }}, новых {{ counts.new }}.
+    </p>
+  </header>
+
+  {# ── Состояние почты ─────────────────────────────────────────────────────
+     Это не украшение. Пока здесь красное, ни одно письмо — ни уведомление о
+     новом обращении, ни ответ автору — с сервера не уходит, и единственный
+     работающий канал — эта страница. #}
+  {% if mail_ok %}
+    <div class="mb-5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">
+      {{ t('support_mail_ok') }}
+    </div>
+  {% else %}
+    <div class="mb-5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
+      <b>{{ t('support_mail_broken') }}</b> (<code>{{ mail_status }}</code>)
+      Скопируй адрес и ответь из своего почтового клиента.
+      Починить — <a href="/settings/smtp" class="underline">/settings/smtp</a>
+      (сейчас пустые <code>smtp_host</code> / <code>smtp_from</code>).
+    </div>
+  {% endif %}
+
+  {% if done == 'sent' %}
+    <div class="mb-4 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">Ответ сохранён и отправлен письмом.</div>
+  {% elif done == 'saved' %}
+    <div class="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">Ответ сохранён, но письмо не ушло — см. статус доставки под ним.</div>
+  {% elif done == 'deleted' %}
+    <div class="mb-4 rounded-lg border border-zinc-600 bg-ink-800 px-3 py-2 text-sm text-zinc-300">Обращение удалено вместе с перепиской.</div>
+  {% elif done == 'empty' %}
+    <div class="mb-4 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">Пустой ответ не сохранён.</div>
+  {% endif %}
+
+  {# ── Фильтр по статусу ───────────────────────────────────────────────── #}
+  <nav class="flex flex-wrap gap-2 mb-5 text-sm">
+    <a href="/settings/support"
+       class="px-3 py-1.5 rounded-lg border {{ 'border-accent-500 text-accent-300' if not active_status else 'border-ink-700 text-zinc-400 hover:text-zinc-200' }}">
+      {{ t('support_inbox_all') }} <span class="opacity-60">{{ counts.total }}</span>
+    </a>
+    {% for name in statuses %}
+      <a href="/settings/support?status={{ name }}"
+         class="px-3 py-1.5 rounded-lg border {{ 'border-accent-500 text-accent-300' if active_status == name else 'border-ink-700 text-zinc-400 hover:text-zinc-200' }}">
+        {{ status_badge(name) }} <span class="opacity-60">{{ counts[name] }}</span>
+      </a>
+    {% endfor %}
+  </nav>
+
+  <div class="grid gap-5 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)]">
+
+    {# ── Лента ─────────────────────────────────────────────────────────── #}
+    <section class="rounded-xl border border-ink-700 bg-ink-900 overflow-hidden">
+      {% if not tickets %}
+        <p class="p-4 text-sm text-zinc-500">
+          {{ t('support_inbox_empty') }} Ссылка на форму есть в подвале публичных
+          страниц и по адресу <code>/support</code>.
+        </p>
+      {% endif %}
+      <ul class="divide-y divide-ink-800 max-h-[70vh] overflow-y-auto">
+        {% for row in tickets %}
+          <li>
+            <a href="/settings/support?ticket={{ row.id }}{% if active_status %}&status={{ active_status }}{% endif %}"
+               class="block px-3 py-3 hover:bg-ink-800 {{ 'bg-ink-800' if open_ticket and open_ticket.id == row.id else '' }}">
+              <div class="flex items-center justify-between gap-2 mb-1">
+                <span class="text-[11px] text-zinc-600">#{{ row.id }}</span>
+                {{ status_badge(row.status) }}
+              </div>
+              <div class="text-sm text-zinc-200 truncate">{{ row.subject }}</div>
+              <div class="text-[11px] text-zinc-500 truncate mt-0.5">
+                {{ row.email or 'без адреса' }} · {{ row.created_at }}
+              </div>
+            </a>
+          </li>
+        {% endfor %}
+      </ul>
+    </section>
+
+    {# ── Раскрытое обращение ───────────────────────────────────────────── #}
+    <section class="rounded-xl border border-ink-700 bg-ink-900 p-4">
+      {% if not open_ticket %}
+        <p class="text-sm text-zinc-500">{{ t('support_inbox_pick') }}</p>
+      {% else %}
+        <div class="flex flex-wrap items-center gap-2 mb-3">
+          <span class="text-xs text-zinc-600">#{{ open_ticket.id }}</span>
+          {{ status_badge(open_ticket.status) }}
+          <span class="text-xs text-zinc-500">{{ open_ticket.created_at }}</span>
+        </div>
+
+        <h2 class="text-lg font-semibold mb-2">{{ open_ticket.subject }}</h2>
+
+        <div class="text-xs text-zinc-500 mb-3 leading-relaxed">
+          От: <b class="text-zinc-300 select-all">{{ reply_to or 'адрес не указан' }}</b>
+          {% if open_ticket.user_id %}<span class="opacity-70">(аккаунт #{{ open_ticket.user_id }}, {{ open_ticket.role }})</span>
+          {% else %}<span class="opacity-70">(аноним)</span>{% endif %}
+          <br>
+          Страница: <code>{{ open_ticket.source_page or '—' }}</code> ·
+          Версия: {{ open_ticket.app_version or '—' }} ·
+          Браузер: {{ open_ticket.browser_class or '—' }} ·
+          Источник: <code title="Необратимый хэш IP на инстансной соли. Нужен только чтобы отличить один источник от многих.">{{ open_ticket.ip_hash or '—' }}</code>
+          <br>
+          Уведомление владельцу:
+          {% if open_ticket.owner_notify_status == 'sent' %}
+            <span class="text-emerald-400">письмо отправлено</span>
+          {% else %}
+            <span class="text-amber-400">письма не было — {{ open_ticket.owner_notify_status }}</span>
+          {% endif %}
+        </div>
+
+        <div class="rounded-lg border border-ink-800 bg-ink-950 p-3 text-sm text-zinc-200 whitespace-pre-wrap break-words mb-4">{{ open_ticket.body }}</div>
+
+        {# ── Переписка ──────────────────────────────────────────────────── #}
+        {% if messages %}
+          <div class="text-xs uppercase tracking-widest text-zinc-500 mb-2">{{ t('support_replies') }}</div>
+          <ul class="space-y-2 mb-4">
+            {% for m in messages %}
+              <li class="rounded-lg border border-ink-800 bg-ink-950/60 p-3">
+                <div class="text-[11px] text-zinc-500 mb-1">
+                  {{ 'Владелец' if m.author == 'owner' else 'Автор' }} · {{ m.created_at }} ·
+                  {% if m.delivery_status == 'sent' %}
+                    <span class="text-emerald-400">отправлено письмом</span>
+                  {% else %}
+                    <span class="text-amber-400">письмо не ушло ({{ m.delivery_status }})</span>
+                  {% endif %}
+                </div>
+                <div class="text-sm text-zinc-200 whitespace-pre-wrap break-words">{{ m.body }}</div>
+              </li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+
+        {# ── Ответ ──────────────────────────────────────────────────────── #}
+        <form method="post" action="/settings/support" class="mb-4">
+          {{ csrf_input(request) }}
+          <input type="hidden" name="ticket_id" value="{{ open_ticket.id }}">
+          <input type="hidden" name="action" value="reply">
+          <label class="block text-xs uppercase tracking-widest text-zinc-500 mb-2">{{ t('support_reply') }}</label>
+          <textarea name="reply" rows="5" maxlength="{{ reply_max }}"
+                    class="w-full rounded-lg border border-ink-700 bg-ink-950 px-3 py-2 text-sm"
+                    placeholder="Текст ответа. Сохранится здесь в любом случае."></textarea>
+          <div class="flex flex-wrap items-center gap-3 mt-2">
+            <button type="submit" class="px-4 py-2 rounded-lg bg-accent-600 hover:bg-accent-500 text-white text-sm font-semibold">
+              {{ t('support_reply_send') if mail_ok else t('support_reply_save') }}
+            </button>
+            <span class="text-xs text-zinc-500">
+              {% if mail_ok %}Уйдёт письмом на {{ reply_to }}.
+              {% else %}Письмо не уйдёт. Адрес для ручного ответа: <b class="select-all text-zinc-300">{{ reply_to or '—' }}</b>{% endif %}
+            </span>
+          </div>
+        </form>
+
+        {# ── Статусы и удаление ─────────────────────────────────────────── #}
+        <div class="flex flex-wrap gap-2 pt-3 border-t border-ink-800">
+          {% for name in statuses %}
+            <form method="post" action="/settings/support">
+              {{ csrf_input(request) }}
+              <input type="hidden" name="ticket_id" value="{{ open_ticket.id }}">
+              <input type="hidden" name="action" value="{{ name }}">
+              <button type="submit"
+                      class="px-3 py-1.5 rounded-lg border border-ink-700 text-xs text-zinc-400 hover:text-zinc-100 hover:border-zinc-500"
+                      {% if open_ticket.status == name %}disabled style="opacity:.4"{% endif %}>
+                {{ {'new':'В новые','read':'Прочитано','answered':'Отвечено','closed':'Закрыть'}[name] }}
+              </button>
+            </form>
+          {% endfor %}
+          <form method="post" action="/settings/support" class="ml-auto"
+                onsubmit="return confirm('Удалить обращение #{{ open_ticket.id }} и всю переписку по нему?')">
+            {{ csrf_input(request) }}
+            <input type="hidden" name="ticket_id" value="{{ open_ticket.id }}">
+            <input type="hidden" name="action" value="delete">
+            <button type="submit" class="px-3 py-1.5 rounded-lg border border-rose-700/60 text-xs text-rose-300 hover:bg-rose-900/30">
+              {{ t('support_delete') }}
+            </button>
+          </form>
+        </div>
+        <p class="text-[11px] text-zinc-600 mt-3">
+          Удаление необратимо и стирает обращение вместе с ответами. Автоматического
+          срока хранения нет — под формой обещано именно это, без выдуманных «12 месяцев».
+        </p>
+      {% endif %}
+    </section>
+
+  </div>
+</div>
+{% endblock %}

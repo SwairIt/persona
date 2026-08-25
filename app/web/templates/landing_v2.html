@@ -115,6 +115,32 @@
                    placeholder="введи свой email" autocomplete="email" spellcheck="false" />
             <button type="submit" class="btn btn-primary">Начать →</button>
           </form>
+          {# Согласие на обработку ПДн (152-ФЗ, ст. 9). Это быстрая форма
+             регистрации: одно нажатие уже создаёт аккаунт, поэтому согласие
+             должно быть здесь, а не только на /auth/signup. Галочка НЕ
+             предзаполнена.
+
+             ``form="magic-form"`` обязателен: разметка галочки лежит СНАРУЖИ
+             <form> (иначе она ломает flex-строку «поле + кнопка»), а без
+             атрибута form браузер не считает её частью формы — не применяет
+             required и не кладёт поле в тело запроса. Так и было в первой
+             версии этой правки: галочка выглядела обязательной, но не
+             проверялась и на сервер не доезжала, из-за чего журнал согласий
+             (app/auth/consent.py) записывал source='form_submit' вместо
+             'checkbox'. Обработчик submit ниже кладёт consent в тело явно —
+             он собирает body руками, а не из FormData. #}
+          <label class="reveal" style="display:flex;gap:.5rem;align-items:flex-start;
+                 max-width:520px;margin:.9rem auto 0;text-align:left;cursor:pointer;">
+            <input type="checkbox" name="consent" value="1" required
+                   id="quick-consent" form="magic-form"
+                   style="margin-top:.25rem;flex:0 0 auto;accent-color:#8b5cf6;" />
+            <span style="font-size:.78rem;line-height:1.5;color:#98a;">
+              Даю <a href="/privacy-policy/consent">согласие на обработку персональных данных</a>,
+              принимаю <a href="/terms">пользовательское соглашение</a> и
+              <a href="/privacy-policy">политику конфиденциальности</a>.
+              Данные хранятся на сервере владельца этого экземпляра; у администратора есть доступ к базе.
+            </span>
+          </label>
           <p class="hero-cta-note reveal">
             🎁 Бесплатно — со своим ключом. Введи почту — и через минуту ты в чате со своим ИИ
             · <a href="/auth/signup">придумать свой пароль</a>
@@ -441,10 +467,24 @@
           <a href="{{ '/now' if _lp_owner else '/chat' }}" class="btn btn-primary btn-lg">Открыть кабинет</a>
         {% else %}
           <p>Введи email — войдём или создадим аккаунт за секунду.</p>
-          <form class="hero-cta cta-form" method="post" action="/auth/register">
+          <form class="hero-cta cta-form" method="post" action="/auth/register" id="cta-form-bottom">
             <input type="email" name="email" required placeholder="введи свой email" autocomplete="email" spellcheck="false" />
             <button type="submit" class="btn btn-primary btn-lg">Начать →</button>
           </form>
+          {# Вторая точка регистрации на этой же странице. Она отправляется
+             НАТИВНО (без JS-обработчика), и до этой правки согласия не
+             спрашивала вовсе — аккаунт заводился в один клик. Галочка
+             привязана через form=, потому что лежит снаружи flex-строки. #}
+          <label style="display:flex;gap:.5rem;align-items:flex-start;max-width:520px;
+                 margin:.9rem auto 0;text-align:left;cursor:pointer;">
+            <input type="checkbox" name="consent" value="1" required form="cta-form-bottom"
+                   style="margin-top:.25rem;flex:0 0 auto;accent-color:#8b5cf6;" />
+            <span style="font-size:.78rem;line-height:1.5;color:#98a;">
+              Даю <a href="/privacy-policy/consent">согласие на обработку персональных данных</a>,
+              принимаю <a href="/terms">пользовательское соглашение</a> и
+              <a href="/privacy-policy">политику конфиденциальности</a>.
+            </span>
+          </label>
           <p class="hero-cta-note">вход по ссылке, без пароля · <a href="#" class="open-login">войти паролем</a></p>
         {% endif %}
       </div>
@@ -493,13 +533,12 @@
   </div>
   {% endif %}
 
-  <footer class="footer">
-    <span>Persona <span style="opacity:.6">v{{ app_version }}</span></span>
-    <span class="footer-links">
-      <a href="/blog">Блог</a> · <a href="/help">Справка</a> ·
-      <a href="https://github.com/SwairIt/persona">Исходник</a>
-    </span>
-  </footer>
+  {# Подвал вынесен в общий партиал: юридический блок (политика, согласие,
+     оферта, возврат, реквизиты, cookie) обязан быть на КАЖДОЙ публичной
+     странице. Ссылка «Исходник» отсюда убрана намеренно — репозиторий
+     закрыт, и FAQ на этой же странице честно об этом пишет; ссылка на
+     недоступный репозиторий читалась как заявка на open source. #}
+  {% include "_public_footer.html" %}
 
   <!-- inline-авторизация: magic-link, пароль, сброс + проверка опечаток email (verbatim из v1) -->
   <script>
@@ -541,7 +580,16 @@
       e.preventDefault();
       var email=(input.value||'').trim(); if(!email)return;
       showMsg('Создаю аккаунт…', true);
-      var res=await post('/auth/register',{email:email});
+      // consent кладём в тело ЯВНО: этот обработчик собирает body руками, и
+      // без строки ниже поле галочки на сервер не попадёт, а журнал согласий
+      // (app/auth/consent.py) запишет source='form_submit' — «форма пришла,
+      // галочки не было». Браузер уже не пустил бы нас сюда с непроставленной
+      // галочкой (она required и привязана к форме через form="magic-form"),
+      // так что здесь она всегда отмечена — но подтверждаем это данными.
+      var consentBox=document.getElementById('quick-consent');
+      var payload={email:email};
+      if(consentBox && consentBox.checked){ payload.consent='1'; }
+      var res=await post('/auth/register',payload);
       if(res.ok){
         if(res.password){ showCreated(res); }
         else {
