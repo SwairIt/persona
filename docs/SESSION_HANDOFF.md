@@ -200,16 +200,24 @@ iPhone — только web viewer через Safari (Apple запрещает b
 
 ## Команды для запуска
 
-Restart uvicorn (стандартная процедура):
+Restart uvicorn (стандартная процедура) — **только так**:
 ```powershell
-Get-Process python -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne 130112 } | ForEach-Object { taskkill /F /PID $_.Id /T 2>&1 | Out-Null }
-Start-Sleep -Seconds 4
-Set-Location C:\www-Yaroslav\Persona
-Start-Process -FilePath ".venv\Scripts\python.exe" -ArgumentList "-m","uvicorn","app.web.main:create_app","--factory","--host","127.0.0.1","--port","8000" -RedirectStandardOutput "C:\Users\Yaroslav\.persona\uvicorn.out.log" -RedirectStandardError "C:\Users\Yaroslav\.persona\uvicorn.err.log" -WindowStyle Hidden | Out-Null
-Start-Sleep -Seconds 14
+.venv\Scripts\python.exe ops\deploy_restart.py          # попросить + дождаться + проверить версию
+.venv\Scripts\python.exe ops\deploy_restart.py --status # только проверить, что отдаётся
 ```
 
-PID 130112 — древний orphan python (С 04.06), оставляй жить.
+Сервер живёт в **сессии 0** (задача `PersonaWatchdog` под S4U/Highest — так он
+переживает логаут). Неповышенный шелл его **не убьёт**: `taskkill /F /T` врёт
+«SUCCESS», возвращает 0 и не делает ничего — сайт продолжит отдавать старый
+код, а скрипт отрапортует «перезапущено». Поэтому руками процессы не гасим:
+`ops/deploy_restart.py` кладёт валидируемый маркер, повышенный watchdog
+перезапускает сам, и успех печатается только после HTTP-подтверждения версии
+(`/healthz` + `?v=` против `app/__init__.py`). Подробности, защита от подделки
+маркера и escape hatch от админа — `docs/ALWAYS_ON_WINDOWS.md`, раздел 3.
+
+~~Старый рецепт (`Get-Process python | taskkill` + ручной `Start-Process`)~~ —
+больше **не работает** и молча оставляет старую версию. PID 130112 — древний
+orphan python (с 04.06), оставляй жить.
 
 ### T29 — стабильность сервера (важно)
 

@@ -10,6 +10,16 @@ The launched uvicorn gets EXPLICIT ``PERSONA_*`` env so it always uses
 the real data dir regardless of which account the scheduled task runs
 as — never a fresh/empty DB.
 
+**Рестарт по запросу (T30).** Задача живёт в сессии 0 под S4U/Highest, значит
+и порождённый uvicorn повышенный — неповышенный шелл владельца убить его НЕ
+может (``taskkill`` рапортует успех и ничего не делает). Поэтому деплой из
+обычного терминала не убивает процесс сам, а кладёт маркер
+``<PERSONA_DATA_DIR>/restart.request``; watchdog на очередном тике его
+валидирует, потребляет и перезапускает сервер сам — уже с правами. Маркер и
+все проверки — ``ops/restart_request.py``, хелпер — ``ops/deploy_restart.py``.
+Рестарт считается успешным ТОЛЬКО если ``/healthz`` отдаёт версию из
+``app/__init__.py``; иначе в лог уходит громкое ``RESTART-REQUEST FAILED``.
+
 Портативность (S9): пути НЕ захардкожены — берутся из env с дефолтами,
 которые на текущей машине дают ровно тот же результат, что и раньше:
 
@@ -31,12 +41,19 @@ as — never a fresh/empty DB.
 from __future__ import annotations
 
 import datetime
+import json
 import os
+import re
 import subprocess
 import sys
 import time
 import urllib.request
 from pathlib import Path
+
+try:  # запуск скриптом: ops/ уже в sys.path[0]
+    import restart_request
+except ImportError:  # импорт пакетом (тесты): ops.restart_request
+    from ops import restart_request  # type: ignore[no-redef]
 
 
 # --- репозиторий: от расположения файла (ops/ → корень) -------------------
@@ -162,20 +179,65 @@ def _alive() -> bool:
         return False
 
 
-def _kill_existing() -> None:
-    # Kill any python running our uvicorn (hung or duplicate).
-    subprocess.run(
-        [
-            "powershell", "-NoProfile", "-Command",
-            "Get-CimInstance Win32_Process -Filter \"Name='python.exe' OR Name='pythonw.exe'\" | "
-            "Where-Object { $_.CommandLine -like '*app.web.main*' } | "
-            "ForEach-Object { taskkill /F /PID $_.ProcessId /T }",
-        ],
-        capture_output=True, text=True, timeout=60,
+# Единый фильтр «наш uvicorn». ``app.web.main`` есть только у Persona —
+# чужие проекты на этой машине (напр. QuadroFlow на :8123 c ``app.main:app``)
+# под него НЕ попадают и не трогаются.
+_PS_SERVER_FILTER = (
+    "Get-CimInstance Win32_Process -Filter \"Name='python.exe' OR Name='pythonw.exe'\" | "
+    "Where-Object { $_.CommandLine -like '*app.web.main*' }"
+)
+
+
+def _powershell(script: str, timeout: int = 60) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["powershell", "-NoProfile", "-Command", script],
+        capture_output=True, text=True, timeout=timeout,
     )
 
 
-def _start() -> None:
+def _server_pids() -> list[int]:
+    """PID'ы живых Persona-uvicorn. Пусто и при ошибке запроса тоже пусто —
+    поэтому вызывающий обязан трактовать пустоту вместе с другими признаками
+    (HTTP-проба), а не как доказательство само по себе."""
+    try:
+        proc = _powershell(
+            _PS_SERVER_FILTER + " | ForEach-Object { $_.ProcessId }", timeout=45
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    pids: list[int] = []
+    for line in (proc.stdout or "").splitlines():
+        line = line.strip()
+        if line.isdigit():
+            pids.append(int(line))
+    return pids
+
+
+def _kill_existing() -> None:
+    # Kill any python running our uvicorn (hung or duplicate).
+    try:
+        proc = _powershell(
+            _PS_SERVER_FILTER + " | ForEach-Object { taskkill /F /PID $_.ProcessId /T }"
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        _log(f"kill FAILED to run: {exc!r}")
+        return
+    # taskkill из неповышенного шелла по процессу сессии 0 печатает ошибку в
+    # stdout И возвращает 0 — молча «успешно» ничего не убив. Логируем громко.
+    # «not found» отфильтровано намеренно: убив дерево через /T, вторая
+    # итерация цикла законно не находит уже мёртвого потомка — это НЕ отказ
+    # в правах, и в громком логе такому шуму не место.
+    noise = " ".join((proc.stdout or "").split() + (proc.stderr or "").split())
+    lowered = noise.lower()
+    denied = "denied" in lowered or "отказано" in lowered or "access" in lowered
+    if denied:
+        _log(f"kill DENIED (needs elevation?): {noise[:500]}")
+
+
+def _start() -> int | None:
+    """Поднять uvicorn. Возвращает PID — это доказательство, что процесс НОВЫЙ
+    (при рестарте на ту же версию совпадение версии само по себе не доказывает
+    ничего: её отдавал бы и старый процесс)."""
     env = os.environ.copy()
     # Pin identity + data dir so the DB is ALWAYS the real one.
     env["USERPROFILE"] = HOME
@@ -197,7 +259,7 @@ def _start() -> None:
     # ОДИН процесс (без --workers): pythonw + uvicorn --workers крашит воркеры
     # (multiprocessing-спавн без stdout под pythonw). Single-process async-uvicorn
     # тянет нагрузку одного пользователя и не конфликтует за запись в SQLite.
-    subprocess.Popen(
+    proc = subprocess.Popen(
         [
             PYEXE, "-m", "uvicorn", "app.web.main:create_app",
             # 0.0.0.0: слушать и localhost (watchdog-проба 127.0.0.1), и LAN —
@@ -213,6 +275,7 @@ def _start() -> None:
         creationflags=_DETACHED | _NO_WINDOW,
         close_fds=True,
     )
+    return proc.pid
 
 
 STATE_FILE = os.path.join(PERSONA_DIR, "watchdog_state")
@@ -239,7 +302,141 @@ def _write_fails(n: int) -> None:
         pass
 
 
+# --------------------------------------------------------------------------
+# Рестарт по запросу (T30). Неповышенный шелл не может убить наш uvicorn из
+# сессии 0 — он кладёт маркер, а мы (уже повышенные) его выполняем.
+# Контракт маркера, защита от подделки и от петли — в ops/restart_request.py.
+# --------------------------------------------------------------------------
+HEALTH_URL = f"http://127.0.0.1:{PORT}/healthz"
+#: Сколько ждать, пока свежий сервер начнёт отдавать НУЖНУЮ версию.
+_RESTART_VERIFY_SECONDS = 75
+_VERSION_IN_INIT = re.compile(r"""__version__\s*=\s*["']([^"']+)["']""")
+
+
+def _repo_version() -> str | None:
+    """Версия из ``app/__init__.py`` — источник правды о том, что деплоим."""
+    try:
+        text = (Path(REPO) / "app" / "__init__.py").read_text(encoding="utf-8")
+    except OSError:
+        return None
+    match = _VERSION_IN_INIT.search(text)
+    return match.group(1) if match else None
+
+
+def _served_version() -> str | None:
+    """Версия, которую отдаёт ЖИВОЙ процесс на порту. ``None`` — не отвечает.
+
+    ``/healthz`` дешёвый, без БД и без авторизации, и возвращает
+    ``app.__version__`` того интерпретатора, который реально слушает порт —
+    то есть ловит именно «порт живой, но код старый».
+    """
+    try:
+        with urllib.request.urlopen(HEALTH_URL, timeout=15) as resp:
+            if resp.status != 200:
+                return None
+            payload = json.loads(resp.read(4096).decode("utf-8", "replace"))
+    except Exception:
+        return None
+    version = payload.get("version") if isinstance(payload, dict) else None
+    return version if isinstance(version, str) and version else None
+
+
+def _restart_now(expected_version: str | None) -> tuple[bool, str]:
+    """Убить + поднять + УБЕДИТЬСЯ, что отдаётся нужная версия.
+
+    Возвращает ``(ok, detail)``. ``ok=False`` — вызывающий обязан заорать в
+    лог: «перезапустил» без проверки версии — это и есть тот самый тихий
+    отказ, из-за которого сайт месяцами отдаёт старый код.
+    """
+    before = _server_pids()
+    _kill_existing()
+    time.sleep(3)
+    remaining = _server_pids()
+    if remaining:
+        _log(f"kill left PIDs alive {remaining} (were {before}) — retrying once")
+        _kill_existing()
+        time.sleep(4)
+        remaining = _server_pids()
+    if remaining:
+        return False, (
+            f"could not kill uvicorn PIDs {remaining} — they still hold :{PORT}. "
+            "This needs an ELEVATED shell."
+        )
+    pid = _start()
+    # ВАЖНО: pid от Popen — это лаунчер venv'а (pythonw-шим), а слушает порт
+    # его потомок. Поэтому доказательством считаем СМЕНУ множества PID'ов, а
+    # не сам pid шима.
+    started = f"launcher pid {pid}" if pid else "launched"
+    deadline = time.time() + _RESTART_VERIFY_SECONDS
+    detail = f"{started} but server never answered /healthz"
+    while time.time() < deadline:
+        time.sleep(4)
+        served = _served_version()
+        if served is None:
+            continue
+        if expected_version and served != expected_version:
+            detail = f"{started} but serving {served}, expected {expected_version}"
+            continue
+        after = _server_pids()
+        return True, f"pids {after} (were {before}), serving version {served}"
+    return False, detail
+
+
+def _handle_restart_request() -> bool:
+    """Обработать маркер рестарта. ``True`` — запрос был принят и отработан."""
+    try:
+        decision = restart_request.consume(PERSONA_DIR, REPO)
+    except Exception as exc:  # noqa: BLE001 - маркер не должен ронять watchdog
+        _log(f"RESTART-REQUEST ERROR reading marker: {exc!r}")
+        return False
+
+    if decision.status == "none":
+        return False
+    if not decision.accepted:
+        _log(f"RESTART-REQUEST IGNORED ({decision.reason}) — marker discarded")
+        restart_request.write_result(
+            PERSONA_DIR, nonce=decision.nonce, status="ignored", detail=decision.reason
+        )
+        return False
+
+    payload = decision.payload or {}
+    nonce = decision.nonce
+    wanted = payload.get("version")
+    if not isinstance(wanted, str):
+        wanted = None
+    # Версия в маркере — лишь то, чего ждал деплой; сверяемся с рабочей копией.
+    on_disk = _repo_version()
+    if wanted and on_disk and wanted != on_disk:
+        _log(
+            f"RESTART-REQUEST nonce={nonce} asked for {wanted} but app/__init__.py "
+            f"says {on_disk} — restarting to {on_disk}"
+        )
+    expected = on_disk or wanted
+    _log(f"RESTART-REQUEST ACCEPTED nonce={nonce} target={expected} — restarting")
+    restart_request.write_result(
+        PERSONA_DIR, nonce=nonce, status="running", detail=f"target {expected}"
+    )
+    try:
+        ok, detail = _restart_now(expected)
+    except Exception as exc:  # noqa: BLE001
+        ok, detail = False, f"restart raised {exc!r}"
+    if ok:
+        _log(f"RESTART-REQUEST OK nonce={nonce} — {detail}")
+        _write_fails(0)
+    else:
+        # Громко: это единственное место, где видно «рестарт не сработал».
+        _log(f"RESTART-REQUEST FAILED nonce={nonce} — {detail}")
+    restart_request.write_result(
+        PERSONA_DIR, nonce=nonce, status="ok" if ok else "failed", detail=detail
+    )
+    return True
+
+
 def main() -> None:
+    # Явный запрос на рестарт обрабатывается ПЕРВЫМ: сервер может быть жив и
+    # отвечать — просто старым кодом, и обычные пробы этого не заметят.
+    if _handle_restart_request():
+        return
     # Two probes this run, 8s apart — ride out a brief blip without
     # counting it as a failure.
     if _alive() or (time.sleep(8) or _alive()):
