@@ -57,9 +57,9 @@ def _reset_owner_cache() -> None:
 @pytest_asyncio.fixture
 async def users(db: aiosqlite.Connection) -> dict[str, int]:
     """Владелец + двое обычных участников (даритель и получатель)."""
-    owner = await create_user("owner@example.test", "owner-pass-123")
+    owner = await create_user("owner@example.test", "Zq7-frost-lantern-91")
     friend = await create_user("friend@example.test", "friend-pass-123")
-    member = await create_user("member@example.test", "member-pass-123")
+    member = await create_user("member@example.test", "Kp4-velvet-harbour-38")
     await set_kv(db, "owner_user_id", str(owner["id"]))
     _reset_owner_cache()
     return {
@@ -299,9 +299,14 @@ async def test_grantee_never_sees_the_key_in_any_response(
             assert FRIEND_KEY not in response.text, path
             assert "sk-or-FRIEND" not in response.text, path
 
-        # Страница выдач всё же показывает ЧТО именно одолжено — имя провайдера.
+        # Страница выдач всё же показывает ЧТО именно одолжено — имя провайдера
+        # — и КТО одолжил. Но адрес дарителя только ПОД МАСКОЙ: продукт
+        # маскирует e-mail везде, где показывает человека (поиск людей, список
+        # друзей, шапка переписки), и эта страница не исключение — иначе
+        # достаточно принять чужой доступ, чтобы забрать настоящую почту.
         page = await client.get("/settings/llm/sharing")
-        assert "friend@example.test" in page.text
+        assert "friend@example.test" not in page.text
+        assert "f***@example.test" in page.text
         assert "openrouter" in page.text
 
 
@@ -601,16 +606,26 @@ async def test_grant_form_creates_and_revokes(
     db: aiosqlite.Connection, users: dict[str, int], sharing_client: AsyncClient
 ) -> None:
     await _friend_with_openrouter(db, users)
+    # Форма выбирает человека ИЗ ДРУЗЕЙ (раньше принимала любой e-mail), так
+    # что дружба нужна уже для самой выдачи, а не только для её работы.
+    await _befriend(db, users["friend"], users["member"])
 
     response = await sharing_client.post(
         "/settings/llm/sharing/grant",
-        data={"email": "member@example.test", "daily_limit": "7", "note": "на неделю"},
+        data={
+            "friend_id": str(users["member"]),
+            "daily_limit": "7",
+            "note": "на неделю",
+        },
     )
     assert response.status_code == 200, response.text
     issued = await grants_mod.list_issued_by(users["friend"])
     assert len(issued) == 1
     assert issued[0]["daily_limit"] == 7
-    assert issued[0]["grantee_email"] == "member@example.test"
+    # Вторая сторона названа именем/маской. Сырого адреса слой хранения не
+    # отдаёт вовсе — не «роут его прячет», а его физически нет в результате.
+    assert issued[0]["grantee_name"] == "m***@example.test"
+    assert "grantee_email" not in issued[0]
 
     revoked = await sharing_client.post(f"/settings/llm/sharing/{issued[0]['id']}/revoke")
     assert revoked.status_code == 200
@@ -618,26 +633,47 @@ async def test_grant_form_creates_and_revokes(
 
 
 @pytest.mark.asyncio
-async def test_grant_form_rejects_bad_limit_and_unknown_email(
+async def test_grant_form_rejects_bad_limit_and_foreign_target(
     db: aiosqlite.Connection, users: dict[str, int], sharing_client: AsyncClient
 ) -> None:
+    """Плохой лимит, чужой id, несуществующий id и «сам себе» — все 400.
+
+    ``friend_id`` приходит от клиента, поэтому главный кейс тут — «подставил
+    номер аккаунта, с которым не дружу»: без резолва по своим друзьям форма
+    выдачи превратилась бы в раздачу доступа перебором id (и в оракул
+    «существует ли пользователь N»).
+    """
+    await _friend_with_openrouter(db, users)
+    # member — друг (значит, отказ ниже про ЛИМИТ, а не про дружбу);
+    # owner — не друг (значит, отказ на нём именно про чужого человека).
+    await _befriend(db, users["friend"], users["member"])
+
     zero = await sharing_client.post(
         "/settings/llm/sharing/grant",
-        data={"email": "member@example.test", "daily_limit": "0"},
+        data={"friend_id": str(users["member"]), "daily_limit": "0"},
     )
     assert zero.status_code == 400
     assert await grants_mod.list_issued_by(users["friend"]) == []
 
-    unknown = await sharing_client.post(
+    # Владелец существует, но дружбы с ним нет → отказ, тот же текст.
+    stranger = await sharing_client.post(
         "/settings/llm/sharing/grant",
-        data={"email": "nobody@example.test", "daily_limit": "5"},
+        data={"friend_id": str(users["owner"]), "daily_limit": "5"},
     )
-    assert unknown.status_code == 400
+    assert stranger.status_code == 400
     assert await grants_mod.list_issued_by(users["friend"]) == []
+
+    for bogus in ("999999", "0", "-1", "", "не число"):
+        response = await sharing_client.post(
+            "/settings/llm/sharing/grant",
+            data={"friend_id": bogus, "daily_limit": "5"},
+        )
+        assert response.status_code == 400, bogus
+        assert await grants_mod.list_issued_by(users["friend"]) == [], bogus
 
     myself = await sharing_client.post(
         "/settings/llm/sharing/grant",
-        data={"email": "friend@example.test", "daily_limit": "5"},
+        data={"friend_id": str(users["friend"]), "daily_limit": "5"},
     )
     assert myself.status_code == 400
 

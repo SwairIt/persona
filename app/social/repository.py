@@ -100,8 +100,19 @@ async def _default_discoverable(user_id: int) -> str:
 
     Владелец инстанса не должен всплывать в чужом поиске просто потому, что
     он завёл сервер: он «находится» только если сам включил тумблер.
+
+    Сбой резолва роли → ``"0"`` (скрыт). Здесь fail-closed означает именно
+    «спрятать»: обратный дефолт («участник, значит виден») при упавшей БД
+    выставил бы владельца в чужой поиск — ровно то, чего этот дефолт
+    существует, чтобы не допустить. Явно сохранённый тумблер сильнее дефолта,
+    так что человек, который сам себя открыл, ничего не теряет.
     """
-    return "0" if await is_owner(user_id) else "1"
+    try:
+        owner = await is_owner(user_id)
+    except Exception as exc:  # noqa: BLE001 — сбой резолва не раскрывает людей
+        log.warning("social.discoverable_default_failed", error=str(exc))
+        return "0"
+    return "0" if owner else "1"
 
 
 async def is_discoverable(user_id: int) -> bool:

@@ -6,8 +6,19 @@
 * «Мне дали доступ» — кто одолжил свою модель мне: имя провайдера (ТОЛЬКО
   имя), лимит и остаток. Ключ выдавшего сюда не приходит вообще — ни в
   шаблон, ни в контекст, ни в лог: :mod:`app.llm.grants` его не читает.
-* Форма выдачи: точный email человека + дневной лимит + необязательная
+* Форма выдачи: ВЫБОР ОДНОГО ДРУГА из списка + дневной лимит + необязательная
   заметка. Никакого «выдать всем друзьям» — только поимённо.
+
+Почему друг из списка, а не адрес
+---------------------------------
+Форма принимала точный e-mail, а подсказка под ней печатала адреса всех твоих
+друзей — то есть достаточно было с человеком подружиться, чтобы забрать его
+настоящую почту (включая почту владельца инстанса, которую весь остальной
+продукт маскирует). Теперь в форме ездит ``friend_id``, а :mod:`app.llm.grants`
+наружу отдаёт только ``{"id", "name"}``: адреса в этом потоке нет вообще —
+ни в разметке, ни в POST-теле, ни в подтверждении. Заодно исчез оракул
+«существует ли аккаунт с таким адресом»: выбрать можно только из своих друзей,
+а выдача всё равно не работала до подтверждённой дружбы.
 
 Почему лимит обязателен
 -----------------------
@@ -26,8 +37,8 @@ security-кортеже — это лишний шум ровно там, где
 
 Где живёт SQL
 -------------
-Здесь его нет вовсе: и выдачи, и поиск человека по email, и подсказка по
-друзьям лежат в :mod:`app.llm.grants`. Это не стилистика, а гейт —
+Здесь его нет вовсе: и выдачи, и резолв друга по id, и список друзей лежат в
+:mod:`app.llm.grants`. Это не стилистика, а гейт —
 ``tests/test_architecture_gates.py`` запрещает новым роутам импортировать
 ``app.storage.db`` напрямую, чтобы SQL не расползался по HTTP-слою.
 """
@@ -41,10 +52,12 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.audit import log_action
 from app.auth import current_user_required
-from app.auth.owner import is_owner
 from app.auth.sessions import SessionRecord
 from app.llm import grants as grants_mod
 from app.logging_setup import get_logger
+from app.web.routes.owner_view import (  # Fail-closed резолв роли.
+    viewer_is_owner as is_owner,
+)
 from app.web.templates_engine import templates
 
 router = APIRouter(tags=["settings"], dependencies=[Depends(current_user_required)])
@@ -61,7 +74,11 @@ async def _render(
     error: str | None = None,
     status_code: int = 200,
 ) -> HTMLResponse:
-    """Единственная точка отрисовки — чтобы все ветки собирали один контекст."""
+    """Единственная точка отрисовки — чтобы все ветки собирали один контекст.
+
+    Ни одно поле здесь не содержит e-mail: :mod:`app.llm.grants` отдаёт людей
+    как ``{"id", "name"}`` / ``*_name``, поэтому маскировать в роуте нечего.
+    """
     issued = await grants_mod.list_issued_by(user_id)
     received = await grants_mod.list_received_by(user_id)
     own_provider = await grants_mod.grantor_provider_name(user_id)
@@ -97,11 +114,11 @@ async def sharing_page(
 async def create_grant(
     request: Request,
     session: Annotated[SessionRecord, Depends(current_user_required)],
-    email: Annotated[str, Form()] = "",
+    friend_id: Annotated[str, Form()] = "",
     daily_limit: Annotated[str, Form()] = "",
     note: Annotated[str, Form()] = "",
 ) -> HTMLResponse:
-    """Выдать доступ конкретному человеку по точному email."""
+    """Выдать доступ ОДНОМУ выбранному другу (``friend_id``, не адрес)."""
     uid = int(session["user_id"])
 
     try:
@@ -118,20 +135,17 @@ async def create_grant(
             status_code=400,
         )
 
-    target = await grants_mod.find_user_by_email(email)
+    # ``friend_id`` приходит от клиента, поэтому резолвится по СПИСКУ ДРУЗЕЙ
+    # вызывающего (grants.friend_for_grant), а не приводится к int «на веру».
+    # Один и тот же текст ошибки и на «не выбрал», и на «выбрал чужой номер»:
+    # разные формулировки превратили бы форму в оракул существования аккаунтов.
+    target = await grants_mod.friend_for_grant(uid, friend_id)
     if target is None:
-        # Намеренно НЕ говорим «такого аккаунта нет» иначе, чем «проверь адрес»:
-        # форма доступна любому участнику, и превращать её в перебор чужих
-        # почт («есть/нет») мы не хотим.
         return await _render(
             request,
             uid,
-            error="Не нашёл аккаунт с таким адресом. Проверь email — нужен точный.",
+            error="Выбери, кому выдать доступ — из списка своих друзей.",
             status_code=400,
-        )
-    if int(target["id"]) == uid:
-        return await _render(
-            request, uid, error="Себе доступ выдавать не нужно 🙂", status_code=400
         )
 
     grant_id = await grants_mod.upsert_grant(uid, int(target["id"]), limit, note)
@@ -144,8 +158,11 @@ async def create_grant(
     log.info("llm_grant.created", grantor=uid, grantee=int(target["id"]), limit=limit)
 
     friends_ready = await grants_mod.friends_confirmed(uid, int(target["id"]))
+    # Называем человека ровно так же, как называл его список выбора: имя или
+    # маска. Адреса у роута нет — и это теперь структурное свойство, а не
+    # аккуратность вызывающего.
     notice = (
-        f"Готово: {target['email']} может ходить в твою модель "
+        f"Готово: {target['name']} может ходить в твою модель "
         f"до {limit} раз в сутки. Отозвать — кнопкой ниже, в любой момент."
     )
     if not friends_ready:

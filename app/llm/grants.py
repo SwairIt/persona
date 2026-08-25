@@ -13,6 +13,15 @@
 Ни один запрос этого модуля не возвращает значение ключа наружу — функции
 отдают провайдера и лимиты, но не креденшелы.
 
+То же правило — про людей: НИ ОДНА функция здесь не отдаёт наружу сырой
+e-mail. Человек называется ``name`` / ``*_name`` — отображаемым именем либо
+МАСКОЙ адреса (см. :func:`_person_label`), ровно так же, как в поиске людей,
+списке друзей и шапке переписки. Раньше адреса отдавались целиком, а прятал
+их вызывающий: ``/settings/llm/sharing`` печатал почту всех твоих друзей в
+``<datalist>``, а ``borrowed_status`` клала почту выдавшего в контекст шаблона
+чата. Форма выдачи поэтому оперирует ``friend_id`` (:func:`friend_for_grant`),
+а не адресом: в этом потоке почты нет вообще — ни в разметке, ни в POST-теле.
+
 Квота
 -----
 Счётчик — отдельная таблица ``llm_grant_usage(grant_id, day, used)``, а не
@@ -28,6 +37,12 @@ PK, инкремент+проверка выражаются ОДНИМ SQL-ст
 ``app.social.*`` здесь НЕ импортируется намеренно (его может не быть).
 Проверка сделана «оборонительно»: сырой запрос в ``friendship``, а отсутствие
 таблицы трактуется как «друзья» (выдача и так поимённая и явная).
+
+Сама ВЫДАЧА при этом теперь требует дружбы уже на входе: цель выбирается из
+списка друзей (:func:`friend_for_grant`), а не по адресу. Раньше можно было
+выдать доступ кому угодно по e-mail — но такая выдача всё равно не работала до
+подтверждённой дружбы (``_friends_ok`` в резолвере), так что мы убрали не
+возможность, а бесполезный промежуточный шаг вместе с утечкой адресов.
 """
 
 from __future__ import annotations
@@ -76,6 +91,36 @@ def _row(row: Any) -> dict[str, Any]:
     return {k: row[k] for k in row.keys()}  # noqa: SIM118
 
 
+def _person_label(display_name: Any, email: Any) -> str:
+    """Как назвать человека наружу: имя, иначе МАСКА адреса. Никогда не адрес.
+
+    Почему это здесь, а не в шаблоне
+    --------------------------------
+    Раньше запросы ниже отдавали ``u.email`` целиком, а маскировал его роут
+    ``/settings/llm/sharing``. То есть безопасность зависела от того, что
+    каждый следующий потребитель вспомнит про маску, — и первый же, кто
+    забудет, снова печатает чужую почту (именно так она и утекала: достаточно
+    было подружиться, чтобы забрать настоящий адрес человека, включая адрес
+    владельца инстанса). Теперь сырой адрес просто НЕ ВЫХОДИТ из этого модуля:
+    маскировать нечего, потому что нечему утекать.
+
+    Правило маскирования одно на весь продукт (поиск людей, список друзей,
+    шапка переписки) и живёт в ``app.social.repository``. Импорт ленивый и
+    защищённый — модуль намеренно не зависит от социального слоя (см.
+    docstring файла); провал импорта отдаёт «аноним», но НИКОГДА не адрес.
+    """
+    clean = str(display_name or "").strip()
+    if clean:
+        return clean
+    try:
+        from app.social.repository import _mask_email  # noqa: PLC0415
+
+        return _mask_email(str(email or ""))
+    except Exception as exc:  # нет соц-слоя → безымянный, но НИКОГДА не адрес
+        log.debug("llm_grant.mask_unavailable", error=str(exc))
+        return "аноним"
+
+
 # ---------------------------------------------------------------------------
 # Дружба (оборонительно — таблица может не существовать)
 # ---------------------------------------------------------------------------
@@ -114,11 +159,13 @@ async def friends_confirmed(grantor_id: int, grantee_id: int) -> bool:
 # ---------------------------------------------------------------------------
 
 
+# Адреса тут нет намеренно: резолверу LLM нужен ``grantor_id`` (по нему он
+# читает провайдера и ключ выдавшего), а e-mail он клал в поле, которое никто
+# не читает. JOIN на ``users`` был нужен ровно ради этого столбца — и ушёл
+# вместе с ним; осиротевших выдач не бывает (FK grantor_id → ON DELETE CASCADE).
 _ACTIVE_SQL = """
-SELECT g.id, g.grantor_id, g.grantee_id, g.daily_limit, g.note, g.created_at,
-       u.email AS grantor_email
+SELECT g.id, g.grantor_id, g.grantee_id, g.daily_limit, g.note, g.created_at
   FROM llm_grant AS g
-  JOIN users AS u ON u.id = g.grantor_id
  WHERE g.grantee_id = ?
    AND g.enabled = 1
    AND g.revoked_at IS NULL
@@ -164,13 +211,17 @@ async def usage_today(grant_id: int, day: str | None = None) -> int:
 
 
 async def list_issued_by(grantor_id: int) -> list[dict[str, Any]]:
-    """«Я делюсь» — все НЕ отозванные выдачи пользователя + расход за сегодня."""
+    """«Я делюсь» — все НЕ отозванные выдачи пользователя + расход за сегодня.
+
+    Вторая сторона называется ``grantee_name`` (имя или маска адреса, см.
+    :func:`_person_label`). Сырого ``grantee_email`` в результате нет.
+    """
     day = _today()
     async with get_connection() as conn:
         cursor = await conn.execute(
             """
             SELECT g.id, g.grantee_id, g.daily_limit, g.enabled, g.note,
-                   g.created_at, u.email AS grantee_email,
+                   g.created_at, u.email AS _email, u.display_name AS _display_name,
                    COALESCE(usg.used, 0) AS used_today
               FROM llm_grant AS g
               JOIN users AS u ON u.id = g.grantee_id
@@ -183,6 +234,9 @@ async def list_issued_by(grantor_id: int) -> list[dict[str, Any]]:
         )
         rows = [_row(r) for r in await cursor.fetchall()]
         for row in rows:
+            row["grantee_name"] = _person_label(
+                row.pop("_display_name", None), row.pop("_email", None)
+            )
             row["friends"] = await _friends_ok(
                 conn, int(grantor_id), int(row["grantee_id"])
             )
@@ -194,14 +248,14 @@ async def list_received_by(grantee_id: int) -> list[dict[str, Any]]:
 
     Провайдер отдаётся ТОЛЬКО как имя (``openrouter``, ``ollama``…): ключ не
     читается вовсе, чтобы физически не было пути, по которому он утечёт в
-    шаблон или в JSON.
+    шаблон или в JSON. Выдавший — ``grantor_name`` (имя или маска), не адрес.
     """
     day = _today()
     async with get_connection() as conn:
         cursor = await conn.execute(
             """
             SELECT g.id, g.grantor_id, g.daily_limit, g.enabled, g.note,
-                   g.created_at, u.email AS grantor_email,
+                   g.created_at, u.email AS _email, u.display_name AS _display_name,
                    COALESCE(usg.used, 0) AS used_today
               FROM llm_grant AS g
               JOIN users AS u ON u.id = g.grantor_id
@@ -214,6 +268,9 @@ async def list_received_by(grantee_id: int) -> list[dict[str, Any]]:
         )
         rows = [_row(r) for r in await cursor.fetchall()]
         for row in rows:
+            row["grantor_name"] = _person_label(
+                row.pop("_display_name", None), row.pop("_email", None)
+            )
             row["friends"] = await _friends_ok(
                 conn, int(row["grantor_id"]), int(grantee_id)
             )
@@ -221,53 +278,73 @@ async def list_received_by(grantee_id: int) -> list[dict[str, Any]]:
     return rows
 
 
-async def find_user_by_email(email: str) -> dict[str, Any] | None:
-    """Аккаунт по ТОЧНОМУ email (регистронезависимо), либо ``None``.
-
-    Живёт здесь, а не в роуте: ``tests/test_architecture_gates.py`` запрещает
-    новым роутам держать SQL и соединение с БД у себя — вся работа с хранилищем
-    прячется за адаптер. Поиска по подстроке нет намеренно: это форма выдачи
-    доступа к чужому кошельку, и «похожий» человек — не тот человек.
-    """
-    clean = (email or "").strip().lower()
-    if not clean or "@" not in clean:
-        return None
-    async with get_connection() as conn:
-        cursor = await conn.execute(
-            "SELECT id, email FROM users WHERE lower(email) = ? LIMIT 1",
-            (clean,),
-        )
-        row = await cursor.fetchone()
-    return {"id": int(row["id"]), "email": str(row["email"])} if row else None
+_FRIENDS_SQL = """
+SELECT u.id AS id, u.email AS email, u.display_name AS display_name
+  FROM friendship AS f
+  JOIN users AS u ON u.id = f.friend_id
+ WHERE f.user_id = ?
+"""
 
 
 async def friend_suggestions(user_id: int, limit: int = 50) -> list[dict[str, Any]]:
-    """Друзья пользователя — подсказка для формы выдачи. Пусто, если слоя нет.
+    """Друзья пользователя — выбор для формы выдачи: ``{"id", "name"}``.
+
+    Адреса тут нет: форма выдачи оперирует ``id`` друга, а человеку показывается
+    имя (или маска). Раньше функция отдавала сырые e-mail'ы, они уезжали в
+    ``<datalist>``, и «подружиться» превращалось в способ узнать чужую почту.
 
     Социальный модуль НЕ импортируется намеренно (миграция 229 приезжает
     отдельным срезом и может отсутствовать): сырой запрос, а любая ошибка =
-    «подсказок нет». Страница при этом продолжает работать.
+    «выбирать не из кого». Страница при этом продолжает работать.
     """
     try:
         async with get_connection() as conn:
             cursor = await conn.execute(
-                """
-                SELECT u.id, u.email
-                  FROM friendship AS f
-                  JOIN users AS u ON u.id = f.friend_id
-                 WHERE f.user_id = ?
-                 ORDER BY u.email
-                 LIMIT ?
-                """,
-                (int(user_id), int(limit)),
+                _FRIENDS_SQL + " ORDER BY lower(COALESCE(u.display_name, u.email)) LIMIT ?",
+                (int(user_id), max(1, min(int(limit), 500))),
             )
-            return [
-                {"id": int(r["id"]), "email": str(r["email"])}
-                for r in await cursor.fetchall()
-            ]
+            rows = await cursor.fetchall()
     except Exception as exc:  # noqa: BLE001 — 229 может быть ещё не приземлена
         log.debug("llm_grant.friend_suggestions_unavailable", error=str(exc))
         return []
+    return [
+        {"id": int(r["id"]), "name": _person_label(r["display_name"], r["email"])}
+        for r in rows
+    ]
+
+
+async def friend_for_grant(user_id: int, friend_id: Any) -> dict[str, Any] | None:
+    """Резолв цели выдачи по ``friend_id`` из формы. ``None`` — нельзя.
+
+    Вход — id, пришедший от клиента, поэтому он ОБЯЗАН быть перепроверен по
+    друзьям вызывающего, а не просто приведён к int: иначе форма выдачи
+    превращается в «выдать доступ любому аккаунту по перебору номеров», а заодно
+    в оракул «существует ли пользователь N».
+
+    Возвращает ``{"id", "name"}`` — то же, что показывает список выбора, чтобы
+    подтверждение называло человека ровно так же, как называла форма.
+    """
+    try:
+        target = int(str(friend_id).strip())
+    except (TypeError, ValueError):
+        return None
+    if target <= 0 or target == int(user_id):
+        return None
+    try:
+        async with get_connection() as conn:
+            cursor = await conn.execute(
+                _FRIENDS_SQL + " AND u.id = ? LIMIT 1", (int(user_id), target)
+            )
+            row = await cursor.fetchone()
+    except Exception as exc:  # нет таблицы дружбы → выдавать некому
+        log.debug("llm_grant.friend_lookup_unavailable", error=str(exc))
+        return None
+    if row is None:
+        return None
+    return {
+        "id": int(row["id"]),
+        "name": _person_label(row["display_name"], row["email"]),
+    }
 
 
 async def grantor_provider_name(grantor_id: int) -> str:
@@ -425,37 +502,54 @@ async def revoke(grantor_id: int, grant_id: int) -> bool:
 # ---------------------------------------------------------------------------
 
 
+async def person_name(user_id: int) -> str:
+    """Как назвать этого человека наружу: имя либо маска. Никогда не адрес."""
+    try:
+        async with get_connection() as conn:
+            cursor = await conn.execute(
+                "SELECT email, display_name FROM users WHERE id = ?", (int(user_id),)
+            )
+            row = await cursor.fetchone()
+    except Exception as exc:  # БД занята → безымянный, но не адрес
+        log.debug("llm_grant.person_name_failed", error=str(exc))
+        return "аноним"
+    if row is None:
+        return "аноним"
+    return _person_label(row["display_name"], row["email"])
+
+
 async def borrowed_status(user_id: int) -> dict[str, Any] | None:
     """«Работаешь на модели друга» — данные для бейджа/баннера, БЕЗ ключа.
 
     ``None`` — человек либо на своей модели, либо вообще без модели. Квота при
     этом не тратится: функция только читает.
+
+    Выдавший назван ``grantor_name`` (имя или маска). Раньше здесь лежал его
+    сырой ``grantor_email``: этот словарь уезжает в контекст шаблона чата
+    (``_provider_badge`` → ``badge["borrowed"]``), то есть чужой адрес был в
+    одной правке разметки от того, чтобы быть напечатанным в шапке у того, кому
+    модель одолжили.
     """
     grants = await active_grants_for(int(user_id))
     if not grants:
         return None
     day = _today()
+
+    async def _card(grant: dict[str, Any], used: int, *, exhausted: bool) -> dict[str, Any]:
+        limit = int(grant["daily_limit"])
+        return {
+            "grant_id": int(grant["id"]),
+            "grantor_name": await person_name(int(grant["grantor_id"])),
+            "provider": await grantor_provider_name(int(grant["grantor_id"])),
+            "daily_limit": limit,
+            "used_today": used,
+            "remaining": 0 if exhausted else limit - used,
+            "exhausted": exhausted,
+        }
+
     for grant in grants:
         used = await usage_today(int(grant["id"]), day)
-        limit = int(grant["daily_limit"])
-        if used < limit:
-            return {
-                "grant_id": int(grant["id"]),
-                "grantor_email": str(grant.get("grantor_email") or ""),
-                "provider": await grantor_provider_name(int(grant["grantor_id"])),
-                "daily_limit": limit,
-                "used_today": used,
-                "remaining": limit - used,
-                "exhausted": False,
-            }
+        if used < int(grant["daily_limit"]):
+            return await _card(grant, used, exhausted=False)
     first = grants[0]
-    limit = int(first["daily_limit"])
-    return {
-        "grant_id": int(first["id"]),
-        "grantor_email": str(first.get("grantor_email") or ""),
-        "provider": await grantor_provider_name(int(first["grantor_id"])),
-        "daily_limit": limit,
-        "used_today": await usage_today(int(first["id"]), day),
-        "remaining": 0,
-        "exhausted": True,
-    }
+    return await _card(first, await usage_today(int(first["id"]), day), exhausted=True)

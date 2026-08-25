@@ -25,7 +25,6 @@ from app.application.chat import (
     is_valid_tool_wire_name,
 )
 from app.auth import current_user_required
-from app.auth.owner import is_owner
 from app.auth.sessions import SessionRecord
 from app.chat import (
     add_span_rating,
@@ -69,6 +68,9 @@ from app.llm.client import CompletionRequest, LLMNotConfigured, make_client
 from app.logging_setup import get_logger
 from app.storage.db import get_connection
 from app.storage.repository import get_kv
+
+# Fail-closed резолв роли: сбой резолва = «участник» (app/web/routes/owner_view.py).
+from app.web.routes.owner_view import viewer_is_owner as is_owner
 from app.web.templates_engine import templates
 
 if TYPE_CHECKING:
@@ -939,6 +941,54 @@ _BUILD_FILES_SCHEMA: dict[str, object] = {
 }
 
 
+async def _build_write_refusal(uid: int, *, owner: bool) -> str | None:
+    """Куда уедут файлы этого ``/build`` — и вправе ли участник их туда писать.
+
+    ``None`` — можно, строка — текст отказа.
+
+    Это ЕДИНСТВЕННЫЙ инструментальный путь, доступный участнику: во всём
+    остальном чате инструменты выключены (``_tools_on = tools_owner and …``).
+    Раньше безопасность держалась на двух неявных инвариантах через два модуля
+    отсюда — ``resolve_user_path`` кладёт файл в ``data/workspaces/<uid>``, а
+    ``run_remote`` ищет устройство по ТОМУ ЖЕ ``user_id``. Оба верны сегодня,
+    оба ничего не знают про роль вызывающего, и оба легко сломать правкой
+    «сделаем один общий workspace» / «возьмём активное устройство инстанса».
+    Поэтому правило теперь записано ЗДЕСЬ, явно:
+
+    * владелец — как раньше, без изменений (это его сервер и его устройства);
+    * участник при выключенном mac-режиме — пишет в СВОЙ workspace, можно;
+    * участник при включённом mac-режиме — ``call_tool`` перехватит запись и
+      отправит её на устройство-приёмник. Разрешаем, только если такое
+      устройство есть у НЕГО САМОГО; иначе отказ. Устройства резолвятся по
+      ``user_id``, так что «его» здесь буквально его.
+
+    Сбой резолва (нет модуля, БД занята) → отказ для участника: не знать, куда
+    уедет файл, и всё равно его записать — ровно тот класс ошибки, который
+    этот гейт закрывает.
+    """
+    if owner:
+        return None
+    try:
+        from app.devices.fs_rpc import is_enabled, online_target_device  # noqa: PLC0415
+
+        if not await is_enabled():
+            return None
+        device = await online_target_device(uid)
+    except Exception as exc:  # не выяснили адрес записи → не пишем
+        log.warning("chat.build.scope_unresolved", user_id=uid, error=str(exc))
+        return (
+            "Сейчас не могу понять, куда сохранить файлы. Попробуй ещё раз "
+            "чуть позже."
+        )
+    if device is None:
+        return (
+            "На этом сервере сборка файлов идёт на устройство-приёмник, а к "
+            "твоему аккаунту такое устройство не подключено. Собери файлы у "
+            "себя — в чате я всё равно покажу их содержимое."
+        )
+    return None
+
+
 @router.post("/api/chat/sessions/{session_id}/build", response_class=JSONResponse)
 async def api_build_files(
     session_id: int,
@@ -966,7 +1016,13 @@ async def api_build_files(
     # /api/chat/*/build считал бы генерацию файлов на Ollama владельца
     # (endpoint из глобального kv, при пустом — localhost сервера).
     uid = int(session["user_id"])
-    if not await is_owner(uid):
+    owner = await is_owner(uid)
+    # Адрес записи решаем ДО генерации: гонять чужую модель и жечь чужой ключ,
+    # чтобы потом отказать, — худший из возможных порядков.
+    refusal = await _build_write_refusal(uid, owner=owner)
+    if refusal is not None:
+        raise HTTPException(status_code=403, detail=refusal)
+    if not owner:
         async with get_connection() as conn:
             endpoint = (await get_user_kv(conn, uid, "byo_api_key_ollama") or "").strip()
             model = (await get_user_kv(conn, uid, "ollama_model") or "").strip()
@@ -1015,9 +1071,11 @@ async def api_build_files(
         content = str(f.get("content", ""))
         if not path:
             continue
+        # ``user_id`` здесь — адрес записи (workspace ЭТОГО пользователя или
+        # ЕГО устройство-приёмник), а не просто пометка в логе. Берём тот же
+        # ``uid``, который проверил _build_write_refusal выше.
         res = await call_tool(
-            "write_file", {"path": path, "content": content},
-            user_id=session["user_id"],
+            "write_file", {"path": path, "content": content}, user_id=uid
         )
         written.append(
             {"path": path, "bytes": len(content.encode("utf-8")), "ok": "[ok]" in res}
