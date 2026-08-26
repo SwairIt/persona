@@ -28,10 +28,10 @@ author: Persona
 
 ## Шаг 1. Получить код и поставить зависимости
 
-Откройте PowerShell в каталоге, где будет жить приложение:
+Репозиторий Persona закрытый, публичной лицензии нет — поэтому первым делом нужен доступ к исходникам оттуда, откуда вы получили саму Persona. Дальше в PowerShell, в каталоге, где будет жить приложение:
 
 ```powershell
-git clone https://github.com/SwairIt/Persona.git
+git clone <адрес-репозитория> Persona
 cd Persona
 uv sync
 ```
