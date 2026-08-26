@@ -25,6 +25,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 from app.auth import current_user_required
 from app.auth.sessions import SessionRecord
+from app.web.routes.owner_view import viewer_is_owner as is_owner
 from app.logging_setup import get_logger
 from app.storage.db import get_connection
 from app.storage.repository import get_screenshot
@@ -39,6 +40,21 @@ from app.web.templates_engine import templates
 log = get_logger("persona.side_by_side")
 
 router = APIRouter(tags=["analysis"])
+
+
+async def _require_capture_owner(user: SessionRecord) -> None:
+    """Отказать всем, кроме владельца.
+
+    Скриншоты — ГЛОБАЛЬНЫЕ данные захвата: в таблице ``screenshots`` нет
+    колонки пользователя, а загрузка идёт по «голому» id. До этой правки роут
+    требовал лишь ``current_user_required`` (любую сессию), а гейт пропускал
+    путь как публичный по префиксу ``/compare`` — то есть любой
+    зарегистрировавшийся человек мог перебором id смотреть экран владельца
+    и распознанный с него текст. Резолв роли fail-closed: сбой = «участник».
+    """
+    if not await is_owner(user["user_id"]):
+        raise HTTPException(status_code=404, detail="Not found")
+
 
 # Mirrors the constants in :mod:`app.shot_of_day` so the arrow-key navigation
 # walks the same deterministic series. Kept as private module-level constants
@@ -113,6 +129,7 @@ async def side_by_side_page(
     never half-renders with one broken ``<img>``. The URL is the only piece
     of shareable state; there is no cookie or query string.
     """
+    await _require_capture_owner(_user)
     async with get_connection() as conn:
         shot_a = await get_screenshot(conn, id_a)
         shot_b = await get_screenshot(conn, id_b)
@@ -138,6 +155,7 @@ async def side_by_side_shots_of_day(
     Returns ``{"id_a": null, "id_b": null}`` when the underlying candidate
     pool is empty — the client treats that as "no neighbour, stay put".
     """
+    await _require_capture_owner(_user)
     clamped = _clamp_offset(offset)
     today = datetime.now(tz=UTC).date()
     day_a = today + timedelta(days=clamped - 1)

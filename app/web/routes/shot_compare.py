@@ -20,6 +20,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 from app.auth import current_user_required
 from app.auth.sessions import SessionRecord
+from app.web.routes.owner_view import viewer_is_owner as is_owner
 from app.logging_setup import get_logger
 from app.shot_compare import (
     CompareResult,
@@ -33,6 +34,21 @@ log = get_logger("persona.shot_compare.web")
 router = APIRouter(tags=["analysis"])
 
 
+async def _require_capture_owner(user: SessionRecord) -> None:
+    """Отказать всем, кроме владельца.
+
+    Скриншоты — ГЛОБАЛЬНЫЕ данные захвата: в таблице ``screenshots`` нет
+    колонки пользователя, а загрузка идёт по «голому» id. До этой правки роут
+    требовал лишь ``current_user_required`` (любую сессию), а гейт пропускал
+    путь как публичный по префиксу ``/compare`` — то есть любой
+    зарегистрировавшийся человек мог перебором id смотреть экран владельца
+    и распознанный с него текст. Резолв роли fail-closed: сбой = «участник».
+    """
+    if not await is_owner(user["user_id"]):
+        raise HTTPException(status_code=404, detail="Not found")
+
+
+
 @router.get("/compare", response_class=HTMLResponse)
 async def compare_page(
     request: Request,
@@ -41,6 +57,7 @@ async def compare_page(
     b: int = Query(..., description="ID of the 'after' screenshot"),
 ) -> HTMLResponse:
     """Render the side-by-side comparison page for shots ``a`` and ``b``."""
+    await _require_capture_owner(_user)
     result = await _load_or_404(a, b)
 
     # Best-effort: surface a "view previous from same app" CTA when the
@@ -70,6 +87,7 @@ async def compare_json(
     b: int = Query(..., description="ID of the 'after' screenshot"),
 ) -> JSONResponse:
     """JSON twin of :func:`compare_page` — returns the raw compare result."""
+    await _require_capture_owner(_user)
     result = await _load_or_404(a, b)
     return JSONResponse(content=dict(result))
 
