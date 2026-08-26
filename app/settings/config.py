@@ -98,6 +98,15 @@ class Settings(BaseSettings):
     smtp_from: str = Field(default="")
     smtp_tls: str = Field(default="")
 
+    # v2.33 — КАК уходит письмо: "smtp_starttls" (дефолт, прежнее поведение),
+    # "smtp_ssl" (implicit TLS) или "http_api" (HTTPS-провайдер). Нужно там,
+    # где исходящие SMTP-порты закрыты файрволом и релей недостижим в принципе;
+    # подробности и замеры — в докстринге app/mail_transport.py. Пустая строка
+    # = дефолт, поэтому апгрейд без правки конфига ничего не меняет.
+    # ВАЖНО: ключ HTTPS-провайдера сюда НЕ кладётся — он живёт только в
+    # PERSONA_RESEND_API_KEY или в {PERSONA_DATA_DIR}/resend_api_key.
+    mail_transport: str = Field(default="")
+
     # v0.72 — day-end auto-summary. When True, a 30-min polling worker
     # generates today's ``day_tldr`` row a bit before midnight so the
     # next morning's ``/timeline/{day}`` and ``/digest`` loads do not

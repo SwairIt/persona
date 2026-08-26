@@ -185,6 +185,7 @@ from app.web.routes import (
     ocr_status,
     palette as palette_routes,
     pdf_export as pdf_export_routes,
+    people_owner as people_owner_routes,
     per_app_digest as per_app_digest_routes,
     personal_metrics as personal_metrics_routes,
     permalinks as permalinks_routes,
@@ -761,6 +762,11 @@ def create_app() -> FastAPI:
     # настройки и приёмник кликов /api/track (см. app/web/routes/analytics_owner.py
     # — там же обоснование, почему это отдельная страница, а не вкладка /root).
     app.include_router(analytics_owner_routes.router)
+    # «Люди и рост»: кто зарегистрировался и как идёт прирост. Отдельно от
+    # аналитики намеренно — другой источник (users.created_at, за всю историю
+    # инстанса) и другое правило приватности: чужой текст на эту страницу не
+    # попадает вовсе. Обоснование — в app/web/routes/people_owner.py.
+    app.include_router(people_owner_routes.router)
     app.include_router(activity_page_routes.router)
     app.include_router(shot_embed_routes.router)
     app.include_router(diag_bundle_routes.router)

@@ -35,6 +35,7 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Resp
 from app.auth import current_user_required
 from app.auth.sessions import SessionRecord
 from app.logging_setup import get_logger
+from app.member_crypto import decrypt_for_user
 from app.storage.db import get_connection
 from app.storage.repository import get_kv
 from app.web.templates_engine import templates
@@ -100,7 +101,11 @@ async def _export_markdown(user_id: int) -> str:
         for f in facts:
             mark = "📌 " if f["pinned"] else "- "
             stale = " _(устарело)_" if f["valid_until"] else ""
-            out.append(f"{mark}[{f['kind']}] {f['text']}{stale}")
+            # У не-владельца текст факта лежит зашифрованным — экспорт обязан
+            # отдать человеку читаемое, иначе «портативность» превращается в
+            # выгрузку мусора.
+            plain = await decrypt_for_user(int(user_id), f["text"], conn)
+            out.append(f"{mark}[{f['kind']}] {plain}{stale}")
         cur = await conn.execute(
             "SELECT id, title, created_at FROM chat_session WHERE user_id = ? ORDER BY id",
             (user_id,),

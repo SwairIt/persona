@@ -27,6 +27,11 @@ def _isolated_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Itera
     monkeypatch.setenv("PERSONA_RETENTION_DAYS", "30")
     monkeypatch.setenv("PERSONA_CAPTURE_INTERVAL_SECONDS", "5")
     monkeypatch.setenv("PERSONA_OCR_ENABLED", "false")
+    # Проба достижимости почтового транспорта (app/mail_transport.reachable)
+    # открывает НАСТОЯЩИЙ TCP-сокет. Набор в сеть не ходит: без этого выключателя
+    # каждый тест, дошедший до delivery_status(), стучался бы в релей из .env
+    # разработчика. Тесты, которым проба нужна, включают её сами.
+    monkeypatch.setenv("PERSONA_MAIL_PROBE", "0")
     monkeypatch.delenv("PERSONA_TESSERACT_PATH", raising=False)
 
     get_settings.cache_clear()  # type: ignore[attr-defined]
@@ -58,12 +63,17 @@ def _reset_in_process_security_state() -> Iterator[None]:
     tonight) forgot it — green alone, red in the full run. Doing it centrally
     removes the footgun instead of documenting it ten more times.
     """
-    from app import i18n
+    from app import i18n, member_crypto
     from app.auth import account_state, lockout, proxies, verification
     from app.web import rate_limit, templates_engine
     from app.web.middleware import csrf, security_headers, throttle
 
     def _wipe() -> None:
+        # Ключи шифрования участников кэшируются в процессе (мастер-ключ +
+        # развёрнутые DEK'и). Каждый тест получает СВОЙ PERSONA_DATA_DIR и свою
+        # базу, поэтому без сброса второй тест шифровал бы данные ключом
+        # первого — и в новой базе не появилось бы строки user_encryption_key.
+        member_crypto.reset_cache()
         templates_engine._kv_value_cache.clear()
         templates_engine._user_kv_value_cache.clear()
         templates_engine.invalidate_theme_cache()

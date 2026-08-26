@@ -31,6 +31,7 @@ import aiosqlite
 
 from app.auth.owner import is_owner
 from app.logging_setup import get_logger
+from app.member_crypto import decrypt_for_thread, encrypt_for_thread
 from app.storage.db import get_connection, write_transaction
 from app.storage.repository import get_user_kv, set_user_kv
 
@@ -630,19 +631,25 @@ async def list_threads(user_id: int, limit: int = 100) -> list[dict[str, Any]]:
             (uid, uid, uid, uid, uid, max(1, min(int(limit), 500))),
         )
         rows = await cursor.fetchall()
-    return [
-        {
-            "thread_id": int(row["thread_id"]),
-            "other_id": int(row["other_id"]),
-            "name": _card_name(row["display_name"], str(row["email"])),
-            "last_body": str(row["last_body"] or ""),
-            "last_kind": str(row["last_kind"] or "human"),
-            "last_mine": row["last_sender"] is not None and int(row["last_sender"]) == uid,
-            "last_message_at": str(row["last_message_at"] or ""),
-            "unread": int(row["unread"] or 0),
-        }
-        for row in rows
-    ]
+    cards: list[dict[str, Any]] = []
+    for row in rows:
+        # Превью последнего сообщения — тот же зашифрованный текст, что и в
+        # ветке. Ключ у каждой ветки свой, поэтому расшифровка внутри цикла.
+        preview = await decrypt_for_thread(int(row["thread_id"]), row["last_body"])
+        cards.append(
+            {
+                "thread_id": int(row["thread_id"]),
+                "other_id": int(row["other_id"]),
+                "name": _card_name(row["display_name"], str(row["email"])),
+                "last_body": preview,
+                "last_kind": str(row["last_kind"] or "human"),
+                "last_mine": row["last_sender"] is not None
+                and int(row["last_sender"]) == uid,
+                "last_message_at": str(row["last_message_at"] or ""),
+                "unread": int(row["unread"] or 0),
+            }
+        )
+    return cards
 
 
 async def thread_header(thread_id: int, user_id: int) -> dict[str, Any]:
@@ -665,10 +672,16 @@ async def thread_header(thread_id: int, user_id: int) -> dict[str, Any]:
 # ── Сообщения ───────────────────────────────────────────────────────────────
 
 
-def _message_row(row: aiosqlite.Row, uid: int) -> dict[str, Any]:
+def _message_row(row: aiosqlite.Row, uid: int, body: str) -> dict[str, Any]:
+    """Строка сообщения для UI. ``body`` приходит УЖЕ расшифрованным.
+
+    Расшифровка вынесена наружу намеренно: она асинхронная (нужен ключ ветки),
+    а эта функция — чистое отображение колонок. Так нельзя случайно вернуть
+    шифротекст в UI: параметр обязателен, забыть его невозможно.
+    """
     return {
         "id": int(row["id"]),
-        "body": str(row["body"]),
+        "body": body,
         "kind": str(row["kind"] or "human"),
         "created_at": str(row["created_at"] or ""),
         "mine": int(row["sender_id"]) == uid,
@@ -713,7 +726,10 @@ async def list_messages(
             params.append(safe_limit)
             cursor = await conn.execute(sql, params)
             rows = list(reversed(await cursor.fetchall()))
-    return [_message_row(row, uid) for row in rows]
+    return [
+        _message_row(row, uid, await decrypt_for_thread(int(thread_id), row["body"]))
+        for row in rows
+    ]
 
 
 async def send_message(
@@ -737,10 +753,14 @@ async def send_message(
 
     async with write_transaction() as conn:
         await _require_thread_member(conn, int(thread_id), uid)
+        # Шифруем ВНУТРИ той же транзакции и тем же соединением: ключ ветки
+        # заводится здесь же (INSERT в dm_thread_key), а второе соединение на
+        # запись под открытым BEGIN IMMEDIATE упёрлось бы в блокировку.
+        stored_body = await encrypt_for_thread(int(thread_id), text, conn)
         cursor = await conn.execute(
             "INSERT INTO dm_message (thread_id, sender_id, body, created_at, kind) "
             "VALUES (?, ?, ?, datetime('now'), ?)",
-            (int(thread_id), uid, text, safe_kind),
+            (int(thread_id), uid, stored_body, safe_kind),
         )
         message_id = int(cursor.lastrowid or 0)
         await conn.execute(
@@ -755,7 +775,7 @@ async def send_message(
         row = await cursor.fetchone()
     if row is None:  # pragma: no cover
         raise SocialError("сообщение не сохранилось")
-    return _message_row(row, uid)
+    return _message_row(row, uid, text)
 
 
 async def mark_read(thread_id: int, user_id: int) -> int:

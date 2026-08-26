@@ -245,11 +245,22 @@ class NotifItem(TypedDict):
 async def queue_browser(
     user_id: int, event: str, title: str, body: str, url: str = ""
 ) -> int:
+    """Положить браузерное уведомление в очередь ПОЛУЧАТЕЛЯ.
+
+    ``body`` — это выдержка из личного сообщения (до 300 символов). Хранить её
+    открытым текстом рядом с зашифрованной перепиской бессмысленно: утечка
+    цитаты — это утечка переписки. Поэтому шифруем ключом ПОЛУЧАТЕЛЯ (строка
+    принадлежит ему, читает её тоже только он). Заголовок остаётся открытым:
+    это «Сообщение от <имя>», без содержимого.
+    """
+    from app.member_crypto import encrypt_for_user  # noqa: PLC0415 — цикл импорта
+
     async with write_transaction() as conn:
+        stored_body = await encrypt_for_user(int(user_id), body[:500], conn)
         cursor = await conn.execute(
             "INSERT INTO social_notif_item (user_id, event, title, body, url) "
             "VALUES (?, ?, ?, ?, ?)",
-            (int(user_id), str(event), title[:200], body[:500], url[:300]),
+            (int(user_id), str(event), title[:200], stored_body, url[:300]),
         )
         return int(cursor.lastrowid or 0)
 
@@ -276,12 +287,14 @@ async def take_pending(user_id: int, limit: int = 20) -> list[NotifItem]:
                 f"WHERE user_id = ? AND id IN ({placeholders})",
                 [uid, *[int(r["id"]) for r in rows]],
             )
+    from app.member_crypto import decrypt_for_user  # noqa: PLC0415 — цикл импорта
+
     return [
         {
             "id": int(row["id"]),
             "event": str(row["event"]),
             "title": str(row["title"]),
-            "body": str(row["body"] or ""),
+            "body": await decrypt_for_user(uid, row["body"]),
             "url": str(row["url"] or ""),
             "created_at": str(row["created_at"] or ""),
         }

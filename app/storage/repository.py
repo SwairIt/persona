@@ -347,7 +347,14 @@ async def get_user_kv(
     user_id: int,
     key: str,
 ) -> str | None:
-    """Read a value from the user_settings table (per-user twin of get_kv)."""
+    """Read a value from the user_settings table (per-user twin of get_kv).
+
+    Секретные значения (ключ API провайдера, токен бота, пароль SMTP) лежат в
+    базе ЗАШИФРОВАННЫМИ и расшифровываются здесь — прозрачно для всех вызовов.
+    Точка расшифровки ровно одна на всё приложение, поэтому новый вызывающий
+    ничего не должен знать про шифрование: он получает то же, что записал.
+    Строка без маркера ``pcenc1:`` — legacy plaintext, возвращается как есть.
+    """
     cursor = await conn.execute(
         "SELECT value FROM user_settings WHERE user_id = ? AND key = ?",
         (user_id, key),
@@ -355,7 +362,17 @@ async def get_user_kv(
     row = await cursor.fetchone()
     if row is None:
         return None
-    return str(row["value"])
+    raw = str(row["value"])
+    if not _crypto().is_ciphertext(raw):
+        return raw
+    return await _crypto().decrypt_for_user(int(user_id), raw, conn)
+
+
+def _crypto() -> Any:
+    """Ленивый импорт ``app.member_crypto`` (модуль storage грузится очень рано)."""
+    from app import member_crypto  # noqa: PLC0415 — cold-import budget
+
+    return member_crypto
 
 
 async def set_user_kv(
@@ -364,7 +381,16 @@ async def set_user_kv(
     key: str,
     value: str,
 ) -> None:
-    """Upsert a user_settings entry for one user."""
+    """Upsert a user_settings entry for one user.
+
+    Секреты (см. ``member_crypto.is_secret_setting_key``) шифруются ПЕРЕД
+    записью. Это единственный писатель ``user_settings`` в приложении, поэтому
+    «забыть зашифровать» здесь нельзя — можно только перестать пользоваться
+    этой функцией, что ловит ``tests/test_member_encryption.py``.
+    """
+    crypto = _crypto()
+    if value and crypto.is_secret_setting_key(key):
+        value = await crypto.encrypt_for_user(int(user_id), value, conn)
     await conn.execute(
         """
         INSERT INTO user_settings (user_id, key, value, updated_at)

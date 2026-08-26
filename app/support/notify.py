@@ -47,6 +47,18 @@ log = get_logger("persona.support.notify")
 #: (см. app/web/routes/support.py), но воркер тоже не должен висеть на сокете.
 _SEND_TIMEOUT = 10.0
 
+#: Человеческая расшифровка статусов ``delivery_status()``. Строка уезжает
+#: прямо в БД и прямо на экран владельцу, поэтому одного «unreachable» мало:
+#: владельцу нужно знать, ЧТО чинить. Сырой статус остаётся в скобках — по
+#: нему ищут в логах и на него опираются тесты.
+_REASONS: dict[str, str] = {
+    "disabled": "отправка писем выключена в настройках",
+    "misconfigured": "почта не настроена",
+    "missing_dep": "не установлен aiosmtplib",
+    "no_credentials": "не задан ключ почтового провайдера",
+    "unreachable": "почтовый транспорт недоступен с этого сервера",
+}
+
 #: Сколько символов тела обращения уезжает в письмо. Полный текст всегда есть
 #: на сайте; письмо — это «пришло обращение, вот суть, вот ссылка».
 _EXCERPT = 1200
@@ -84,7 +96,7 @@ async def _deliver(to_addr: str, subject: str, text: str) -> str:
         # Инстанс без ``.env``-фолбэка приходит сюда; с ним — идёт ниже и
         # получает отказ релея. Оба исхода записываются на обращение.
         log.info("support.mail.skipped", reason=status, to=to_addr)
-        return f"skipped:почта не настроена ({status})"
+        return f"skipped:{_REASONS.get(status, 'почта не настроена')} ({status})"
 
     try:
         result: dict[str, Any] = await asyncio.wait_for(
@@ -103,8 +115,10 @@ async def _deliver(to_addr: str, subject: str, text: str) -> str:
         log.info("support.mail.sent", to=to_addr)
         return "sent"
     log.info("support.mail.not_sent", outcome=outcome, to=to_addr)
-    if outcome == "error":
+    if outcome in {"error", "timeout"}:
         return f"error:{str(result.get('error') or 'SMTP отверг письмо')[:80]}"
+    if outcome in _REASONS:
+        return f"skipped:{_REASONS[outcome]} ({outcome})"
     return f"skipped:почта недоступна ({outcome or 'неизвестно'})"
 
 

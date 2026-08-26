@@ -21,14 +21,34 @@ programming errors — runtime SMTP failures are caught and surfaced as
 The optional dependency ``aiosmtplib`` is imported lazily so that the
 rest of the app keeps working on installs that have not opted in to
 SMTP delivery.
+
+v2.33 — КАК письмо уходит, решает :mod:`app.mail_transport` (kv
+``mail_transport`` / env ``PERSONA_MAIL_TRANSPORT``): ``smtp_starttls``
+(дефолт = сегодняшнее поведение), ``smtp_ssl`` (implicit TLS) или
+``http_api`` (HTTPS-провайдер). Понадобилось не из любви к абстракциям: на
+этом сервере исходящие 25/465/587/2525 закрыты ФАЙРВОЛОМ ПО ПОРТУ (проверено
+на одном и том же IP: 443/2053/2087/8443 открыты, 25/465/587/2525 — отказ),
+поэтому никакой SMTP-релей на 587 тут работать не может в принципе. Этот
+модуль остался тем же, чем был, — местом, где живут НАСТРОЙКИ и СТАТУС-
+КОНТРАКТ; сокеты и HTTP переехали в транспорт.
+
+Контракт статусов (расширен, ни одно старое значение не изменило смысла):
+
+* ``disabled`` / ``misconfigured`` / ``missing_dep`` — как раньше;
+* ``no_credentials`` — транспорт ``http_api`` без ключа провайдера;
+* ``unreachable`` — конфиг полный, но до транспорта НЕ ДОХОДИТ TCP. Именно
+  это состояние прод и изображал как ``ok``, из-за чего страница обещала
+  письмо, которого не будет;
+* ``ok`` — сконфигурировано И достижимо.
 """
 
 from __future__ import annotations
 
-from email.message import EmailMessage
 from typing import Any
 
+from app import mail_transport
 from app.logging_setup import get_logger
+from app.mail_transport import MailConfig, MailMessage
 from app.storage.db import get_connection
 from app.storage.repository import get_kv
 
@@ -48,6 +68,9 @@ _ALL_KEYS: tuple[str, ...] = (
     "smtp_to",
     "smtp_from",
     "smtp_tls",
+    # Не ``smtp_*``, но резолвится ровно так же (kv выигрывает, env — дефолт),
+    # поэтому читается вместе с остальными, а не отдельной веткой.
+    "mail_transport",
 )
 
 _MISSING_DEP_HINT = (
@@ -59,6 +82,101 @@ _MISSING_DEP_HINT = (
 #: :func:`send_email`) needs. ``smtp_to`` is not here: the recipient is an
 #: argument, not a setting.
 _TRANSACTIONAL_KEYS: tuple[str, ...] = ("smtp_host", "smtp_port", "smtp_from")
+
+#: ``http_api`` не ходит по SMTP, поэтому ``smtp_host``/``smtp_port`` для него
+#: не значат ничего и требовать их — врать в лицо. Адрес отправителя нужен
+#: по-прежнему: он уезжает в поле ``from`` провайдера.
+_HTTP_TRANSACTIONAL_KEYS: tuple[str, ...] = ("smtp_from",)
+_HTTP_DIGEST_KEYS: tuple[str, ...] = ("smtp_from", "smtp_to")
+
+
+def _required_keys(transport: str, *, transactional: bool) -> tuple[str, ...]:
+    """Какие настройки обязаны быть непустыми ДЛЯ ЭТОГО транспорта."""
+    if transport == mail_transport.HTTP_API:
+        return _HTTP_TRANSACTIONAL_KEYS if transactional else _HTTP_DIGEST_KEYS
+    return _TRANSACTIONAL_KEYS if transactional else _REQUIRED_KEYS
+
+
+def _build_config(settings: dict[str, str]) -> MailConfig:
+    """Собрать :class:`MailConfig` из разрешённых настроек.
+
+    Единственное место, где строка настройки превращается в «как слать».
+    Ключ провайдера сюда приходит из env/файла (:func:`mail_transport.read_api_key`)
+    и НИКОГДА из ``settings`` — в БД его нет и не будет.
+    """
+    transport = mail_transport.resolve_transport(settings.get("mail_transport"))
+    port_raw = settings.get("smtp_port", "")
+    port = _parse_port(port_raw) if str(port_raw).strip() else (
+        mail_transport.DEFAULT_PORTS[transport]
+    )
+    return MailConfig(
+        transport=transport,
+        host=settings.get("smtp_host", "").strip(),
+        port=port,
+        user=settings.get("smtp_user", "").strip(),
+        password=settings.get("smtp_pass", ""),
+        sender=settings.get("smtp_from", "").strip(),
+        # ``smtp_tls`` сохраняет ровно свой прежний смысл на пути STARTTLS.
+        starttls=settings.get("smtp_tls", "").strip().lower() == "true",
+        api_key=(
+            mail_transport.read_api_key()
+            if transport == mail_transport.HTTP_API
+            else ""
+        ),
+        timeout=mail_transport.resolve_timeout(),
+    )
+
+
+async def _resolve_state(
+    *, transactional: bool
+) -> tuple[str, dict[str, str], MailConfig, list[str]]:
+    """Разрешить конфиг ОДИН раз и ответить «можем ли мы вообще слать».
+
+    Возвращает ``(status, settings, config, missing)``. Единственный источник
+    правды и для :func:`send_email`, и для :func:`send_digest_email`, и для
+    :func:`delivery_status` — «узнать» и «попробовать» не могут разъехаться.
+    """
+    settings = await _load_settings()
+    cfg = _build_config(settings)
+    if settings["smtp_enabled"].strip().lower() != "true":
+        return "disabled", settings, cfg, []
+    missing = [
+        k
+        for k in _required_keys(cfg.transport, transactional=transactional)
+        if not settings.get(k, "").strip()
+    ]
+    if missing:
+        return "misconfigured", settings, cfg, missing
+    if cfg.is_http:
+        if not cfg.api_key:
+            return "no_credentials", settings, cfg, []
+    else:
+        try:
+            import aiosmtplib  # noqa: F401, PLC0415 — presence probe for the optional dep
+        except ImportError:
+            return "missing_dep", settings, cfg, []
+    # Последняя и самая честная проверка: доходит ли до транспорта TCP вообще.
+    # Без неё ``ok`` означало «поля заполнены», а не «письмо уйдёт», — и прод
+    # обещал посетителю письмо, которое умирало через 16 секунд.
+    ok, reason = await mail_transport.reachable(cfg)
+    if not ok:
+        return "unreachable", settings, cfg, [reason] if reason else []
+    return "ok", settings, cfg, []
+
+
+def _refusal(status: str, missing: list[str]) -> dict[str, Any]:
+    """Статус-словарь для исхода, в котором отправлять НЕ надо и НЕ пробуем."""
+    if status == "misconfigured":
+        return {"status": "misconfigured", "missing": missing}
+    if status == "missing_dep":
+        return {"status": "missing_dep", "hint": _MISSING_DEP_HINT}
+    if status == "no_credentials":
+        return {"status": "no_credentials", "hint": mail_transport.credential_hint()}
+    if status == "unreachable":
+        # Причина — имя класса исключения сокета, не значение настройки.
+        reason = missing[0] if missing else "connect failed"
+        return {"status": "unreachable", "error": f"транспорт недоступен ({reason})"}
+    return {"status": status}
 
 
 async def _load_settings() -> dict[str, str]:
@@ -99,50 +217,13 @@ def _parse_port(raw: str) -> int:
         return 587
 
 
-def _build_message(
-    *,
-    sender: str,
-    recipient: str,
-    subject: str,
-    body_markdown: str,
-    body_html: str | None,
-    attachments: list[tuple[str, bytes, str]] | None = None,
-) -> EmailMessage:
-    """Compose a single multipart message from the rendered digest body.
-
-    ``attachments`` is a list of ``(filename, content_bytes, mime_type)``
-    triples. Each entry is added via :meth:`EmailMessage.add_attachment`
-    with the MIME type split into ``maintype/subtype``. Bogus MIME types
-    fall back to ``application/octet-stream`` so a malformed caller does
-    not blow up the whole send.
-    """
-    message = EmailMessage()
-    message["From"] = sender
-    message["To"] = recipient
-    message["Subject"] = subject
-    message.set_content(body_markdown)
-    if body_html:
-        message.add_alternative(body_html, subtype="html")
-    for filename, content, mime in attachments or []:
-        maintype, _, subtype = mime.partition("/")
-        if not maintype or not subtype:
-            maintype, subtype = "application", "octet-stream"
-        message.add_attachment(
-            content,
-            maintype=maintype,
-            subtype=subtype,
-            filename=filename,
-        )
-    return message
-
-
 async def send_digest_email(
     subject: str,
     body_markdown: str,
     body_html: str | None = None,
     attachments: list[tuple[str, bytes, str]] | None = None,
 ) -> dict[str, Any]:
-    """Send a digest via the user-configured SMTP relay.
+    """Send a digest via the user-configured transport.
 
     Returns a status dict; never raises for configuration / network
     problems so callers can keep the daily scheduler alive:
@@ -150,8 +231,11 @@ async def send_digest_email(
     * ``{"status": "disabled"}`` — opt-in switch is off.
     * ``{"status": "missing_dep", "hint": "..."}`` — aiosmtplib not installed.
     * ``{"status": "misconfigured", "missing": [...]}`` — required rows blank.
-    * ``{"status": "error", "error": "..."}`` — SMTP rejected the message.
-    * ``{"status": "sent", "to": "..."}`` — relay accepted the envelope.
+    * ``{"status": "no_credentials", "hint": "..."}`` — ``http_api`` без ключа.
+    * ``{"status": "unreachable", "error": "..."}`` — до транспорта нет TCP.
+    * ``{"status": "error", "error": "..."}`` — the transport rejected it.
+    * ``{"status": "timeout", "error": "..."}`` — потолок времени сработал.
+    * ``{"status": "sent", "to": "..."}`` — the transport accepted the envelope.
 
     ``attachments`` is an optional list of ``(filename, content_bytes,
     mime_type)`` triples (added v0.57 for the weekly stats CSV worker).
@@ -159,87 +243,36 @@ async def send_digest_email(
     — the parameter is keyword-defaulted so existing call sites stay
     binary-compatible.
     """
-    settings = await _load_settings()
+    status, settings, cfg, missing = await _resolve_state(transactional=False)
+    if status != "ok":
+        if status == "disabled":
+            log.debug("smtp.send.skipped", reason="disabled")
+        else:
+            log.warning("smtp.send.refused", reason=status, missing=missing)
+        return _refusal(status, missing)
 
-    if settings["smtp_enabled"].strip().lower() != "true":
-        log.debug("smtp.send.skipped", reason="disabled")
-        return {"status": "disabled"}
-
-    missing = _missing_keys(settings)
-    if missing:
-        log.warning("smtp.send.misconfigured", missing=missing)
-        return {"status": "misconfigured", "missing": missing}
-
-    try:
-        import aiosmtplib  # noqa: PLC0415 — optional dep, imported lazily
-    except ImportError:
-        log.error("smtp.send.missing_dep")
-        return {"status": "missing_dep", "hint": _MISSING_DEP_HINT}
-
-    host = settings["smtp_host"].strip()
-    port = _parse_port(settings["smtp_port"])
-    user = settings["smtp_user"].strip()
-    password = settings["smtp_pass"]
     recipient = settings["smtp_to"].strip()
-    sender = settings["smtp_from"].strip()
-    use_tls = settings["smtp_tls"].strip().lower() == "true"
-
-    message = _build_message(
-        sender=sender,
-        recipient=recipient,
-        subject=subject,
-        body_markdown=body_markdown,
-        body_html=body_html,
-        attachments=attachments,
+    return await mail_transport.deliver(
+        cfg,
+        MailMessage(
+            recipient=recipient,
+            subject=subject,
+            text=body_markdown,
+            html=body_html,
+            attachments=list(attachments or []),
+        ),
     )
-
-    log.info(
-        "smtp.send.attempt",
-        host=host,
-        port=port,
-        to=recipient,
-        starttls=use_tls,
-        authenticated=bool(user),
-        attachments=len(attachments or []),
-    )
-
-    try:
-        await aiosmtplib.send(
-            message,
-            hostname=host,
-            port=port,
-            start_tls=use_tls,
-            username=user or None,
-            password=password or None,
-        )
-    except Exception as exc:
-        log.warning("smtp.send.failed", error=str(exc), host=host, port=port)
-        return {"status": "error", "error": str(exc)}
-
-    log.info("smtp.send.ok", to=recipient)
-    return {"status": "sent", "to": recipient}
 
 
 async def _transactional_state() -> tuple[str, dict[str, str], list[str]]:
-    """Resolve config once and answer *can we send a transactional mail?*
+    """Обратно-совместимая обёртка над :func:`_resolve_state`.
 
-    Returns ``(status, settings, missing)`` where ``status`` is one of
-    ``"disabled"`` / ``"misconfigured"`` / ``"missing_dep"`` / ``"ok"``.
-    Single source of truth for both :func:`send_email` and
-    :func:`delivery_status`, so a caller that only wants to *know* whether
-    mail works cannot drift from what an actual send would do.
+    Была единственным источником правды до появления транспортов; осталась,
+    потому что читается снаружи, и потому что «узнать» и «попробовать» обязаны
+    оставаться одним и тем же кодом.
     """
-    settings = await _load_settings()
-    if settings["smtp_enabled"].strip().lower() != "true":
-        return "disabled", settings, []
-    missing = [k for k in _TRANSACTIONAL_KEYS if not settings.get(k, "").strip()]
-    if missing:
-        return "misconfigured", settings, missing
-    try:
-        import aiosmtplib  # noqa: F401, PLC0415 — presence probe for the optional dep
-    except ImportError:
-        return "missing_dep", settings, []
-    return "ok", settings, []
+    status, settings, _cfg, missing = await _resolve_state(transactional=True)
+    return status, settings, missing
 
 
 async def delivery_status() -> str:
@@ -276,45 +309,18 @@ async def send_email(
     other per-user notifications. Same config + same status-dict contract;
     never raises for config/network problems. ``smtp_to`` is NOT required
     here (the recipient is the argument).
+
+    Транспорт выбирается настройкой (см. :mod:`app.mail_transport`); внешний
+    контракт функции не изменился — вызывающие продолжают смотреть только на
+    ``result["status"]``.
     """
-    status, settings, missing = await _transactional_state()
-
-    if status == "disabled":
-        return {"status": "disabled"}
-    if status == "misconfigured":
-        return {"status": "misconfigured", "missing": missing}
-    if status == "missing_dep":
-        return {"status": "missing_dep", "hint": _MISSING_DEP_HINT}
-
-    import aiosmtplib  # noqa: PLC0415 — optional dep; presence checked above
-
-    host = settings["smtp_host"].strip()
-    port = _parse_port(settings["smtp_port"])
-    user = settings["smtp_user"].strip()
-    password = settings["smtp_pass"]
-    sender = settings["smtp_from"].strip()
-    use_tls = settings["smtp_tls"].strip().lower() == "true"
-
-    message = _build_message(
-        sender=sender,
-        recipient=to_addr,
-        subject=subject,
-        body_markdown=body_text,
-        body_html=body_html,
+    status, _settings, cfg, missing = await _resolve_state(transactional=True)
+    if status != "ok":
+        log.info("smtp.send.refused", reason=status, missing=missing)
+        return _refusal(status, missing)
+    return await mail_transport.deliver(
+        cfg,
+        MailMessage(
+            recipient=to_addr, subject=subject, text=body_text, html=body_html
+        ),
     )
-    log.info("smtp.send.attempt", host=host, port=port, to=to_addr, starttls=use_tls)
-    try:
-        await aiosmtplib.send(
-            message,
-            hostname=host,
-            port=port,
-            start_tls=use_tls,
-            username=user or None,
-            password=password or None,
-        )
-    except Exception as exc:  # noqa: BLE001
-        log.warning("smtp.send.failed", error=str(exc), host=host, port=port)
-        return {"status": "error", "error": str(exc)}
-
-    log.info("smtp.send.ok", to=to_addr)
-    return {"status": "sent", "to": to_addr}

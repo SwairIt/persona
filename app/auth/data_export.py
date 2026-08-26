@@ -41,6 +41,17 @@ owner-only) — переиспользовать его нельзя ни при
    персональные данные, а право на доступ распространяется только на свои.
 5. Тела ВХОДЯЩИХ личных сообщений выгружаются: это переписка участника,
    он её и так читает в ``/messages``. Автор чужой, адресат — он.
+
+ШИФРОВАНИЕ (v2.33.x)
+--------------------
+Часть колонок лежит в базе зашифрованной (``app/member_crypto.py``): секреты
+``user_settings``, тела ``dm_message``/``dm_ai_draft``, тексты уведомлений,
+факты ``user_memory`` у не-владельца. Выгрузка обязана отдавать РАСШИФРОВАННОЕ:
+право на доступ — это право прочитать свои данные, а файл с шифротекстом,
+который человек не может открыть, этому праву не удовлетворяет. Единственное
+исключение — секреты: они и раньше редактировались (пункт 2), и после
+шифрования продолжают редактироваться. Зато ``length`` теперь считается по
+РАСШИФРОВАННОМУ значению — иначе «длина ключа» показывала бы длину конверта.
 """
 
 from __future__ import annotations
@@ -51,6 +62,12 @@ from typing import Any
 
 from app.auth.consent import POLICY_VERSION, consent_rows, consent_state
 from app.logging_setup import get_logger
+from app.member_crypto import (
+    SECRET_KEY_HINTS,
+    decrypt_for_thread,
+    decrypt_for_user,
+    is_secret_setting_key,
+)
 from app.storage.db import get_connection
 
 log = get_logger("persona.data_export")
@@ -62,19 +79,15 @@ EXPORT_FORMAT_VERSION = 1
 REDACTED = "«скрыто — см. раздел notes»"
 
 #: Подстроки в ключе ``user_settings``, после которых значение не выгружается.
-_SECRET_HINTS: tuple[str, ...] = (
-    "api_key",
-    "apikey",
-    "token",
-    "password",
-    "secret",
-    "credential",
-)
+#: ЕДИНЫЙ список с тем, по которому значение шифруется при записи
+#: (``app.member_crypto``): «что редактируем в выгрузке» и «что шифруем в базе»
+#: обязаны совпадать — иначе появится секрет, который либо лежит открытым, либо
+#: уезжает в файл.
+_SECRET_HINTS: tuple[str, ...] = SECRET_KEY_HINTS
 
 
 def _looks_secret(key: str) -> bool:
-    low = (key or "").lower()
-    return any(hint in low for hint in _SECRET_HINTS)
+    return is_secret_setting_key(key)
 
 
 def mask_email(email: str | None) -> str:
@@ -129,6 +142,19 @@ async def _table(
         return []
 
 
+async def _decrypted_notifications(conn: Any, uid: int) -> list[dict[str, Any]]:
+    """Очередь браузерных уведомлений с расшифрованными телами."""
+    rows = await _table(
+        conn,
+        "SELECT id, event, title, body, url, created_at, delivered_at "
+        "FROM social_notif_item WHERE user_id = ? ORDER BY id",
+        (uid,),
+    )
+    for row in rows:
+        row["body"] = await decrypt_for_user(uid, row.get("body"), conn)
+    return rows
+
+
 async def build_export(user_id: int) -> dict[str, Any]:
     """Собрать полную выгрузку ОДНОГО пользователя. Всё фильтруется по ``user_id``."""
     uid = int(user_id)
@@ -154,13 +180,16 @@ async def build_export(user_id: int) -> dict[str, Any]:
             key = str(r["key"])
             value = r["value"]
             if _looks_secret(key):
+                # Расшифровываем ТОЛЬКО чтобы посчитать длину настоящего
+                # значения; само значение в файл не попадает.
+                plain = await decrypt_for_user(uid, value, conn)
                 settings.append(
                     {
                         "key": key,
                         "value": REDACTED,
                         "redacted": True,
-                        "present": bool((value or "").strip()),
-                        "length": len(value or ""),
+                        "present": bool(plain.strip()),
+                        "length": len(plain),
                         "updated_at": r["updated_at"],
                     }
                 )
@@ -217,13 +246,16 @@ async def build_export(user_id: int) -> dict[str, Any]:
         data["chats"] = sessions
 
         # --- память / рефлексии / навыки -------------------------------------
-        data["memories"] = await _table(
+        memories = await _table(
             conn,
             "SELECT id, kind, text, pinned, created_at, updated_at, valid_until, "
             "       salience, redacted "
             "FROM user_memory WHERE user_id = ? ORDER BY id",
             (uid,),
         )
+        for m in memories:
+            m["text"] = await decrypt_for_user(uid, m.get("text"), conn)
+        data["memories"] = memories
         data["reflections"] = await _table(
             conn,
             "SELECT id, kind, text, importance, valid_until, created_at "
@@ -340,13 +372,17 @@ async def build_export(user_id: int) -> dict[str, Any]:
             for m in msgs:
                 m["direction"] = "sent" if int(m["sender_id"]) == uid else "received"
                 m.pop("sender_id", None)
+                m["body"] = await decrypt_for_thread(int(t["id"]), m.get("body"), conn)
             t["messages"] = msgs
-            t["drafts"] = await _table(
+            drafts = await _table(
                 conn,
                 "SELECT body, reply_to_id, created_at FROM dm_ai_draft "
                 "WHERE user_id = ? AND thread_id = ? ORDER BY created_at",
                 (uid, int(t["id"])),
             )
+            for d in drafts:
+                d["body"] = await decrypt_for_thread(int(t["id"]), d.get("body"), conn)
+            t["drafts"] = drafts
 
         data["social"] = {
             "friends": friends,
@@ -363,12 +399,7 @@ async def build_export(user_id: int) -> dict[str, Any]:
                 "WHERE user_id = ? ORDER BY event, channel",
                 (uid,),
             ),
-            "queue": await _table(
-                conn,
-                "SELECT id, event, title, body, url, created_at, delivered_at "
-                "FROM social_notif_item WHERE user_id = ? ORDER BY id",
-                (uid,),
-            ),
+            "queue": await _decrypted_notifications(conn, uid),
             "cooldowns": await _table(
                 conn,
                 "SELECT scope, last_sent_at FROM social_notif_cooldown "

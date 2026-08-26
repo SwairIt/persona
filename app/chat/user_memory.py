@@ -6,6 +6,22 @@
 (закреплённые + недавние) и доступен инструменту `query_memory`.
 
 Таблица: ``user_memory`` (миграция 180). Без внешних зависимостей.
+
+ШИФРОВАНИЕ ТЕКСТА ФАКТОВ (v2.33.x)
+----------------------------------
+У НЕ-владельца ``user_memory.text`` лежит в базе зашифрованным
+(``app/member_crypto.py``, ключ пользователя). У владельца — открытым текстом,
+и это осознанно: владелец и есть тот, у кого база, а его строки напрямую
+читают SQL-джойны сновидений/проекций/графа (``app/adapters/memory/*``,
+``app/adapters/projection/*``, ``app/knowledge_graph.py``) — все owner-only.
+Чужих строк там не бывает, поэтому ни один из этих путей не задет.
+
+Почему это вообще получилось дёшево: ВЕСЬ поиск по фактам уже делается в
+Python поверх :func:`list_memory` (``search_memory``, ``forget``,
+``_candidates``, ``consolidate_memories``) — SQLite ``lower()`` не умеет
+кириллицу, поэтому сравнение текста давно вынесено из SQL. Единственным
+местом, где текст сравнивался запросом, был дедуп на вставке; он тоже
+переехал в Python (см. :func:`_add_memory_in_transaction`).
 """
 
 from __future__ import annotations
@@ -13,6 +29,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.logging_setup import get_logger
+from app.member_crypto import decrypt_for_user, encrypt_for_user, encrypts_memory_for
 from app.storage.db import get_connection, write_transaction
 
 log = get_logger("persona.user_memory")
@@ -107,12 +124,32 @@ async def _add_memory_in_transaction(
 ) -> int:
     """Insert/deduplicate one already-normalized fact on the caller transaction."""
 
-    cur = await conn.execute(
-        "SELECT id FROM user_memory WHERE user_id = ? AND lower(text) = lower(?) "
-        "AND valid_until IS NULL LIMIT 1",
-        (user_id, text),
-    )
-    existing = await cur.fetchone()
+    encrypted = await encrypts_memory_for(user_id)
+
+    # Дедуп. У зашифрованного пользователя сравнить тексты запросом нельзя:
+    # один и тот же факт даёт разный шифротекст (случайный nonce на запись).
+    # Поэтому сравниваем в Python по расшифрованным строкам — это те же
+    # десятки строк, что и так читает list_memory, и та же семантика
+    # (casefold вместо ASCII-only lower() — для кириллицы даже точнее).
+    if encrypted:
+        cur = await conn.execute(
+            "SELECT id, text FROM user_memory WHERE user_id = ? AND valid_until IS NULL",
+            (user_id,),
+        )
+        target = text.casefold()
+        existing = None
+        for row in await cur.fetchall():
+            plain = await decrypt_for_user(user_id, row["text"], conn)
+            if plain.casefold() == target:
+                existing = row
+                break
+    else:
+        cur = await conn.execute(
+            "SELECT id FROM user_memory WHERE user_id = ? AND lower(text) = lower(?) "
+            "AND valid_until IS NULL LIMIT 1",
+            (user_id, text),
+        )
+        existing = await cur.fetchone()
     if existing:
         if pinned:
             await conn.execute(
@@ -120,14 +157,16 @@ async def _add_memory_in_transaction(
                 (existing["id"],),
             )
         return int(existing["id"])
+    # Важность считается по ОТКРЫТОМУ тексту — до подмены на шифротекст.
     sal = _heuristic_importance(text, kind, pinned)
+    stored = await encrypt_for_user(user_id, text, conn) if encrypted else text
     cur = await conn.execute(
         "INSERT INTO user_memory(user_id, kind, text, pinned, source_session_id, "
         "salience, importance_source) VALUES(?,?,?,?,?,?,?)",
         (
             user_id,
             kind,
-            text,
+            stored,
             1 if pinned else 0,
             source_session_id,
             sal,
@@ -167,11 +206,13 @@ async def list_memory(
             (user_id, max(1, min(1000, int(limit)))),
         )
         rows = await cur.fetchall()
+    # ЕДИНСТВЕННАЯ точка расшифровки фактов на чтение: search_memory, forget,
+    # _candidates, consolidate_memories и build_memory_block ходят сюда.
     return [
         {
             "id": int(r["id"]),
             "kind": str(r["kind"]),
-            "text": str(r["text"]),
+            "text": await decrypt_for_user(user_id, r["text"]),
             "pinned": bool(r["pinned"]),
             "created_at": str(r["created_at"]),
             "valid_until": r["valid_until"],
@@ -235,10 +276,15 @@ async def edit_memory(user_id: int, mem_id: int, text: str) -> bool:
     if not text:
         return False
     async with write_transaction() as conn:
+        stored = (
+            await encrypt_for_user(user_id, text, conn)
+            if await encrypts_memory_for(user_id)
+            else text
+        )
         cur = await conn.execute(
             "UPDATE user_memory SET text = ?, updated_at = datetime('now') "
             "WHERE id = ? AND user_id = ?",
-            (text, mem_id, user_id),
+            (stored, mem_id, user_id),
         )
         return cur.rowcount > 0
 

@@ -27,6 +27,7 @@ from datetime import UTC, datetime
 from typing import Any, Literal, TypedDict
 
 from app.logging_setup import get_logger
+from app.member_crypto import decrypt_for_thread, encrypt_for_thread
 from app.storage.db import get_connection, write_transaction
 
 log = get_logger("persona.social.ai_pref")
@@ -329,6 +330,9 @@ async def save_draft(
     if not text:
         return
     async with write_transaction() as conn:
+        # Черновик — тот же личный текст, что и отправленное сообщение (и часто
+        # дословно им становится). Шифруется тем же ключом ВЕТКИ.
+        stored = await encrypt_for_thread(int(thread_id), text, conn)
         await conn.execute(
             """
             INSERT INTO dm_ai_draft (user_id, thread_id, body, reply_to_id, created_at)
@@ -341,7 +345,7 @@ async def save_draft(
             (
                 int(user_id),
                 int(thread_id),
-                text,
+                stored,
                 int(reply_to_id) if reply_to_id else None,
                 fmt(now or utcnow()),
             ),
@@ -361,7 +365,7 @@ async def get_draft(user_id: int, thread_id: int) -> Draft | None:
         return None
     return {
         "thread_id": int(thread_id),
-        "body": str(row["body"] or ""),
+        "body": await decrypt_for_thread(int(thread_id), row["body"]),
         "reply_to_id": int(row["reply_to_id"] or 0),
         "created_at": str(row["created_at"] or ""),
     }

@@ -125,8 +125,19 @@ log = get_logger("persona.auth.routes")
 
 
 # Статусы ``send_email``, которые означают «почта на этом сервере не настроена»
-# (в отличие от ``error`` — попытались отправить, но релей отказал).
-_MAIL_UNCONFIGURED = frozenset({"disabled", "misconfigured", "missing_dep"})
+# (в отличие от ``error``/``timeout`` — попытались отправить, но не вышло).
+# ``unreachable`` НАМЕРЕННО не здесь: настройки-то заполнены, недостижим сам
+# транспорт, и человеку надо сказать «письмо не ушло», а не «не настроено».
+_MAIL_UNCONFIGURED = frozenset(
+    {"disabled", "misconfigured", "missing_dep", "no_credentials"}
+)
+
+#: Единственная честная фраза для «почта с этого сервера не уходит». Про
+#: инстанс, не про аккаунт, — поэтому годится и на не-перечисляющих формах.
+_NO_MAIL_HINT = (
+    "Почта с этого сервера сейчас не уходит — письма не будет. "
+    "Войди по паролю или попроси владельца Persona сбросить пароль вручную."
+)
 
 
 async def _send_mail_safe(
@@ -150,6 +161,23 @@ async def _send_mail_safe(
     if status != "sent":
         log.warning("mail.not_delivered", flow=flow, status=status)
     return status
+
+
+async def _mail_ready() -> bool:
+    """Умеет ли ЭТОТ ИНСТАНС слать письма прямо сейчас. Никогда не бросает.
+
+    Ответ про сервер, НЕ про конкретный аккаунт, — поэтому его можно показать
+    и там, где перечисление аккаунтов запрещено (``/auth/forgot``): «почта на
+    этом сервере не работает» одинаково верно и для существующего адреса, и
+    для выдуманного, и не выдаёт, какой из них какой.
+    """
+    try:
+        from app.smtp_delivery import delivery_status  # noqa: PLC0415
+
+        return await delivery_status() == "ok"
+    except Exception as exc:  # noqa: BLE001 — форма важнее диагноза
+        log.info("mail.status_failed", error=str(exc))
+        return False
 
 
 # Cap on the User-Agent we persist into auth_session. The longest UAs
@@ -741,15 +769,22 @@ async def magic_request(
         # (анти-абуз: рассылка спама + бесконтрольное создание юзеров).
         # Ответ одинаковый, чтобы не палить, существует ли аккаунт.
         # Новые аккаунты — только через явный /auth/signup.
+        # ``delivered`` — состояние ИНСТАНСА, не аккаунта (см. _mail_ready):
+        # ответ для неизвестного адреса обязан совпадать с ответом для
+        # известного, иначе форма превращается в перечислитель аккаунтов.
+        mail_ready = await _mail_ready()
         if json_mode:
             return JSONResponse({
-                "ok": True, "delivered": True, "registered": False,
-                "message": f"Если аккаунт {addr} существует — ссылка для входа отправлена.",
+                "ok": True, "delivered": mail_ready, "registered": False,
+                "message": (
+                    f"Если аккаунт {addr} существует — ссылка для входа отправлена."
+                    if mail_ready else _NO_MAIL_HINT
+                ),
             })
         return templates.TemplateResponse(
             request, "auth_magic_sent.html",
             {"title": "Проверьте почту", "mode": "login", "email": addr,
-             "delivered": True, "registered": False},
+             "delivered": mail_ready, "registered": False},
         )
 
     token = await create_magic_link(addr)
@@ -762,7 +797,7 @@ async def magic_request(
             if registered_now else f"Ссылка для входа отправлена на {addr}."
         ) if delivered else (
             "Аккаунт создан. " if registered_now else ""
-        ) + "Письмо не ушло (SMTP не настроен) — пока войди по паролю или настрой почту."
+        ) + _NO_MAIL_HINT
         return JSONResponse({"ok": True, "delivered": delivered, "registered": registered_now, "message": msg})
     return templates.TemplateResponse(
         request, "auth_magic_sent.html",
@@ -862,11 +897,23 @@ async def forgot_password(
             await _send_mail_safe(
                 chk["email"], "Смена пароля Persona", text, html, flow="forgot"
             )
+    # Честность без перечисления: «доставлено» опирается ТОЛЬКО на состояние
+    # инстанса. Смотреть на результат конкретной отправки нельзя — отправка
+    # случается лишь для существующего аккаунта, и её исход выдал бы, какие
+    # адреса зарегистрированы. Раньше здесь стояло безусловное ``True``, и на
+    # сервере с закрытым SMTP страница обещала письмо, которого не будет, —
+    # человек, потерявший пароль, оставался без единого честного слова.
+    mail_ready = await _mail_ready()
     if json_mode:
-        return JSONResponse({"ok": True, "message": generic})
+        return JSONResponse({
+            "ok": True,
+            "delivered": mail_ready,
+            "message": generic if mail_ready else _NO_MAIL_HINT,
+        })
     return templates.TemplateResponse(
         request, "auth_magic_sent.html",
-        {"title": "Проверьте почту", "mode": "login", "email": chk.get("email", email), "delivered": True},
+        {"title": "Проверьте почту", "mode": "login",
+         "email": chk.get("email", email), "delivered": mail_ready},
     )
 
 

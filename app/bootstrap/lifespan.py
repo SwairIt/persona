@@ -38,6 +38,22 @@ async def _initialize_database() -> None:
     await init_database()
 
 
+async def _encrypt_legacy_rows() -> None:
+    """Дошифровать строки, записанные до включения шифрования участников.
+
+    Best-effort и строго после миграций: добор помечает себя в kv, поэтому на
+    втором старте это два SELECT'а. Падение здесь НЕ должно мешать инстансу
+    подняться — незашифрованная старая строка хуже, чем упавший сервис, только
+    в теории; на практике недоступный сервис лечится хуже.
+    """
+    try:
+        from app.member_crypto_backfill import run_backfill  # noqa: PLC0415
+
+        await run_backfill()
+    except Exception as exc:
+        log.warning("persona.boot.member_encryption_backfill_failed", error=str(exc))
+
+
 def _get_controller() -> CaptureController:
     # Import the narrow module, not app.workers, whose __init__ eagerly imports
     # every legacy worker implementation.
@@ -91,6 +107,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialize resources, run the selected profile, then cleanly tear down."""
 
     await _initialize_database()
+    await _encrypt_legacy_rows()
     controller = _get_controller()
     profile = profile_from_environment(os.environ)
     runtime = BackgroundRuntime(workers_for_profile(profile), controller)

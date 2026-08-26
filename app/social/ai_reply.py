@@ -45,6 +45,7 @@ from typing import TYPE_CHECKING, Any, TypedDict
 from app.chat.prompts import get_active_system_prompt
 from app.llm.client import CompletionRequest, LLMNotConfigured, make_client
 from app.logging_setup import get_logger
+from app.member_crypto import decrypt_for_thread
 from app.social import ai_pref, notifications
 from app.social.repository import (
     ThreadAccessError,
@@ -206,10 +207,13 @@ async def _load_trigger(thread_id: int, message_id: int) -> dict[str, Any] | Non
         row = await cursor.fetchone()
     if row is None:
         return None
+    # Тело в базе зашифровано ключом ВЕТКИ. Расшифровать здесь обязаны: это
+    # единственный текст, который уходит в промпт автоответчика.
+    body = await decrypt_for_thread(int(thread_id), row["body"])
     return {
         "sender_id": int(row["sender_id"]),
         "kind": str(row["kind"] or "human"),
-        "body": str(row["body"] or ""),
+        "body": body,
     }
 
 
