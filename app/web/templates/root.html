@@ -11,10 +11,20 @@
        открытым и он опрашивает логи каждые несколько секунд, а отчёт делает
        тяжёлое агрегатное чтение плюс свёртку суток. Обоснование целиком — в
        докстринге app/web/routes/analytics_owner.py. #}
-    <a href="/root/analytics" data-track="root:open-analytics"
-       class="px-3 py-2 rounded-lg bg-accent-600/20 text-accent-300 border border-accent-500/40 hover:bg-accent-600/30 text-sm whitespace-nowrap">
-      📊 Аналитика сайта
-    </a>
+    <div class="flex items-center gap-2">
+      {# «Люди и рост» — тоже отдельная страница: у неё другой источник
+         (users.created_at за всю историю инстанса) и другое правило
+         приватности — чужой текст туда не попадает вовсе. Обоснование —
+         в докстринге app/web/routes/people_owner.py. #}
+      <a href="/root/people" data-track="root:open-people"
+         class="px-3 py-2 rounded-lg bg-ink-800 text-zinc-200 border border-ink-700 hover:bg-ink-900 text-sm whitespace-nowrap">
+        👥 Люди и рост
+      </a>
+      <a href="/root/analytics" data-track="root:open-analytics"
+         class="px-3 py-2 rounded-lg bg-accent-600/20 text-accent-300 border border-accent-500/40 hover:bg-accent-600/30 text-sm whitespace-nowrap">
+        📊 Аналитика сайта
+      </a>
+    </div>
   </div>
 
   {# Сводка здоровья #}

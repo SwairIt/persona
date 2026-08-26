@@ -78,8 +78,10 @@ async def _onboarded(uids: list[int]) -> int:
     return int(row[0] or 0)
 
 
-async def _llm_configured(uids: list[int], owner_id: int | None) -> int:
-    """Сколько человек из когорты реально подключили модель.
+async def configured_llm_ids(
+    uids: list[int], owner_id: int | None = None
+) -> set[int]:
+    """КТО из переданных людей реально подключил модель (множество id).
 
     У участника ключ и провайдер лежат в ``user_settings``; у владельца — в
     глобальном ``kv_settings`` (см. ``app/llm/client.py``: ``_KV_LLM_PROVIDER``
@@ -87,39 +89,44 @@ async def _llm_configured(uids: list[int], owner_id: int | None) -> int:
     Признак «подключил» намеренно широкий: выбранный провайдер ИЛИ введённый
     BYO-ключ. Человек, вписавший ключ и не нажавший «сохранить провайдера»,
     модель всё-таки настроил.
+
+    Читается ТОЛЬКО наличие строки: ``value`` проверяется на непустоту прямо в
+    SQL и наружу не выносится — это чужой API-ключ, и ему нечего делать ни в
+    вызывающем коде, ни тем более в шаблоне.
+
+    Функция возвращает множество, а не число, потому что у неё два потребителя
+    с разными вопросами: воронке нужно «сколько» (:func:`_llm_configured`),
+    странице «Люди» — «у кого именно» (галочка в строке аккаунта). Определение
+    «подключил» при этом остаётся ОДНО: две копии этого предиката разъехались
+    бы на первой же правке, и рядом на соседних страницах стояли бы два разных
+    числа под одной подписью.
     """
     if not uids:
-        return 0
+        return set()
     placeholders = ", ".join("?" for _ in uids)
-    count = 0
     async with get_connection() as conn:
         cur = await conn.execute(
-            "SELECT COUNT(DISTINCT user_id) FROM user_settings "  # noqa: S608
+            "SELECT DISTINCT user_id FROM user_settings "  # noqa: S608
             f"WHERE user_id IN ({placeholders}) "
             "  AND (key = 'llm_provider' OR key LIKE 'byo_api_key_%') "
             "  AND TRIM(COALESCE(value, '')) NOT IN ('', 'none')",
             uids,
         )
-        row = await cur.fetchone()
-        count = int(row[0] or 0)
-        if owner_id is not None and owner_id in uids:
+        found = {int(r[0]) for r in await cur.fetchall()}
+        if owner_id is not None and owner_id in uids and owner_id not in found:
             cur = await conn.execute(
                 "SELECT TRIM(COALESCE(value, '')) FROM kv_settings "
                 "WHERE key = 'llm_provider'"
             )
             row = await cur.fetchone()
             if row and row[0] not in ("", "none"):
-                cur = await conn.execute(
-                    "SELECT COUNT(*) FROM user_settings "
-                    "WHERE user_id = ? AND (key = 'llm_provider' "
-                    "  OR key LIKE 'byo_api_key_%') "
-                    "  AND TRIM(COALESCE(value, '')) NOT IN ('', 'none')",
-                    (owner_id,),
-                )
-                already = await cur.fetchone()
-                if not int(already[0] or 0):
-                    count += 1
-    return count
+                found.add(int(owner_id))
+    return found
+
+
+async def _llm_configured(uids: list[int], owner_id: int | None) -> int:
+    """Сколько человек из когорты подключили модель. Предикат — общий."""
+    return len(await configured_llm_ids(uids, owner_id))
 
 
 async def _first_message(uids: list[int]) -> int:
@@ -217,4 +224,4 @@ async def build_funnel(
     }
 
 
-__all__ = ["build_funnel"]
+__all__ = ["build_funnel", "configured_llm_ids"]

@@ -15,9 +15,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from app.auth import current_user_required
-from app.auth.owner import is_owner
 from app.auth.sessions import SessionRecord
 from app.logging_setup import get_logger
+from app.web.routes.owner_view import viewer_is_owner as is_owner
 from app.web.templates_engine import templates
 
 router = APIRouter(tags=["root"])
@@ -25,10 +25,23 @@ log = get_logger("persona.root")
 
 
 async def _require_owner(session: SessionRecord) -> int:
+    """Владелец — или 403. Резолв FAIL-CLOSED.
+
+    ``is_owner`` здесь — это ``owner_view.viewer_is_owner``: любой сбой резолва
+    (занятая БД, недоступный каталог ролей) означает «не владелец» → 403, а не
+    500 и не тихий проход. Этот пульт умеет замораживать и удалять аккаунты;
+    развилка, у которой ветка по умолчанию — «пусти», здесь недопустима.
+    """
     uid = session["user_id"]
     if not await is_owner(uid):
         raise HTTPException(status_code=403, detail="только для владельца")
     return uid
+
+
+#: Куда разрешено вернуть браузер после мутации аккаунта. Значение приходит из
+#: формы, поэтому это ЗАКРЫТЫЙ список, а не «любой относительный путь»: иначе
+#: ``next`` превращается в open redirect на owner-поверхности.
+_RETURN_TO: frozenset[str] = frozenset({"/root", "/root/people"})
 
 
 @router.get("/root", response_class=HTMLResponse)
@@ -101,14 +114,25 @@ async def root_user_mutate(
 ):
     """Управление пользователями (owner-only, re-assert). op: approve|suspend|delete|role.
 
-    Гарды (в app/auth/roles): нельзя suspend/demote/delete последнего owner.
-    suspend дополнительно ревокает сессии пользователя (мгновенный выход).
-    Всё пишется в audit.log_action.
+    Единственная точка мутации аккаунта на owner-поверхности: сюда шлют формы
+    и ``/root``, и ``/root/people`` (страница различается полем ``next``).
+    Второй набор ручек означал бы два места, где решается «можно ли снести
+    этот аккаунт», и расхождение гардов на первой же правке.
+
+    Гарды: ``app/auth/roles`` не даёт suspend/demote последнего owner;
+    ``app/auth/account_delete.can_delete`` не даёт удалить владельца вообще.
+    ``suspend`` ревокает сессии (мгновенный выход), ``delete`` идёт полным
+    каскадом. Всё пишется в audit.log_action — и успех, и отказ.
     """
     from fastapi.responses import RedirectResponse  # noqa: PLC0415
 
     owner_id = await _require_owner(session)
-    from app.auth.roles import delete_user, set_role, set_status  # noqa: PLC0415
+    from app.auth.roles import set_role, set_status  # noqa: PLC0415
+
+    form = await request.form()
+    back = str(form.get("next") or "/root")
+    if back not in _RETURN_TO:
+        back = "/root"
 
     ok = False
     detail = op
@@ -118,9 +142,25 @@ async def root_user_mutate(
         elif op == "suspend":
             ok = await set_status(uid, "suspended")
         elif op == "delete":
-            ok = await delete_user(uid)
+            # Каскад, а не ``DELETE FROM users``. Голый DELETE полагается на
+            # ON DELETE CASCADE, а он покрывает не всё: строки training_dataset
+            # (полный текст пары «вопрос — ответ») отвязываются через SET NULL и
+            # ОСТАЮТСЯ на диске, FTS-зеркало сообщений синхронизируется
+            # триггерами на chat_message, а у kv_settings внешних ключей нет
+            # вовсе. Инвентаризация — в docstring app/auth/account_delete.py;
+            # держать её в двух местах невозможно, поэтому удалятель один.
+            from app.auth.account_delete import (  # noqa: PLC0415
+                delete_own_account,
+            )
+
+            result = await delete_own_account(uid, initiated_by="owner")
+            ok = result.ok
+            detail = (
+                f"cascade rows={result.rows_deleted} kv={result.kv_keys_deleted}"
+                if ok
+                else f"refused:{result.reason}"
+            )
         elif op == "role":
-            form = await request.form()
             new_role = str(form.get("role") or "").strip()
             detail = f"role={new_role}"
             ok = await set_role(uid, new_role)
@@ -139,7 +179,7 @@ async def root_user_mutate(
         )
     except Exception:  # noqa: BLE001, S110
         pass
-    return RedirectResponse(url="/root", status_code=303)
+    return RedirectResponse(url=back, status_code=303)
 
 
 @router.get("/root/logs/recent.json", response_class=JSONResponse)

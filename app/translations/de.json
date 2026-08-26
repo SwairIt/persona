@@ -1500,5 +1500,6 @@
   "support_mail_broken": "E-Mail funktioniert auf diesem Server nicht — es wird nichts verschickt. Die Antwort wird trotzdem hier gespeichert, die Adresse steht neben dem Button.",
   "nav_support": "Support",
   "acct_root_hint": "Betreiber-Konsole",
-  "acct_site_analytics": "📊 Website-Analytik"
+  "acct_site_analytics": "📊 Website-Analytik",
+  "acct_people_growth": "👥 Menschen & Wachstum"
 }

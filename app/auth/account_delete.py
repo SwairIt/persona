@@ -32,14 +32,15 @@ A. САМИ уезжают по ON DELETE CASCADE от ``users(id)``:
      memory_revision_embedding, payment, reflection, social_notif_cooldown,
      social_notif_item, social_notif_pref, subscription, sync_event,
      telegram_person, telegram_pinned_chat, telegram_pinned_message,
-     user_memory, user_settings, user_consent, worker_enrollment_ticket,
-     workspace_file_event.
+     user_encryption_key, user_memory, user_settings, user_consent,
+     worker_enrollment_ticket, workspace_file_event.
 
 B. Уезжают по ЦЕПОЧКЕ от таблиц группы A:
      chat_message      → chat_session(id)  CASCADE
      tool_execution    → chat_session(id)  CASCADE
      dm_message        → dm_thread(id)     CASCADE
      dm_ai_draft       → dm_thread(id)     CASCADE
+     dm_thread_key     → dm_thread(id)     CASCADE
      llm_grant_usage   → llm_grant(id)     CASCADE
      kg_edge           → kg_entity(id)     CASCADE
      telegram_person_* → telegram_person   CASCADE
@@ -66,6 +67,14 @@ E. ЛОВУШКА: ``kv_settings`` — глобальная таблица «к�
    и посессионные ключи чатов (суффикс — id ЧАТА, не пользователя):
      chat_mode_<sid>, chat_effort_<sid>, chat_stop_<sid>
    Их не заберёт ни один каскад — только явный DELETE, см. :func:`_kv_keys_for`.
+
+G. КЛЮЧИ ШИФРОВАНИЯ (v2.33.x) — ``user_encryption_key`` и ``dm_thread_key``
+   уезжают каскадом (группы A и B). Это не гигиена, а часть исполнения права
+   на удаление: вместе с ключом строки становятся нечитаемыми НАВСЕГДА и для
+   всех, включая владельца. Если копия строки уцелела в старом бэкапе базы
+   или в неперезаписанных страницах файла — расшифровать её больше нечем.
+   Не добавляйте сюда «сохраним ключ на всякий случай»: это ровно то, что
+   отменяет удаление.
 
 F. FTS5-зеркала (``chat_message_fts``) синхронизируются ТРИГГЕРАМИ на
    chat_message. Поэтому сообщения удаляются ЯВНЫМ ``DELETE FROM
@@ -197,12 +206,24 @@ async def can_delete(user_id: int) -> tuple[bool, str | None]:
     return True, None
 
 
-async def delete_own_account(user_id: int) -> DeletionResult:
+async def delete_own_account(
+    user_id: int, *, initiated_by: str = "self"
+) -> DeletionResult:
     """Удалить аккаунт и ВСЕ его данные. Порядок операций важен — см. шапку.
 
     Личные сообщения удаляются жёстко у обеих сторон: ветка переписки исчезает
     и у уходящего, и у собеседника (обоснование — блок «ПОЛИТИКА ПО ЛИЧНЫМ
     СООБЩЕНИЯМ» в docstring модуля).
+
+    ``initiated_by`` уходит в ``account_deletion_log`` и различает два разных
+    события: ``'self'`` — человек воспользовался правом на удаление,
+    ``'owner'`` — владелец снёс аккаунт из пульта. Правовые последствия у них
+    разные (в первом случае журнал доказывает исполнение требования, во втором
+    — фиксирует административное действие), поэтому одна колонка на оба случая
+    без различения делала бы журнал бесполезным для обоих. Сам КАСКАД при этом
+    один и тот же намеренно: второй «почти такой же» удалятель для владельца
+    неизбежно отстал бы от этого на одну-две таблицы, а отставание здесь
+    означает оставленный на диске чужой текст.
     """
     uid = int(user_id)
     allowed, reason = await can_delete(uid)
@@ -330,8 +351,8 @@ async def delete_own_account(user_id: int) -> DeletionResult:
             await conn.execute(
                 "INSERT INTO account_deletion_log "
                 "(user_id, initiated_by, rows_deleted, kv_keys_deleted) "
-                "VALUES (?, 'self', ?, ?)",
-                (uid, total, kv_deleted),
+                "VALUES (?, ?, ?, ?)",
+                (uid, initiated_by, total, kv_deleted),
             )
         except Exception as exc:  # noqa: BLE001 — журнал не отменяет удаление
             log.warning("account_delete.log_failed", user_id=uid, error=str(exc))
@@ -339,6 +360,7 @@ async def delete_own_account(user_id: int) -> DeletionResult:
     log.info(
         "account_delete.done",
         user_id=uid,
+        initiated_by=initiated_by,
         rows_deleted=total,
         kv_keys_deleted=kv_deleted,
     )

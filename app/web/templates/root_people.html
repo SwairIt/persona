@@ -1,0 +1,306 @@
+{% extends "base.html" %}
+
+{# ══════════════════════════════════════════════════════════════════════════
+   «Люди и рост» — owner-only.
+
+   ЧТО ЭТА СТРАНИЦА ПОКАЗЫВАТЬ НЕ ИМЕЕТ ПРАВА: чужой текст. Ни сообщения, ни
+   память, ни заголовки чатов (они собираются из первой реплики человека, то
+   есть тоже его текст). И это не обещание в комментарии: в шаблон приходят
+   объекты app.analytics.people.Person — id, адрес, роль, статус, даты,
+   счётчики, флаги, и БОЛЬШЕ НИЧЕГО (slots=True, одиннадцать полей). Чтобы
+   отрисовать здесь чужую переписку, недостаточно дописать строчку сюда —
+   придётся сначала провести текст через people.py, где на имена таблиц с
+   чужим текстом стоит тест по исходнику.
+
+   Графики — ИНЛАЙНОВЫЙ SVG: CSP инстанса разрешает только script-src 'self',
+   внешние чарт-библиотеки не загрузятся в принципе. Геометрия считается на
+   сервере (app/analytics/report.py: bar_geometry), шаблон только рисует.
+   ══════════════════════════════════════════════════════════════════════════ #}
+
+{% macro delta_badge(row) -%}
+  {% if row.pct is none %}
+    {# Предыдущий период = 0. Процент тут не «ноль» и не «сто», его просто не
+       существует: делить не на что. Показываем прочерк и абсолютную дельту. #}
+    <span class="text-zinc-500" title="В прошлом периоде не было ни одной регистрации — делить не на что">—</span>
+  {% elif row.pct > 0 %}
+    <span class="text-emerald-400">▲ {{ row.pct }}%</span>
+  {% elif row.pct < 0 %}
+    <span class="text-rose-400">▼ {{ row.pct }}%</span>
+  {% else %}
+    <span class="text-zinc-400">= 0%</span>
+  {% endif %}
+{%- endmacro %}
+
+{% macro bar_chart(bars, peak, label) -%}
+  {% if bars %}
+  <svg viewBox="0 0 680 100" preserveAspectRatio="none" class="w-full h-28" role="img"
+       aria-label="{{ label }}">
+    {% for bar in bars %}
+    <rect x="{{ bar.x }}" y="{{ bar.y }}" width="{{ bar.w }}" height="{{ bar.h }}"
+          fill="currentColor" class="text-accent-500"><title>{{ bar.value }}</title></rect>
+    {% endfor %}
+    <line x1="0" y1="90" x2="680" y2="90" stroke="currentColor" stroke-width="0.6"
+          class="text-zinc-700"/>
+  </svg>
+  <div class="text-[11px] text-zinc-600 mt-1">пик за период: {{ peak }}</div>
+  {% else %}
+  <p class="text-sm text-zinc-500">Регистраций в этом окне не было.</p>
+  {% endif %}
+{%- endmacro %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto">
+
+  <div class="mb-5 flex flex-wrap items-end justify-between gap-3">
+    <div>
+      <h1 class="text-2xl font-bold tracking-tight">👥 Люди и рост</h1>
+      <p class="text-zinc-500 text-sm mt-1">
+        Кто зарегистрировался и как идёт прирост. Переписки, память и заметки
+        участников сюда не попадают — на этой странице их технически нет.
+      </p>
+    </div>
+    <div class="flex items-center gap-1.5 text-sm">
+      <a href="/root/analytics" class="px-3 py-1.5 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-ink-800">📊 Аналитика</a>
+      <a href="/root" class="px-3 py-1.5 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-ink-800">🛡️ Пульт</a>
+    </div>
+  </div>
+
+  {% if error %}
+  <div class="rounded-xl border border-rose-800 bg-rose-950/40 p-4 mb-6 text-sm text-rose-200">
+    Собрать не удалось: <code>{{ error }}</code>. Страница осталась живой
+    намеренно — отчёт не имеет права уронить пульт.
+  </div>
+  {% endif %}
+
+  {% if p %}
+
+  {# ── СВОДКА ПО АККАУНТАМ ───────────────────────────────────────────────── #}
+  <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
+    <div class="rounded-xl border border-ink-700 bg-ink-800 p-4">
+      <div class="text-xs text-zinc-500">Всего аккаунтов</div>
+      <div class="mt-1 text-2xl font-semibold text-zinc-100">{{ p.counts.total }}</div>
+    </div>
+    <div class="rounded-xl border border-ink-700 bg-ink-800 p-4">
+      <div class="text-xs text-zinc-500">Активные</div>
+      <div class="mt-1 text-2xl font-semibold text-emerald-400">{{ p.counts.active }}</div>
+    </div>
+    <div class="rounded-xl border border-ink-700 bg-ink-800 p-4">
+      <div class="text-xs text-zinc-500">Заморожены</div>
+      <div class="mt-1 text-2xl font-semibold text-rose-400">{{ p.counts.suspended }}</div>
+    </div>
+    <div class="rounded-xl border border-ink-700 bg-ink-800 p-4">
+      <div class="text-xs text-zinc-500">Ждут одобрения</div>
+      <div class="mt-1 text-2xl font-semibold text-amber-400">{{ p.counts.pending }}</div>
+    </div>
+    <div class="rounded-xl border border-ink-700 bg-ink-800 p-4">
+      <div class="text-xs text-zinc-500">Подключили модель</div>
+      <div class="mt-1 text-2xl font-semibold text-accent-400">{{ p.counts.with_llm }}</div>
+      <div class="text-[11px] text-zinc-600 mt-0.5">свой ключ или провайдер</div>
+    </div>
+  </div>
+
+  {# ── СРАВНЕНИЯ С ПРОШЛЫМ ПЕРИОДОМ ──────────────────────────────────────── #}
+  <div class="grid sm:grid-cols-3 gap-3 mb-6">
+    {% for row in p.growth.compare %}
+    <div class="rounded-xl border border-ink-700 bg-ink-800 p-4">
+      <div class="flex items-baseline justify-between">
+        <span class="text-xs text-zinc-500">{{ row.title }}</span>
+        <span class="text-xs">{{ delta_badge(row) }}</span>
+      </div>
+      <div class="mt-1 flex items-baseline gap-2">
+        <span class="text-3xl font-semibold text-zinc-100">{{ row.current }}</span>
+        <span class="text-sm text-zinc-500">было {{ row.previous }}</span>
+        <span class="text-sm {% if row.delta > 0 %}text-emerald-400{% elif row.delta < 0 %}text-rose-400{% else %}text-zinc-500{% endif %}">
+          ({{ '+' if row.delta > 0 else '' }}{{ row.delta }})
+        </span>
+      </div>
+      {# Что именно с чем сравнивается — подписано, а не подразумевается:
+         неполная неделя сравнивается с ТАКИМ ЖЕ куском прошлой, иначе каждый
+         понедельник отчёт показывал бы обвал. #}
+      <div class="text-[11px] text-zinc-600 mt-1.5">
+        {{ row.current_label }}<br>против {{ row.previous_label }}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  {# ── ГРАФИКИ ПРИРОСТА ──────────────────────────────────────────────────── #}
+  <div class="rounded-xl border border-ink-700 bg-ink-800 p-4 mb-6"
+       x-data="{ win: '30' }">
+    <div class="flex flex-wrap items-baseline justify-between gap-2 mb-2">
+      <h2 class="text-sm font-semibold text-zinc-300">Регистрации по дням</h2>
+      <div class="flex items-center gap-1.5 text-xs">
+        {% for w in ['30', '90'] %}
+        <button type="button" @click="win = '{{ w }}'"
+                :class="win === '{{ w }}' ? 'bg-accent-600/20 text-accent-400' : 'text-zinc-400 hover:text-zinc-100'"
+                class="px-2.5 py-1 rounded-md">{{ w }} дней</button>
+        {% endfor %}
+      </div>
+    </div>
+    {% for w in ['30', '90'] %}
+    {% set chart = p.growth.charts[w] %}
+    <div x-show="win === '{{ w }}'" x-cloak{% if w != '30' %} style="display:none"{% endif %}>
+      {{ bar_chart(chart.bars, chart.peak, 'Регистрации по дням за ' ~ w ~ ' дней') }}
+      <div class="flex justify-between text-[11px] text-zinc-600 mt-1">
+        <span>{{ chart.days[0] }}</span>
+        <span>всего за окно: <b class="text-zinc-400">{{ chart.total }}</b></span>
+        <span>{{ chart.days[-1] }}</span>
+      </div>
+    </div>
+    {% endfor %}
+    <p class="text-[11px] text-zinc-600 mt-2">
+      Источник — <code>users.created_at</code>, а не события счётчика. Поэтому
+      график верен за всю историю инстанса, даже если аналитику включили вчера.
+      Сутки и месяцы режутся по <b>UTC</b>, как и все отметки времени в этой базе.
+    </p>
+  </div>
+
+  {# ── ПО МЕСЯЦАМ ────────────────────────────────────────────────────────── #}
+  <div class="rounded-xl border border-ink-700 bg-ink-800 p-4 mb-6">
+    <div class="flex items-baseline justify-between mb-2">
+      <h2 class="text-sm font-semibold text-zinc-300">Регистрации по месяцам</h2>
+      <span class="text-xs text-zinc-500">всего аккаунтов: {{ p.growth.total }}</span>
+    </div>
+    {{ bar_chart(p.growth.month_bars, p.growth.month_peak, 'Регистрации по месяцам') }}
+    <div class="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-zinc-500 mt-2">
+      {% for m in p.growth.months %}
+      <span><span class="text-zinc-600">{{ m.month }}</span> {{ m.count }}</span>
+      {% endfor %}
+    </div>
+  </div>
+
+  {# ── ЧТО СТАЛО С ПРОШЛОЙ КОГОРТОЙ ──────────────────────────────────────── #}
+  <div class="rounded-xl border border-ink-700 bg-ink-800 p-4 mb-6">
+    <h2 class="text-sm font-semibold text-zinc-300 mb-1">
+      Кто зарегистрировался на прошлой неделе
+      <span class="text-zinc-600 font-normal">({{ p.cohort.week_from }} — {{ p.cohort.week_to }}, {{ p.cohort.cohort }} чел.)</span>
+    </h2>
+    {% if p.cohort.cohort %}
+    <table class="w-full text-sm mt-2">
+      <tbody>
+        {% for row in p.cohort.rows %}
+        <tr class="border-b border-ink-900/60 last:border-0">
+          <td class="py-1.5 text-zinc-300">{{ row.title }}</td>
+          <td class="py-1.5 text-right text-zinc-100 font-semibold w-16">
+            {% if row.measurable %}{{ row.count }}{% else %}<span class="text-zinc-600">—</span>{% endif %}
+          </td>
+          <td class="py-1.5 text-right text-zinc-500 w-20">
+            {% if row.measurable and row.pct is not none %}{{ row.pct }}%{% else %}<span class="text-zinc-700">—</span>{% endif %}
+          </td>
+          <td class="py-1.5 pl-3 text-[11px] text-zinc-600">{{ row.source }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% if not p.cohort.measurable %}
+    <p class="text-[11px] text-amber-400/80 mt-2">
+      «Вернулись» за эту неделю измерить нечем: счётчик событий начал писать
+      позже начала недели. Прочерк честнее нуля — ноль читался бы как «никто не
+      вернулся», хотя это отсутствие данных.
+    </p>
+    {% endif %}
+    {% else %}
+    <p class="text-sm text-zinc-500">На прошлой неделе никто не регистрировался.</p>
+    {% endif %}
+    <p class="text-[11px] text-zinc-600 mt-2">
+      «Подключили модель» и «написали первое сообщение» — те же ступени, что в
+      воронке на <a href="/root/analytics" class="underline">странице аналитики</a>,
+      посчитанные по этой когорте. Второй раз они здесь не считаются: два
+      определения одного числа разъехались бы на первой правке.
+    </p>
+  </div>
+
+  {# ── ЛЮДИ ──────────────────────────────────────────────────────────────── #}
+  <div class="mb-6">
+    <div class="flex items-baseline justify-between mb-2">
+      <h2 class="text-sm font-semibold text-zinc-300">
+        Аккаунты <span class="text-zinc-600">({{ p.people|length }})</span>
+      </h2>
+      <span class="text-[11px] text-zinc-600">новые сверху</span>
+    </div>
+    <div class="rounded-xl border border-ink-700 bg-ink-800 overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead class="text-[11px] uppercase tracking-wide text-zinc-500 border-b border-ink-700">
+          <tr>
+            <th class="text-left px-3 py-2">id</th>
+            <th class="text-left px-3 py-2">e-mail</th>
+            <th class="text-left px-3 py-2">роль</th>
+            <th class="text-left px-3 py-2">статус</th>
+            <th class="text-left px-3 py-2">регистрация</th>
+            <th class="text-left px-3 py-2">последний вход</th>
+            <th class="text-left px-3 py-2">был(а)</th>
+            <th class="text-right px-3 py-2">чатов</th>
+            <th class="text-center px-3 py-2">модель</th>
+            <th class="text-left px-3 py-2">действия</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for u in p.people %}
+          <tr class="border-b border-ink-900/60 last:border-0">
+            <td class="px-3 py-2 text-zinc-500 font-mono">{{ u.id }}</td>
+            <td class="px-3 py-2 text-zinc-200">{{ u.email }}</td>
+            <td class="px-3 py-2 text-zinc-400">{{ u.role }}</td>
+            <td class="px-3 py-2">
+              <span class="text-[11px] {{ 'text-emerald-400' if u.status == 'active' else ('text-amber-400' if u.status == 'pending' else 'text-rose-400') }}">{{ u.status }}</span>
+            </td>
+            <td class="px-3 py-2 text-zinc-400 whitespace-nowrap">{{ u.created_day or '—' }}</td>
+            <td class="px-3 py-2 text-zinc-500 whitespace-nowrap">{{ u.last_login_at[:10] or '—' }}</td>
+            <td class="px-3 py-2 text-zinc-500 whitespace-nowrap">{{ u.last_active or '—' }}</td>
+            {# Счётчик, а не список: заголовки чатов — текст участника. #}
+            <td class="px-3 py-2 text-right text-zinc-300 font-mono">{{ u.chat_sessions }}</td>
+            <td class="px-3 py-2 text-center">
+              {% if u.llm_configured %}<span class="text-emerald-400" title="Подключил свою модель">●</span>
+              {% else %}<span class="text-zinc-700" title="Модель не подключена">○</span>{% endif %}
+            </td>
+            <td class="px-3 py-2">
+              {% if u.is_owner %}
+              <span class="text-[11px] text-zinc-600">владелец — не трогаем</span>
+              {% else %}
+              <div class="flex items-center gap-1.5">
+                {% if u.status != 'active' %}
+                <form method="post" action="/root/users/{{ u.id }}/approve" class="inline">
+                  {{ csrf_input(request) }}
+                  <input type="hidden" name="next" value="/root/people">
+                  <button class="text-[11px] px-2 py-0.5 rounded border border-ink-700 text-emerald-300 hover:bg-ink-900">вернуть</button>
+                </form>
+                {% endif %}
+                {% if u.status != 'suspended' %}
+                <form method="post" action="/root/users/{{ u.id }}/suspend" class="inline"
+                      onsubmit="return confirm('Заморозить {{ u.email }}? Сессии завершатся, войти он больше не сможет.');">
+                  {{ csrf_input(request) }}
+                  <input type="hidden" name="next" value="/root/people">
+                  <button class="text-[11px] px-2 py-0.5 rounded border border-ink-700 text-amber-300 hover:bg-ink-900">заморозить</button>
+                </form>
+                {% endif %}
+                <form method="post" action="/root/users/{{ u.id }}/delete" class="inline"
+                      onsubmit="return confirm('Удалить {{ u.email }} НАВСЕГДА? Уедут все его чаты, память, навыки и переписки — включая копии у собеседников. Отменить нельзя.');">
+                  {{ csrf_input(request) }}
+                  <input type="hidden" name="next" value="/root/people">
+                  <button class="text-[11px] px-2 py-0.5 rounded text-rose-400 hover:bg-ink-900">удалить</button>
+                </form>
+              </div>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="text-zinc-600 text-xs mt-2">
+      «Заморозить» отзывает сессии и закрывает вход. «Удалить» идёт полным
+      каскадом (<code>app/auth/account_delete.py</code>): чаты, обучающие пары,
+      память, ключи и личные переписки — а не одним <code>DELETE FROM users</code>,
+      после которого часть текста осталась бы на диске. Владельца нельзя ни
+      заморозить, ни удалить. Оба действия пишутся в аудит.
+    </p>
+  </div>
+
+  <p class="text-[11px] text-zinc-600">
+    Адреса на этой странице видит только владелец: они не уходят ни в журналы,
+    ни в события аналитики (колонки под адрес там нет), ни в один ответ
+    участнику.
+  </p>
+
+  {% endif %}
+</div>
+{% endblock %}

@@ -122,7 +122,22 @@ async def set_role(user_id: int, role: str) -> bool:
 
 
 async def delete_user(user_id: int) -> bool:
-    """Удалить пользователя. Гард: нельзя удалить последнего owner."""
+    """Снести строку ``users`` и всё, что уедет каскадом БД. НЕ полное удаление.
+
+    ⚠️ Для удаления ЧЕЛОВЕКА (из пульта или по его собственному требованию)
+    используйте :func:`app.auth.account_delete.delete_own_account`. Здесь —
+    один ``DELETE FROM users``, а он полагается только на ``ON DELETE
+    CASCADE``: строки ``training_dataset`` с полным текстом пары «вопрос —
+    ответ» отвязываются через ``SET NULL`` и ОСТАЮТСЯ на диске, «хвостатые»
+    ключи глобального ``kv_settings`` каскад не забирает вовсе, а FTS-зеркало
+    сообщений синхронизируется триггерами на ``chat_message``. Инвентаризация
+    — в докстринге ``app/auth/account_delete.py``.
+
+    Функция сохранена как узкая проверка каскада схемы (её зовут тесты
+    целостности), а не как способ удалить пользователя.
+
+    Гард: нельзя удалить последнего owner.
+    """
     if await _is_owner_row(user_id) and await owner_count() <= 1:
         log.warning("roles.refuse_delete_last_owner", user_id=user_id)
         return False

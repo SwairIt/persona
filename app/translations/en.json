@@ -1500,5 +1500,6 @@
   "support_mail_broken": "Mail does not work on this server — nothing is sent. The reply is still stored here, and the author's address is shown next to the button.",
   "nav_support": "Support",
   "acct_root_hint": "owner console",
-  "acct_site_analytics": "📊 Site analytics"
+  "acct_site_analytics": "📊 Site analytics",
+  "acct_people_growth": "👥 People & growth"
 }
