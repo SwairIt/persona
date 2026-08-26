@@ -74,6 +74,12 @@ copy .env.example .env
 uv run uvicorn app.web.main:app --host 127.0.0.1 --port 8765 --reload
 ```
 
+> **Contributing?** Run `sh ops/install_hooks.sh` once per clone (or
+> `powershell -File ops\install_hooks.ps1`). It installs a pre-commit hook that
+> refuses any commit containing an API key, token, private key or `.env` file.
+> Your secrets belong in `.env` and `~/.persona/` — see
+> [docs/SECRET_HYGIENE.md](docs/SECRET_HYGIENE.md).
+
 Open <http://127.0.0.1:8765> in your browser. On first run you will land on **`/setup`** — a guided wizard that walks you through:
 
 1. Confirming the data folder location.
