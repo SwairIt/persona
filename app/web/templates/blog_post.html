@@ -1,121 +1,258 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="theme-color" content="#0a0a12" />
-  <title>{{ title }}</title>
-  <meta name="description" content="{{ post.excerpt }}" />
-  {% if post.keywords %}<meta name="keywords" content="{{ post.keywords }}" />{% endif %}
-  <link rel="canonical" href="/blog/{{ post.slug }}" />
+{% extends "blog_base.html" %}
+{% from "_blog_macros.html" import absurl, post_card, chip_row, tag_chips with context %}
+
+{#- Страница статьи.
+
+    Что владелец просил и что здесь обязано работать:
+      * прогресс чтения сверху, двигается со скроллом;
+      * страница поделена на текст (слева) и оглавление (справа);
+      * оглавление липкое, клик по пункту прокручивает к разделу,
+        текущий раздел отличается не только цветом (метка-рельс);
+      * на телефоне оглавление — свёрнутая кнопка «Содержание», панель
+        открывается ПОВЕРХ текста и закрывается по выбору пункта.
+
+    Якоря заголовков ставятся серверно по ``post.toc`` (id берём из
+    ``TocItem.id`` — движок переходит со позиционных ``sec-N`` на слаги,
+    поэтому ничего про формат id мы не предполагаем). blog.js подстраховывает
+    идемпотентно, если разметка заголовка изменится. -#}
+
+{%- set _modified = (post.last_modified if post.last_modified is defined and post.last_modified
+                     else (post.updated if post.updated is defined and post.updated else post.date)) -%}
+{%- set _img = (post.image if post.image is defined and post.image else '/static/icon-180.png') -%}
+{%- set _img_abs = absurl(_img) | string -%}
+{%- set _canonical = (canonical if canonical is defined and canonical
+                      else absurl(post.path if post.path is defined else '/blog/' ~ post.slug)) | string -%}
+{%- set _schema_type = ('TechArticle' if ((post.is_guide is defined and post.is_guide)
+                        or post.category in ['Технологии', 'Гайды', 'Своя модель']) else 'Article') -%}
+{#- Роут отдаёт готовые блоки (blog.post_jsonld). Дорисовываем только те типы,
+    которых в его наборе нет, — так страница не теряет разметку ни когда
+    движок её строит, ни когда её строит шаблон. -#}
+{%- set _ld_types = (jsonld | default([])) | map(attribute='@type') | list -%}
+{#- У статьи без собственной картинки движок опускает ``image`` — и превью в
+    выдаче остаётся без изображения. Подставляем фолбэк сайта: это дело
+    ПРЕЗЕНТАЦИИ (og:image в шапке берётся из того же значения), а не движка. -#}
+{%- set ld_blocks = [] -%}
+{%- for _b in (jsonld | default([])) -%}
+  {%- if _b.get('@type') in ('Article', 'TechArticle') and not _b.get('image') -%}
+    {%- set _ = _b.update({'image': [_img_abs]}) -%}
+  {%- endif -%}
+  {%- if _b.get('@type') in ('Article', 'TechArticle') and not _b.get('timeRequired') -%}
+    {%- set _ = _b.update({'timeRequired': 'PT' ~ post.read_minutes ~ 'M'}) -%}
+  {%- endif -%}
+  {%- set _ = ld_blocks.append(_b) -%}
+{%- endfor -%}
+
+{#- Кликабельная решётка у каждого h2/h3: вставляем ссылку внутрь заголовка,
+    матчась по реальному id из оглавления. -#}
+{%- set _ns = namespace(html=post.html) -%}
+{%- for item in (post.toc or []) -%}
+  {%- set _open = 'id="' ~ item.id ~ '">' -%}
+  {%- set _anchor = _open ~ '<a class="anchor-link" href="#' ~ item.id ~ '" aria-label="Ссылка на раздел">#</a>' -%}
+  {%- set _ns.html = _ns.html | replace(_open, _anchor) -%}
+{%- endfor -%}
+
+{% block head_meta %}
+  <meta name="description" content="{{ meta_description | default(post.excerpt) }}" />
+  {%- if post.keywords %}<meta name="keywords" content="{{ post.keywords }}" />{% endif %}
+  <link rel="canonical" href="{{ _canonical }}" />
+  <meta property="og:site_name" content="Persona" />
   <meta property="og:title" content="{{ post.title }}" />
   <meta property="og:description" content="{{ post.excerpt }}" />
   <meta property="og:type" content="article" />
+  <meta property="og:locale" content="ru_RU" />
+  <meta property="og:url" content="{{ _canonical }}" />
+  <meta property="og:image" content="{{ _img_abs }}" />
   <meta property="article:published_time" content="{{ post.date }}" />
-  <link rel="manifest" href="/static/manifest.json" />
-  <style>:root{color-scheme:dark}html,body{margin:0;background:#07070d;color:#eef0ff}</style>
-  <link rel="stylesheet" href="/static/landing/style.css" />
-  <link rel="stylesheet" href="/static/blog/blog.css" />
-  <script type="application/ld+json">
-  {
-    "@context":"https://schema.org","@type":"BlogPosting",
-    "headline":{{ post.title|tojson }},
-    "description":{{ post.excerpt|tojson }},
-    "datePublished":"{{ post.date }}",
-    "author":{"@type":"Organization","name":"Persona"},
-    "publisher":{"@type":"Organization","name":"Persona"},
-    "mainEntityOfPage":"/blog/{{ post.slug }}",
-    "inLanguage":"ru-RU"
-  }
-  </script>
-  {# Яндекс.Метрика (счётчик 111901324) — публичная маркетинговая страница. #}
-  {% include "_metrika.html" %}
-</head>
-<body>
-  <div class="read-progress" aria-hidden="true"></div>
-  <div class="bg-mesh" aria-hidden="true"></div>
-  <div class="bg-grid" aria-hidden="true"></div>
-  <div class="grain" aria-hidden="true"></div>
+  <meta property="article:modified_time" content="{{ _modified }}" />
+  <meta property="article:section" content="{{ post.category }}" />
+  {%- for tg in (post.tags or []) %}
+  <meta property="article:tag" content="{{ tg }}" />
+  {%- endfor %}
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="{{ post.title }}" />
+  <meta name="twitter:description" content="{{ post.excerpt }}" />
+  <meta name="twitter:image" content="{{ _img_abs }}" />
+{% endblock %}
 
-  {% include "_public_nav.html" %}
+{% block head_extra %}
+  {%- if 'Article' not in _ld_types and 'TechArticle' not in _ld_types %}
+  <script type="application/ld+json">{{ {
+    "@context": "https://schema.org",
+    "@type": _schema_type,
+    "headline": post.title,
+    "description": post.excerpt,
+    "url": _canonical,
+    "mainEntityOfPage": {"@type": "WebPage", "@id": _canonical},
+    "datePublished": post.date,
+    "dateModified": _modified,
+    "wordCount": post.word_count,
+    "timeRequired": "PT" ~ post.read_minutes ~ "M",
+    "image": [_img_abs],
+    "inLanguage": "ru-RU",
+    "articleSection": post.category,
+    "keywords": (post.keywords or ((post.tags or []) | join(', '))),
+    "author": {"@type": "Organization", "name": "Persona", "url": absurl('/') | string},
+    "publisher": {"@type": "Organization", "name": "Persona", "url": absurl('/') | string,
+                  "logo": {"@type": "ImageObject", "url": absurl('/static/icon-180.png') | string}}
+  } | tojson }}</script>
+  {%- endif %}
 
-  <div class="post-wrap">
-    <nav class="breadcrumb"><a href="/landing">Главная</a> / <a href="/blog">Блог</a> / {{ post.category }}</nav>
+  {%- if 'BreadcrumbList' not in _ld_types %}
+  <script type="application/ld+json">{{ {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      {"@type": "ListItem", "position": 1, "name": "Главная", "item": absurl('/') | string},
+      {"@type": "ListItem", "position": 2, "name": "Блог", "item": absurl('/blog') | string},
+      {"@type": "ListItem", "position": 3, "name": post.category,
+       "item": absurl('/blog/category/' ~ (post.category_slug if post.category_slug is defined else post.category)) | string},
+      {"@type": "ListItem", "position": 4, "name": post.title, "item": _canonical}
+    ]
+  } | tojson }}</script>
+  {%- endif %}
+
+  {#- FAQPage — из блока «## Частые вопросы» (движок отдаёт его как post.faq
+      структурированными парами). Прямой шанс на расширенный сниппет. -#}
+  {%- if 'FAQPage' not in _ld_types and post.faq is defined and post.faq %}
+  {%- set _faq = [] %}
+  {%- for q in post.faq %}
+    {%- set _q = q.question if q.question is defined else (q.q if q.q is defined else '') %}
+    {%- set _a = q.answer if q.answer is defined else (q.a if q.a is defined else '') %}
+    {%- if _q and _a %}
+      {%- set _ = _faq.append({"@type": "Question", "name": _q,
+                               "acceptedAnswer": {"@type": "Answer", "text": _a}}) %}
+    {%- endif %}
+  {%- endfor %}
+  {%- if _faq %}
+  <script type="application/ld+json">{{ {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": _faq
+  } | tojson }}</script>
+  {%- endif %}
+  {%- endif %}
+{% endblock %}
+
+{% block body_top %}
+  <div class="read-progress" role="progressbar" aria-label="Прогресс чтения"
+       aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></div>
+{% endblock %}
+
+{% block content %}
+  <div class="post-wrap" id="main">
+    <nav class="breadcrumb" aria-label="Хлебные крошки">
+      {%- if breadcrumbs is defined and breadcrumbs %}
+        {#- Роут отдаёт пары (название, путь); последняя — сама статья, её
+            рисуем текстом, а не ссылкой на саму себя. -#}
+        {%- for name, href in breadcrumbs %}
+          {%- if loop.last %}<span>{{ name }}</span>
+          {%- else %}<a href="{{ '/landing' if href == '/' else href }}">{{ name }}</a><span class="sep">/</span>{% endif %}
+        {%- endfor %}
+      {%- else %}
+      <a href="/landing">Главная</a><span class="sep">/</span>
+      <a href="/blog">Блог</a><span class="sep">/</span>
+      <a href="/blog/category/{{ post.category_slug }}">{{ post.category }}</a>
+      {%- endif %}
+    </nav>
 
     <header class="post-header">
-      <span class="cat">{{ post.cover }} {{ post.category }}</span>
+      <span class="cat"><span aria-hidden="true">{{ post.cover }}</span> {{ post.category }}</span>
       <h1>{{ post.title }}</h1>
+      {%- if post.excerpt %}<p class="post-lead">{{ post.excerpt }}</p>{% endif %}
       <div class="post-meta">
-        <span>{{ post.date_human }}</span>
-        <span class="dot">·</span>
+        <time datetime="{{ post.date }}">{{ post.date_human }}</time>
+        <span class="dot" aria-hidden="true">·</span>
         <span>{{ post.read_minutes }} мин чтения</span>
-        <span class="dot">·</span>
+        <span class="dot" aria-hidden="true">·</span>
         <span>{{ post.word_count }} слов</span>
+        {%- if post.updated is defined and post.updated and post.updated != post.date %}
+        <span class="updated">Обновлено
+          <time datetime="{{ post.updated }}">{{ post.updated_human if post.updated_human is defined else post.updated }}</time>
+        </span>
+        {%- endif %}
       </div>
     </header>
 
+    {#- Переключатель мобильного ящика оглавления. Настоящий checkbox:
+        открытие/закрытие работает и с выключенным JS. -#}
+    <input class="toc-check" type="checkbox" id="toc-toggle"
+           aria-label="Показать содержание статьи" />
+    <label class="toc-fab" for="toc-toggle" aria-expanded="false" aria-controls="post-toc">
+      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+      Содержание <span class="toc-pct">0%</span>
+    </label>
+    <label class="toc-backdrop" for="toc-toggle" aria-hidden="true"></label>
+
     <div class="post-layout">
       <article class="post-body">
-        {{ post.html|safe }}
+        {{ _ns.html|safe }}
       </article>
 
       {% if post.toc %}
-      <aside class="post-toc" aria-label="Содержание">
-        <div class="toc-title">Содержание</div>
-        <ul>
-          {% for item in post.toc %}
-            <li><a href="#{{ item.id }}" class="lvl-{{ item.level }}">{{ item.title }}</a></li>
-          {% endfor %}
-        </ul>
+      <aside class="post-toc" id="post-toc" aria-label="Содержание статьи">
+        <label class="toc-close" for="toc-toggle">Закрыть</label>
+        <div class="toc-head">
+          <span class="toc-title">Содержание</span>
+          <span class="toc-pct">0%</span>
+        </div>
+        <div class="toc-rail">
+          <span class="toc-fill" aria-hidden="true"></span>
+          <div class="toc-scroll">
+            <ol>
+              {%- for item in post.toc %}
+              <li><a href="#{{ item.id }}" class="lvl-{{ item.level }}">{{ item.title }}</a></li>
+              {%- endfor %}
+            </ol>
+          </div>
+        </div>
       </aside>
       {% endif %}
     </div>
 
     <div class="post-footer">
-      <div class="post-nav">
-        {% if prev_post %}
-          <a href="/blog/{{ prev_post.slug }}"><div class="lbl">← Раньше</div><div class="ttl">{{ prev_post.title }}</div></a>
-        {% endif %}
-        {% if next_post %}
-          <a href="/blog/{{ next_post.slug }}" class="next"><div class="lbl">Новее →</div><div class="ttl">{{ next_post.title }}</div></a>
-        {% endif %}
-      </div>
-
-      {% if related %}
-      <div class="related">
-        <h3>Ещё по теме</h3>
-        <div class="post-grid">
-          {% for p in related %}
-          <a class="post-card" href="/blog/{{ p.slug }}">
-            <span class="cover">{{ p.cover }}</span>
-            <span class="cat">{{ p.category }}</span>
-            <h2>{{ p.title }}</h2>
-            <span class="meta"><span>{{ p.read_minutes }} мин</span></span>
-          </a>
-          {% endfor %}
-        </div>
+      {% if post.tags %}
+      <div class="post-tags">
+        <span class="lbl">Теги</span>
+        {#- BlogPost.tag_slugs отдаёт пары (имя, слаг) — шаблон ничего не
+            слагифицирует сам. Голые имена — фолбэк на старый движок. -#}
+        {%- if post.tag_slugs is defined and post.tag_slugs %}{{ tag_chips(post.tag_slugs) }}
+        {%- else %}{{ chip_row(post.tags, 'tag') }}{% endif %}
       </div>
       {% endif %}
 
-      <div class="cta-band">
-        <h3>Хочешь ИИ, который помнит тебя?</h3>
-        <p>Persona видит твой день, помнит контекст и работает на твоём железе.</p>
-        {% if session %}
-          {# /now — лента владельца; участника она отбрасывала на /chat. #}
-          {% set _bp_owner = false %}
-          {% if request is defined and request.state is defined and request.state.is_owner is defined %}
-            {% set _bp_owner = request.state.is_owner %}
-          {% endif %}
-          <a href="{{ '/now' if _bp_owner else '/chat' }}" class="btn btn-primary">Открыть кабинет</a>
-        {% else %}
-          <a href="/auth/signup" class="btn btn-primary">Создать аккаунт</a>
+      <nav class="post-nav" aria-label="Соседние статьи">
+        {% if prev_post %}
+          <a href="/blog/{{ prev_post.slug }}" rel="prev"><span class="lbl">← Раньше</span><span class="ttl">{{ prev_post.title }}</span></a>
         {% endif %}
-      </div>
+        {% if next_post %}
+          <a href="/blog/{{ next_post.slug }}" class="next" rel="next"><span class="lbl">Новее →</span><span class="ttl">{{ next_post.title }}</span></a>
+        {% endif %}
+      </nav>
+
+      {% if related %}
+      <section class="related">
+        <h2>Ещё по теме</h2>
+        <div class="post-grid">
+          {%- for p in related %}
+          {{ post_card(p, 'h3') }}
+          {%- endfor %}
+        </div>
+      </section>
+      {% endif %}
+
+      <section class="cta-band">
+        <h2>Хотите ИИ, который помнит вас?</h2>
+        <p>Persona держит контекст между чатами и работает на вашем железе — если развернуть её у себя и подключить локальную модель.</p>
+        {% if session %}
+          {%- set _bp_owner = false %}
+          {%- if request is defined and request.state is defined and request.state.is_owner is defined %}
+            {%- set _bp_owner = request.state.is_owner %}
+          {%- endif %}
+          <a href="{{ '/now' if _bp_owner else '/chat' }}" class="btn btn-primary btn-lg">Открыть кабинет</a>
+        {% else %}
+          <a href="/auth/signup" class="btn btn-primary btn-lg">Создать аккаунт</a>
+        {% endif %}
+      </section>
     </div>
   </div>
-
-  {% include "_public_footer.html" %}
-
-  <script src="/static/blog/blog.js" defer></script>
-</body>
-</html>
+{% endblock %}

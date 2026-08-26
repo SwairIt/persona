@@ -1,0 +1,195 @@
+{#
+   Общие кирпичи блога: карточка, чипы рубрик/тегов, форма поиска, пагинация,
+   абсолютные URL. Один источник — чтобы индекс, рубрика, тег и результаты
+   поиска были ОДНИМ экраном с разным содержимым, а не тремя разными.
+
+   Импортировать обязательно ``with context``: макросы читают глобальные
+   ``request`` и ``abs_url``.
+
+   ── КОНТРАКТ ДАННЫХ ────────────────────────────────────────────────────────
+   Источник — app/web/routes/blog.py::_listing_context и blog_post.
+   Шаблоны читают ТОЛЬКО то, что перечислено ниже, и переживают отсутствие
+   любого «опционального» поля (никакого 500 из-за не приехавшего ключа).
+
+   Листинги (индекс, рубрика, тег, поиск) — одна форма контекста:
+     posts          list[BlogPost] — статьи ТЕКУЩЕЙ страницы
+     page           blog.Page (.number .total_pages .total_items .items)
+     heading        заголовок раздела; meta_description, canonical, base_url
+     categories     list[Taxon(.name .slug .count)]  — рубрики
+     tags           list[Taxon]                      — теги
+     jsonld         list[dict] от blog.itemlist_jsonld() — уже готовая разметка
+     prev_url / next_url   ссылки на соседние страницы (rel=prev/next)
+     taxon          Taxon текущей рубрики/тега (страницы рубрики и тега)
+     query / hits / total_hits   поиск: строка, list[SearchHit], сколько всего
+     featured       list[BlogPost] — «выбор редакции» на первой странице
+
+   Статья:
+     post           BlogPost: .slug .title .excerpt .category .category_slug
+                    .tags .tag_slugs .keywords .date .date_human .cover .html
+                    .toc[].id|.title|.level .read_minutes .word_count
+                    .updated .updated_human .last_modified .image .path
+                    .faq[].question|.answer .is_guide
+     prev_post / next_post / related / breadcrumbs[(имя, путь)]
+     jsonld         blog.post_jsonld(): Article + BreadcrumbList (+FAQPage,
+                    +HowTo). Шаблон дорисовывает только НЕДОСТАЮЩИЕ типы и
+                    подставляет картинку по умолчанию в Article — превью
+                    ссылки это забота презентации, не движка.
+
+   Голые фолбэки (голые строки вместо Taxon, отсутствующий jsonld, плоские
+   page/total_pages) поддержаны намеренно: шаблоны и роуты писались
+   параллельно, и ни одна сторона не должна ронять другую.
+#}
+
+{#- Абсолютный URL. Приоритет: хелпер движка → base_url из роута →
+    request.base_url. Последнее — чтобы страница рисовалась и в тестах. -#}
+{%- macro absurl(path) -%}
+{%- if abs_url is defined and abs_url -%}{{ abs_url(path) }}
+{%- elif base_url is defined and base_url -%}{{ (base_url | string).rstrip('/') ~ path }}
+{%- else -%}{{ ((request.base_url | string).rstrip('/') if request else '') ~ path }}
+{%- endif -%}
+{%- endmacro -%}
+
+{#- Пагинация приходит либо объектом blog.Page (``pagination`` или ``page``),
+    либо плоскими числами. Три микро-макроса, чтобы четыре шаблона не
+    повторяли одну и ту же развилку. Использовать как ``| int``. -#}
+{%- macro pg_number() -%}
+{%- if pagination is defined and pagination %}{{ pagination.number }}
+{%- elif page is defined and page.number is defined %}{{ page.number }}
+{%- else %}{{ page | default(1) }}{% endif -%}
+{%- endmacro -%}
+
+{%- macro pg_total_pages() -%}
+{%- if pagination is defined and pagination %}{{ pagination.total_pages }}
+{%- elif page is defined and page.total_pages is defined %}{{ page.total_pages }}
+{%- else %}{{ total_pages | default(1) }}{% endif -%}
+{%- endmacro -%}
+
+{%- macro pg_total_items(fallback=0) -%}
+{%- if pagination is defined and pagination %}{{ pagination.total_items }}
+{%- elif page is defined and page.total_items is defined %}{{ page.total_items }}
+{%- else %}{{ total | default(fallback) }}{% endif -%}
+{%- endmacro -%}
+
+{#- Рубрика/тег может прийти строкой (сегодня) или объектом (после движка). -#}
+{%- macro term_slug(c) -%}{{ c.slug if c.slug is defined else c }}{%- endmacro -%}
+{%- macro term_name(c) -%}{{ c.name if c.name is defined else c }}{%- endmacro -%}
+
+{%- macro term_count(c) -%}
+{%- if c.count is defined and c.count is number %}<span class="n">{{ c.count }}</span>{% endif -%}
+{%- endmacro -%}
+
+{#- Карточка статьи. Принимает и BlogPost, и SearchHit (тогда вместо
+    excerpt показываем сниппет с найденным местом).
+    heading — h2 на листингах, h3 внутри «ещё по теме». -#}
+{%- macro post_card(item, heading='h2') -%}
+{%- set p = item.post if item.post is defined else item -%}
+{%- set _snip = item.snippet if item.snippet is defined and item.snippet else p.excerpt -%}
+{%- set _hay = ((p.title ~ ' ' ~ (p.excerpt or '') ~ ' ' ~ (p.category or '') ~ ' ' ~ ((p.tags | join(' ')) if p.tags else '')) | lower) -%}
+<a class="post-card" href="/blog/{{ p.slug }}" data-search="{{ _hay }}">
+  <span class="cover" aria-hidden="true">{{ p.cover }}</span>
+  <span class="cat">{{ p.category }}</span>
+  <{{ heading }}>{{ p.title }}</{{ heading }}>
+  {% if _snip %}<p class="excerpt">{{ _snip }}</p>{% endif %}
+  <span class="meta">
+    <time datetime="{{ p.date }}">{{ p.date_human }}</time>
+    <span aria-hidden="true">·</span>
+    <span>{{ p.read_minutes }} мин</span>
+    {% if p.updated is defined and p.updated %}<span aria-hidden="true">·</span><span>обновлено {{ p.updated_human if p.updated_human is defined else p.updated }}</span>{% endif %}
+  </span>
+</a>
+{%- endmacro -%}
+
+{#- Ряд чипов-ссылок. kind: 'category' | 'tag'. -#}
+{%- macro chip_row(items, kind, active_slug='') -%}
+<ul class="chip-row">
+  {%- for c in items %}
+  {%- set _s = term_slug(c) | string %}
+  <li><a class="chip-link{{ ' is-tag' if kind == 'tag' else '' }}"
+         href="/blog/{{ kind }}/{{ _s }}"
+         {% if _s == active_slug %}aria-current="page"{% endif %}>{{ term_name(c) }}{{ term_count(c) }}</a></li>
+  {%- endfor %}
+</ul>
+{%- endmacro -%}
+
+{#- Теги статьи приходят из BlogPost.tag_slugs как пары (имя, слаг). -#}
+{%- macro tag_chips(pairs) -%}
+<ul class="chip-row">
+  {%- for name, slug in pairs %}
+  <li><a class="chip-link is-tag" href="/blog/tag/{{ slug }}">{{ name }}</a></li>
+  {%- endfor %}
+</ul>
+{%- endmacro -%}
+
+{#- Форма поиска. Работает без JS: GET на серверный /blog/search.
+    data-live-filter включает живую фильтрацию как надстройку (blog.js). -#}
+{%- macro search_form(value='', live=false, placeholder='Поиск по статьям…') -%}
+<form class="blog-search" role="search" action="/blog/search" method="get">
+  <label class="visually-hidden" for="blog-q">Поиск по блогу</label>
+  <input id="blog-q" type="search" name="q" value="{{ value }}"
+         placeholder="{{ placeholder }}" autocomplete="off"
+         {% if live %}data-live-filter{% endif %} />
+  <button class="btn btn-primary" type="submit">Найти</button>
+</form>
+{%- endmacro -%}
+
+{#- Тело листинга: счётчик, сетка карточек, пустое состояние, пагинация.
+    Один макрос на индекс, рубрику, тег и результаты поиска — поэтому четыре
+    экрана выглядят одним разделом, а не четырьмя разными страницами.
+    Своё пустое состояние передаётся через {% call listing(...) %}…{% endcall %}. -#}
+{%- macro listing(posts, page=1, total_pages=1, total=none, pager_base='/blog', live=false, count_word='статей') -%}
+{%- set _n = total if total is not none else (posts | length) %}
+<p class="blog-count" data-live-count="Показано: %s">{{ count_word }}: {{ _n }}{% if total_pages and total_pages > 1 %} · страница {{ page }} из {{ total_pages }}{% endif %}</p>
+{%- if posts %}
+<div class="post-grid">
+  {%- for p in posts %}
+  {{ post_card(p) }}
+  {%- endfor %}
+</div>
+{%- if live %}
+<div class="blog-empty" data-live-empty hidden>
+  <div class="em" aria-hidden="true">🔍</div>
+  <h2>На этой странице совпадений нет</h2>
+  <p>Живой фильтр ищет только по загруженным карточкам. Нажмите «Найти», чтобы искать по всему блогу.</p>
+</div>
+{%- endif %}
+{{ pager(page, total_pages, pager_base) }}
+{%- else %}
+{%- if caller is defined %}{{ caller() }}{% else %}
+<div class="blog-empty">
+  <div class="em" aria-hidden="true">🗂️</div>
+  <h2>Здесь пока пусто</h2>
+  <p>Статьи скоро появятся.</p>
+  <a class="btn btn-primary" href="/blog">Все статьи</a>
+</div>
+{%- endif %}
+{%- endif -%}
+{%- endmacro -%}
+
+{%- macro _purl(base, n) -%}{{ base }}{{ '&' if '?' in base else '?' }}page={{ n }}{%- endmacro -%}
+
+{#- Пагинация. Рисуется только когда страниц больше одной. -#}
+{%- macro pager(page, total_pages, base='/blog') -%}
+{%- if total_pages and total_pages > 1 %}
+<nav class="pager" aria-label="Навигация по страницам">
+  {%- if page > 1 %}
+  <a href="{{ _purl(base, page - 1) }}" rel="prev">← Назад</a>
+  {%- else %}
+  <span class="is-off">← Назад</span>
+  {%- endif %}
+  {%- set ns = namespace(last=0) %}
+  {%- for n in range(1, total_pages + 1) %}
+    {%- if n == 1 or n == total_pages or (n >= page - 2 and n <= page + 2) %}
+      {%- if n - ns.last > 1 %}<span class="gap">…</span>{% endif %}
+      {%- if n == page %}<span aria-current="page">{{ n }}</span>
+      {%- else %}<a href="{{ _purl(base, n) }}">{{ n }}</a>{% endif %}
+      {%- set ns.last = n %}
+    {%- endif %}
+  {%- endfor %}
+  {%- if page < total_pages %}
+  <a href="{{ _purl(base, page + 1) }}" rel="next">Вперёд →</a>
+  {%- else %}
+  <span class="is-off">Вперёд →</span>
+  {%- endif %}
+</nav>
+{%- endif -%}
+{%- endmacro -%}

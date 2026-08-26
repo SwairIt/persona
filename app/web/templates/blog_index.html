@@ -1,65 +1,120 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="theme-color" content="#0a0a12" />
-  <title>{{ title }}</title>
-  <meta name="description" content="Блог Persona: статьи про личный ИИ, память и контекст, приватность, локальные модели, продуктивность и second brain. Практика и разборы." />
+{% extends "blog_base.html" %}
+{% from "_blog_macros.html" import absurl, post_card, chip_row, search_form, pager, listing,
+                                   pg_number, pg_total_pages, pg_total_items with context %}
+
+{#- Индекс блога. Рассчитан на корпус в сотни статей: серверный поиск,
+    рубрики и теги НАСТОЯЩИМИ ссылками (клиентский фильтр для поисковика не
+    существует), пагинация и внятное пустое состояние.
+
+    Контекст даёт app/web/routes/blog.py::_listing_context — та же форма у
+    рубрики, тега и поиска, поэтому четыре экрана и выглядят одним разделом. -#}
+
+{%- set _items = posts | default([]) -%}
+{%- set _page = pg_number() | int -%}
+{%- set _pages = pg_total_pages() | int -%}
+{%- set _total = pg_total_items(_items | length) | int -%}
+{%- set _canonical = (canonical if canonical is defined and canonical
+                      else absurl('/blog' if _page == 1 else '/blog?page=' ~ _page)) | string -%}
+{%- set _descr = meta_description | default('Статьи про личный ИИ, память и контекст, приватность, локальные модели и продуктивность. Практика и разборы без воды.') -%}
+{%- set _ld_types = (jsonld | default([])) | map(attribute='@type') | list -%}
+
+{% block head_meta %}
+  <meta name="description" content="{{ _descr }}" />
   <meta name="keywords" content="блог про ии, личный ии, ии с памятью, приватный ассистент, локальная модель, продуктивность, second brain" />
-  <link rel="canonical" href="/blog" />
+  <link rel="canonical" href="{{ _canonical }}" />
+  {%- if _page > 1 %}<meta name="robots" content="noindex, follow" />{% endif %}
+  <meta property="og:site_name" content="Persona" />
   <meta property="og:title" content="Блог Persona" />
-  <meta property="og:description" content="Личный ИИ, память, приватность, своя модель — статьи и разборы." />
+  <meta property="og:description" content="{{ _descr }}" />
   <meta property="og:type" content="website" />
-  <link rel="manifest" href="/static/manifest.json" />
-  <style>:root{color-scheme:dark}html,body{margin:0;background:#07070d;color:#eef0ff}</style>
-  <link rel="stylesheet" href="/static/landing/style.css" />
-  <link rel="stylesheet" href="/static/blog/blog.css" />
-  <script type="application/ld+json">
-  {"@context":"https://schema.org","@type":"Blog","name":"Блог Persona","url":"/blog","inLanguage":"ru-RU"}
-  </script>
-  {# Яндекс.Метрика (счётчик 111901324) — публичная маркетинговая страница. #}
-  {% include "_metrika.html" %}
-</head>
-<body>
-  <div class="bg-mesh" aria-hidden="true"></div>
-  <div class="bg-grid" aria-hidden="true"></div>
-  <div class="grain" aria-hidden="true"></div>
+  <meta property="og:locale" content="ru_RU" />
+  <meta property="og:url" content="{{ _canonical }}" />
+  <meta property="og:image" content="{{ absurl('/static/icon-180.png') }}" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Блог Persona" />
+  <meta name="twitter:description" content="{{ _descr }}" />
+  <meta name="twitter:image" content="{{ absurl('/static/icon-180.png') }}" />
+  {%- if prev_url is defined and prev_url %}<link rel="prev" href="{{ prev_url }}" />{% endif %}
+  {%- if next_url is defined and next_url %}<link rel="next" href="{{ next_url }}" />{% endif %}
+{% endblock %}
 
-  {% include "_public_nav.html" %}
+{% block head_extra %}
+  {#- Движок отдаёт ItemList; добиваем только тем, чего в его наборе нет. -#}
+  {%- if 'Blog' not in _ld_types %}
+  <script type="application/ld+json">{{ {
+    "@context": "https://schema.org",
+    "@type": "Blog",
+    "name": "Блог Persona",
+    "url": absurl('/blog') | string,
+    "inLanguage": "ru-RU",
+    "description": _descr | string,
+    "publisher": {"@type": "Organization", "name": "Persona", "url": absurl('/') | string},
+    "potentialAction": {
+      "@type": "SearchAction",
+      "target": {"@type": "EntryPoint", "urlTemplate": absurl('/blog/search?q={search_term_string}') | string},
+      "query-input": "required name=search_term_string"
+    }
+  } | tojson }}</script>
+  {%- endif %}
+  {%- if 'BreadcrumbList' not in _ld_types %}
+  <script type="application/ld+json">{{ {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      {"@type": "ListItem", "position": 1, "name": "Главная", "item": absurl('/') | string},
+      {"@type": "ListItem", "position": 2, "name": "Блог", "item": absurl('/blog') | string}
+    ]
+  } | tojson }}</script>
+  {%- endif %}
+{% endblock %}
 
-  <main class="blog-main">
+{% block content %}
+  <main class="blog-main" id="main">
     <div class="blog-head">
-      <h1>Блог <span class="grad">Persona</span></h1>
-      <p>Личный ИИ, память и контекст, приватность, своя модель и продуктивность — практика и разборы без воды.</p>
+      <p class="kicker"><span class="dot-live" aria-hidden="true"></span> Блог Persona</p>
+      <h1>Личный ИИ <span class="grad">без воды</span></h1>
+      <p>Память и контекст, приватность, локальные модели, своя модель и продуктивность.
+         Разборы, гайды и сравнения, в которых мы называем и то, где проигрываем.</p>
+      {{ search_form(live=true) }}
     </div>
 
-    <div class="cat-filter">
-      <button class="cat-btn active" data-cat="">Все</button>
-      {% for c in categories %}
-        <button class="cat-btn" data-cat="{{ c }}">{{ c }}</button>
-      {% endfor %}
-    </div>
-
-    <div class="post-grid">
-      {% for p in posts %}
-      <a class="post-card" href="/blog/{{ p.slug }}" data-cat="{{ p.category }}">
-        <span class="cover">{{ p.cover }}</span>
-        <span class="cat">{{ p.category }}</span>
-        <h2>{{ p.title }}</h2>
-        <p class="excerpt">{{ p.excerpt }}</p>
-        <span class="meta"><span>{{ p.date_human }}</span><span>· {{ p.read_minutes }} мин</span></span>
-      </a>
-      {% endfor %}
-    </div>
-
-    {% if not posts %}
-      <p style="color:var(--ink-dim)">Статьи скоро появятся.</p>
+    {% if categories %}
+    <nav class="blog-nav" aria-label="Рубрики">
+      <span class="blog-nav-lbl">Рубрики</span>
+      {{ chip_row(categories, 'category') }}
+    </nav>
     {% endif %}
+
+    {% if tags %}
+    <nav class="blog-nav" aria-label="Теги">
+      <span class="blog-nav-lbl">Частые теги</span>
+      {{ chip_row(tags[:18], 'tag') }}
+    </nav>
+    {% endif %}
+
+    {% if featured is defined and featured and _page == 1 %}
+    <section class="blog-featured" aria-label="Выбор редакции">
+      <span class="blog-nav-lbl">Выбор редакции</span>
+      <div class="post-grid">
+        {%- for p in featured %}
+        {{ post_card(p) }}
+        {%- endfor %}
+      </div>
+    </section>
+    {% endif %}
+
+    {% call listing(_items, page=_page, total_pages=_pages, total=_total,
+                    pager_base='/blog', live=true, count_word='Статей') %}
+      <div class="blog-empty">
+        <div class="em" aria-hidden="true">🗂️</div>
+        <h2>Статьи скоро появятся</h2>
+        <p>Первая волна кластеров уже пишется. Пока можно посмотреть, как устроен продукт.</p>
+        <a class="btn btn-primary" href="/features">Возможности Persona</a>
+      </div>
+    {% endcall %}
+
+    <p class="blog-count" style="margin-top:34px">
+      Новые статьи — в <a href="{{ rss_url | default('/blog/rss.xml') }}">RSS-ленте</a>.
+    </p>
   </main>
-
-  {% include "_public_footer.html" %}
-
-  <script src="/static/blog/blog.js" defer></script>
-</body>
-</html>
+{% endblock %}

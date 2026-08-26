@@ -123,6 +123,9 @@ async def _run(user_id: int, minutes: int, interval: int) -> int:
                 session_id, "assistant", answer, model_used=used_model
             )
             await record_qa_pair(
+                # Самотренинг гоняется от аккаунта владельца (--user); если
+                # передать чужой id, гейт внутри просто ничего не запишет.
+                user_id=user_id,
                 session_id=session_id,
                 user_message_id=int(user_msg["id"]),
                 asst_message_id=int(asst_msg["id"]),

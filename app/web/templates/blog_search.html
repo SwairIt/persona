@@ -1,0 +1,103 @@
+{% extends "blog_base.html" %}
+{% from "_blog_macros.html" import absurl, post_card, chip_row, search_form, pager, listing,
+                                   pg_number, pg_total_pages, pg_total_items with context %}
+
+{#- Результаты поиска: /blog/search?q=…
+
+    Страницу рисует СЕРВЕР и она полностью работает с выключенным JS —
+    живой фильтр на индексе это лишь надстройка. Здесь живого фильтра нет
+    намеренно: выборку уже сделал сервер, второй фильтр поверх неё путал бы.
+
+    ``posts`` — текущая страница результатов (BlogPost), ``hits`` — полный
+    ранжированный список SearchHit со сниппетами. Берём сниппеты для тех
+    статей, что попали на эту страницу, чтобы карточка показывала найденное
+    место, а не общий excerpt.
+
+    noindex: страницы результатов поиска не должны попадать в индекс —
+    классический источник тонких дублей. -#}
+
+{%- set _q = query | default('') -%}
+{%- set _page_items = posts | default([]) -%}
+{%- set _slugs = _page_items | map(attribute='slug') | list -%}
+{%- set _matched = (hits | selectattr('post.slug', 'in', _slugs) | list) if (hits is defined and hits) else [] -%}
+{#- Пересечение пустое (роут разошёлся со сниппетами) — рисуем страницу
+    результатов, а не пустой экран: карточка без сниппета лучше «ничего». -#}
+{%- set _items = _matched if _matched else _page_items -%}
+{%- set _page = pg_number() | int -%}
+{%- set _pages = pg_total_pages() | int -%}
+{%- set _total = (total_hits if total_hits is defined else pg_total_items(_items | length) | int) -%}
+{%- set _path = '/blog/search?q=' ~ (_q | urlencode) -%}
+{%- set _descr = (meta_description if meta_description is defined and meta_description
+                  else 'Поиск по статьям блога Persona: личный ИИ, память, приватность.') -%}
+{%- set _ld_types = (jsonld | default([])) | map(attribute='@type') | list -%}
+
+{% block head_meta %}
+  <meta name="description" content="{{ _descr }}" />
+  <meta name="robots" content="noindex, follow" />
+  <link rel="canonical" href="{{ absurl('/blog') }}" />
+  <meta property="og:site_name" content="Persona" />
+  <meta property="og:title" content="Поиск по блогу Persona" />
+  <meta property="og:description" content="{{ _descr }}" />
+  <meta property="og:type" content="website" />
+  <meta property="og:locale" content="ru_RU" />
+  <meta property="og:image" content="{{ absurl('/static/icon-180.png') }}" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Поиск по блогу Persona" />
+  <meta name="twitter:description" content="{{ _descr }}" />
+  <meta name="twitter:image" content="{{ absurl('/static/icon-180.png') }}" />
+{% endblock %}
+
+{% block head_extra %}
+  {%- if 'SearchResultsPage' not in _ld_types %}
+  <script type="application/ld+json">{{ {
+    "@context": "https://schema.org",
+    "@type": "SearchResultsPage",
+    "name": "Поиск по блогу Persona",
+    "url": absurl('/blog/search') | string,
+    "inLanguage": "ru-RU"
+  } | tojson }}</script>
+  {%- endif %}
+  {%- if 'BreadcrumbList' not in _ld_types %}
+  <script type="application/ld+json">{{ {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      {"@type": "ListItem", "position": 1, "name": "Главная", "item": absurl('/') | string},
+      {"@type": "ListItem", "position": 2, "name": "Блог", "item": absurl('/blog') | string},
+      {"@type": "ListItem", "position": 3, "name": "Поиск", "item": absurl('/blog/search') | string}
+    ]
+  } | tojson }}</script>
+  {%- endif %}
+{% endblock %}
+
+{% block content %}
+  <main class="blog-main" id="main">
+    <nav class="breadcrumb" aria-label="Хлебные крошки">
+      <a href="/landing">Главная</a><span class="sep">/</span>
+      <a href="/blog">Блог</a><span class="sep">/</span>
+      <span>Поиск</span>
+    </nav>
+
+    <div class="blog-head">
+      <p class="kicker">Поиск</p>
+      {% if _q %}
+        <h1>«<span class="grad">{{ _q }}</span>»</h1>
+      {% else %}
+        <h1>Поиск по <span class="grad">блогу</span></h1>
+        <p>Введите запрос — искать будем по заголовкам, подзаголовкам, тегам и тексту статей.</p>
+      {% endif %}
+      {{ search_form(value=_q, live=false, placeholder='Например: квантизация, Ollama, память') }}
+    </div>
+
+    {% call listing(_items, page=_page, total_pages=_pages, total=_total,
+                    pager_base=_path, live=false, count_word='Найдено') %}
+      <div class="blog-empty" data-empty-state="blog-search">
+        <div class="em" aria-hidden="true">🔍</div>
+        <h2>{% if _q %}Ничего не нашлось по запросу «{{ _q }}»{% else %}Запрос пустой{% endif %}</h2>
+        <p>{% if _q %}Попробуйте короче или другими словами — одно ключевое слово вместо фразы. Или зайдите с другой стороны:{% else %}Начните с рубрики:{% endif %}</p>
+        {% if categories %}{{ chip_row(categories, 'category') }}{% endif %}
+        <p style="margin-top:18px"><a class="btn btn-primary" href="/blog">Все статьи</a></p>
+      </div>
+    {% endcall %}
+  </main>
+{% endblock %}

@@ -16,7 +16,10 @@ from __future__ import annotations
 import time
 
 from app.storage.db import get_connection
+from app.logging_setup import get_logger
 from app.storage.repository import get_kv
+
+log = get_logger("persona.owner")
 
 _TTL = 60.0
 _cache: dict[str, float | int | None] = {"value": None, "checked_at": 0.0}
@@ -35,8 +38,23 @@ async def get_owner_user_id() -> int | None:
         async with get_connection() as conn:
             raw = await get_kv(conn, "owner_user_id")
             if raw and str(raw).strip().isdigit():
-                owner = int(str(raw).strip())
-            else:
+                candidate = int(str(raw).strip())
+                # Настройка может указывать на НЕСУЩЕСТВУЮЩЕГО пользователя:
+                # аккаунт удалили, базу перенесли, или (как 2026-08-26) тестовый
+                # прогон записал сюда id своей учётки. Раньше значению верили на
+                # слово — и владелец инстанса молча становился «участником»:
+                # без своей ленты, без захвата, без рута. Хуже того, миграция,
+                # которая чистит чужие строки по этому же id, снесла бы данные
+                # настоящего владельца. Поэтому id обязан существовать в users;
+                # иначе ведём себя так, будто настройки нет вовсе.
+                cursor = await conn.execute(
+                    "SELECT 1 FROM users WHERE id = ?", (candidate,)
+                )
+                if await cursor.fetchone() is not None:
+                    owner = candidate
+                else:
+                    log.warning("owner.kv_points_at_missing_user", candidate=candidate)
+            if owner is None:
                 cursor = await conn.execute("SELECT MIN(id) AS m FROM users")
                 row = await cursor.fetchone()
                 if row is not None and row["m"] is not None:
@@ -78,6 +96,22 @@ async def is_owner(user_id: int | None) -> bool:
         return True
     # Доп. со-владельцы с полным доступом (kv full_access_user_ids).
     return int(user_id) in await _full_access_ids()
+
+
+async def owner_user_ids() -> set[int]:
+    """Все id с ВЛАДЕЛЬЧЕСКИМ доступом: сам владелец + делегаты full_access.
+
+    Ровно то множество, для которого :func:`is_owner` отвечает ``True``, но
+    одним запросом и в виде множества — чтобы SQL-выборки могли фильтровать
+    ``WHERE user_id IN (...)`` тем же правилом, по которому пишутся строки.
+    Пустое множество (резолв не удался) — это «никто не владелец»: вызывающий
+    обязан трактовать его как «не отдавать ничего», а не как «отдать всё».
+    """
+    ids: set[int] = set(await _full_access_ids())
+    owner = await get_owner_user_id()
+    if owner is not None:
+        ids.add(int(owner))
+    return ids
 
 
 async def is_primary_owner(user_id: int | None) -> bool:

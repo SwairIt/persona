@@ -1,5 +1,24 @@
 """RFC-compliant XML sitemap for every public-facing surface (v0.59).
 
+Sitemap index (2026-08-25)
+--------------------------
+``/sitemap.xml`` is now a **sitemap index** pointing at child maps served by
+``/sitemap-{slug}.xml``:
+
+* ``/sitemap-pages.xml``      — the always-on marketing/legal pages
+* ``/sitemap-posts.xml``      — every blog article
+* ``/sitemap-categories.xml`` — ``/blog/category/{slug}`` hub pages
+* ``/sitemap-tags.xml``       — ``/blog/tag/{slug}`` hub pages
+* ``/sitemap-public.xml``     — published days, query collections, share links
+
+The 350-article corpus still fits in one file (the protocol allows 50,000
+URLs), so this split buys nothing *today*. It is done now because the
+alternative is doing it later: once a sitemap URL has been fetched and
+remembered by a search engine, restructuring it costs re-discovery of every
+URL underneath. The children are ONE parameterised route rather than five
+literal ones — ``REGISTERED_ROUTE_BUDGET`` has no headroom and five
+near-identical handlers would have been five copies of the same six lines.
+
 What this file does
 -------------------
 Search engines and link-preview crawlers discover content via
@@ -97,7 +116,27 @@ _STATIC_PUBLIC_PATHS: Final[tuple[str, ...]] = (
     "/features",
     "/landing",
     "/blog",
-    "/compare",
+    # Server-rendered blog search. Listed because the empty-query page is a
+    # real, useful landing page ("поиск по блогу"); ``robots.txt`` separately
+    # disallows ``/blog/search?…`` so the infinite result-page space is not
+    # crawled. The feeds (/blog/rss.xml, /blog/atom.xml) are deliberately NOT
+    # here: a feed is discovered through <link rel="alternate">, and listing
+    # one in a urlset asks a crawler to index the XML as a page.
+    "/blog/search",
+    # ``/compare`` REMOVED (2026-08-25). It was listed here as if it were a
+    # marketing comparison page. It is not: the only ``GET /compare`` in the
+    # app is the owner's screenshot side-by-side diff
+    # (``app/web/routes/shot_compare.py``), which requires a session AND two
+    # screenshot ids, and answers 303 to an anonymous crawler. This file's own
+    # contract says a sitemap entry that redirects on click is worse than no
+    # entry at all — caught by
+    # ``tests/test_blog_seo.py::test_every_advertised_url_answers_for_an_anonymous_visitor``.
+    #
+    # NOTE for whoever owns the auth gate: ``/compare`` is ALSO still in
+    # ``_PUBLIC_PREFIXES`` (app/web/middleware/auth_gate.py). Nothing under
+    # that prefix is meant to be public; today only the route's own
+    # ``current_user_required`` dependency keeps it closed. That line should
+    # go too, but it is outside this change's blast radius.
     "/pricing",
     "/roadmap",
     "/changelog",
@@ -112,13 +151,32 @@ _STATIC_PUBLIC_PATHS: Final[tuple[str, ...]] = (
 )
 
 
+#: Namespace for the ``<sitemapindex>`` document. Same URI as ``urlset`` —
+#: the protocol reuses it for both root elements.
+_SITEMAP_INDEX_NS: Final[str] = _SITEMAP_NS
+
+#: Child maps, in the order the index lists them. Adding a section here is
+#: the ONLY place that needs to change: the index and the child handler both
+#: read this tuple, so they cannot disagree about which sections exist.
+SITEMAP_SECTIONS: Final[tuple[str, ...]] = (
+    "pages",
+    "posts",
+    "categories",
+    "tags",
+    "public",
+)
+
+#: A tag page is only worth advertising once it groups more than one article.
+#: See the ``tags`` branch of :func:`sitemap_section_xml`.
+_MIN_TAG_POSTS_FOR_SITEMAP: Final[int] = 2
+
+
 @router.get("/sitemap.xml")
 async def sitemap_xml(request: Request) -> Response:
-    """Serve ``/sitemap.xml`` listing every public-facing route.
+    """Serve ``/sitemap.xml`` as a sitemap **index** over the child maps.
 
-    The response is generated synchronously per request — we expect this
-    endpoint to be hit by a handful of crawlers per day, not by users,
-    so caching it on disk would buy nothing and complicate freshness.
+    Generated synchronously per request — a handful of crawler fetches per
+    day, so caching it on disk would buy nothing and complicate freshness.
     """
     settings = get_settings()
     # Respect ``X-Forwarded-Host`` / ``X-Forwarded-Proto`` so a reverse
@@ -128,66 +186,113 @@ async def sitemap_xml(request: Request) -> Response:
     base = _detect_base_url(request, settings.host, settings.port)
     now_iso = _format_w3c_datetime(datetime.now(UTC))
 
+    index = ET.Element("sitemapindex", {"xmlns": _SITEMAP_INDEX_NS})
+    for section in SITEMAP_SECTIONS:
+        entry = ET.SubElement(index, "sitemap")
+        ET.SubElement(entry, "loc").text = f"{base}/sitemap-{section}.xml"
+        ET.SubElement(entry, "lastmod").text = now_iso
+
+    body = ET.tostring(
+        index, encoding="utf-8", xml_declaration=True, short_empty_elements=False
+    )
+    log.info("sitemap.index_served", sections=len(SITEMAP_SECTIONS))
+    return Response(content=body, media_type="text/xml; charset=utf-8")
+
+
+@router.get("/sitemap-{slug}.xml")
+async def sitemap_section_xml(request: Request, slug: str) -> Response:
+    """Serve one child sitemap. Unknown section → 404, never an empty urlset.
+
+    An empty ``<urlset>`` for ``/sitemap-typo.xml`` would answer 200 and tell
+    a crawler "this section exists and is empty", which is exactly the signal
+    we do not want to send about a URL that is simply wrong.
+    """
+    if slug not in SITEMAP_SECTIONS:
+        return Response(
+            content=f"unknown sitemap section: {slug}"[:200],
+            status_code=404,
+            media_type="text/plain; charset=utf-8",
+        )
+    settings = get_settings()
+    base = _detect_base_url(request, settings.host, settings.port)
+    now_iso = _format_w3c_datetime(datetime.now(UTC))
     urlset = ET.Element("urlset", {"xmlns": _SITEMAP_NS})
+    count = 0
 
-    # --- Always-on main pages ---------------------------------------
-    for path in _STATIC_PUBLIC_PATHS:
-        _append_url(urlset, f"{base}{path}", now_iso, _CHANGEFREQ_MAIN)
+    if slug == "pages":
+        for path in _STATIC_PUBLIC_PATHS:
+            _append_url(urlset, f"{base}{path}", now_iso, _CHANGEFREQ_MAIN)
+        count = len(_STATIC_PUBLIC_PATHS)
 
-    # --- Blog (file-based SEO content) ------------------------------
-    blog_posts = blog.list_posts()
-    for post in blog_posts:
-        lastmod = f"{post.date}T00:00:00Z" if post.date else now_iso
-        _append_url(urlset, f"{base}/blog/{post.slug}", lastmod, _CHANGEFREQ_PUBLIC_DAY)
+    elif slug == "posts":
+        # ``blog.list_posts`` already drops ``noindex`` articles — advertising
+        # a page we ask not to be indexed is a contradiction a crawler is
+        # entitled to hold against the whole domain.
+        posts = blog.list_posts()
+        for post in posts:
+            stamp = post.last_modified
+            lastmod = f"{stamp}T00:00:00Z" if stamp else now_iso
+            _append_url(urlset, f"{base}{post.path}", lastmod, _CHANGEFREQ_PUBLIC_DAY)
+        count = len(posts)
 
-    # --- Per-row sections -------------------------------------------
-    public_days = await _fetch_public_days()
-    for slug, lastmod in public_days:
-        _append_url(
-            urlset,
-            f"{base}/public/day/{slug}",
-            lastmod,
-            _CHANGEFREQ_PUBLIC_DAY,
-        )
+    elif slug == "categories":
+        taxons = blog.categories()
+        for taxon in taxons:
+            _append_url(
+                urlset,
+                f"{base}/blog/category/{taxon.slug}",
+                now_iso,
+                _CHANGEFREQ_MAIN,
+            )
+        count = len(taxons)
 
-    query_collections = await _fetch_query_collections()
-    for slug, lastmod in query_collections:
-        _append_url(
-            urlset,
-            f"{base}/collections/queries/{slug}",
-            lastmod,
-            _CHANGEFREQ_QUERY_COLLECTION,
-        )
+    elif slug == "tags":
+        # Only tags that actually group something get advertised. A tag page
+        # listing ONE article is, to a crawler, a near-duplicate of that
+        # article with no added content — and at 350 posts with 3-6 tags each
+        # there are hundreds of them. The pages still answer 200 (they are
+        # linked from the articles that carry the tag); we just do not ask a
+        # search engine to spend crawl budget discovering them.
+        taxons = [t for t in blog.tags() if t.count >= _MIN_TAG_POSTS_FOR_SITEMAP]
+        for taxon in taxons:
+            _append_url(
+                urlset, f"{base}/blog/tag/{taxon.slug}", now_iso, _CHANGEFREQ_MAIN
+            )
+        count = len(taxons)
 
-    share_collections = await _fetch_share_collections()
-    for token, lastmod in share_collections:
-        _append_url(
-            urlset,
-            f"{base}/share/collection/{token}",
-            lastmod,
-            _CHANGEFREQ_SHARE_COLLECTION,
+    else:  # "public" — the DB-backed opt-in surfaces
+        public_days = await _fetch_public_days()
+        for day_slug, lastmod in public_days:
+            _append_url(
+                urlset,
+                f"{base}/public/day/{day_slug}",
+                lastmod,
+                _CHANGEFREQ_PUBLIC_DAY,
+            )
+        query_collections = await _fetch_query_collections()
+        for coll_slug, lastmod in query_collections:
+            _append_url(
+                urlset,
+                f"{base}/collections/queries/{coll_slug}",
+                lastmod,
+                _CHANGEFREQ_QUERY_COLLECTION,
+            )
+        share_collections = await _fetch_share_collections()
+        for token, lastmod in share_collections:
+            _append_url(
+                urlset,
+                f"{base}/share/collection/{token}",
+                lastmod,
+                _CHANGEFREQ_SHARE_COLLECTION,
+            )
+        count = (
+            len(public_days) + len(query_collections) + len(share_collections)
         )
 
     body = ET.tostring(
-        urlset,
-        encoding="utf-8",
-        xml_declaration=True,
-        short_empty_elements=False,
+        urlset, encoding="utf-8", xml_declaration=True, short_empty_elements=False
     )
-
-    log.info(
-        "sitemap.served",
-        public_days=len(public_days),
-        query_collections=len(query_collections),
-        share_collections=len(share_collections),
-        static_pages=len(_STATIC_PUBLIC_PATHS),
-        blog_posts=len(blog_posts),
-        urls_total=len(public_days)
-        + len(query_collections)
-        + len(share_collections)
-        + len(blog_posts)
-        + len(_STATIC_PUBLIC_PATHS),
-    )
+    log.info("sitemap.section_served", section=slug, urls=count)
     return Response(content=body, media_type="text/xml; charset=utf-8")
 
 
@@ -338,24 +443,19 @@ def _detect_base_url(request: Request, fallback_host: str, fallback_port: int) -
     Persona's uvicorn process listens on loopback. Falls back to the
     bound ``host:port`` so a direct same-machine fetch still yields
     clickable links.
+
+    The logic itself lives in :func:`app.blog.resolve_base_url` — the blog
+    canonicals, the JSON-LD absolute URLs, the RSS/Atom ``<link>`` elements
+    and this sitemap must all agree on what this site's origin is, and three
+    copies of a header-precedence rule is how they stop agreeing. This
+    function stays as the name the sitemap code and its callers already use.
     """
-    forwarded_host = request.headers.get("x-forwarded-host")
-    forwarded_proto = request.headers.get("x-forwarded-proto")
-    host_header = request.headers.get("host")
-
-    if forwarded_host:
-        host = forwarded_host.split(",", 1)[0].strip()
-    elif host_header:
-        host = host_header.strip()
-    else:
-        host = f"{fallback_host}:{fallback_port}"
-
-    if forwarded_proto:
-        scheme = forwarded_proto.split(",", 1)[0].strip().lower()
-    else:
-        scheme = request.url.scheme or "http"
-
-    return f"{scheme}://{host}"
+    return blog.resolve_base_url(
+        request.headers,
+        request_scheme=request.url.scheme,
+        fallback_host=fallback_host,
+        fallback_port=fallback_port,
+    )
 
 
 __all__ = ["router"]

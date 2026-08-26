@@ -1,119 +1,355 @@
 /* ============================================================
-   Persona blog — styles (поверх landing/style.css токенов)
+   Persona · Блог — «Starlit Violet Cosmos» (design system v2)
+   ============================================================
+   Раньше блог грузил /static/landing/style.css (v1: фиолет+циан+розовый
+   градиент, glass-карточки, Inter 850, радиус 22px), а лендинг — v2
+   (--void, --iris, rim-light вместо теней, Space Grotesk 500, радиус 16px,
+   плавающая пилюля-нав). Шов между «Блог» в навбаре и статьёй был виден
+   невооружённым глазом: разные фон, шрифт, скругления и способ подъёма.
+
+   Этот файл — надстройка над landing_v2/style.css. Никаких собственных
+   цветов: всё через токены v2. Что добавляется здесь — только то, чего на
+   лендинге нет: типографика длинного текста, оглавление со скроллспаем,
+   карточки листинга, пагинация, мобильный ящик оглавления.
+
+   Сознательно НЕ перенесено из v1: стеклянные карточки (--glass-bg), тени
+   drop-shadow (в v2 подъём делает rim-light), жирность 850 у заголовков
+   (в v2 брендовая жирность — 500), радиус 22px, циановые акценты.
    ============================================================ */
 
-/* на блоге нет героя — навигация всегда с фоном */
-.nav--solid{background:rgba(8,8,16,.72);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid rgba(255,255,255,.06)}
-
-/* контент должен быть НАД фиксированными фон-слоями (z-index:0):
-   непозиционированные блоки иначе прячутся за ними (виден только sticky-TOC). */
-.blog-main,.post-wrap{position:relative;z-index:1}
-
-.blog-main{max-width:1180px;margin:0 auto;padding:120px clamp(16px,5vw,40px) 80px}
-
-/* ---------- индекс ---------- */
-.blog-head{max-width:720px;margin-bottom:40px}
-.blog-head h1{font-size:clamp(2rem,5.5vw,3.4rem);font-weight:850;letter-spacing:-.03em;line-height:1.05}
-.blog-head p{color:var(--ink-dim);font-size:clamp(1rem,2.2vw,1.18rem);margin-top:14px}
-
-.cat-filter{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:34px}
-.cat-btn{
-  padding:8px 16px;border-radius:999px;font-size:.88rem;color:var(--ink-dim);cursor:pointer;
-  background:rgba(255,255,255,.04);border:1px solid var(--glass-brd);transition:all .2s var(--ease);
+:root{
+  --blog-maxw:1200px;      /* совпадает с --maxw лендинга */
+  --blog-col-toc:268px;    /* правая колонка оглавления */
+  --blog-r:16px;           /* радиус карточки v2 */
+  --blog-r-sm:10px;
+  --blog-nav-h:96px;       /* пилюля-нав + воздух: отступ scroll-margin */
 }
-.cat-btn:hover{color:var(--ink);border-color:rgba(167,139,250,.5)}
-.cat-btn.active{background:var(--grad);color:#0a0a12;border-color:transparent;font-weight:600}
 
-.post-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:22px}
+/* ---- фон -------------------------------------------------------------
+   Лендинг рисует WebGL-космос; блог берёт только CSS-постер (.bh-fallback),
+   чтобы длинный текст не соревновался за GPU со звёздами. Постерный
+   «горизонт событий» — деталь героя лендинга, на статье он лезет под текст. */
+.bh-fallback::after{content:none}
+
+/* контент над fixed-фоном */
+.blog-main,.post-wrap{position:relative; z-index:1}
+
+/* на блоге нет героя — пилюля-нав всегда в «прокрученном» состоянии */
+.nav--solid{background:rgba(6,3,23,.82); box-shadow:var(--rim-hi)}
+
+/* читабельность крупного текста поверх космоса — та же подложка, что на
+   лендинге (.section-title и соседи), но для заголовков блога */
+.blog-head h1,.blog-head p,.post-header h1,.post-header .post-lead,
+.blog-empty h2,.blog-404 h1{
+  text-shadow:0 2px 18px rgba(3,0,20,.92), 0 0 40px rgba(3,0,20,.7), 0 1px 4px rgba(3,0,20,.8);
+}
+
+/* подпись только для скринридера (лейбл поля поиска) */
+.visually-hidden{position:absolute!important; width:1px; height:1px; padding:0; margin:-1px;
+  overflow:hidden; clip:rect(0 0 0 0); clip-path:inset(50%); white-space:nowrap; border:0}
+
+/* ============================ ЛИСТИНГИ ============================ */
+
+.blog-main{max-width:var(--blog-maxw); margin:0 auto; padding:116px clamp(16px,5vw,40px) 80px}
+
+.blog-head{max-width:760px; margin-bottom:34px}
+.blog-head .kicker{
+  display:inline-flex; align-items:center; gap:8px; margin:0 0 14px;
+  padding:6px 14px; border-radius:999px; background:rgba(16,9,58,.6);
+  box-shadow:var(--rim); color:var(--mercury); font-size:13px; font-weight:500;
+}
+.blog-head h1{font-size:clamp(32px,5.2vw,56px); line-height:1.04; letter-spacing:-.025em}
+.blog-head p{margin:14px 0 0; color:var(--ash); font-size:clamp(15px,1.8vw,18px); max-width:62ch}
+
+/* ---- поиск ---- */
+.blog-search{display:flex; gap:8px; max-width:520px; margin:26px 0 0; padding:6px;
+  background:var(--surface); border-radius:9px; box-shadow:var(--rim)}
+.blog-search input{flex:1; min-width:0; background:transparent; border:0; outline:none;
+  color:var(--ink); font-family:var(--font-body); font-size:15px; padding:10px 12px}
+.blog-search input::placeholder{color:var(--fog)}
+.blog-search input:focus-visible{box-shadow:none}
+.blog-search:focus-within{box-shadow:var(--rim-hi)}
+.blog-search .btn{padding:10px 18px}
+
+/* ---- навигация по рубрикам: настоящие ссылки, а не JS-фильтр ---- */
+.blog-nav{margin:26px 0 6px}
+.blog-nav-lbl{display:block; margin-bottom:10px; font-family:var(--font-mono);
+  font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:var(--steel)}
+.chip-row{display:flex; flex-wrap:wrap; gap:8px; margin:0; padding:0; list-style:none}
+.chip-link{display:inline-flex; align-items:center; gap:7px; padding:7px 14px; border-radius:999px;
+  background:rgba(16,9,58,.4); box-shadow:inset 0 0 0 1px rgba(244,240,255,.1);
+  color:var(--mercury); font-size:13px; font-weight:500; transition:color .2s, background .2s, box-shadow .2s}
+.chip-link:hover{color:var(--ink); background:var(--raised); box-shadow:var(--rim-hi)}
+.chip-link .n{color:var(--steel); font-family:var(--font-mono); font-size:11px}
+.chip-link[aria-current="page"]{background:var(--iris); color:#fff;
+  box-shadow:0 0 0 1px rgba(147,130,255,.45) inset}
+.chip-link[aria-current="page"] .n{color:rgba(255,255,255,.7)}
+.chip-link.is-tag::before{content:"#"; color:var(--lavender); font-family:var(--font-mono)}
+
+/* ---- сетка карточек ---- */
+.blog-count{margin:30px 0 14px; color:var(--fog); font-size:13.5px}
+.post-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(288px,1fr)); gap:16px}
 .post-card{
-  display:flex;flex-direction:column;padding:26px 24px;border-radius:var(--radius);
-  text-decoration:none;color:inherit;position:relative;overflow:hidden;
-  background:var(--glass-bg);border:1px solid var(--glass-brd);
-  transition:transform .3s var(--ease),border-color .3s;
+  display:flex; flex-direction:column; padding:22px; border-radius:var(--blog-r);
+  background:var(--surface); box-shadow:var(--rim); color:var(--ash);
+  position:relative; overflow:hidden;
+  transition:background .3s, box-shadow .3s, transform .3s;
 }
-.post-card::after{
-  content:"";position:absolute;inset:0;border-radius:inherit;padding:1px;
-  background:linear-gradient(150deg,rgba(167,139,250,.5),rgba(34,211,238,.18) 45%,transparent 72%);
-  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
-  -webkit-mask-composite:xor;mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
-  mask-composite:exclude;opacity:.45;transition:opacity .3s;pointer-events:none;
-}
-.post-card:hover{transform:translateY(-5px)}
-.post-card:hover::after{opacity:1}
-.post-card .cover{font-size:2rem;margin-bottom:14px}
-.post-card .cat{font-size:.74rem;text-transform:uppercase;letter-spacing:.16em;color:var(--cyan)}
-.post-card h2{font-size:1.28rem;font-weight:700;letter-spacing:-.02em;margin:8px 0 10px;line-height:1.25}
-.post-card .excerpt{color:var(--ink-dim);font-size:.95rem;flex:1}
-.post-card .meta{margin-top:16px;font-size:.82rem;color:var(--ink-faint);display:flex;gap:10px}
+.post-card:hover{background:var(--raised); box-shadow:var(--rim-hi); transform:translateY(-2px)}
+.post-card .cover{font-size:28px; line-height:1}
+.post-card .cat{display:inline-block; margin:10px 0 6px; font-family:var(--font-mono); font-size:11px;
+  color:var(--lavender); text-transform:uppercase; letter-spacing:.08em}
+.post-card h2,.post-card h3{font-family:var(--font-display); font-weight:500; font-size:18px;
+  line-height:1.25; margin:0 0 8px; color:var(--ink)}
+.post-card .excerpt{margin:0 0 14px; font-size:14px; color:var(--ash); flex:1}
+.post-card .meta{display:flex; flex-wrap:wrap; gap:4px 10px; color:var(--fog); font-size:12.5px}
+.post-card mark{background:rgba(147,130,255,.22); color:var(--ink); border-radius:3px; padding:0 2px}
 
-/* ---------- статья ---------- */
-.post-wrap{max-width:1180px;margin:0 auto;padding:110px clamp(16px,5vw,40px) 90px}
-.breadcrumb{font-size:.85rem;color:var(--ink-faint);margin-bottom:18px}
-.breadcrumb a:hover{color:var(--accent-400,#a78bfa)}
-.post-header{max-width:760px;margin-bottom:26px}
-.post-header .cat{font-size:.76rem;text-transform:uppercase;letter-spacing:.18em;color:var(--cyan)}
-.post-header h1{font-size:clamp(1.9rem,5vw,3rem);font-weight:850;letter-spacing:-.03em;line-height:1.08;margin:12px 0 16px}
-.post-meta{display:flex;flex-wrap:wrap;gap:8px 18px;color:var(--ink-faint);font-size:.9rem}
-.post-meta .dot{opacity:.5}
+/* ---- выбор редакции (featured) ---- */
+.blog-featured{margin:34px 0 8px}
+.blog-featured .blog-nav-lbl{margin-bottom:12px}
+.blog-featured .post-card{background:var(--raised); box-shadow:var(--rim-hi)}
 
-.post-layout{display:grid;grid-template-columns:minmax(0,1fr) 250px;gap:48px;align-items:start}
+/* ---- пустое состояние ---- */
+.blog-empty{max-width:640px; margin:48px auto; padding:clamp(26px,4vw,40px); text-align:center;
+  border-radius:20px; background:var(--surface); box-shadow:var(--rim)}
+.blog-empty .em{font-size:34px; line-height:1}
+.blog-empty h2{margin:14px 0 10px; font-size:clamp(21px,3vw,28px)}
+.blog-empty p{margin:0 0 18px; color:var(--ash); font-size:15px}
+.blog-empty .chip-row{justify-content:center}
 
-/* тело статьи */
-.post-body{font-size:1.06rem;line-height:1.78;color:#dfe1f5;max-width:760px}
-.post-body h2{font-size:clamp(1.4rem,3vw,1.9rem);font-weight:800;letter-spacing:-.02em;margin:42px 0 14px;scroll-margin-top:90px}
-.post-body h3{font-size:1.22rem;font-weight:700;margin:30px 0 10px;scroll-margin-top:90px}
+/* ---- пагинация ---- */
+.pager{display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:8px; margin-top:44px}
+.pager a,.pager span{min-width:40px; height:40px; padding:0 12px; border-radius:var(--blog-r-sm);
+  display:inline-flex; align-items:center; justify-content:center; font-size:14px; font-weight:500;
+  background:var(--surface); box-shadow:var(--rim); color:var(--mercury); transition:background .25s, box-shadow .25s, color .25s}
+.pager a:hover{background:var(--raised); box-shadow:var(--rim-hi); color:var(--ink)}
+.pager [aria-current="page"]{background:var(--iris); color:#fff; box-shadow:0 0 0 1px rgba(147,130,255,.45) inset}
+.pager .gap{background:none; box-shadow:none; color:var(--steel); min-width:20px; padding:0}
+.pager .is-off{opacity:.35; pointer-events:none}
+
+/* ============================ СТАТЬЯ ============================ */
+
+.post-wrap{max-width:var(--blog-maxw); margin:0 auto; padding:108px clamp(16px,5vw,40px) 88px}
+
+.breadcrumb{display:flex; flex-wrap:wrap; gap:6px; font-size:13px; color:var(--steel); margin-bottom:18px}
+.breadcrumb a{color:var(--fog)}
+.breadcrumb a:hover{color:var(--lavender)}
+.breadcrumb .sep{color:var(--steel)}
+
+.post-header{max-width:800px; margin-bottom:30px}
+.post-header .cat{display:inline-flex; align-items:center; gap:8px; font-family:var(--font-mono);
+  font-size:11.5px; text-transform:uppercase; letter-spacing:.12em; color:var(--lavender)}
+.post-header h1{margin:14px 0 0; font-size:clamp(30px,4.6vw,50px); line-height:1.06; letter-spacing:-.025em}
+.post-header .post-lead{margin:16px 0 0; color:var(--ash); font-size:clamp(15px,1.8vw,18px); max-width:64ch}
+.post-meta{display:flex; flex-wrap:wrap; align-items:center; gap:6px 14px; margin-top:20px;
+  color:var(--fog); font-size:13px}
+.post-meta .dot{color:var(--steel)}
+.post-meta time{color:var(--mercury)}
+.post-meta .updated{display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:999px;
+  background:rgba(80,70,228,.16); box-shadow:inset 0 0 0 1px rgba(147,130,255,.25); color:var(--mercury)}
+
+.post-layout{display:grid; grid-template-columns:minmax(0,1fr) var(--blog-col-toc); gap:52px; align-items:start}
+
+/* ---- тело статьи ---- */
+.post-body{max-width:76ch; color:var(--ash); font-size:17px; line-height:1.75}
+.post-body>*:first-child{margin-top:0}
+.post-body h2{font-size:clamp(22px,2.8vw,30px); line-height:1.15; margin:48px 0 14px; scroll-margin-top:var(--blog-nav-h)}
+.post-body h3{font-size:clamp(18px,2.1vw,21px); line-height:1.25; margin:34px 0 10px; scroll-margin-top:var(--blog-nav-h)}
 .post-body p{margin:0 0 18px}
-.post-body a{color:var(--accent-400,#a78bfa);text-decoration:underline;text-underline-offset:3px}
-.post-body ul,.post-body ol{margin:0 0 18px;padding-left:24px;display:flex;flex-direction:column;gap:8px}
-.post-body ul li{list-style:disc}.post-body ol li{list-style:decimal}
-.post-body strong{color:#fff}
-.post-body blockquote{
-  margin:22px 0;padding:14px 20px;border-left:3px solid var(--violet);
-  background:rgba(139,92,246,.08);border-radius:0 12px 12px 0;color:var(--ink-dim);
+.post-body a{color:var(--lavender); text-decoration:underline; text-decoration-color:rgba(147,130,255,.4);
+  text-underline-offset:3px; transition:color .2s, text-decoration-color .2s}
+.post-body a:hover{color:var(--ink); text-decoration-color:var(--lavender)}
+.post-body strong{color:var(--ink); font-weight:600}
+.post-body ul,.post-body ol{margin:0 0 18px; padding-left:22px; display:flex; flex-direction:column; gap:8px}
+.post-body ul li{list-style:disc} .post-body ol li{list-style:decimal}
+.post-body li::marker{color:var(--lavender)}
+.post-body blockquote{margin:24px 0; padding:16px 20px; border-radius:0 var(--blog-r) var(--blog-r) 0;
+  background:var(--surface); box-shadow:var(--rim), inset 3px 0 0 var(--iris); color:var(--mercury)}
+.post-body blockquote p:last-child{margin-bottom:0}
+.post-body code{font-family:var(--font-mono); font-size:.88em; padding:2px 6px; border-radius:5px;
+  background:rgba(16,9,58,.8); box-shadow:inset 0 0 0 1px rgba(147,130,255,.16); color:#ded7ff}
+.post-body pre{margin:0 0 20px; padding:16px 18px; border-radius:var(--blog-r); overflow-x:auto;
+  background:rgba(3,0,20,.72); box-shadow:var(--rim); font-size:13.5px; line-height:1.6}
+.post-body pre code{background:none; box-shadow:none; padding:0; color:var(--mercury)}
+.post-body hr{border:0; height:1px; margin:34px 0; background:linear-gradient(90deg,rgba(147,130,255,.3),transparent)}
+.post-body img{max-width:100%; height:auto; border-radius:var(--blog-r)}
+/* таблица — главный артефакт корпуса; на узком экране скроллится сама,
+   страница по горизонтали не едет (см. style-guide, 6.4) */
+.post-body .table-scroll{margin:0 0 22px; overflow-x:auto; border-radius:var(--blog-r);
+  background:var(--surface); box-shadow:var(--rim)}
+.post-body table{width:100%; border-collapse:collapse; min-width:min(560px,100%); font-size:14.5px}
+.post-body .table-scroll table{margin:0}
+.post-body th,.post-body td{padding:13px 16px; text-align:left; vertical-align:top}
+.post-body thead th{font-family:var(--font-display); font-weight:500; color:var(--ink);
+  background:var(--raised); box-shadow:inset 0 -1px 0 rgba(147,130,255,.16)}
+.post-body tbody td{box-shadow:inset 0 -1px 0 rgba(147,130,255,.07)}
+.post-body tbody td:first-child{color:var(--mercury)}
+
+/* кликабельная решётка у заголовка */
+.post-body h2,.post-body h3{position:relative}
+.anchor-link{position:absolute; left:-.85em; top:0; width:.85em; opacity:0; color:var(--lavender);
+  font-family:var(--font-mono); font-weight:400; text-decoration:none; transition:opacity .2s}
+.anchor-link:hover{color:var(--ink)}
+h2:hover>.anchor-link,h3:hover>.anchor-link,.anchor-link:focus-visible{opacity:1}
+@media (max-width:1080px){
+  /* в узкой колонке отрицательный вылет обрезается — решётка встаёт в текст */
+  .anchor-link{position:static; display:inline-block; width:auto; margin-right:.35em; opacity:.35}
 }
-.post-body code{background:rgba(255,255,255,.08);padding:2px 7px;border-radius:6px;font-size:.9em;font-family:ui-monospace,monospace}
-.post-body pre{background:#0c0c17;border:1px solid var(--glass-brd);border-radius:12px;padding:16px 18px;overflow-x:auto;margin:0 0 18px}
-.post-body pre code{background:none;padding:0}
-.post-body table{width:100%;border-collapse:collapse;margin:0 0 20px;font-size:.95rem}
-.post-body th,.post-body td{padding:11px 14px;border:1px solid var(--glass-brd);text-align:left}
-.post-body thead th{background:rgba(255,255,255,.04);color:var(--ink-dim)}
-.post-body h2:first-child,.post-body h3:first-child{margin-top:0}
 
-/* оглавление справа (sticky + scrollspy) */
-.post-toc{position:sticky;top:96px;align-self:start}
-.post-toc .toc-title{font-size:.74rem;text-transform:uppercase;letter-spacing:.18em;color:var(--ink-faint);margin-bottom:14px}
-.post-toc ul{display:flex;flex-direction:column;gap:2px;border-left:1px solid rgba(255,255,255,.1)}
-.post-toc a{
-  display:block;padding:6px 0 6px 16px;margin-left:-1px;font-size:.9rem;color:var(--ink-faint);
-  border-left:2px solid transparent;transition:color .2s,border-color .2s;line-height:1.35;
-}
-.post-toc a.lvl-3{padding-left:30px;font-size:.85rem}
-.post-toc a:hover{color:var(--ink-dim)}
-.post-toc a.active{color:var(--ink);border-left-color:var(--violet);font-weight:600}
+/* ---- прогресс чтения ---- */
+.read-progress{position:fixed; top:0; left:0; height:3px; width:0; z-index:130;
+  background:var(--grad); box-shadow:0 0 14px rgba(147,130,255,.55)}
 
-/* прогресс чтения */
-.read-progress{position:fixed;top:0;left:0;height:3px;width:0;z-index:901;background:var(--grad);box-shadow:0 0 12px rgba(139,92,246,.6)}
+/* ============================ ОГЛАВЛЕНИЕ ============================ */
 
-/* низ статьи */
-.post-footer{max-width:760px;margin-top:56px;border-top:1px solid var(--glass-brd);padding-top:30px}
-.post-nav{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
-.post-nav a{flex:1;min-width:220px;padding:16px 20px;border-radius:var(--radius);background:var(--glass-bg);border:1px solid var(--glass-brd);transition:border-color .25s}
-.post-nav a:hover{border-color:rgba(167,139,250,.5)}
-.post-nav .lbl{font-size:.74rem;text-transform:uppercase;letter-spacing:.14em;color:var(--ink-faint)}
-.post-nav .ttl{margin-top:4px;color:var(--ink);font-weight:600}
+.post-toc{position:sticky; top:var(--blog-nav-h); align-self:start;
+  max-height:calc(100vh - var(--blog-nav-h) - 28px); display:flex; flex-direction:column}
+.toc-head{display:flex; align-items:baseline; justify-content:space-between; gap:10px; margin-bottom:12px}
+.toc-title{font-family:var(--font-mono); font-size:11px; letter-spacing:.16em;
+  text-transform:uppercase; color:var(--steel)}
+.toc-pct{font-family:var(--font-mono); font-size:11px; color:var(--lavender)}
+
+/* рельса общего прогресса живёт на неподвижной обёртке, поэтому не уезжает
+   вместе с прокруткой самого списка. --toc-progress ставит blog.js. */
+.toc-rail{position:relative; flex:1 1 auto; padding-left:14px; min-height:0;
+  display:flex; flex-direction:column}
+.toc-rail::before{content:""; position:absolute; left:0; top:2px; bottom:2px; width:2px;
+  border-radius:2px; background:rgba(147,130,255,.16)}
+.toc-fill{position:absolute; left:0; top:2px; width:2px; border-radius:2px; background:var(--grad);
+  height:var(--toc-progress,0%); max-height:calc(100% - 4px);
+  transition:height .18s linear; pointer-events:none}
+
+/* собственная прокрутка: длинное оглавление не толкает страницу */
+.toc-scroll{overflow-y:auto; overscroll-behavior:contain; min-height:0;
+  scrollbar-width:thin; scrollbar-color:rgba(147,130,255,.35) transparent}
+.toc-scroll::-webkit-scrollbar{width:6px}
+.toc-scroll::-webkit-scrollbar-thumb{background:rgba(147,130,255,.3); border-radius:3px}
+
+.post-toc ol{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:1px}
+.post-toc a{position:relative; display:block; padding:6px 8px 6px 14px; border-radius:var(--blog-r-sm);
+  font-size:13.5px; line-height:1.35; color:var(--fog);
+  transition:color .2s, background .2s}
+.post-toc a.lvl-3{padding-left:28px; font-size:12.8px}
+.post-toc a:hover{color:var(--ink); background:rgba(147,130,255,.08)}
+
+/* прочитанное отличается от непрочитанного, активный пункт — не только цветом:
+   у него собственная метка-рельс слева */
+.post-toc a.is-read{color:var(--mercury)}
+.post-toc a.is-active{color:var(--ink); font-weight:600; background:rgba(147,130,255,.1)}
+.post-toc a.is-active::before{content:""; position:absolute; left:1px; top:calc(50% - 9px);
+  width:3px; height:18px; border-radius:2px; background:var(--grad);
+  box-shadow:0 0 12px rgba(147,130,255,.75)}
+
+/* мобильный ящик: чекбокс-переключатель (работает и без JS) */
+.toc-check{position:fixed; opacity:0; pointer-events:none; width:0; height:0}
+.toc-fab{display:none}
+.toc-backdrop{display:none}
+.toc-close{display:none}
+
+/* ============================ НИЗ СТАТЬИ ============================ */
+
+.post-footer{max-width:76ch; margin-top:56px; padding-top:30px;
+  box-shadow:inset 0 1px 0 rgba(147,130,255,.14)}
+.post-tags{display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-bottom:28px}
+.post-tags .lbl{font-family:var(--font-mono); font-size:11px; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--steel); margin-right:4px}
+
+.post-nav{display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:12px}
+.post-nav a{display:block; padding:16px 18px; border-radius:var(--blog-r); background:var(--surface);
+  box-shadow:var(--rim); transition:background .3s, box-shadow .3s}
+.post-nav a:hover{background:var(--raised); box-shadow:var(--rim-hi)}
+.post-nav .lbl{font-family:var(--font-mono); font-size:11px; letter-spacing:.12em;
+  text-transform:uppercase; color:var(--lavender)}
+.post-nav .ttl{margin-top:6px; color:var(--ink); font-family:var(--font-display); font-weight:500; font-size:15.5px}
 .post-nav .next{text-align:right}
-.related{margin-top:46px}
-.related h3{font-size:1.3rem;font-weight:800;margin-bottom:18px}
-.cta-band{
-  max-width:760px;margin:56px auto 0;padding:34px;border-radius:var(--radius);text-align:center;
-  background:linear-gradient(140deg,rgba(124,58,237,.18),rgba(34,211,238,.08));border:1px solid var(--glass-brd);
-}
-.cta-band h3{font-size:1.5rem;font-weight:800;margin-bottom:10px}
-.cta-band p{color:var(--ink-dim);margin-bottom:20px}
 
-/* ---------- адаптив ---------- */
-@media(max-width:900px){
-  .post-layout{grid-template-columns:1fr}
-  .post-toc{position:static;order:-1;margin-bottom:24px;padding:16px 18px;border-radius:var(--radius);background:rgba(255,255,255,.03);border:1px solid var(--glass-brd)}
-  .post-toc ul{max-height:none}
+.related{margin-top:52px}
+.related h2{font-size:clamp(20px,2.6vw,26px); margin-bottom:18px}
+
+.cta-band{max-width:76ch; margin:52px 0 0; padding:clamp(24px,3.4vw,36px); border-radius:20px;
+  text-align:center; background:var(--surface); box-shadow:var(--rim); position:relative; overflow:hidden}
+.cta-band::after{content:""; position:absolute; right:-70px; bottom:-90px; width:250px; height:250px;
+  border-radius:50%; background:radial-gradient(circle,rgba(80,70,228,.22),transparent 70%); pointer-events:none}
+.cta-band h2{font-size:clamp(20px,2.8vw,28px); margin-bottom:10px}
+.cta-band p{margin:0 0 20px; color:var(--ash); font-size:15px}
+.cta-band .btn{position:relative; z-index:1}
+
+/* 404 */
+.blog-404{max-width:620px; margin:0 auto; text-align:center}
+.blog-404 .em{font-size:44px; line-height:1}
+.blog-404 h1{margin:18px 0 12px; font-size:clamp(28px,5vw,44px); line-height:1.06}
+.blog-404 p{margin:0 0 26px; color:var(--ash)}
+.blog-404 .blog-search{margin-inline:auto}
+.blog-404 .chip-row{justify-content:center; margin-top:26px}
+
+/* ============================ АДАПТИВ ============================ */
+
+@media (max-width:1080px){
+  .post-layout{grid-template-columns:minmax(0,1fr); gap:0}
+  .post-body{max-width:none}
+  .post-footer,.cta-band{max-width:none}
+
+  /* Оглавление уезжало вправо и на телефоне становилось недоступно.
+     Теперь это ящик поверх текста: свёрнутая кнопка «Содержание» внизу,
+     панель открывается над контентом и закрывается по выбору пункта.
+     Переключатель — настоящий checkbox, поэтому работает и без JS. */
+  .toc-fab{
+    display:inline-flex; align-items:center; gap:9px; position:fixed; z-index:118;
+    left:50%; bottom:calc(18px + env(safe-area-inset-bottom,0px)); transform:translateX(-50%);
+    padding:11px 20px; border-radius:999px; cursor:pointer;
+    background:rgba(16,9,58,.92); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);
+    box-shadow:var(--rim-hi), 0 10px 30px -12px rgba(3,0,20,.9);
+    color:var(--ink); font-family:var(--font-body); font-size:14px; font-weight:500;
+    transition:background .25s, box-shadow .25s;
+  }
+  .toc-fab:hover{background:var(--raised)}
+  .toc-fab .ico{width:16px; height:16px; fill:none; stroke:var(--lavender); stroke-width:2;
+    stroke-linecap:round}
+  .toc-fab .toc-pct{font-family:var(--font-mono); font-size:11px; color:var(--lavender)}
+  .toc-check:focus-visible~.toc-fab{box-shadow:var(--rim-hi), 0 0 0 3px rgba(80,70,228,.5)}
+
+  .toc-backdrop{display:block; position:fixed; inset:0; z-index:119; opacity:0; visibility:hidden;
+    background:rgba(3,0,20,.72); backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
+    transition:opacity .25s, visibility .25s}
+
+  .post-toc{
+    position:fixed; z-index:120; left:0; right:0; bottom:0; top:auto; max-height:min(72vh,560px);
+    padding:18px 20px calc(20px + env(safe-area-inset-bottom,0px));
+    border-radius:20px 20px 0 0; background:var(--surface);
+    box-shadow:var(--rim-hi), 0 -24px 60px -30px rgba(3,0,20,1);
+    transform:translateY(101%); visibility:hidden;
+    transition:transform .3s cubic-bezier(.2,.7,.2,1), visibility .3s;
+  }
+  .post-toc::before{content:""; position:absolute; left:50%; top:8px; transform:translateX(-50%);
+    width:40px; height:4px; border-radius:2px; background:rgba(147,130,255,.35)}
+  .toc-head{margin-top:8px}
+  .toc-rail{min-height:0; flex:1}
+  .toc-scroll{max-height:calc(min(72vh,560px) - 110px)}
+  .post-toc a{padding-top:10px; padding-bottom:10px; font-size:14.5px}
+  .post-toc a.lvl-3{font-size:13.5px}
+
+  .toc-close{display:inline-block; position:absolute; right:14px; top:14px; padding:6px 10px;
+    border-radius:999px; background:rgba(147,130,255,.12); color:var(--mercury);
+    font-size:13px; cursor:pointer}
+
+  .toc-check:checked~.toc-backdrop{opacity:1; visibility:visible}
+  .toc-check:checked~.post-layout .post-toc,
+  .toc-check:checked~.post-toc{transform:none; visibility:visible}
+  .toc-check:checked~.toc-fab{opacity:0; pointer-events:none}
+
+  body.toc-open{overflow:hidden}
+}
+
+@media (max-width:640px){
+  .blog-main{padding-top:104px}
+  .post-wrap{padding-top:100px}
+  .post-grid{grid-template-columns:1fr}
+  .blog-search{max-width:none}
+  .post-nav .next{text-align:left}
+}
+
+@media (prefers-reduced-motion:reduce){
+  .post-card,.post-toc,.toc-fill,.toc-backdrop,.pager a,.post-nav a{transition:none!important}
+  .post-card:hover{transform:none}
 }

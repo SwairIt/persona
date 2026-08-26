@@ -263,6 +263,16 @@ async def delete_own_account(user_id: int) -> DeletionResult:
                 "OR asst_message_id = ?",
                 (mid, mid),
             )
+        # …и по автору строки (колонка ``user_id``, миграция 236). Две выборки
+        # выше адресуют строку через чат и через сообщение; если и то и другое
+        # уже обнулено (``ON DELETE SET NULL``), строка с полным текстом
+        # переписки не находится НИ ПО ЧЕМУ. С момента 236 у неё есть автор —
+        # добиваем по нему, чтобы «удалил аккаунт» значило удалил.
+        await run(
+            "training_dataset",
+            "DELETE FROM training_dataset WHERE user_id = ?",
+            (uid,),
+        )
 
         # F — векторное зеркало сообщений (есть только с sqlite-vec).
         for mid in message_ids:

@@ -348,6 +348,13 @@ body:not(.js) .big-statement .w{opacity:1}
 .hpost h3{font-size:18px; margin:0 0 8px}
 .hpost p{margin:0 0 12px; font-size:14px; color:var(--ash)}
 .hpost-meta{color:var(--fog); font-size:12.5px}
+/* ряд рубрик-ссылок над карточками + строка с RSS под ними (секция «Из блога») */
+.home-blog-cats{display:flex; flex-wrap:wrap; gap:8px; list-style:none; margin:0 0 20px; padding:0}
+.home-blog-cats a{display:inline-flex; padding:6px 13px; border-radius:999px;
+  background:rgba(16,9,58,.4); box-shadow:inset 0 0 0 1px rgba(244,240,255,.1);
+  color:var(--mercury); font-size:13px; font-weight:500; transition:color .2s, background .2s}
+.home-blog-cats a:hover{color:var(--ink); background:var(--raised)}
+.home-blog-foot{margin:22px 0 0; color:var(--fog); font-size:13.5px}
 @media (max-width:820px){ .home-posts{grid-template-columns:1fr} .home-blog-head{flex-direction:column; align-items:flex-start} }
 
 /* faq */

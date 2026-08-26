@@ -1,24 +1,23 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>{{ title }}</title>
-  <style>:root{color-scheme:dark}html,body{margin:0;background:#07070d;color:#eef0ff}</style>
-  <link rel="stylesheet" href="/static/landing/style.css" />
-  <link rel="stylesheet" href="/static/blog/blog.css" />
-  {# Яндекс.Метрика (счётчик 111901324) — публичная маркетинговая страница. #}
-  {% include "_metrika.html" %}
-</head>
-<body>
-  <div class="bg-mesh" aria-hidden="true"></div>
-  <div class="bg-grid" aria-hidden="true"></div>
-  <main class="blog-main" style="text-align:center">
-    <h1 class="grad" style="font-size:clamp(2rem,6vw,3.4rem);font-weight:850">Статья не найдена</h1>
-    <p style="color:var(--ink-dim);margin:14px 0 28px">Возможно, ссылка устарела.</p>
-    <a href="/blog" class="btn btn-primary">Все статьи</a>
-  </main>
+{% extends "blog_base.html" %}
+{% from "_blog_macros.html" import chip_row, search_form with context %}
 
-{% include "_public_footer.html" %}
-</body>
-</html>
+{#- 404 блога. Раньше это был голый экран без навигации и подвала; теперь —
+    та же оболочка v2, поиск и рубрики, чтобы человек не упирался в тупик. -#}
+
+{% block head_meta %}
+  <meta name="robots" content="noindex, follow" />
+  <meta name="description" content="Страница блога Persona не найдена." />
+{% endblock %}
+
+{% block content %}
+  <main class="blog-main" id="main">
+    <div class="blog-404">
+      <div class="em" aria-hidden="true">🕳️</div>
+      <h1>Такой статьи <span class="grad">нет</span></h1>
+      <p>Возможно, ссылка устарела или в адресе опечатка. Поищите по блогу — статья могла переехать на другой адрес.</p>
+      {{ search_form() }}
+      <a class="btn btn-primary btn-lg" href="/blog" style="margin-top:22px;display:inline-block">Все статьи</a>
+      {% if categories %}{{ chip_row(categories, 'category') }}{% endif %}
+    </div>
+  </main>
+{% endblock %}

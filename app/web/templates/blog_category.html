@@ -1,0 +1,107 @@
+{% extends "blog_base.html" %}
+{% from "_blog_macros.html" import absurl, post_card, chip_row, search_form, pager, listing,
+                                   term_slug, term_name,
+                                   pg_number, pg_total_pages, pg_total_items with context %}
+
+{#- Страница рубрики: /blog/category/{slug}.
+    Сознательно тот же экран, что и индекс — шапка, поиск, ряд рубрик, сетка,
+    пагинация. Отличаются заголовок, крошки и ItemList в разметке.
+    Роут кладёт рубрику в ``taxon`` (blog.Taxon); ``category`` и голая строка
+    поддержаны как фолбэк. -#}
+
+{%- set _term = (taxon if taxon is defined and taxon else (category if category is defined else '')) -%}
+{%- set _slug = (slug if slug is defined and slug else term_slug(_term)) | string -%}
+{%- set _name = (heading if heading is defined and heading else term_name(_term)) | string -%}
+{%- set _items = posts | default([]) -%}
+{%- set _page = pg_number() | int -%}
+{%- set _pages = pg_total_pages() | int -%}
+{%- set _total = pg_total_items(_items | length) | int -%}
+{%- set _path = '/blog/category/' ~ _slug -%}
+{%- set _canonical = (canonical if canonical is defined and canonical
+                      else absurl(_path if _page == 1 else _path ~ '?page=' ~ _page)) | string -%}
+{%- set _descr = (meta_description if meta_description is defined and meta_description
+                  else 'Статьи блога Persona в рубрике «' ~ _name ~ '»: разборы, гайды и сравнения без воды.') -%}
+{%- set _ld_types = (jsonld | default([])) | map(attribute='@type') | list -%}
+
+{% block head_meta %}
+  <meta name="description" content="{{ _descr }}" />
+  <link rel="canonical" href="{{ _canonical }}" />
+  {%- if _page > 1 %}<meta name="robots" content="noindex, follow" />{% endif %}
+  <meta property="og:site_name" content="Persona" />
+  <meta property="og:title" content="{{ _name }} — блог Persona" />
+  <meta property="og:description" content="{{ _descr }}" />
+  <meta property="og:type" content="website" />
+  <meta property="og:locale" content="ru_RU" />
+  <meta property="og:url" content="{{ _canonical }}" />
+  <meta property="og:image" content="{{ absurl('/static/icon-180.png') }}" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="{{ _name }} — блог Persona" />
+  <meta name="twitter:description" content="{{ _descr }}" />
+  <meta name="twitter:image" content="{{ absurl('/static/icon-180.png') }}" />
+  {%- if prev_url is defined and prev_url %}<link rel="prev" href="{{ prev_url }}" />{% endif %}
+  {%- if next_url is defined and next_url %}<link rel="next" href="{{ next_url }}" />{% endif %}
+{% endblock %}
+
+{% block head_extra %}
+  {%- if 'ItemList' not in _ld_types and 'CollectionPage' not in _ld_types %}
+  {%- set _li = [] %}
+  {%- for p in _items %}
+    {%- set _ = _li.append({"@type": "ListItem", "position": loop.index,
+                            "url": absurl('/blog/' ~ p.slug) | string, "name": p.title}) %}
+  {%- endfor %}
+  <script type="application/ld+json">{{ {
+    "@context": "https://schema.org",
+    "@type": "CollectionPage",
+    "name": _name ~ " — блог Persona",
+    "description": _descr | string,
+    "url": _canonical,
+    "inLanguage": "ru-RU",
+    "mainEntity": {"@type": "ItemList", "numberOfItems": _total, "itemListElement": _li}
+  } | tojson }}</script>
+  {%- endif %}
+  {%- if 'BreadcrumbList' not in _ld_types %}
+  <script type="application/ld+json">{{ {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      {"@type": "ListItem", "position": 1, "name": "Главная", "item": absurl('/') | string},
+      {"@type": "ListItem", "position": 2, "name": "Блог", "item": absurl('/blog') | string},
+      {"@type": "ListItem", "position": 3, "name": _name, "item": absurl(_path) | string}
+    ]
+  } | tojson }}</script>
+  {%- endif %}
+{% endblock %}
+
+{% block content %}
+  <main class="blog-main" id="main">
+    <nav class="breadcrumb" aria-label="Хлебные крошки">
+      <a href="/landing">Главная</a><span class="sep">/</span>
+      <a href="/blog">Блог</a><span class="sep">/</span>
+      <span>{{ _name }}</span>
+    </nav>
+
+    <div class="blog-head">
+      <p class="kicker">Рубрика</p>
+      <h1>{{ _name }}</h1>
+      <p>{{ _descr }}</p>
+      {{ search_form(live=true) }}
+    </div>
+
+    {% if categories %}
+    <nav class="blog-nav" aria-label="Рубрики">
+      <span class="blog-nav-lbl">Все рубрики</span>
+      {{ chip_row(categories, 'category', _slug) }}
+    </nav>
+    {% endif %}
+
+    {% call listing(_items, page=_page, total_pages=_pages, total=_total,
+                    pager_base=_path, live=true, count_word='Статей в рубрике') %}
+      <div class="blog-empty">
+        <div class="em" aria-hidden="true">🗂️</div>
+        <h2>В этой рубрике пока пусто</h2>
+        <p>Ни одной статьи в «{{ _name }}» ещё не опубликовано.</p>
+        <a class="btn btn-primary" href="/blog">Все статьи</a>
+      </div>
+    {% endcall %}
+  </main>
+{% endblock %}

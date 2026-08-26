@@ -2232,6 +2232,10 @@ async def api_send_stream(
                 user_row = await cursor.fetchone()
             user_msg_id = int(user_row["id"]) if user_row else 0
             await record_qa_pair(
+                # КТО говорил. Датасет дообучения — владельческий: строка
+                # появится, только если этот id резолвится как владелец
+                # (гейт внутри record_qa_pair, fail-closed).
+                user_id=int(session["user_id"]),
                 session_id=session_id,
                 user_message_id=user_msg_id,
                 asst_message_id=assistant_msg_id,
