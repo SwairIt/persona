@@ -153,9 +153,12 @@ async def test_csp_allows_every_resource_class_the_app_actually_loads(
     # Яндекс.Метрика: скрипт, пиксель, вебвизор (XHR + WebSocket)
     assert "https://mc.yandex.ru" in csp
     assert "wss://mc.yandex.ru" in csp
-    # Google Fonts на лендинге: CSS с googleapis, woff2 с gstatic
-    assert "https://fonts.googleapis.com" in csp
-    assert "https://fonts.gstatic.com" in csp
+    # Шрифты — свои, с /static/fonts/. Google-хостов в политике быть не должно:
+    # <link> на fonts.googleapis.com срабатывал до баннера согласия, поэтому его
+    # убрали вместе с разрешением в CSP (см. tests/test_no_third_party_fonts.py).
+    assert "fonts.googleapis.com" not in csp
+    assert "fonts.gstatic.com" not in csp
+    assert "font-src 'self' data:" in csp
     # 448 inline style= + Tailwind Play, который инжектит <style> в рантайме
     assert "style-src 'self' 'unsafe-inline'" in csp
     # data:/blob: картинки (SVG-фоны в CSS, createObjectURL-превью)

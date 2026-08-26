@@ -12,8 +12,8 @@ Scope rules
 * ``Content-Security-Policy`` goes on **HTML responses only**. Applying a
   policy to ``/static/sw.js`` would govern the service worker's own ``fetch``
   calls (it proxies cross-origin GETs — see ``static/sw.js:126``) and could
-  silently break Google Fonts / Metrika under the SW. Non-HTML responses do not
-  need a document policy.
+  silently break Metrika under the SW. Non-HTML responses do not need a
+  document policy.
 * ``Strict-Transport-Security`` only when the request actually arrived over
   HTTPS (direct TLS or ``X-Forwarded-Proto: https`` from the reverse proxy).
   Sending HSTS over plain http:// is ignored by browsers and pinning a
@@ -54,17 +54,23 @@ static bundles actually load, not from a template. Every source is justified:
       first-party code or vendor bundles (the only ``WebAssembly`` string is a
       highlight.js *grammar name*).
 
-``style-src 'self' 'unsafe-inline' https://fonts.googleapis.com``
+``style-src 'self' 'unsafe-inline'``
     448 inline ``style="…"`` attributes across 94 templates, 39 ``<style>``
     blocks, **and** ``vendor/tailwind-play.js`` — the Tailwind Play JIT, which
     injects a generated ``<style>`` element at runtime on every page. Alpine's
     ``x-transition``/``x-show`` also writes ``element.style`` directly.
-    ``'unsafe-inline'`` is unavoidable until Tailwind is precompiled.
-    ``fonts.googleapis.com`` serves the landing page's Space Grotesk CSS.
+    ``'unsafe-inline'`` is unavoidable until Tailwind is precompiled. No
+    off-origin style host is listed: the landing/blog font CSS used to come
+    from Google Fonts and is now served from ``/static/fonts/fonts.css``.
 
-``font-src 'self' data: https://fonts.gstatic.com``
-    ``fonts.gstatic.com`` is where the Google CSS points its ``@font-face``
-    ``src``. ``data:`` is defensive (no data: font is used today, but an
+``font-src 'self' data:``
+    Every web font is self-hosted under ``/static/fonts/`` (Space Grotesk,
+    Inter, JetBrains Mono — SIL OFL 1.1, latin/latin-ext/cyrillic subsets).
+    The Google hosts were dropped from ``style-src``/``font-src`` together
+    with the ``<link>`` tags: those fired on first paint, ahead of the
+    consent banner and regardless of ``persona_consent``, so every visitor's
+    IP and User-Agent reached Google — a third party ``/privacy-policy`` §7
+    never listed. ``data:`` is defensive (no data: font is used today, but an
     inlined icon font is a one-line change that would otherwise 404 silently).
 
 ``img-src 'self' data: blob: https:``
@@ -175,8 +181,8 @@ def _policy(*, frame_ancestors: str) -> str:
         (
             "default-src 'self'",
             f"script-src 'self' 'unsafe-inline' 'unsafe-eval' {_YANDEX_SCRIPT}",
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-            "font-src 'self' data: https://fonts.gstatic.com",
+            "style-src 'self' 'unsafe-inline'",
+            "font-src 'self' data:",
             f"img-src 'self' data: blob: https: {_YANDEX_IMG}",
             f"connect-src 'self' http://127.0.0.1:8770 {_YANDEX_CONNECT}",
             "media-src 'self' blob:",
@@ -202,8 +208,8 @@ CSP_REPORT_ONLY = "; ".join(
     (
         "default-src 'self'",
         f"script-src 'self' {_YANDEX_SCRIPT}",
-        "style-src 'self' https://fonts.googleapis.com",
-        "font-src 'self' https://fonts.gstatic.com",
+        "style-src 'self'",
+        "font-src 'self'",
         f"img-src 'self' data: blob: {_YANDEX_IMG}",
         f"connect-src 'self' {_YANDEX_CONNECT}",
         "media-src 'self' blob:",

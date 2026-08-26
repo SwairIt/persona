@@ -1,0 +1,81 @@
+{#
+   Оболочка публичного блога.
+
+   Наследует НЕ base.html (это оболочка кабинета), а собственный каркас —
+   как и лендинг. Ключевое отличие от прежних standalone-шаблонов блога:
+   грузится дизайн-система v2 (``landing_v2/style.css``), а не v1
+   (``landing/style.css``). Блог и лендинг перестают быть двумя разными
+   продуктами: одна пилюля-нав, один фон-космос, одни токены, один подвал.
+
+   Все статические ассеты — с ``?v={{ app_version }}``: у blog.css кэш-бастера
+   не было вовсе, а его кэширует Service Worker.
+
+   Публичные страницы — хардкод по-русски, без ``t()`` (конвенция проекта).
+
+   Блоки для наследников:
+     head_meta   — description/canonical/og/twitter
+     head_extra  — JSON-LD и прочее в <head>
+     body_top    — прогресс чтения и т.п. первым элементом <body>
+     content     — тело страницы
+     body_end    — доп. скрипты
+#}
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#030014" />
+  <title>{{ title }}</title>
+  {% block head_meta %}{% endblock %}
+
+  <link rel="manifest" href="/static/manifest.json?v={{ app_version }}" />
+  <link rel="apple-touch-icon" href="/static/icon-180.png?v={{ app_version }}" />
+  <link rel="alternate" type="application/rss+xml" title="Блог Persona — RSS"
+        href="{{ rss_url | default('/blog/rss.xml') }}" />
+
+  {# Шрифты — свои, с /static/fonts/ (Space Grotesk / Inter / JetBrains Mono,
+     SIL OFL 1.1). Раньше здесь стоял <link> на CSS Google Fonts: он
+     срабатывал на первой отрисовке, до баннера согласия и независимо от
+     cookie `persona_consent`, поэтому Google видел IP и User-Agent каждого
+     посетителя — при том что /privacy-policy §7 его не упоминал. Подробности
+     и состав подмножеств — в шапке fonts.css. #}
+  <link rel="stylesheet" href="/static/fonts/fonts.css?v={{ app_version }}" />
+
+  <style>
+    :root{color-scheme:dark}
+    html,body{margin:0;background:#030014;color:#f4f0ff}
+  </style>
+  <link rel="stylesheet" href="/static/landing_v2/style.css?v={{ app_version }}" />
+  <link rel="stylesheet" href="/static/blog/blog.css?v={{ app_version }}" />
+
+  {#- Микроразметку строит движок (blog.post_jsonld / itemlist_jsonld) и
+      кладёт готовыми словарями в ``jsonld``. Шаблон только сериализует —
+      один источник правды на страницу, без второй копии схемы в разметке.
+      Пока роут её не отдаёт, каждый шаблон собирает свои блоки в head_extra. -#}
+  {%- for _ld in (ld_blocks if ld_blocks is defined else (jsonld | default([]))) %}
+  <script type="application/ld+json">{{ _ld | tojson }}</script>
+  {%- endfor %}
+
+  {% block head_extra %}{% endblock %}
+
+  {# Яндекс.Метрика (счётчик 111901324) — публичная маркетинговая страница. #}
+  {% include "_metrika.html" %}
+</head>
+<body class="{% block body_class %}{% endblock %}">
+  <a href="#main" class="skip-link">Перейти к содержанию</a>
+  {% block body_top %}{% endblock %}
+
+  {# CSS-постер «космоса» — тот же фон, что на лендинге, но без WebGL:
+     длинный текст не должен соревноваться со звёздами за GPU. #}
+  <div class="bh-fallback" aria-hidden="true"></div>
+
+  {% include "_public_nav.html" %}
+
+  {% block content %}{% endblock %}
+
+  {% include "_public_footer.html" %}
+
+  <script src="/static/blog/blog.js?v={{ app_version }}" defer></script>
+  {% block body_end %}{% endblock %}
+</body>
+</html>

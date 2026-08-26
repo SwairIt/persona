@@ -40,9 +40,13 @@
   <link rel="manifest" href="/static/manifest.json" />
   <link rel="apple-touch-icon" href="/static/icon-180.png" />
 
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet" />
+  {# Шрифты — свои, с /static/fonts/ (Space Grotesk / Inter / JetBrains Mono,
+     SIL OFL 1.1). Раньше здесь стоял <link> на CSS Google Fonts: он
+     срабатывал на первой отрисовке, до баннера согласия и независимо от
+     cookie `persona_consent`, поэтому Google видел IP и User-Agent каждого
+     посетителя — при том что /privacy-policy §7 его не упоминал. Подробности
+     и состав подмножеств — в шапке fonts.css. #}
+  <link rel="stylesheet" href="/static/fonts/fonts.css?v={{ app_version }}" />
 
   <style>
     :root{color-scheme:dark}
@@ -394,8 +398,34 @@
         </div>
         <a href="/blog" class="blog-all reveal">Все статьи →</a>
       </div>
+      {#- Ряд рубрик настоящими ссылками: /blog/category/{slug} индексируется,
+          в отличие от клиентского фильтра.
+
+          Слаг берём ТОЛЬКО из данных (Taxon.slug либо BlogPost.category_slug)
+          и никогда не подставляем в URL отображаемое имя: роут ищет рубрику
+          по слагу, и «/blog/category/Основы» — это гарантированный 404.
+          Пока роут лендинга не передаёт categories, собираем ряд из
+          показанных статей, чтобы строка была непустой уже сегодня. -#}
+      {%- set _hb_cats = [] %}
+      {%- if categories is defined and categories %}
+        {%- for c in categories %}{% set _ = _hb_cats.append({'slug': c.slug, 'name': c.name}) %}{% endfor %}
+      {%- else %}
+        {%- for p in posts %}
+          {%- if p.category_slug not in (_hb_cats | map(attribute='slug') | list) %}
+            {%- set _ = _hb_cats.append({'slug': p.category_slug, 'name': p.category}) %}
+          {%- endif %}
+        {%- endfor %}
+      {%- endif %}
+      {% if _hb_cats %}
+      <ul class="home-blog-cats reveal">
+        {%- for c in _hb_cats[:8] %}
+        <li><a href="/blog/category/{{ c.slug }}">{{ c.name }}</a></li>
+        {%- endfor %}
+      </ul>
+      {% endif %}
+
       <div class="home-posts">
-        {% for p in posts %}
+        {% for p in posts[:6] %}
         <a class="hpost" data-card data-tilt href="/blog/{{ p.slug }}">
           <span class="hpost-cover">{{ p.cover }}</span>
           <span class="hpost-cat">{{ p.category }}</span>
@@ -405,6 +435,12 @@
         </a>
         {% endfor %}
       </div>
+
+      <p class="home-blog-foot reveal">
+        Новые статьи — в <a href="{{ rss_url | default('/blog/rss.xml') }}">RSS-ленте</a>
+        <span aria-hidden="true">·</span>
+        <a href="/blog">весь блог</a>
+      </p>
     </section>
     {% endif %}
 
