@@ -32,6 +32,12 @@ def _isolated_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Itera
     # каждый тест, дошедший до delivery_status(), стучался бы в релей из .env
     # разработчика. Тесты, которым проба нужна, включают её сами.
     monkeypatch.setenv("PERSONA_MAIL_PROBE", "0")
+    # ...и заодно НЕ наследуем выбор транспорта и ключ провайдера из ``.env``
+    # оператора: pydantic читает этот файл с диска, поэтому без явной пустой
+    # переменной тест «полный SMTP-конфиг доставляем» молча проверял бы чужой
+    # http_api без ключа. Пустая строка, а не delenv, — env перебивает файл.
+    monkeypatch.setenv("PERSONA_MAIL_TRANSPORT", "")
+    monkeypatch.setenv("PERSONA_RESEND_API_KEY", "")
     monkeypatch.delenv("PERSONA_TESSERACT_PATH", raising=False)
 
     get_settings.cache_clear()  # type: ignore[attr-defined]

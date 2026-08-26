@@ -43,8 +43,22 @@
     <div class="mb-5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
       <b>{{ t('support_mail_broken') }}</b> (<code>{{ mail_status }}</code>)
       Скопируй адрес и ответь из своего почтового клиента.
-      Починить — <a href="/settings/smtp" class="underline">/settings/smtp</a>
-      (сейчас пустые <code>smtp_host</code> / <code>smtp_from</code>).
+      {# Диагноз следует за статусом: раньше здесь висело «пустые smtp_host /
+         smtp_from» независимо от причины, и владелец шёл чинить не то. #}
+      {% if mail_status == 'no_credentials' %}
+        Нет ключа почтового провайдера: заведи его на resend.com и положи в
+        <code>PERSONA_RESEND_API_KEY</code> (.env) или в файл
+        <code>{PERSONA_DATA_DIR}/resend_api_key</code>. В БД ключ не кладём.
+      {% elif mail_status == 'unreachable' %}
+        До почтового транспорта не доходит TCP — на этом сервере исходящие
+        SMTP-порты (25/465/587/2525) закрыты файрволом. Смена релея не поможет:
+        нужен <code>PERSONA_MAIL_TRANSPORT=http_api</code> (отправка по HTTPS).
+      {% elif mail_status == 'missing_dep' %}
+        Не установлен <code>aiosmtplib</code>.
+      {% else %}
+        Починить — <a href="/settings/smtp" class="underline">/settings/smtp</a>
+        (проверь <code>smtp_host</code> / <code>smtp_from</code> и переключатель).
+      {% endif %}
     </div>
   {% endif %}
 
