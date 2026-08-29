@@ -148,6 +148,7 @@ from app.web.routes import (
     system_monitor as system_monitor_routes,
     heatmap as heatmap_routes,
     hour_histogram as hour_histogram_routes,
+    habr_img as habr_img_routes,
     help as help_routes,
     ics_export as ics_export_routes,
     icons as icons_routes,
@@ -641,6 +642,8 @@ def create_app() -> FastAPI:
     app.include_router(process_remap_routes.router)
     app.include_router(journal_export_routes.router)
     app.include_router(about_routes.router)
+    # Скриншоты статьи по прямой ссылке — путь публичный (см. auth_gate).
+    app.include_router(habr_img_routes.router)
     app.include_router(billing_routes.router)
     app.include_router(onboarding_routes.router)
     app.include_router(range_timeline_routes.router)

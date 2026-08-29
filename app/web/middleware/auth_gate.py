@@ -89,6 +89,10 @@ _PUBLIC_PREFIXES: tuple[str, ...] = (
     "/auth/",
     "/help",
     "/static/",
+    # Скриншоты к статье на Хабре (app/web/routes/habr_img.py). За картинкой
+    # в опубликованной статье читатель и сам Хабр идут БЕЗ куки: заверни их
+    # гейт на /landing — и в статье будут битые картинки.
+    "/habr-img/",
     "/healthz",
     "/api/health.json",
     # Приёмник первосторонней аналитики (static/track.js → POST /api/track).
@@ -181,7 +185,7 @@ def _is_public_path(path: str) -> bool:
 #: Пути, которые отдаёт файловый мидлварь, а не шаблон: личность им не нужна,
 #: поэтому гейт пропускает их до всякого обращения к БД. Держать список
 #: узким — сюда попадает только то, что заведомо не рендерит ``base.html``.
-_ASSET_PREFIXES: tuple[str, ...] = ("/static/",)
+_ASSET_PREFIXES: tuple[str, ...] = ("/static/", "/habr-img/")
 
 
 def _is_asset_path(path: str) -> bool:
