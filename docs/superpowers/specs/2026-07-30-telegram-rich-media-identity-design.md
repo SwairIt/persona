@@ -84,7 +84,7 @@ JSON с участниками длиннее 2 000 символов, поэто
 Проверка по базе (`C:\Users\Yaroslav\.persona\persona.db`):
 
 ```
-telegram_user_id=2133993638 username=YaroslavEmpty first_name='Empty'
+telegram_user_id=1000000001 username=example_user first_name='Empty'
 display_name='Empty' is_owner=1 message_count=83
 ```
 

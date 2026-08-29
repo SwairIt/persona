@@ -45,7 +45,7 @@ def test_identity_block_never_reaches_the_chat() -> None:
         "Конечно, вот два новых стикера. "
         "<TRUSTED_TELEGRAM_IDENTITY>\n"
         "AUTHORITATIVE CURRENT TELEGRAM TURN:\n"
-        "- current_message_author_id=2133993638\n"
+        "- current_message_author_id=1000000001\n"
         "- current_message_author_name=Empty\n"
         "</TRUSTED_TELEGRAM_IDENTITY>"
     )
@@ -328,7 +328,7 @@ async def test_owner_override_survives_new_messages(db) -> None:
         persona_user_id=7,
         owner_telegram_user_id=100,
         chat_id=-5,
-        sender={"id": 100, "first_name": "Empty", "username": "YaroslavEmpty"},
+        sender={"id": 100, "first_name": "Empty", "username": "example_user"},
         message_id=1,
         text="привет",
     )
@@ -340,7 +340,7 @@ async def test_owner_override_survives_new_messages(db) -> None:
         persona_user_id=7,
         owner_telegram_user_id=100,
         chat_id=-5,
-        sender={"id": 100, "first_name": "Empty", "username": "YaroslavEmpty"},
+        sender={"id": 100, "first_name": "Empty", "username": "example_user"},
         message_id=2,
         text="ещё раз привет",
     )
@@ -472,7 +472,7 @@ async def test_identity_context_uses_owner_override_and_separates_trust(db) -> N
         persona_user_id=7,
         owner_telegram_user_id=100,
         chat_id=-5,
-        sender={"id": 100, "first_name": "Empty", "username": "YaroslavEmpty"},
+        sender={"id": 100, "first_name": "Empty", "username": "example_user"},
         message_id=1,
         text="я люблю архитектуру",
     )

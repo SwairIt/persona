@@ -7,7 +7,7 @@
 - Новая тема кабинета — ФИОЛЕТОВАЯ по умолчанию (в стиле лендинга).
 - Порядок: п.1 авторизация → п.2 кабинет → п.3 span → п.4 чат → голос. Коммит+пуш+рестарт после каждой задачи.
 - Bypass permissions включён. Боевой сервер: uvicorn :8000, рестарт через Stop-Process по app.web.main + Start-Process (lean, env PERSONA_DATA_DIR). watchdog поднимает сам через ~3 мин.
-- Владелец user_id=2 (yorikoneno@gmail.com). Тест входа в браузере: создать magic-link через app.auth.magic.create_magic_link, открыть /auth/magic/<token>.
+- Владелец user_id=2 (owner@example.com). Тест входа в браузере: создать magic-link через app.auth.magic.create_magic_link, открыть /auth/magic/<token>.
 - Версия: бампать app/__init__.py + sw.js каждый коммит.
 - В конце: время окончания по МСК + число строк кода, выключить луп.
 

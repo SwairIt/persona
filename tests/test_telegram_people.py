@@ -138,7 +138,7 @@ async def test_owner_override_beats_a_useless_telegram_first_name(db) -> None:
         persona_user_id=7,
         owner_telegram_user_id=100,
         chat_id=-5,
-        sender={"id": 200, "first_name": "Empty", "username": "YaroslavEmpty"},
+        sender={"id": 200, "first_name": "Empty", "username": "example_user"},
         message_id=1,
         text="привет",
     )
@@ -156,7 +156,7 @@ async def test_owner_override_beats_a_useless_telegram_first_name(db) -> None:
     assert 'current_message_author_name="Ярослав"' in context
     # The stable handle stays visible alongside the name, and the numeric id
     # remains the only thing that decides who the owner is.
-    assert 'current_message_author_username="@YaroslavEmpty"' in context
+    assert 'current_message_author_username="@example_user"' in context
     assert "- current_message_author_id=200" in context
 
 
@@ -198,7 +198,7 @@ async def test_owner_authored_override_still_wins_over_username(db) -> None:
         persona_user_id=7,
         owner_telegram_user_id=100,
         chat_id=-5,
-        sender={"id": 200, "first_name": "Empty", "username": "YaroslavEmpty"},
+        sender={"id": 200, "first_name": "Empty", "username": "example_user"},
         message_id=1,
         text="привет",
     )
@@ -215,7 +215,7 @@ async def test_owner_authored_override_still_wins_over_username(db) -> None:
     # the (unchanged, participant-controlled) username still legitimately
     # appears in its own current_message_author_username= field.
     assert 'current_message_author_name="Ярослав"' in context
-    assert 'current_message_author_username="@YaroslavEmpty"' in context
+    assert 'current_message_author_username="@example_user"' in context
 
 
 async def test_hostile_username_cannot_inject_into_authoritative_header(db) -> None:
@@ -276,7 +276,7 @@ async def test_trusted_owner_notes_stay_bare_id_when_person_has_a_username(db) -
         persona_user_id=7,
         owner_telegram_user_id=100,
         chat_id=-5,
-        sender={"id": 200, "first_name": "Empty", "username": "YaroslavEmpty"},
+        sender={"id": 200, "first_name": "Empty", "username": "example_user"},
         message_id=1,
         text="привет",
     )
@@ -290,7 +290,7 @@ async def test_trusted_owner_notes_stay_bare_id_when_person_has_a_username(db) -
         chat_id=-5,
     )
     assert "[tg_user_id=200]: это Олег, коллега" in context
-    assert "YaroslavEmpty [tg_user_id=200]" not in context
+    assert "example_user [tg_user_id=200]" not in context
 
 
 async def test_identity_context_bounds_many_long_stored_claims(db) -> None:
@@ -783,7 +783,7 @@ async def test_owner_override_survives_new_messages(db) -> None:
         persona_user_id=7,
         owner_telegram_user_id=100,
         chat_id=-5,
-        sender={"id": 100, "first_name": "Empty", "username": "YaroslavEmpty"},
+        sender={"id": 100, "first_name": "Empty", "username": "example_user"},
         message_id=1,
         text="привет",
     )
@@ -795,7 +795,7 @@ async def test_owner_override_survives_new_messages(db) -> None:
         persona_user_id=7,
         owner_telegram_user_id=100,
         chat_id=-5,
-        sender={"id": 100, "first_name": "Empty", "username": "YaroslavEmpty"},
+        sender={"id": 100, "first_name": "Empty", "username": "example_user"},
         message_id=2,
         text="ещё раз привет",
     )
@@ -1132,7 +1132,7 @@ def test_identity_block_never_reaches_the_chat() -> None:
         "Конечно, вот два новых стикера. "
         "<TRUSTED_TELEGRAM_IDENTITY>\n"
         "AUTHORITATIVE CURRENT TELEGRAM TURN:\n"
-        "- current_message_author_id=2133993638\n"
+        "- current_message_author_id=1000000001\n"
         "- current_message_author_name=Empty\n"
         "</TRUSTED_TELEGRAM_IDENTITY>"
     )

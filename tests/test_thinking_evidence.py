@@ -40,7 +40,7 @@ async def test_evidence_names_the_owner_when_resolvable(db) -> None:
     await _owner_message(db, 7, "Сегодня был длинный день.")
     await db.execute(
         "INSERT INTO telegram_person(persona_user_id, telegram_user_id, "
-        "display_name, is_owner) VALUES(7, 2133993638, 'Ярослав', 1)"
+        "display_name, is_owner) VALUES(7, 1000000001, 'Ярослав', 1)"
     )
     await db.commit()
 
@@ -66,11 +66,11 @@ async def test_evidence_prefers_owner_authored_override_name(db) -> None:
     await _owner_message(db, 7, "Сегодня был длинный день.")
     await db.execute(
         "INSERT INTO telegram_person(persona_user_id, telegram_user_id, "
-        "display_name, is_owner) VALUES(7, 2133993638, 'RawTelegramName', 1)"
+        "display_name, is_owner) VALUES(7, 1000000001, 'RawTelegramName', 1)"
     )
     await db.commit()
     await TelegramPeopleRepository().set_override(
-        7, 2133993638, display_name="Ярослав", note="", ignored=False
+        7, 1000000001, display_name="Ярослав", note="", ignored=False
     )
 
     evidence = await gather_evidence(7)

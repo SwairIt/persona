@@ -1,442 +1,323 @@
-# Persona
+<div align="center">
 
-**A personal AI with long-term memory. Free. Bring your own model.**
+# ● Persona
 
-Persona is a self-hostable personal AI: a chat assistant with persistent memory,
-a memory graph, voice, and skills — plus, on the machine that runs it, a screen
-capture pipeline that OCRs every frame and builds a searchable timeline of your
-digital life. Ask it "what was that PDF I was reading on Tuesday?" — get an
-answer in milliseconds.
+**Личный ИИ-ассистент с долгой памятью. На твоём железе. С твоей моделью.**
 
-You can run it yourself, or register on the hosted instance
-(<https://persona.getdoday.ru>) and connect your own LLM key. Registration is
-free and open; nothing is being sold today.
+*A self-hosted personal AI assistant with long-term memory. Your hardware, your model, your data.*
 
----
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-7c3aed.svg?style=flat-square)](LICENSE)
+[![Python](https://img.shields.io/badge/Python-3.12+-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![SQLite](https://img.shields.io/badge/SQLite-003B57?style=flat-square&logo=sqlite&logoColor=white)](https://www.sqlite.org/)
+[![Ollama](https://img.shields.io/badge/Ollama-local_LLM-000000?style=flat-square)](https://ollama.com/)
+[![Live demo](https://img.shields.io/badge/demo-persona.getdoday.ru-a78bfa?style=flat-square)](https://persona.getdoday.ru)
 
-## What it is
+[🇷🇺 Русский](#-persona--личный-ии-с-памятью) · [🇬🇧 English](#-persona--a-personal-ai-that-remembers) · [🌐 persona.getdoday.ru](https://persona.getdoday.ru)
 
-- **Free today** — anyone can register on the hosted instance at no cost. There
-  is no trial, no subscription and no paywall being sold right now. A Pro tier
-  (`app/billing/`, migration 193) exists in the codebase but is dormant: the
-  Pro card on `/pricing` is commented out and the checkout, webhook and
-  recurring-payment slices were never implemented. See
-  [`docs/BILLING_PLAN.md`](docs/BILLING_PLAN.md).
-- **Bring your own model** — every registered non-owner user connects their own
-  LLM: a cloud API key (OpenRouter, Groq, DeepSeek, Anthropic, OpenAI, Gemini,
-  ProxyAPI, AITunnel, …) or their own Ollama URL. Step-by-step guide at
-  `/help/connect-llm`. The instance owner's model — the owner's PC worker and
-  the owner's local Ollama — is strictly inaccessible to other users.
-- **Your data is a SQLite file** — self-hosted, everything lives in `data/` on
-  your own disk. The HTTP server binds to `127.0.0.1` by default; you decide
-  whether to expose it.
-- **Multi-user, partly** — chat, personal memory, the memory graph, voice,
-  skills, character prompt, theme and language are per-user. Screen/audio
-  capture, timeline, search, notes, reminders, dashboards, stats, Telegram, the
-  thinking loop, dreams and the briefing remain **owner-only**: capture data is
-  still global and single-tenant by design. Multi-tenant capture is a future
-  phase, not a shipped feature.
-- **Batteries included** — ~100+ HTTP endpoints, ~25 background workers,
-  hundreds of tests.
+<img src="docs/habr-screenshots/01-landing.jpg" alt="Persona — личный ИИ-ассистент с приватной памятью" width="820">
+
+</div>
 
 ---
 
-## Who can use an instance
+# 🇷🇺 Persona — личный ИИ с памятью
 
-Persona has one **owner** — the account that owns the machine, the capture
-pipeline and the global configuration — and any number of **members**.
+Обычные ассистенты забывают тебя после каждой вкладки. Persona — нет.
 
-| | Owner | Member |
-|---|---|---|
-| Chat with memory, memory graph, voice, skills | ✅ | ✅ |
-| Own character prompt, theme, language, profile | ✅ | ✅ |
-| LLM | owner's PC worker / owner's Ollama / any key | **own key or own Ollama, required** |
-| Screen & audio capture, timeline, search | ✅ | ❌ |
-| Notes, reminders, dashboards, stats | ✅ | ❌ |
-| Telegram, thinking loop, dreams, briefing | ✅ | ❌ |
+Это **самостоятельно разворачиваемый ИИ-ассистент**, который помнит твои разговоры,
+строит из них граф связей и работает **на твоей модели** — облачный ключ или локальная
+Ollama. Данные лежат в SQLite у тебя, а не в чужом облаке.
 
-Member-reachable routes are an explicit allowlist (`_MEMBER_PREFIXES` in
-`app/web/middleware/auth_gate.py`); everything else answers 403 or redirects to
-`/chat`. Per-user settings live in the `user_settings` table (migration 228),
-separate from the owner's global `kv`.
+> 🎯 **Коротко:** приватный ИИ-помощник, который знает твой контекст. Без подписки,
+> без обязательного облака, с открытым кодом.
 
----
+**Попробовать без установки:** [persona.getdoday.ru](https://persona.getdoday.ru) —
+регистрация открыта и бесплатна, приходишь со своим ключом к модели.
 
-## Quick start
+## ✨ Что умеет
 
-Requires **Python 3.12+** and [uv](https://docs.astral.sh/uv/).
+| | |
+|---|---|
+| 💬 **Чат с памятью** | Перед ответом ассистент подтягивает релевантное из всех прошлых бесед: FTS5 с ранжированием bm25, опционально — гибридный поиск с векторами. Отдельным блоком подмешиваются личные факты о тебе. |
+| 🕸 **Граф памяти** | Промпты, ответы, сущности и связи между ними. Живая force-directed раскладка, а не картинка. |
+| 🎥 **Захват дня** | Скриншоты рабочего экрана с дедупликацией по перцептивному хэшу, OCR, распознавание активного окна, аудио. С квотами, тихими часами и блоклистом приложений. |
+| 🗞 **Сводки и брифинг** | Часовые карточки, дневные пины, недельные сводки, проактивные карточки «что было важного». |
+| 🎙 **Голос** | Разговор hands-free: орб-микрофон, VAD, синтез речи. |
+| 🧩 **Навыки и автоматизация** | Наборы инструкций из GitHub (`SKILL.md`), браузер-агент, MCP-рантайм со встроенными инструментами. |
+| 🔒 **Vault** | Зашифрованные заметки. Секреты участников шифруются в покое. |
+| 👥 **Мультипользовательский режим** | Регистрация открыта, каждый приходит со своим ключом. Данные захвата — только у владельца инстанса, участник видит строго своё. |
+| 🎨 **Пять тем** | `dark`, `light`, `persona`, `cosmos` и `cosmos-dark` — последние две с живой 3D-сценой за кабинетом. |
+| 📊 **И ещё** | Блог-движок, аналитика, аудит-лог, резервные копии, Telegram-бот, интеграция с Алисой, экспорт напоминаний в `.ics`. |
 
-```powershell
-git clone https://github.com/SwairIt/Persona.git
-cd Persona
-uv sync
-copy .env.example .env
-uv run uvicorn app.web.main:app --host 127.0.0.1 --port 8765 --reload
+## 🖼 Как это выглядит
+
+<table>
+<tr>
+<td width="50%"><img src="docs/habr-screenshots/02-chat.jpg" alt="Чат с ИИ-ассистентом и приватной памятью"><br><sub><b>Чат с памятью</b></sub></td>
+<td width="50%"><img src="docs/habr-screenshots/04-graph.jpg" alt="Граф памяти: сущности и связи между разговорами"><br><sub><b>Граф памяти</b></sub></td>
+</tr>
+<tr>
+<td><img src="docs/habr-screenshots/05-dashboard.jpg" alt="Дашборд Persona — что происходит прямо сейчас"><br><sub><b>Дашборд «Сейчас»</b></sub></td>
+<td><img src="docs/habr-screenshots/11-theme-cosmos.jpg" alt="Космическая тема интерфейса Persona"><br><sub><b>Тема cosmos</b></sub></td>
+</tr>
+</table>
+
+<details>
+<summary>🎨 Ещё темы — dark, light, persona, cosmos-dark</summary>
+<br>
+<table>
+<tr>
+<td width="50%"><img src="docs/habr-screenshots/11-theme-dark.jpg" alt="Тёмная тема"><br><sub><code>dark</code></sub></td>
+<td width="50%"><img src="docs/habr-screenshots/11-theme-light.jpg" alt="Светлая тема"><br><sub><code>light</code></sub></td>
+</tr>
+<tr>
+<td><img src="docs/habr-screenshots/11-theme-persona.jpg" alt="Фирменная фиолетовая тема"><br><sub><code>persona</code></sub></td>
+<td><img src="docs/habr-screenshots/11-theme-cosmos-dark.jpg" alt="Тёмная космическая тема"><br><sub><code>cosmos-dark</code></sub></td>
+</tr>
+</table>
+</details>
+
+## 🚀 Быстрый старт
+
+```bash
+git clone https://github.com/SwairIt/persona.git
+cd persona
+
+python -m venv .venv
+.venv\Scripts\activate          # Windows
+# source .venv/bin/activate     # macOS / Linux
+
+pip install -e .
+cp .env.example .env            # заполнять не обязательно: всё настраивается через UI
+
+python -m uvicorn app.web.main:create_app --factory --host 127.0.0.1 --port 8000
 ```
 
-> **Contributing?** Run `sh ops/install_hooks.sh` once per clone (or
-> `powershell -File ops\install_hooks.ps1`). It installs a pre-commit hook that
-> refuses any commit containing an API key, token, private key or `.env` file.
-> Your secrets belong in `.env` and `~/.persona/` — see
-> [docs/SECRET_HYGIENE.md](docs/SECRET_HYGIENE.md).
+Открываешь <http://127.0.0.1:8000>, регистрируешься — **первый зарегистрировавшийся
+становится владельцем инстанса**. Дальше в `/settings/llm` подключаешь модель:
+ключ к облачному провайдеру или локальную Ollama.
 
-Open <http://127.0.0.1:8765> in your browser. On first run you will land on **`/setup`** — a guided wizard that walks you through:
-
-1. Confirming the data folder location.
-2. Picking a theme and capture cadence.
-3. (Optional) Pointing at a Tesseract binary to enable OCR.
-4. (Optional) Pasting a BYO LLM API key for digests and Q&A.
-5. (Optional) Setting a vault master password for encrypted notes and backups.
-
-Once the wizard finishes, click **Start capture** in Settings and the timeline begins to fill up.
-
-### Enabling OCR
-
-1. Install Tesseract (Windows: <https://github.com/UB-Mannheim/tesseract/wiki>).
-2. Edit `.env`:
-   ```
-   PERSONA_TESSERACT_PATH=C:\Program Files\Tesseract-OCR\tesseract.exe
-   PERSONA_OCR_ENABLED=true
-   ```
-3. Restart. New captures are OCR-indexed; old ones are backfilled in the background by the OCR worker.
-
----
-
-## Headless / run anywhere (Docker)
-
-Persona ships a `Dockerfile` and `docker-compose.yml` so you can run the web
-server on any host (a VPS, a NAS, a CI box) without installing Python or `uv`.
+<details>
+<summary>🐳 Через Docker</summary>
 
 ```bash
 docker compose up -d
 # → http://localhost:8000
 ```
 
-Data lives in the `./data` folder on the host (mounted at `/data` inside the
-container), so the database, thumbnails, inbox, and backups survive container
-rebuilds. Stop with `docker compose down`; your timeline stays put.
+Данные складываются в том, примонтированный к `~/.persona`. Захват экрана в контейнере
+недоступен — для него нужен агент на самой машине (`/welcome/install/mac`,
+`/welcome/install/windows`).
+</details>
 
-**Important caveat — capture does NOT work in a container.** A Docker
-container has no display, no X server, and no Windows desktop session, so
-`mss` cannot grab the screen and `pygetwindow` cannot read the active window.
-There is no screenshot pipeline inside the container. For that reason the image
-runs in **LEAN mode** (`PERSONA_LEAN_MODE=1`): the ~40 background workers
-(capture, OCR, retention, schedulers…) are disabled and only the web server
-runs.
+<details>
+<summary>⚙️ Что нужно для отдельных функций</summary>
 
-So Docker = **headless / agent-ingest mode**, not the full capture experience:
-
-- Browse and search a `data/` folder produced elsewhere (copy your existing
-  `data/` next to the compose file before `up`).
-- Receive uploads from external agents (e.g. the `mac-agent/` daemon) over
-  HTTP and serve the timeline / API.
-- Run the read-only web UI, exports, feeds, and `/api/*` on a server.
-
-If you want live screen capture, run Persona natively on the machine whose
-screen you want to record (see **Quick start** above) — that is the supported
-capture path.
-
-OCR of *uploaded* images still works inside the container: the base image
-includes `tesseract-ocr` (with the `rus` language pack). An optional `ollama`
-service is included (commented out) in `docker-compose.yml` for BYO local-LLM
-digests/chat.
-
----
-
-## Key features
-
-**Timeline & search**
-- Day-by-day scrollable timeline with thumbnails, app names, window titles, OCR snippets.
-- **FTS5 full-text search** over OCR text + window titles + app names — sub-millisecond queries on millions of rows.
-- Optional **semantic search** via local ONNX embeddings (`fastembed` + `multilingual-e5-small`) — find by meaning, not just keywords. Hybrid keyword + semantic ranking.
-- Search facets, saved searches, autocomplete, regex rules.
-
-**Capture pipeline**
-- Cross-platform screen capture via `mss`, active-window detection via `pygetwindow`.
-- Perceptual-hash dedup skips near-duplicate frames.
-- Adaptive cadence: speeds up when you switch apps, slows down when idle.
-- Battery-aware throttling, lock-aware pause, configurable quiet hours, per-app whitelist / blocklist / capture-skip rules.
-- Rate guard against runaway capture (warn + auto-pause thresholds per hour).
-
-**OCR with redaction**
-- Tesseract-backed, multilingual (`eng+rus` out of the box).
-- **Redaction rules** strip secrets (emails, phone numbers, regex-defined patterns) from OCR text *before* it hits the database.
-- Optional **LLM vision fallback** for low-confidence frames (Anthropic Claude vision).
-- Per-language stats, error-rate dashboard, find-and-replace across the corpus.
-
-**BYO LLM digests**
-- Daily TL;DR, weekly digest, monthly retrospective — all generated by your own LLM with your own key.
-- Per-app digests, auto-tagging, note drafting, Q&A over your timeline.
-- Anti-FOMO mode: qualitative themes only, no counts / percentages / "productivity score" guilt.
-- Scheduler workers fire just before midnight so the next morning loads instantly.
-
-**Sharing & export**
-- **Share links** with optional expiry and access analytics — share a single screenshot, a day, or a curated collection.
-- PDF / ZIP / NDJSON / CSV / ICS exports.
-- RSS / Atom feeds (optionally token-gated) for daily and weekly digests.
-- Webhooks with HMAC signing and retry queue.
-- SMTP delivery for daily emails, weekly stats, day-end summaries.
-
-**Encrypted vault**
-- AES-encrypted notes for credentials, journal entries, anything sensitive.
-- One master password unlocks the vault for the session.
-- **Encrypted nightly DB backups** — passphrase pulled from the vault, snapshots pruned by retention policy.
-
-**Retention & size budget**
-- Tiered storage: hot → warm (lower-res thumbs at 1d in v1.13) → cold (metadata only at 30d) → archive (180d+).
-- Pinned screenshots are never demoted.
-- Default target: **≤25 MB per day on disk** (v1.13). Budget enforcer raises throttle level (0→3) when projected EoD usage approaches the cap.
-- Live MB readout in the header; 14-day budget chart on Stats.
-- Soft-delete recycle bin with configurable retention.
-
-**Hierarchical memory (v1.14)**
-- Tier 0: raw screenshots + audio segments (FTS5-indexed).
-- Tier 1: **hourly cards** — heuristic markdown summary per completed hour with apps, top words, transcript excerpt. Worker writes one per hour, 30d retention. Searchable by /ask.
-- Tier 5: **daily pins** — 200-byte micro-summaries that survive every retention sweep. 73 KB/year, forever. Even after raw frames are gone you can still answer "what did I do roughly on 2026-03-14?".
-- View at `/memory` — last 24 hours + last 30 days side by side.
-
-**Voice & mic kill-switch (v1.14)**
-- Opus 6 kbps narrowband + WebRTC VAD by default (~4 KB of deps, no torch required).
-- Click 🎙 in the header to silently pause the audio worker — perfect for "I'm watching a film in headphones, stop recording the room". Resume with the same button. Effect within ~5 seconds, no daemon restart.
-- Optional Whisper transcription (opt-in, costs ~244 MB model cache).
-
-**LLM provider — bring your own**
-- Cloud keys: OpenRouter, Groq, DeepSeek, Anthropic, OpenAI, Google Gemini, plus
-  Russian-card aggregators (ProxyAPI, AITunnel). Several have usable free tiers.
-- Or point Persona at your own Ollama instance and run everything locally.
-- Required for members: without a key or an Ollama URL, chat shows a setup
-  banner instead of answering. Guide: `/help/connect-llm`.
-- Persona does not proxy your queries — they go from the server to the provider
-  you configured, on your account.
-
-**Remote-agent uploads (v1.12)**
-- Optional Mac daemon (`mac-agent/`) captures screen + speech and pushes to your Persona server over HTTPS.
-- Logs rotate at 5 MB × 5 files. macOS notifications on start, 401-auth-fail, and uncaught crash.
-- `persona-agent status` shows today's upload counts.
-
-**Dashboards**
-- Stats page: top apps, top windows, hour histogram, heatmap, streak, idle stats, OCR length, language mix.
-- Health dashboard: capture-loop heartbeat, OCR backlog, embedding backlog, disk usage, worker liveness.
-- Day kanban, day scrubber, day collage, visual diff between two days, multi-day diff.
-- Reading-time estimate, focus / quiet-hours tracker, calendar view.
-
-**PWA + browser extension**
-- Installable **Progressive Web App** — pin Persona to your taskbar, works offline against your local server.
-- **Browser extension** (Chromium-based, MV3) — one-click "import this tab" into Persona, popup search across your timeline.
-
-**API surface**
-- **~100+ HTTP endpoints** — HTML pages plus a `/api/*` JSON layer.
-- Optional bearer-token auth on `/api/*` (off by default for the local UI).
-- Personal API tokens, scoped feed tokens, audit log, audit RSS, audit replay.
-- Diagnostics bundle export for support / debugging.
-
----
-
-## Architecture
-
-| Layer | Tech |
+| Функция | Что поставить |
 |---|---|
-| Runtime | Python 3.12+, `uv` for dependency management |
-| Web | FastAPI + Uvicorn |
-| Templates | Jinja2 (server-rendered HTML) |
-| Frontend | Tailwind (CDN) + HTMX + Alpine.js — **no Node.js build step** |
-| Database | SQLite with FTS5 (built into stdlib `sqlite3`, no extension required) |
-| Capture | `mss` (screen), `pygetwindow` (active window), `imagehash` (dedup), `Pillow` (WebP) |
-| OCR | `pytesseract` wrapping the Tesseract binary (installed separately) |
-| Embeddings | `fastembed` running ONNX locally — optional extra |
-| Config | `pydantic-settings` v2 |
-| Logging | `structlog` |
-| Background work | asyncio workers — capture loop, OCR, embeddings, retention, digests, schedulers, inbox |
+| Чат, память, граф | ничего сверх базовой установки + ключ к модели |
+| Локальная модель | [Ollama](https://ollama.com/) + `ollama pull qwen2.5:3b` |
+| Векторный поиск | `pip install sqlite-vec` + embed-модель (`nomic-embed-text`) |
+| OCR по скриншотам | [Tesseract](https://github.com/tesseract-ocr/tesseract) и `PERSONA_TESSERACT_PATH` |
+| Голос | микрофон в браузере (нужен HTTPS или `localhost`) |
+
+Без них приложение работает — просто соответствующая функция тихо выключена.
+</details>
+
+## 🔐 Приватность — как оно устроено на самом деле
+
+Это не маркетинговый абзац, а описание модели доверия. Читай его до того, как заводить аккаунт.
+
+- **Всё лежит у тебя.** База — SQLite в `~/.persona/`, вне репозитория. Скриншоты,
+  аудио, память, вложения — там же. Никакой телеметрии в наш адрес нет.
+- **Модель — твоя.** Каждый не-владелец резолвит провайдера и ключ **только из своих**
+  настроек. Провайдер «ПК владельца» участнику запрещён на уровне кода.
+- **Владелец инстанса видит базу.** Если ты регистрируешься на чужом инстансе — у его
+  администратора есть доступ к файлу БД. Секреты, сообщения и память участников
+  шифруются в покое, но честно: физический доступ к машине сильнее любого шифрования.
+  Хочешь полной приватности — подними свой инстанс, это и есть смысл проекта.
+- **Границы ролей проверяются тестами.** Данные захвата, таймлайн, дашборды —
+  только владелец. Участник видит строго своё; на это есть отдельный набор тестов
+  (`tests/test_member_settings_isolation.py`, `tests/test_owner_exclusive_lockdown.py`).
+- **Секреты не попадают в git.** Pre-commit хук + тест гоняют один набор правил
+  (`ops/secret_scan.py`, `docs/SECRET_HYGIENE.md`). Вся история репозитория
+  просканирована перед публикацией — реальных ключей в ней нет.
+
+## 🏗 Стек и архитектура
+
+**FastAPI** · **SQLite** (WAL, 235 миграций) · **Jinja2** · **htmx** · **Alpine.js** ·
+**Tailwind** (собран заранее, не Play-CDN) · **structlog**
+
+Серверный рендеринг, никакого React и никакой сборки фронтенда. Интерактив — htmx
+плюс островки Alpine. Так один человек может держать 429 модулей роутов и 383 шаблона
+и не утонуть.
 
 ```
 app/
-├── capture/        # screen + window + idle + adaptive cadence
-├── dedup/          # perceptual hashing
-├── ocr/            # tesseract + redaction + language detection
-├── embeddings/     # local ONNX semantic search
-├── llm/            # BYO digests, Q&A, auto-tag, vision OCR
-├── search/         # FTS5 + hybrid ranking
-├── storage/        # SQLite schema, migrations, thumbnails, retention
-├── vault.py        # encrypted notes / backups
-├── workers/        # background loops (capture, OCR, retention, schedulers…)
-├── web/
-│   ├── main.py     # FastAPI app factory
-│   ├── routes/     # ~200 route modules
-│   ├── templates/  # Jinja2 templates
-│   ├── static/     # CSS, JS, PWA manifest, service worker
-│   └── middleware/
-└── settings/       # pydantic-settings config
+├── web/          роуты, шаблоны, статика, middleware
+├── chat/         сессии, память, промпты
+├── llm/          клиенты провайдеров, инструменты
+├── auth/         пользователи, сессии, роли, шифрование
+├── storage/      SQLite, миграции, репозитории
+├── capture/      скриншоты, дедуп, OCR, аудио
+└── telegram/     бот и разбор сообщений
 ```
 
----
+Подробнее — в [`docs/`](docs/): [архитектурный план](docs/ARCHITECTURE_MASTER_PLAN.md), [гигиена секретов](docs/SECRET_HYGIENE.md),
+[шифрование данных участников](docs/MEMBER_ENCRYPTION.md), [всегда-включённый режим на Windows](docs/ALWAYS_ON_WINDOWS.md).
 
-## Configuration
+**Цифры на момент публикации:** ~75 000 строк Python, 429 модулей роутов,
+383 шаблона, 235 миграций, 182 файла тестов, 583 коммита.
 
-All configuration is via environment variables (or `.env` in the project root). Every variable is prefixed with `PERSONA_`. Highlights:
+## 🤝 Как помочь
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `PERSONA_DATA_DIR` | `./data` | Root for the DB, thumbnails, inbox, backups |
-| `PERSONA_DB_PATH` | `./data/persona.db` | SQLite database file |
-| `PERSONA_THUMBNAILS_DIR` | `./data/thumbnails` | WebP thumbnail tree |
-| `PERSONA_HOST` | `127.0.0.1` | Bind host — keep on loopback unless you know what you're doing |
-| `PERSONA_PORT` | `8765` | HTTP port |
-| `PERSONA_CAPTURE_INTERVAL_SECONDS` | `5` | Base capture cadence |
-| `PERSONA_ADAPTIVE_CADENCE_ENABLED` | `true` | Speed up on activity, slow down on idle |
-| `PERSONA_BATTERY_AWARE_ENABLED` | `true` | Throttle on battery / pause on critical |
-| `PERSONA_IDLE_THRESHOLD_SECONDS` | `300` | Pause after N seconds with no input |
-| `PERSONA_DEDUP_HAMMING_THRESHOLD` | `4` | Perceptual-hash distance for dedup |
-| `PERSONA_SMART_THUMBNAIL` | `true` | Drop image when same-app frame repeats |
-| `PERSONA_DAILY_SIZE_BUDGET_MB` | `4` | Header readout target |
-| `PERSONA_TIER_WARM_AFTER_DAYS` | `7` | Demote thumbs to lower-res |
-| `PERSONA_TIER_COLD_AFTER_DAYS` | `30` | Drop image, keep metadata + OCR |
-| `PERSONA_RETENTION_DAYS` | `180` | Hard delete after N days |
-| `PERSONA_RECYCLE_RETENTION_DAYS` | `7` | Recycle-bin grace period |
-| `PERSONA_OCR_ENABLED` | `false` | Master OCR switch |
-| `PERSONA_TESSERACT_PATH` | *(empty)* | Path to `tesseract` binary |
-| `PERSONA_TESSERACT_LANGS` | `eng+rus` | Tesseract language packs |
-| `PERSONA_IMAGE_BLUR_ENABLED` | `false` | Blur thumbnails on disk |
-| `PERSONA_EMBEDDINGS_ENABLED` | `false` | Local semantic search |
-| `PERSONA_EMBEDDINGS_MODEL` | `intfloat/multilingual-e5-small` | ONNX model |
-| `PERSONA_BYO_API_PROVIDER` | *(empty)* | `anthropic`, `openai`, `groq`, … |
-| `PERSONA_BYO_API_KEY` | *(empty)* | Your own key — stored locally, sent only to that provider. Owner-level default; members store theirs in `user_settings`, not here |
-| `PERSONA_LLM_VISION_ENABLED` | `false` | Use BYO vision LLM as OCR fallback |
-| `PERSONA_AUTO_DIGEST_ENABLED` | `false` | Daily TL;DR scheduler |
-| `PERSONA_WEEKLY_DIGEST_ENABLED` | `false` | Weekly digest scheduler |
-| `PERSONA_MONTHLY_DIGEST_ENABLED` | `false` | Monthly retrospective scheduler |
-| `PERSONA_DAY_END_SUMMARY_ENABLED` | `false` | Pre-midnight TL;DR primer |
-| `PERSONA_ANTI_FOMO_DIGEST` | `false` | Qualitative-only digests, no counts |
-| `PERSONA_CLIPBOARD_HISTORY_ENABLED` | `false` | Capture clipboard text snippets |
-| `PERSONA_INBOX_ENABLED` | `true` | Watch `data/inbox` for `*.md` notes |
-| `PERSONA_API_AUTH_REQUIRED` | `false` | Require bearer token on `/api/*` |
-| `PERSONA_FEED_AUTH_REQUIRED` | `false` | Require token on `/feeds/*` |
-| `PERSONA_AUTO_BACKUP_ENABLED` | `false` | Nightly encrypted DB snapshot |
-| `PERSONA_AUTO_BACKUP_PATH` | `./data/backups` | Snapshot directory |
-| `PERSONA_AUTO_BACKUP_KEEP_DAYS` | `14` | Snapshot retention |
-| `PERSONA_CAPTURE_RATE_WARN_PER_HOUR` | `60` | Log warning at this rate |
-| `PERSONA_CAPTURE_RATE_PAUSE_PER_HOUR` | `200` | Auto-pause at this rate (`0` disables) |
-| `PERSONA_THEME` | `dark` | UI theme |
-| `PERSONA_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
+Issues и pull request'ы приветствуются. Перед PR:
 
-See `.env.example` for the full list and `app/settings/config.py` for the authoritative schema.
-
----
-
-## Data folder layout
-
-```
-data/
-├── persona.db              # the entire database — your timeline lives here
-├── persona.db-wal          # SQLite write-ahead log
-├── persona.db-shm          # SQLite shared-memory file
-├── thumbnails/             # WebP thumbnails, sharded by yyyy/mm/dd
-│   └── 2026/06/03/<id>.webp
-├── inbox/                  # drop *.md files here, the inbox worker imports them
-│   ├── processed/          #   → success goes here
-│   └── failed/             #   → failures here with a sibling .error.txt
-└── backups/                # nightly encrypted snapshots (when enabled)
-    └── persona-YYYYMMDD-HHMMSS.db.enc
+```bash
+sh ops/install_hooks.sh                    # один раз на клон — хук против секретов
+.venv/Scripts/python.exe -m pytest tests/  # полный прогон идёт долго, это норма
 ```
 
-Move the entire `data/` folder to another disk and point `PERSONA_DATA_DIR` at it — that is the whole migration story.
+Если добавляешь Tailwind-класс — **пересобери CSS** (`ops/tailwind/README.md`),
+иначе он молча не применится. Тест `test_tailwind_build_is_current.py` это ловит.
+
+## 👤 Автор
+
+**Ярослав Боев** — в сети **SwairIt**. Мне 15, учусь в школе в Подмосковье.
+
+До Persona сделал [**Doday**](https://getdoday.ru) — бесплатный таск-менеджер с
+веб-версией, Telegram Mini App и ботом.
+
+Пишу в паре с [Claude Code](https://claude.com/claude-code) и не делаю из этого секрета.
+Решения, архитектура и разбор граблей — мои; ИИ здесь клавиатура, а не голова.
+
+- 🌐 Сайт проекта: [persona.getdoday.ru](https://persona.getdoday.ru)
+- 💬 Telegram: [@SwairIt](https://t.me/SwairIt)
+- 📦 Другой проект: [getdoday.ru](https://getdoday.ru)
+
+## 📄 Лицензия
+
+[AGPL-3.0](LICENSE). Коротко: делай что хочешь, но если поднимаешь Persona как сервис
+для других — открывай свои изменения. Код остаётся общим.
 
 ---
 
-## Privacy and trust model
+# 🇬🇧 Persona — a personal AI that remembers
 
-**Read this before assuming Persona is "100% local" — it is not, in two
-specific ways.**
+Most assistants forget you the moment you close the tab. Persona doesn't.
 
-1. **Your chat text goes to whatever LLM provider you configured.** Unless you
-   point Persona at your own Ollama, every message you send — and the memory
-   context Persona attaches to it — is transmitted to that cloud provider
-   (OpenRouter, Groq, DeepSeek, Anthropic, OpenAI, Gemini, an aggregator, …) on
-   your account. Persona does not proxy or store a copy on any Persona server,
-   but the provider sees the text. That is what bring-your-own-key means.
-2. **The hosted instance runs analytics with session recording.**
-   <https://persona.getdoday.ru> loads Yandex.Metrika (counter `111901324`) on
-   the public pages **and on the logged-in application shell**, with **webvisor
-   session recording enabled**. That means your in-app clicks, navigation and
-   page interactions on the hosted instance are recorded and sent to Yandex.
-   If you do not want this, self-host: the counter is a single include
-   (`_metrika.html`) you can remove.
+It is a **self-hosted personal AI assistant** that remembers your conversations, builds
+a graph of what connects them, and runs **on your own model** — a cloud API key or a
+local Ollama. Your data lives in a SQLite file you own, not in someone else's cloud.
 
-**What stays in your own `data/` folder on a self-hosted instance:**
-- Every screenshot, OCR string and embedding vector.
-- Every note, tag, digest, share-link target.
-- The encrypted vault and every backup.
+> 🎯 **In short:** a privacy-first AI assistant that actually knows your context.
+> No subscription, no mandatory cloud, open source.
 
-**What leaves the machine, only when you configure it:**
-- LLM prompts — see point 1 above.
-- Webhook payloads — only to URLs you configure.
-- Share-link page views — only when you create a share link and give it to someone.
-- SMTP emails — only when you configure outbound SMTP credentials.
+**Try it without installing:** [persona.getdoday.ru](https://persona.getdoday.ru) —
+registration is free and open; you bring your own model key.
 
-**Between users on one instance:** the owner's LLM (the `worker` provider and
-the owner's Ollama) is refused to members with `LLMProviderForbidden`; member
-text never reaches the owner's hardware, and vector indexing is owner-only for
-the same reason. Capture data is global and owner-only — members cannot reach
-the timeline, search, notes or dashboards at all. Do not treat this as a
-hardened multi-tenant boundary: it is an allowlist plus per-user settings on a
-codebase that started single-user, and it is still being audited.
+## ✨ Features
 
-**Defaults that protect you:**
-- Server binds to `127.0.0.1`. Not on your LAN.
-- Capture auto-pauses on screen lock and after `idle_threshold_seconds` of no input.
-- Quiet hours skip capture entirely.
-- Redaction rules scrub secrets from OCR before they hit the database.
-- Anti-FOMO digest mode is available if metrics make you anxious.
-- One-click **pause capture**, one-click **wipe today**, one-click **diagnostics bundle** for support without leaking your data.
+| | |
+|---|---|
+| 💬 **Chat with memory** | Before answering, the assistant pulls what's relevant from every past conversation — SQLite FTS5 with bm25 ranking, optionally a hybrid vector search. Personal facts about you are mixed in as a separate block. |
+| 🕸 **Memory graph** | Prompts, answers, entities and the links between them, in a live force-directed layout. |
+| 🎥 **Screen capture** | Screenshots with perceptual-hash dedup, OCR, active-window detection, audio. With quotas, quiet hours and an application blocklist. |
+| 🗞 **Digests & briefing** | Hourly cards, daily pins, weekly summaries, proactive "here's what mattered" cards. |
+| 🎙 **Voice** | Hands-free conversation: mic orb, VAD, text-to-speech. |
+| 🧩 **Skills & automation** | Instruction packs pulled from GitHub (`SKILL.md`), a browser agent, an MCP runtime with built-in tools. |
+| 🔒 **Vault** | Encrypted notes. Member secrets are encrypted at rest. |
+| 👥 **Multi-user** | Open registration, everyone brings their own key. Capture data stays with the instance owner; a member only ever sees their own. |
+| 🎨 **Five themes** | `dark`, `light`, `persona`, `cosmos` and `cosmos-dark` — the last two with a live 3D scene behind the app. |
+| 📊 **And more** | Blog engine, analytics, audit log, backups, Telegram bot, Yandex Alice integration, `.ics` reminder export. |
 
-**What we cannot protect you from:**
-- A user who pastes their own LLM API key and then complains the LLM provider saw their data. It does — that is what BYO means.
-- A user who opens `PERSONA_HOST` to `0.0.0.0` on an untrusted network without setting `PERSONA_API_AUTH_REQUIRED=true`.
-- Anyone with physical or remote access to your unlocked machine — Persona is a memory, not a fortress. Use the vault for genuinely sensitive material and enable encrypted backups.
+## 🚀 Quick start
 
-If you find a security issue, please open a private security advisory on the GitHub repository.
+```bash
+git clone https://github.com/SwairIt/persona.git
+cd persona
+
+python -m venv .venv
+source .venv/bin/activate       # macOS / Linux
+# .venv\Scripts\activate        # Windows
+
+pip install -e .
+cp .env.example .env            # optional — everything is configurable from the UI
+
+python -m uvicorn app.web.main:create_app --factory --host 127.0.0.1 --port 8000
+```
+
+Open <http://127.0.0.1:8000> and sign up — **the first account to register becomes the
+instance owner.** Then connect a model in `/settings/llm`: a cloud provider key or a
+local Ollama endpoint.
+
+Docker: `docker compose up -d`. Screen capture is not available inside a container —
+it needs the agent installed on the machine itself.
+
+## 🔐 Privacy — the actual trust model
+
+Not a marketing paragraph. Read it before creating an account anywhere.
+
+- **Everything stays with you.** The database is SQLite under `~/.persona/`, outside the
+  repository. Screenshots, audio, memory and attachments live there too. No telemetry
+  is sent to us.
+- **The model is yours.** Every non-owner user resolves their provider and key **only
+  from their own** settings. The "owner's machine" provider is forbidden to members at
+  the code level.
+- **The instance owner can read the database.** If you register on someone else's
+  instance, their admin has access to the DB file. Member secrets, messages and memory
+  are encrypted at rest, but let's be honest: physical access beats any encryption.
+  If you want real privacy, run your own instance — that's the whole point.
+- **Role boundaries are enforced by tests.** Capture data, timeline and dashboards are
+  owner-only; a member sees strictly their own. There is a dedicated test suite for it.
+- **Secrets never reach git.** A pre-commit hook and a pytest run share one rule set
+  (`ops/secret_scan.py`). The full repository history was scanned before going public —
+  no real credentials in it.
+
+## 🏗 Stack
+
+**FastAPI** · **SQLite** (WAL, 235 migrations) · **Jinja2** · **htmx** · **Alpine.js** ·
+**Tailwind** (precompiled, not the Play CDN) · **structlog**
+
+Server-side rendering, no React, no frontend build step. Interactivity is htmx plus small
+islands of Alpine. That's how one person keeps 429 route modules and 383 templates afloat.
+
+**By the numbers:** ~75,000 lines of Python, 429 route modules, 383 templates,
+235 migrations, 182 test files, 583 commits.
+
+## 👤 Author
+
+**Yaroslav Boev** — **SwairIt** online. I'm 15, still in school, near Moscow.
+
+Before Persona I built [**Doday**](https://getdoday.ru), a free task manager with a web
+app, a Telegram Mini App and a bot.
+
+I write with [Claude Code](https://claude.com/claude-code) and don't hide it. The
+decisions, the architecture and the debugging are mine; the AI is a keyboard, not a head.
+
+- 🌐 Project: [persona.getdoday.ru](https://persona.getdoday.ru)
+- 💬 Telegram: [@SwairIt](https://t.me/SwairIt)
+
+## 📄 License
+
+[AGPL-3.0](LICENSE). Short version: do what you like, but if you run Persona as a service
+for other people, publish your changes. The code stays common property.
 
 ---
 
-## Roadmap
+<div align="center">
 
-Persona is at **v2.31** — the personal-AI and multi-user layers ship; the
-capture layer is still single-tenant and owner-only.
+<sub>
 
-Planned:
+**Keywords / ключевые слова:** personal AI assistant · self-hosted AI · AI with long-term memory ·
+local-first AI · privacy-first assistant · bring your own model · Ollama · open source ChatGPT
+alternative · personal knowledge base · memory graph · FastAPI · SQLite · htmx ·
+личный ИИ-ассистент · ИИ с памятью · приватный ИИ · локальный ИИ · свой ИИ на сервере ·
+ассистент с памятью · self-hosted ассистент · альтернатива ChatGPT
 
-- **Multi-tenant capture.** Today capture, timeline, search, notes and
-  dashboards are global and owner-only. Making them per-user is the next big
-  phase, and it is not done.
-- **macOS and Linux capture parity.** Windows is the daily-driver platform; the
-  capture path is mostly cross-platform via `mss` but needs hardening,
-  packaging and CI on the other two.
+</sub>
 
-Never shipped — listed here as *not available*, not as a promise:
+Сделано [Ярославом Боевым](https://t.me/SwairIt) · Made by [Yaroslav Boev](https://t.me/SwairIt)
 
-- **One-click signed installers.** Not built. Installing still means `uv` (or
-  Docker).
-- **Multi-device sync** via your own S3 / B2 / WebDAV. Not built. The migration
-  story is still "copy the `data/` folder".
-- **Mobile native apps with background screen capture.** Not built and not
-  planned — Apple and Google both block it; the PWA + browser-extension path is
-  as far as this goes.
-
-Not planned:
-- Built-in gamification, social features, "productivity scores" or engagement
-  metrics. This is a memory, not a slot machine.
-
-On money: everything is free today and you bring your own LLM key. A Pro tier
-exists in the codebase but is **not being sold** — the checkout, webhook,
-recurring-billing and licence-client slices were never implemented, and the Pro
-card is commented out on `/pricing`. If that ever changes, it will change here
-first. See [`docs/BILLING_PLAN.md`](docs/BILLING_PLAN.md).
-
----
-
-## License
-
-**There is no `LICENSE` file in this repository.** `pyproject.toml` declares
-`license = { text = "AGPL-3.0-or-later" }`, but no licence text is checked in,
-so the AGPL terms are asserted in metadata only and the repository is not
-usable as open source in its current state. Treat the code as
-all-rights-reserved until an actual `LICENSE` file lands.
+</div>
