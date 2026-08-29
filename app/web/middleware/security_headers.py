@@ -33,8 +33,9 @@ static bundles actually load, not from a template. Every source is justified:
 
 ``script-src 'self' 'unsafe-inline' 'unsafe-eval' <yandex>``
     * ``'self'`` — all vendor bundles are **self-hosted** under
-      ``/static/vendor/`` (tailwind-play, three, htmx, alpine, markdown-it,
-      highlight, gsap, marked, sortable). No script CDN is used anywhere.
+      ``/static/vendor/`` (three, htmx, alpine, markdown-it, highlight, gsap,
+      marked, sortable). No script CDN is used anywhere. Tailwind is no longer
+      among them: it ships precompiled as ``vendor/tailwind-built.css``.
     * ``'unsafe-inline'`` — ~128 executable inline ``<script>`` blocks plus
       ~100 inline ``on*=`` handlers across 79 templates. A nonce cannot cover
       ``onclick=`` attributes, and adding a nonce would *disable* the
@@ -55,11 +56,11 @@ static bundles actually load, not from a template. Every source is justified:
       highlight.js *grammar name*).
 
 ``style-src 'self' 'unsafe-inline'``
-    448 inline ``style="…"`` attributes across 94 templates, 39 ``<style>``
-    blocks, **and** ``vendor/tailwind-play.js`` — the Tailwind Play JIT, which
-    injects a generated ``<style>`` element at runtime on every page. Alpine's
-    ``x-transition``/``x-show`` also writes ``element.style`` directly.
-    ``'unsafe-inline'`` is unavoidable until Tailwind is precompiled. No
+    448 inline ``style="…"`` attributes across 94 templates and 39 ``<style>``
+    blocks. Alpine's ``x-transition``/``x-show`` also writes ``element.style``
+    directly. Precompiling Tailwind removed one of the three reasons — the Play
+    JIT used to inject a generated ``<style>`` element at runtime on every page
+    — but the inline attributes remain, so ``'unsafe-inline'`` still stands. No
     off-origin style host is listed: the landing/blog font CSS used to come
     from Google Fonts and is now served from ``/static/fonts/fonts.css``.
 

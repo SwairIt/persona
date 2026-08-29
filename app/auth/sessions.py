@@ -182,14 +182,26 @@ async def verify_session(token: str | None) -> SessionRecord | None:
             log.info("auth.session.idle_expired", user_id=int(row["user_id"]))
             return None
         # Fire-and-forget last_seen bump; failure must not break auth.
-        try:
-            await conn.execute(
-                "UPDATE auth_session SET last_seen_at = ? WHERE token = ?",
-                (now, token),
-            )
-            await conn.commit()
-        except Exception as exc:
-            log.debug("auth.session.last_seen_update_failed", error=str(exc))
+        #
+        # Пишем НЕ ЧАЩЕ раза в ``_LAST_SEEN_RESOLUTION``. Раньше запись шла на
+        # каждый авторизованный запрос, а их на одну страницу кабинета — десятки
+        # (htmx-подгрузки, ``/api/*``, SSE). На Windows/WAL коммит стоит десятки
+        # миллисекунд и блокирует запись для всех остальных запросов, то есть
+        # страница платила секунды за переписывание одного и того же таймстампа.
+        #
+        # Что теряем: «последняя активность» в списке сессий отстаёт максимум на
+        # минуту. Idle-выселение не страдает — окно по умолчанию 14 дней
+        # (``PERSONA_SESSION_IDLE_DAYS``), и минутная погрешность внутри него
+        # незаметна.
+        if _last_seen_is_stale(row["last_seen_at"], now_dt):
+            try:
+                await conn.execute(
+                    "UPDATE auth_session SET last_seen_at = ? WHERE token = ?",
+                    (now, token),
+                )
+                await conn.commit()
+            except Exception as exc:
+                log.debug("auth.session.last_seen_update_failed", error=str(exc))
     return {
         "token": str(row["token"]),
         "user_id": int(row["user_id"]),
@@ -199,6 +211,29 @@ async def verify_session(token: str | None) -> SessionRecord | None:
             str(row["display_name"]) if row["display_name"] is not None else None
         ),
     }
+
+
+#: Насколько точной держим отметку «последняя активность». Всё, что чаще, —
+#: лишний коммит в SQLite на горячем пути каждого запроса.
+_LAST_SEEN_RESOLUTION = timedelta(seconds=60)
+
+
+def _last_seen_is_stale(value: object, now: datetime) -> bool:
+    """True, когда отметку пора обновить.
+
+    NULL и неразбираемая дата считаются устаревшими: лучше один лишний
+    коммит, чем строка, которая никогда не обновится и однажды выселит
+    живую сессию как простаивающую.
+    """
+    if not value:
+        return True
+    try:
+        seen = datetime.fromisoformat(str(value))
+    except ValueError:
+        return True
+    if seen.tzinfo is None:
+        seen = seen.replace(tzinfo=timezone.utc)
+    return (now - seen) >= _LAST_SEEN_RESOLUTION
 
 
 def _is_idle(row: object, now: datetime, idle: timedelta) -> bool:

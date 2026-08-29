@@ -46,7 +46,7 @@
 {% endblock %}
 
 {% block content %}
-<div x-data="systemMonitor({{ snapshot|tojson }}, {{ history|tojson }}, {{ llm|tojson }})" x-init="start()">
+<div x-data="systemMonitor({{ snapshot|tojson | forceescape }}, {{ history|tojson | forceescape }}, {{ llm|tojson | forceescape }})" x-init="start()">
 
   <div class="flex items-start justify-between mb-6 gap-4 flex-wrap">
     <div>

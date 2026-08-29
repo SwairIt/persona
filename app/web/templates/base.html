@@ -82,8 +82,9 @@
   <script src="/static/track.js?v={{ app_version }}" defer></script>
   {# Self-hosted вместо иностранных CDN: на РФ-сетях cdn.tailwindcss.com/unpkg
      часто троттлятся/недоступны → «сайт плохо грузит». Файлы идентичны, отдаём
-     со своего origin + долгий Cache-Control. Порядок сохранён (tailwind до config). #}
-  <script src="/static/vendor/tailwind-play.js?v={{ app_version }}"></script>
+     со своего origin + долгий Cache-Control. Tailwind тут больше нет: он
+     собран заранее в vendor/tailwind-built.css (ссылка ниже, с остальными
+     стилями), а не компилируется в браузере. #}
   <script src="/static/vendor/htmx-2.0.4.min.js?v={{ app_version }}" defer></script>
   <script defer src="/static/copilot.js?v={{ app_version }}"></script>
   <script defer src="/static/vendor/alpine-3.14.7.min.js?v={{ app_version }}"></script>
@@ -103,6 +104,14 @@
   <link rel="stylesheet" href="/static/cal_nav.css?v={{ app_version }}">
   <link rel="stylesheet" href="/static/bulk_select.css?v={{ app_version }}">
   <link rel="stylesheet" href="/static/copilot.css?v={{ app_version }}">
+  {# Tailwind собран заранее (tailwind.config.js + ops/tailwind/input.css),
+     а не компилируется в браузере. Play-CDN тянул 407 КБ JS БЕЗ defer, то есть
+     блокировал разбор документа, и заново генерировал CSS на каждой загрузке:
+     замер — FCP 1320→884 мс, DOMContentLoaded 2092→1496 мс, когда файл вырезан.
+     Ссылка стоит ПОСЛЕДНЕЙ среди стилей намеренно: Play-CDN дописывал свой
+     <style> в конец <head>, после всех <link>, поэтому утилиты перебивали
+     app.css и темы. Поставить её выше — тихо перевернуть каскад. #}
+  <link rel="stylesheet" href="/static/vendor/tailwind-built.css?v={{ app_version }}">
   <style>[x-cloak] { display: none !important; }</style>
   <script src="/static/command_palette.js" defer></script>
   <script src="/static/keyboard_shortcuts.js" defer></script>
@@ -183,23 +192,6 @@
        ничего не грузит (см. boot() в consent.js). #}
     <script defer src="/static/consent.js?v={{ app_version | default('') }}"></script>
   {% endif %}
-  <script>
-    tailwind.config = {
-      darkMode: 'class',
-      theme: {
-        extend: {
-          colors: {
-            ink: { 950: '#0a0a0c', 900: '#111114', 800: '#1a1a1f', 700: '#26262e' },
-            accent: { 400: '#a78bfa', 500: '#8b5cf6', 600: '#7c3aed' }
-          },
-          fontFamily: {
-            sans: ['system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'],
-            mono: ['JetBrains Mono', 'Cascadia Code', 'Consolas', 'monospace']
-          }
-        }
-      }
-    }
-  </script>
 </head>
 <body data-compact="{{ _persona_compact }}" data-grayscale="{{ _persona_grayscale }}" data-reduce-motion="{{ _persona_reduce_motion }}" class="bg-zinc-50 text-zinc-900 dark:bg-ink-950 dark:text-zinc-100 min-h-screen font-sans antialiased transition-colors">
   {% if _persona_theme in ['cosmos', 'cosmos-dark'] %}

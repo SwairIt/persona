@@ -178,6 +178,16 @@ def _is_public_path(path: str) -> bool:
     return any(path.startswith(prefix) for prefix in _PUBLIC_PREFIXES)
 
 
+#: Пути, которые отдаёт файловый мидлварь, а не шаблон: личность им не нужна,
+#: поэтому гейт пропускает их до всякого обращения к БД. Держать список
+#: узким — сюда попадает только то, что заведомо не рендерит ``base.html``.
+_ASSET_PREFIXES: tuple[str, ...] = ("/static/",)
+
+
+def _is_asset_path(path: str) -> bool:
+    return any(path.startswith(prefix) for prefix in _ASSET_PREFIXES)
+
+
 # Бесплатная поверхность УЧАСТНИКА (любой зарегистрированный не-владелец).
 # Подписка БОЛЬШЕ НЕ СПРАШИВАЕТСЯ — биллинг спит, регистрация свободная.
 # Сюда входит только то, что изолировано по user_id (чат/память/голос/навыки/
@@ -422,6 +432,21 @@ class AuthGateMiddleware(BaseHTTPMiddleware):
         self, request: Request, call_next: Callable[[Request], Response]
     ) -> Response:
         path = request.url.path
+
+        # Статика уходит раньше всех проверок — и раньше резолва личности.
+        # Причина чисто скоростная: ``_with_identity`` зовёт ``verify_session``,
+        # а тот делает SELECT + UPDATE + COMMIT в SQLite. Страница кабинета
+        # тянет ~40 файлов из ``/static``, и на Windows/WAL каждый такой коммит
+        # стоил ~40 мс — ~1.6 с на загрузку страницы, потраченные на то, чтобы
+        # 40 раз переписать один и тот же ``last_seen_at``. Замер: тот же
+        # ``GET /static/csrf.js`` — 55 мс с кукой против 14 мс без неё.
+        #
+        # Права тут не меняются: ``/static/`` и так в ``_PUBLIC_PREFIXES``,
+        # решение доступа для него всегда было «пропустить». Личность файлам
+        # не нужна — их отдаёт ``StaticFiles``, а не шаблон, поэтому
+        # ``request.state`` никто не читает.
+        if _is_asset_path(path):
+            return await call_next(request)
 
         # Exact root "/" is public (landing for logged-out, redirect for
         # logged-in) — can't be a prefix in the allow-list since "/" prefixes

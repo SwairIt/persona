@@ -2,7 +2,13 @@
 
 {% block content %}
 <div class="max-w-5xl mx-auto"
-     x-data="settingsHub({{ categories_json | tojson }})">
+     {# ``forceescape`` обязателен: ``tojson`` экранирует < > & ', но НЕ двойную
+        кавычку, а она в JSON стоит на каждом ключе. Без него первая же кавычка
+        закрывала этот атрибут, Alpine получал обрывок ``settingsHub([{`` и
+        оставался с пустым ``cats`` — страница настроек выглядела ПУСТОЙ:
+        заголовок и поиск есть, а всех категорий и ссылок нет. Тот же приём
+        уже стоит в per_app_digest.html. #}
+     x-data="settingsHub({{ categories_json | tojson | forceescape }})">
   <div class="mb-5">
     <h1 class="text-2xl font-bold tracking-tight">Настройки</h1>
     <p class="text-zinc-500 text-sm mt-1">

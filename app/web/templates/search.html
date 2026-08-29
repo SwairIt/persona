@@ -96,8 +96,8 @@
           <template x-for="a in facets.apps" :key="a.name">
             <option :value="a.name"
                     x-text="`${a.name} (${a.count})`"
-                    :selected="a.name === {{ (app_name or '') | tojson }}"
-                    x-show="a.name !== {{ (app_name or '') | tojson }}"></option>
+                    :selected="a.name === {{ (app_name or '') | tojson | forceescape }}"
+                    x-show="a.name !== {{ (app_name or '') | tojson | forceescape }}"></option>
           </template>
         </select>
       </label>

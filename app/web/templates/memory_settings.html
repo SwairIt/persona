@@ -65,8 +65,8 @@
       <div class="mt-4 pt-3 border-t border-ink-800"
            x-data="{
              busy: {{ 'true' if train.train_in_progress == '1' else 'false' }},
-             result: {{ (train.train_last_result or '') | tojson }},
-             finished: {{ (train.train_last_finished or '') | tojson }},
+             result: {{ (train.train_last_result or '') | tojson | forceescape }},
+             finished: {{ (train.train_last_finished or '') | tojson | forceescape }},
              poll() {
                fetch('/settings/memory/train/status', { headers: { 'Accept': 'application/json' } })
                  .then(r => r.json())

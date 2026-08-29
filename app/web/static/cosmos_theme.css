@@ -73,7 +73,18 @@
 .theme-cosmos .bg-ink-900{ background-color: rgba(12,12,26,.96) !important; }
 .theme-cosmos .bg-ink-800{ background-color: rgba(20,20,42,.96) !important; }
 .theme-cosmos .bg-white{ background-color: rgba(15,15,32,.96) !important; }
-.theme-cosmos .bg-zinc-50{ background-color: transparent !important; }
+/* ``:not(body)`` — не косметика, а починка. У <body> в шаблоне стоит класс
+   ``bg-zinc-50``, и это правило (специфичность 0-2-0) перебивало по
+   background-color блок ``.theme-cosmos body`` выше (0-1-1). Градиенты из него
+   оставались, а базовый #030309 — нет, то есть у кабинета не было НИКАКОГО
+   непрозрачного фона: ни у html, ни у body. Пока WebGL-сцена рисует, этого не
+   видно — она закрывает весь вьюпорт. Но если сцена не отрисовалась (нет
+   аппаратного ускорения, GPU в блоклисте, софтверный рендер, ошибка three.js),
+   сквозь прозрачный body проступал белый холст браузера, а текст в этой теме
+   светлый — страница становилась белым по белому. Проверено: канвас
+   #cosmos-scene отдавал 0 непрозрачных пикселей, и шапка «Сейчас» была
+   нечитаема. Панелям прозрачность по-прежнему нужна — их правило не трогаем. */
+.theme-cosmos .bg-zinc-50:not(body){ background-color: transparent !important; }
 .theme-cosmos .bg-ink-800\/60,
 .theme-cosmos .bg-ink-800\/50,
 .theme-cosmos .bg-zinc-800\/60,

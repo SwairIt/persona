@@ -163,7 +163,7 @@
             <button type="button"
                     @click="toggle()"
                     class="px-3 py-1 text-xs bg-ink-700 hover:bg-ink-600 rounded text-zinc-200">
-              <span x-text="open ? {{ t('btn_hide_history') | tojson }} : {{ t('btn_history') | tojson }}"></span>
+              <span x-text="open ? {{ t('btn_hide_history') | tojson | forceescape }} : {{ t('btn_history') | tojson | forceescape }}"></span>
             </button>
             <button type="button"
                     data-copy-ocr
@@ -203,7 +203,7 @@
                     data-shot-id="{{ shot.id }}"
                     data-app-name="{{ (shot.app_name | app_alias) if shot.app_name else '' }}"
                     data-captured-at="{{ shot.captured_at | localtime('full') }}"
-                    data-tags="{{ (attached_tags | map(attribute='name') | list) | tojson }}"
+                    data-tags="{{ (attached_tags | map(attribute='name') | list) | tojson | forceescape }}"
                     class="px-3 py-1 text-xs bg-ink-700 hover:bg-ink-600 rounded text-zinc-200">
               {{ t('btn_copy_json') }}
             </button>

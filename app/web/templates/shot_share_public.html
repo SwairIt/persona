@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="robots" content="noindex, nofollow">
   <title>{{ title }}</title>
-  <script src="/static/vendor/tailwind-play.js"></script>
   <style>
     body {
       background: #0a0a0c;
@@ -13,6 +12,10 @@
       font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     }
   </style>
+  {# Собранный Tailwind вместо Play-CDN (см. tailwind.config.js). Ссылка идёт
+     ПОСЛЕ инлайнового <style> выше — ровно туда, куда Play-CDN дописывал свой
+     сгенерированный <style>: в конец <head>. #}
+  <link rel="stylesheet" href="/static/vendor/tailwind-built.css?v={{ app_version }}">
 </head>
 <body class="min-h-screen flex flex-col">
   <main class="flex-1 max-w-4xl w-full mx-auto px-4 py-8">

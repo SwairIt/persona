@@ -8,22 +8,16 @@
      С сессией и оба терминальных действия делают POST /api/tour/*. Без csrf.js
      эти fetch уйдут без X-CSRF-Token и в режиме enforce вернут JSON-403. #}
   <script src="/static/csrf.js?v={{ app_version }}"></script>
-  <script src="/static/vendor/tailwind-play.js"></script>
   <script defer src="/static/vendor/alpine-3.14.7.min.js"></script>
   <style>[x-cloak] { display: none !important; }</style>
-  <script>
-    tailwind.config = {
-      darkMode: 'class',
-      theme: {
-        extend: {
-          colors: {
-            ink: { 950: '#0a0a0c', 900: '#111114', 800: '#1a1a1f', 700: '#26262e' },
-            accent: { 400: '#a78bfa', 500: '#8b5cf6', 600: '#7c3aed' }
-          }
-        }
-      }
-    }
-  </script>
+  {# Tailwind собран заранее (tailwind.config.js + ops/tailwind/input.css),
+     а не компилируется в браузере. Play-CDN тянул 407 КБ JS БЕЗ defer, то есть
+     блокировал разбор документа, и заново генерировал CSS на каждой загрузке:
+     замер — FCP 1320→884 мс, DOMContentLoaded 2092→1496 мс, когда файл вырезан.
+     Ссылка стоит ПОСЛЕДНЕЙ среди стилей намеренно: Play-CDN дописывал свой
+     <style> в конец <head>, после всех <link>, поэтому утилиты перебивали
+     app.css и темы. Поставить её выше — тихо перевернуть каскад. #}
+  <link rel="stylesheet" href="/static/vendor/tailwind-built.css?v={{ app_version }}">
 </head>
 <body class="bg-ink-950 text-zinc-100 min-h-screen antialiased font-sans">
   {#
